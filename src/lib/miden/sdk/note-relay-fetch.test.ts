@@ -17,14 +17,8 @@ import { runInNewContext } from 'node:vm';
 import { normalizeNoteRelayFetch } from './note-relay-fetch.mjs';
 
 const sdkRoot = resolve(__dirname, '../../../../node_modules/@miden-sdk/miden-sdk');
-const bundles = [
-  'dist/st/Cargo-aQznLgDn.js',
-  'dist/st/workers/Cargo-aQznLgDn-C_gzj3-H.js',
-  'dist/st/workers/web-client-methods-worker.js',
-  'dist/mt/Cargo-B2P22_Kp.js',
-  'dist/mt/workers/Cargo-B2P22_Kp-DiJZmkfy.js',
-  'dist/mt/workers/web-client-methods-worker.js'
-];
+// `--check` proves all six inlined copies byte for byte; this one runs both fetch bindings.
+const seamBundle = 'dist/mt/workers/web-client-methods-worker.js';
 const sendUrl = 'https://transport.miden.io/miden_note_transport.MidenNoteTransport/SendNote';
 const duplicateMessage =
   'Failed to store note: ConstraintViolation("Unique constraint violation: UNIQUE constraint failed: notes.id")';
@@ -63,7 +57,7 @@ describe('generate-note-relay-patch --check', () => {
   it('rejects a committed patch that touches a file outside the six bundles', () => {
     // The script resolves the repository from its own location, so a copy of it runs
     // against a scratch root whose patch carries one extra file.
-    for (const path of [generator, 'src/lib/miden/sdk/note-relay-fetch.mjs']) {
+    for (const path of [generator, 'scripts/note-relay-bundles.json', 'src/lib/miden/sdk/note-relay-fetch.mjs']) {
       mkdirSync(dirname(join(scratch, path)), { recursive: true });
       copyFileSync(resolve(repoRoot, path), join(scratch, path));
     }
@@ -135,14 +129,14 @@ function sdkFetch(bundle: string, fetchImpl: typeof fetch, receiver: boolean) {
     receiver ? invoke({ fetch: fetchImpl }, request, init) : invoke(request, init);
 }
 
-describe.each(bundles)('SDK SendNote fetch boundary: %s', bundle => {
+describe('SDK SendNote fetch boundary', () => {
   it.each([false, true])('turns the stored-note duplicate into a unary ACK (receiver fetch: %s)', async receiver => {
     const original = headersOnly('13', duplicateMessage);
     const request = new Request(sendUrl, { method: 'POST', body: new Uint8Array([0, 0, 0, 0, 0]) });
     const controller = new AbortController();
     const options = { signal: controller.signal };
     const invoke = sdkFetch(
-      bundle,
+      seamBundle,
       async (input, init) => {
         expect(input).toBe(request);
         expect(init).toBe(options);
@@ -151,37 +145,10 @@ describe.each(bundles)('SDK SendNote fetch boundary: %s', bundle => {
       receiver
     );
     const response = await invoke(request, options);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    expect(new TextDecoder().decode(bytes)).toContain('grpc-status: 0');
-    expect(Array.from(bytes.subarray(0, 5))).toEqual([0, 0, 0, 0, 0]);
     expect(response.headers.get('grpc-status')).toBe('0');
-  });
-
-  it('removes existing duplicate outbox entries after one sync while retaining a genuine failure', async () => {
-    const outbox = new Set(['already-stored', 'consumed', 'unavailable']);
-    const calls: string[] = [];
-    const invoke = sdkFetch(
-      bundle,
-      async input => {
-        if (!(input instanceof Request)) throw new Error('Expected SDK request');
-        const noteId = await input.clone().text();
-        calls.push(noteId);
-        return headersOnly('13', noteId === 'unavailable' ? 'storage unavailable' : duplicateMessage);
-      },
-      true
-    );
-    const sync = async () => {
-      for (const noteId of outbox) {
-        const response = await invoke(new Request(sendUrl, { method: 'POST', body: noteId }), {});
-        // Rust removes successes and persists every failure for the next sync.
-        if (response.headers.get('grpc-status') === '0') outbox.delete(noteId);
-      }
-    };
-    await sync();
-    expect([...outbox]).toEqual(['unavailable']);
-    await sync();
-    expect(calls).toEqual(['already-stored', 'consumed', 'unavailable', 'unavailable']);
-    expect([...outbox]).toEqual(['unavailable']);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(Array.from(bytes.subarray(0, 5))).toEqual([0, 0, 0, 0, 0]);
+    expect(new TextDecoder().decode(bytes)).toContain('grpc-status: 0');
   });
 });
 

@@ -7,14 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packagePath = 'node_modules/@miden-sdk/miden-sdk';
 const patchPath = resolve(root, 'patches/@miden-sdk+miden-sdk+0.16.1.patch');
-const bundles = [
-  'dist/st/Cargo-aQznLgDn.js',
-  'dist/st/workers/Cargo-aQznLgDn-C_gzj3-H.js',
-  'dist/st/workers/web-client-methods-worker.js',
-  'dist/mt/Cargo-B2P22_Kp.js',
-  'dist/mt/workers/Cargo-B2P22_Kp-DiJZmkfy.js',
-  'dist/mt/workers/web-client-methods-worker.js'
-];
+const bundles = JSON.parse(readFileSync(resolve(root, 'scripts/note-relay-bundles.json'), 'utf8'));
 const helper = readFileSync(resolve(root, 'src/lib/miden/sdk/note-relay-fetch.mjs'), 'utf8').replace(/^export /gm, '');
 const block = `// BEGIN note-relay-fetch\n${helper}// END note-relay-fetch\n\n`;
 const seams = [
