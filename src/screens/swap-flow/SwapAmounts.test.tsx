@@ -255,10 +255,11 @@ describe('SwapAmounts', () => {
       const notice = screen.getByTestId('swap-fee-notice');
       // After the field (whose last row is the token selector), not between the amount and token.
       expect(pay.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      // Red, and set in Nunito like the rest of the swap's text.
-      expect(notice).toHaveClass('text-red-500', 'face-heading');
+      // The shared error line, as a standing condition rather than an alert.
+      expect(notice).toHaveAttribute('role', 'note');
+      expect(notice).toHaveClass('text-negative-ink');
+      expect(notice).not.toHaveClass('text-red-500');
       expect(notice).toHaveTextContent('insufficientFeeAssetShort');
-      expect(screen.getByText('insufficientFeeAssetShort')).toHaveClass('font-semibold');
     });
 
     it('is the note alone, with no link or button', () => {

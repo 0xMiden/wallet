@@ -4,10 +4,10 @@ import clsx from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -141,10 +141,9 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             onSelectToken={onSelectOfferToken}
           />
           {feeAssetMissing && (
-            <div data-testid="swap-fee-notice" className="mt-3 flex items-start gap-1.5 text-red-500 face-heading">
-              <Icon name={IconName.InformationFill} size="xs" fill="currentColor" className="mt-0.5 shrink-0" />
-              <p className="text-body-sm font-semibold">{t('insufficientFeeAssetShort')}</p>
-            </div>
+            <ErrorLine role="note" data-testid="swap-fee-notice" className="mt-3">
+              {t('insufficientFeeAssetShort')}
+            </ErrorLine>
           )}
         </motion.div>
 
