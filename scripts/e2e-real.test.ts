@@ -18,7 +18,19 @@ describe('composeGrep', () => {
   it('requires BOTH patterns when a suite filter and a user filter are given', () => {
     // Playwright keeps only the last --grep, so the two must become one pattern.
     // Lookaheads match anywhere in the title, which is what each did alone.
-    expect(composeGrep('Slow AggLayer', 'bridges')).toBe('(?=.*Slow AggLayer)(?=.*bridges)');
+    expect(composeGrep('Slow AggLayer', 'bridges')).toBe('(?=.*(?:Slow AggLayer))(?=.*(?:bridges))');
+  });
+
+  it('keeps an alternation inside its own lookahead', () => {
+    // Ungrouped, (?=.*Fast Epoch|Slow AggLayer) tests the second alternative only
+    // where the match starts, which no position in this title satisfies.
+    const composed = new RegExp(composeGrep('bridge-out', 'Fast Epoch|Slow AggLayer'));
+    expect(composed.test('bridge-out Miden to EVM (Slow AggLayer) > bridges the AggLayer token')).toBe(true);
+  });
+
+  it('never widens a real-money run when the user pattern is an alternation', () => {
+    const composed = new RegExp(composeGrep('Slow AggLayer', 'Fast Epoch|smoke'));
+    expect(composed.test('bridge-out Miden to Sepolia (Fast Epoch) > bridges a token')).toBe(false);
   });
 
   it('matches a title that satisfies both', () => {

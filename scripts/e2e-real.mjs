@@ -191,12 +191,13 @@ export function suiteRetries(suite) {
  * passed as separate flags: the suite's filter would be discarded without a
  * word, and a narrowing flag would silently widen the run onto specs that spend
  * real money. Lookaheads match anywhere in the title, which is what each pattern
- * did on its own.
+ * did on its own. Each pattern is grouped so the `.*` reaches every alternative:
+ * without the group, (?=.*a|b) tests b only where the match starts.
  */
 export function composeGrep(suiteGrep, userGrep) {
   if (!suiteGrep) return userGrep;
   if (!userGrep) return suiteGrep;
-  return `(?=.*${suiteGrep})(?=.*${userGrep})`;
+  return `(?=.*(?:${suiteGrep}))(?=.*(?:${userGrep}))`;
 }
 
 function fail(message) {
