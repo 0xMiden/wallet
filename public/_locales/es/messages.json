@@ -1,7 +1,7 @@
 {
   "seedBackupRequiredTitle": {
     "message": "Haz una copia de seguridad de tu frase semilla",
-    "englishSource": "Back up your seed phrase"
+    "englishSource": "Back up your recovery phrase"
   },
   "seedBackupRequiredAction": {
     "message": "Haz una copia de seguridad ahora",
@@ -9,7 +9,7 @@
   },
   "seedBackupRequiredBody": {
     "message": "Tu monedero ha alcanzado los 150 dólares estadounidenses. Debes hacer una copia de seguridad de tu frase semilla antes de poder continuar. Anótala, guárdala en un lugar seguro y completa la verificación para poder utilizar tu monedero.",
-    "englishSource": "Your wallet has reached $150 USD. You must back up your seed phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
   },
   "seedBackupSaveFailed": {
     "message": "No se ha podido guardar la comprobación de la copia de seguridad. Inténtalo de nuevo.",
