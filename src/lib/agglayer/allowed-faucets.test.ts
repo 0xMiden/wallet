@@ -1,4 +1,4 @@
-import { isAgglayerFaucetAllowed } from './allowed-faucets';
+import { allowAgglayerFaucetForE2E, isAgglayerFaucetAllowed } from './allowed-faucets';
 
 interface MockSlot {
   slot: string;
@@ -125,4 +125,13 @@ it('retries a failed read with fresh requirements (#1276)', async () => {
 it('asks the bridge for the [0, 0, suffix, prefix] key (#1276)', async () => {
   await expect(isAgglayerFaucetAllowed('layout-token', rpcUrl)).resolves.toBe(true);
   expect(mockSlotRecords).toEqual([{ slot: 'agglayer::bridge::faucet_registry_map', keys: [[0n, 0n, 2n, 3n]] }]);
+});
+
+it('an E2E allowlisted faucet is allowed without an RPC on that endpoint only (#1276)', async () => {
+  await allowAgglayerFaucetForE2E('allowlisted-token', rpcUrl);
+  await expect(isAgglayerFaucetAllowed('allowlisted-token', rpcUrl)).resolves.toBe(true);
+  expect(mockGetAccountProof).not.toHaveBeenCalled();
+  registryFlag = 0n;
+  await expect(isAgglayerFaucetAllowed('allowlisted-token', otherRpcUrl)).resolves.toBe(false);
+  expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
 });

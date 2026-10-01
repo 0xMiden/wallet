@@ -942,6 +942,15 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       }
     }
   );
+  // The Slow bridge-out E2E bridges a runtime faucet the bridge registry never lists. The send flow
+  // checks the registry in this (page) realm, so the allowlist entry has to land here.
+  Reflect.set(globalThis, '__TEST_ALLOW_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ allowAgglayerFaucetForE2E }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    await allowAgglayerFaucetForE2E(faucetRef, getEffectiveRpcUrl());
+  });
   // A dApp custom/execute request is opaque base64 `TransactionRequest` bytes, which only the SDK
   // can produce - a fixture dApp page has no SDK and no vault. Built here through the very builder
   // every wallet send uses, so the bytes the suite hands to `requestTransaction` are the shape a

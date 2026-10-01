@@ -16,11 +16,12 @@ import { MIDEN_BRIDGE_ID } from './b2agg/constant';
 const REGISTRY_SLOT = 'agglayer::bridge::faucet_registry_map';
 // The registry can drop a token, so an approval lasts only as long as this realm.
 const approved = new Set<string>();
+const approvalKey = (rpcUrl: string, faucetId: string) => `${rpcUrl}|${MIDEN_BRIDGE_ID}|${faucetId}`;
 
 export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string): Promise<boolean> {
   await ensureSdkWasmReady();
   const faucet = accountRefToSdk(faucetRef);
-  const approval = `${rpcUrl}|${MIDEN_BRIDGE_ID}|${faucet.toString()}`;
+  const approval = approvalKey(rpcUrl, faucet.toString());
   if (approved.has(approval)) return true;
 
   const registryKey = () => new Word(new BigUint64Array([0n, 0n, faucet.suffix().asInt(), faucet.prefix().asInt()]));
@@ -44,4 +45,14 @@ export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string)
   const allowed = entry.value().toU64s()[0] === 1n;
   if (allowed) approved.add(approval);
   return allowed;
+}
+
+/**
+ * E2E-only: approve a runtime-created faucet the bridge registry does not list, for this endpoint and realm.
+ * Production never calls this; the hook that does is installed only under MIDEN_E2E_TEST, like
+ * setAgglayerSenderForE2E (bridge-in.ts).
+ */
+export async function allowAgglayerFaucetForE2E(faucetRef: string, rpcUrl: string): Promise<void> {
+  await ensureSdkWasmReady();
+  approved.add(approvalKey(rpcUrl, accountRefToSdk(faucetRef).toString()));
 }
