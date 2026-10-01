@@ -19,25 +19,28 @@ jest.mock('@openzeppelin/guardian-client', () => ({
 }));
 let lastConstructedUrl: string | undefined;
 
-const mockRegisterGuardianOrigin = jest.fn();
-jest.mock('lib/miden/guardian/native-http', () => ({
-  registerGuardianOrigin: (...args: unknown[]) => mockRegisterGuardianOrigin(...args)
-}));
+// What a live Guardian answers: one 32-byte word.
+const GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+
+// The shared native-HTTP double records the probe each ping takes and its verdict.
+jest.mock('lib/miden/guardian/native-http');
+const { mockProbeVerdicts, resetMockProbes } = jest.requireMock<
+  typeof import('lib/miden/guardian/__mocks__/native-http')
+>('lib/miden/guardian/native-http');
 
 beforeEach(() => {
   jest.clearAllMocks();
   lastConstructedUrl = undefined;
+  resetMockProbes();
 });
 
 describe('pingGuardianEndpointLatency', () => {
   it('reports a round trip when the endpoint answers with a commitment', async () => {
-    mockGetPubkey.mockResolvedValue({ commitment: '0xAAA' });
+    mockGetPubkey.mockResolvedValue({ commitment: GUARDIAN_COMMITMENT });
 
     await expect(pingGuardianEndpointLatency('https://g.example.com')).resolves.toEqual(expect.any(Number));
     expect(lastConstructedUrl).toBe('https://g.example.com');
     expect(mockGetPubkey).toHaveBeenCalledWith('https://g.example.com', 'ecdsa');
-    // Registered for the mobile native-HTTP CORS bypass before pinging.
-    expect(mockRegisterGuardianOrigin).toHaveBeenCalledWith('https://g.example.com');
   });
 
   it('reports offline when the request rejects (connection refused / 5xx)', async () => {
@@ -50,6 +53,13 @@ describe('pingGuardianEndpointLatency', () => {
     await expect(pingGuardianEndpointLatency('https://weird.example.com')).resolves.toBeNull();
   });
 
+  // A Guardian's key commitment is one 32-byte word, the same rule the switch paths apply before
+  // binding one, so a host answering anything shorter is not a Guardian the picker may offer.
+  it('reports offline when the commitment is not a 32-byte hex word', async () => {
+    mockGetPubkey.mockResolvedValue({ commitment: '0xdeadbeef' });
+    await expect(pingGuardianEndpointLatency('https://short.example.com')).resolves.toBeNull();
+  });
+
   // The body is an unchecked `response.json()` cast, so a host serving nonsense
   // reaches here as a number or an object. A truthiness test called that online;
   // only a guardian answers with a key commitment, which is the whole basis for
@@ -57,8 +67,14 @@ describe('pingGuardianEndpointLatency', () => {
   it.each([[1234], [true], [{ nested: 'object' }], [['a']], [null], [undefined]])(
     'reports offline when the commitment is not a string (%p)',
     async commitment => {
-      mockGetPubkey.mockResolvedValue({ commitment });
-      await expect(pingGuardianEndpointLatency('https://nonsense.example.com')).resolves.toBeNull();
+      // fetchOperatorCommitment warns about the nonsense type; keep the run's output clean.
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        mockGetPubkey.mockResolvedValue({ commitment });
+        await expect(pingGuardianEndpointLatency('https://nonsense.example.com')).resolves.toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
     }
   );
 
@@ -79,7 +95,7 @@ describe('pingGuardianEndpointLatency', () => {
   it('a response inside the deadline is not raced away by the timer', async () => {
     jest.useFakeTimers();
     try {
-      mockGetPubkey.mockResolvedValue({ commitment: '0xBBB' });
+      mockGetPubkey.mockResolvedValue({ commitment: GUARDIAN_COMMITMENT });
       await expect(pingGuardianEndpointLatency('https://fast.example.com', 1_000)).resolves.toEqual(expect.any(Number));
       expect(jest.getTimerCount()).toBe(0);
     } finally {
@@ -97,11 +113,23 @@ describe('pingGuardianEndpointLatency', () => {
     try {
       mockGetPubkey.mockImplementation(async () => {
         clock += 234.4;
-        return { commitment: '0xCCC' };
+        return { commitment: GUARDIAN_COMMITMENT };
       });
       await expect(pingGuardianEndpointLatency('https://timed.example.com')).resolves.toBe(234);
     } finally {
       now.mockRestore();
     }
+  });
+
+  // The probe itself is pinned in operator-map.test.ts; what the ping adds is that a probed request
+  // that rejects still resolves null.
+  it('releases the origin when the Guardian client throws before any request goes out', async () => {
+    mockGetPubkey.mockImplementationOnce(() => {
+      throw new TypeError('Invalid URL');
+    });
+
+    await expect(pingGuardianEndpointLatency('https://bad.example.com')).resolves.toBeNull();
+
+    expect(mockProbeVerdicts).toEqual([['https://bad.example.com', false]]);
   });
 });

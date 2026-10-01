@@ -34,7 +34,7 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
 }));
 
 // The Guardian ping a custom URL must pass before it submits (#1084): resolves to a
-// latency when a Guardian answers, `null` when none does. Never rejects, like the real one.
+// latency when a Guardian answers, `null` when none does. The picker also survives a rejection.
 const mockPing = jest.fn();
 jest.mock('lib/miden/guardian/availability', () => ({
   pingGuardianEndpointLatency: (...args: unknown[]) => mockPing(...args)
@@ -126,6 +126,11 @@ jest.mock('./GuardianInfoDrawer', () => ({
     </div>
   )
 }));
+
+// eslint-disable-next-line import/first
+import { PageActiveContext } from 'app/layouts/page-active';
+// eslint-disable-next-line import/first
+import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
 
 // eslint-disable-next-line import/first
 import { ChooseGuardianScreen, default as DefaultChooseGuardianScreen } from './ChooseGuardian';
@@ -521,7 +526,7 @@ describe('ChooseGuardianScreen', () => {
 
     expect(mockSanitizeGuardianUrl).toHaveBeenCalledWith('https://custom.example.com/');
     expect(mockIsValidGuardianUrl).toHaveBeenCalledWith('https://custom.example.com');
-    expect(mockPing).toHaveBeenCalledWith('https://custom.example.com');
+    expect(mockPing).toHaveBeenCalledWith('https://custom.example.com', USER_ENDPOINT_CHECK_TIMEOUT_MS);
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith(
         {
@@ -610,6 +615,46 @@ describe('ChooseGuardianScreen', () => {
     enterCustomUrl('https://first.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
     unmount();
+    await answer(42);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('treats a ping that rejects as no Guardian answering, and lets Continue check again', async () => {
+    mockPing.mockRejectedValueOnce(new Error('network'));
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+
+    enterCustomUrl('https://custom.example.com');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('continue-button'));
+    });
+
+    expect(screen.getByText('customGuardianUnreachable')).toBeInTheDocument();
+    expect(screen.getByTestId('continue-button')).not.toHaveAttribute('aria-busy');
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('continue-button'));
+    });
+    expect(mockPing).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops the verdict for a custom URL and frees Continue when the picker stops being the current page', async () => {
+    const answer = deferredPing();
+    const onSubmit = jest.fn();
+    const picker = (active: boolean) => (
+      <PageActiveContext.Provider value={active}>
+        <ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />
+      </PageActiveContext.Provider>
+    );
+    const { rerender } = render(picker(true));
+
+    enterCustomUrl('https://first.example.com');
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(screen.getByTestId('continue-button')).toHaveAttribute('aria-busy', 'true');
+    rerender(picker(false));
+    // A dropped verdict never resets the busy state, so leaving the page has to.
+    expect(screen.getByTestId('continue-button')).not.toHaveAttribute('aria-busy');
     await answer(42);
 
     expect(onSubmit).not.toHaveBeenCalled();

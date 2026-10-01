@@ -85,13 +85,13 @@ describe('useGuardianAvailability', () => {
     });
   });
 
-  // `pingGuardianEndpointLatency` documents never-throws, but it calls
-  // `registerGuardianOrigin` OUTSIDE its own try — the rejection arm is what
-  // turns a hostile/malformed endpoint into 'offline' rather than an
-  // unhandled rejection per endpoint per round. Deleting that arm used to
-  // leave this file green because no test ever rejected the ping.
+  // `pingGuardianEndpointLatency` cannot reject, so the rejection arm is
+  // defensive: should the ping ever reject, a hostile/malformed endpoint reads
+  // as 'offline' rather than an unhandled rejection per endpoint per round.
+  // Deleting that arm used to leave this file green because no test ever
+  // rejected the ping.
   it('marks an endpoint offline when its ping rejects', async () => {
-    mockPing.mockRejectedValue(new Error('registerGuardianOrigin exploded'));
+    mockPing.mockRejectedValue(new Error('ping rejected'));
     const { result } = renderHook(() => useGuardianAvailability(['https://hostile.example.com']));
 
     await act(async () => undefined);

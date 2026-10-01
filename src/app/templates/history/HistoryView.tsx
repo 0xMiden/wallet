@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
+import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
@@ -104,8 +105,14 @@ function buildRowProps(
   // <provider> → <network>" / output amount / status dot. The Miden-side icon
   // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
   // EVM→Miden deposits) reuse the same layout with the direction flipped.
-  // A user-cancelled bridge falls through to the plain cancelled row below.
-  if (!entry.guardianRecovered && !entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  // A user-cancelled bridge falls through to the plain cancelled row below, and an
+  // unconfirmed one (#1250 F-024) falls through to the plain not-confirmed row.
+  if (
+    !entry.guardianRecovered &&
+    !entry.isCancelled &&
+    !entry.isUnconfirmed &&
+    (entry.txType === 'bridged-send' || isBridgeInEntry(entry))
+  ) {
     const bridgeIn = entry.txType !== 'bridged-send';
     const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
     const failed = d.status === 'failed';
@@ -129,7 +136,7 @@ function buildRowProps(
   // Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a
   // positive incoming amount and a phase-driven status dot (Redeeming →
   // Delivering → Received, or Failed). Reuses the bridge status tones.
-  if (!entry.isCancelled && isEarnWithdrawEntry(entry)) {
+  if (!entry.isCancelled && !entry.isUnconfirmed && isEarnWithdrawEntry(entry)) {
     const phase = entry.earnWithdrawPhase ?? 'redeeming';
     const failed = phase === 'failed';
     return {
@@ -158,8 +165,11 @@ function buildRowProps(
 
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
-  const isCancelled = entry.isCancelled === true;
-  const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
+  // Checked ahead of cancelled and failed everywhere this row is drawn (#1250): the row's
+  // outcome is unknown, which is neither of those two settled states.
+  const isUnconfirmed = entry.isUnconfirmed === true;
+  const isCancelled = !isUnconfirmed && entry.isCancelled === true;
+  const isFailed = !isUnconfirmed && !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
   // `page`, not a grey: the row sits on `fill`, where a grey circle all but disappears.
@@ -169,7 +179,12 @@ function buildRowProps(
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
   // rendered white over their own hue (set as `iconBg`). The source SVGs ship
   // with hardcoded fills/strokes, so force them white via `[&_path]:*` here.
-  if (isCancelled) {
+  if (isUnconfirmed) {
+    // The pending tone, not the grey cancelled or red failed look: the wallet cannot
+    // tell this row apart from one that may still land.
+    iconNode = <PendingIcon className="w-3.5 h-3.5 text-pure-white [&_path]:fill-pure-white" />;
+    iconBg = 'bg-status-pending';
+  } else if (isCancelled) {
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-gray-400';
   } else if (faucet) {
@@ -216,17 +231,19 @@ function buildRowProps(
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
+  const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
 
-  const title = isCancelled
-    ? t('cancelled')
-    : faucet
-      ? t('faucetRequestTitle')
-      : isSwap && entry.token && entry.requestedToken
-        ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-        : entry.guardianRecovered
-          ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
-          : entry.message || '';
+  const title = isUnconfirmed
+    ? t('notConfirmed')
+    : isCancelled
+      ? t('cancelled')
+      : faucet
+        ? t('faucetRequestTitle')
+        : isSwap && entry.token && entry.requestedToken
+          ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+          : entry.guardianRecovered
+            ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+            : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -330,7 +347,9 @@ function buildRowProps(
   }
 
   let status: Status = 'confirmed';
-  if (isCancelled) {
+  if (isUnconfirmed) {
+    status = 'unconfirmed';
+  } else if (isCancelled) {
     status = 'cancelled';
   } else if (isFailed) {
     status = 'failed';

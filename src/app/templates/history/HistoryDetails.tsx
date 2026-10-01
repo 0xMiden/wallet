@@ -19,7 +19,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import { isUserCancelledTransaction } from 'lib/miden/activity';
+import { isUnconfirmedFailure, isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -111,8 +111,8 @@ interface RequestedTokenInfo {
  *  - `earn-deposit` - `secondaryAccountId` is the Epoch allocator the P2IDE
  *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
  *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
- *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
- *    bridge falls through to this rule and is still outbound.
+ *    Miden "to" row in favour of the BridgeClaimSection), but an UNSTAMPED
+ *    user-cancelled bridge falls through to this rule and is still outbound.
  */
 const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
 
@@ -413,6 +413,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
+          isUnconfirmed: isUnconfirmedFailure(tx),
           noteDelivery: tx.noteDelivery,
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
@@ -518,8 +519,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
-  // "to" row is omitted here.
-  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled && !transaction?.recovered;
+  // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
+  // may have landed, so it reads through the section's own unconfirmed rule like any
+  // other unconfirmed bridge-out (#1250).
+  const isBridgeOut =
+    entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true) && !transaction?.recovered;
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -544,10 +548,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // moves collateral OUT of the account and into the Epoch allocator
   // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
   // 'Depositing' / 'Deposited to lending' - never 'Sent' - so keying only on `send`
-  // rendered it exactly backwards in every state. A USER-CANCELLED `bridged-send`
-  // falls out of `isBridgeOut` (which excludes cancelled rows so the bridge claim UI
-  // stays hidden) and lands here too, still outbound. The message check is kept as a
-  // fallback for rows persisted before `txType` existed.
+  // rendered it exactly backwards in every state. An UNSTAMPED user-cancelled
+  // `bridged-send` falls out of `isBridgeOut` (which excludes only that case, so the
+  // bridge claim UI stays hidden for a cancel that never reached the pipeline) and
+  // lands here too, still outbound. The message check is kept as a fallback for rows
+  // persisted before `txType` existed.
   const isOutboundTransfer =
     (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
@@ -718,11 +723,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
               <div className="mt-2">
                 {isBridge ? (
-                  // Pending/Confirmed/Failed, derived from the route's own lifecycle.
-                  <StatusBadge size="md" live status={bridgeStatusOf(entry)} data-testid="history-status-pill" />
+                  // Not-confirmed wins over the route's own lifecycle (#1250 F-024): the row's
+                  // outcome is unknown, not the confirmed failure `bridgeStatusOf` would report.
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeStatusOf(entry)}
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnWithdraw && earnWithdraw ? (
-                  // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
-                  <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />
+                  // Not-confirmed wins over the withdraw phase for the same reason (#1250 F-024).
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={entry.isUnconfirmed ? 'unconfirmed' : earnWithdraw.phase}
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
                   // Miden note landed - the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
@@ -733,7 +749,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     data-testid="history-status-pill"
                   />
                 ) : (
-                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
+                  <StatusPill
+                    status={entry.status}
+                    isCancelled={entry.isCancelled}
+                    isUnconfirmed={entry.isUnconfirmed}
+                    testId="history-status-pill"
+                  />
                 )}
               </div>
             </div>
@@ -1029,6 +1050,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       errorMessage={entry.errorMessage}
                       rawErrorMessage={entry.rawErrorMessage}
                       isCancelled={entry.isCancelled}
+                      isUnconfirmed={entry.isUnconfirmed}
                     />
                   </div>
                 </div>

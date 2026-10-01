@@ -8,6 +8,7 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { readGuardianHistoryGeneration } from 'lib/miden/guardian/history-storage';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import type { WalletAccount } from 'lib/shared/types';
@@ -18,7 +19,7 @@ import {
   recoverGuardianHistory,
   terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
-import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from './guardian-recovery';
+import { maybeStartGuardianRecovery, recoverPendingNotes, releaseGuardianRecoveriesOnLock } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
@@ -410,6 +411,84 @@ describe('detached recovery run', () => {
 
     expect(setPendingFlag).not.toHaveBeenCalled();
     // Re-offerable straight away rather than waiting for the next backend start.
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('treats an evicted Guardian client setup as a deferral, not a source failure (F-054)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.getAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await expect(recoverPendingNotes(account, 'gen-1')).resolves.toMatchObject({ deferred: true, sourceFailures: 0 });
+  });
+
+  // Re-offered at once, an op that parks on a stuck transport or node would be
+  // evicted again every lap, holding the mutex for the whole watchdog each time.
+  it('keeps an evicted transport drain reserved for the next backend start (F-055)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('keeps an evicted Guardian client setup reserved for the next backend start (F-055)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.getAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('keeps an evicted proposal import reserved for the next backend start (F-055)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    guardianOffersProposalNotes(1);
+    mockProxy.importRecoveryNoteBytes.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('keeps an evicted backfill chunk reserved for the next backend start (F-055)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 10 } as never);
+    mockProxy.recoverPublicNotesRange.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('keeps an evicted backfill range resolution reserved for the next backend start (F-055)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('still re-offers a proposal import deferred by a realm teardown (F-055)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    guardianOffersProposalNotes(1);
+    mockProxy.importRecoveryNoteBytes.mockRejectedValue(new OperationAbortedError('op-1', 'deadline'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
   });
 

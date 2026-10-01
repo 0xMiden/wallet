@@ -12,7 +12,7 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -42,6 +42,11 @@ export interface GuardianPendingNoteRecoveryResult {
    * account's reservation so it is retried in this same backend lifetime.
    */
   deferred: boolean;
+  /**
+   * Set when the deferral came from a lock eviction. The caller keeps the
+   * reservation instead, so the pass resumes at the next backend start.
+   */
+  evicted: boolean;
 }
 
 /**
@@ -86,9 +91,19 @@ function isWalletLocked(): boolean {
  * source failure would keep the account's reservation and strand the recovery
  * for the rest of the session; treated as a deferral it resumes from the
  * checkpoint on the next offer instead.
+ *
+ * An eviction of the op's lock hold is the same abandonment, whether it comes
+ * from the inline path's own hold or is rehydrated from the offscreen realm by
+ * the proxy.
  */
 function isAbortedOp(error: unknown): boolean {
-  return error instanceof OperationAbortedError || error instanceof WasmClientPoisonedError;
+  return error instanceof OperationAbortedError || isWasmClientPoisonedError(error);
+}
+
+/** Defers the pass for an aborted op, recording whether the abort was an eviction. */
+function deferAbortedOp(result: GuardianPendingNoteRecoveryResult, error: unknown): void {
+  result.deferred = true;
+  result.evicted = isWasmClientPoisonedError(error);
 }
 
 async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' | null> {
@@ -372,7 +387,8 @@ export async function recoverPendingNotes(
     proposalNotes: 0,
     publicNotes: 0,
     sourceFailures: 0,
-    deferred: false
+    deferred: false,
+    evicted: false
   };
 
   // Highest watermark this pass has persisted, so the deferral log can say
@@ -418,7 +434,7 @@ export async function recoverPendingNotes(
       await midenClientProxy.drainPrivateNoteTransport();
     } catch (error) {
       if (isAbortedOp(error)) {
-        result.deferred = true;
+        deferAbortedOp(result, error);
         console.warn(`[GuardianRecovery] Transport drain aborted with the offscreen realm for ${account.publicKey}`);
         return result;
       }
@@ -451,7 +467,7 @@ export async function recoverPendingNotes(
         // the account for the rest of the backend's lifetime AND skip the
         // public backfill, which needs this context for the creation block.
         if (isAbortedOp(error)) {
-          result.deferred = true;
+          deferAbortedOp(result, error);
           console.warn(
             `[GuardianRecovery] Guardian client setup aborted with the offscreen realm for ${account.publicKey}`
           );
@@ -478,7 +494,7 @@ export async function recoverPendingNotes(
             result.sourceFailures += imported.failures;
           } catch (error) {
             if (isAbortedOp(error)) {
-              result.deferred = true;
+              deferAbortedOp(result, error);
               console.warn(
                 `[GuardianRecovery] Proposal import aborted with the offscreen realm for ${account.publicKey}`
               );
@@ -591,7 +607,7 @@ export async function recoverPendingNotes(
             }
           } catch (error) {
             if (isAbortedOp(error)) {
-              result.deferred = true;
+              deferAbortedOp(result, error);
               console.warn(
                 `[GuardianRecovery] Backfill chunk ${blockFrom}-${blockTo} aborted with the offscreen realm; ` +
                   `will resume ${account.publicKey} from block ${scannedToBlock}`
@@ -620,7 +636,7 @@ export async function recoverPendingNotes(
         }
       } catch (error) {
         if (isAbortedOp(error)) {
-          result.deferred = true;
+          deferAbortedOp(result, error);
           console.warn(`[GuardianRecovery] Public backfill aborted with the offscreen realm for ${account.publicKey}`);
           return result;
         }
@@ -674,7 +690,10 @@ export async function recoverPendingNotes(
  * that FAILED a source keeps its entry, so an account gets at most one such
  * attempt per unlock: the flag stays set for the next unlock or backend start
  * to retry, without GuardianRecoveryProvider's 5s poll re-running the full
- * drain/backfill in a loop against a persistently failing source.
+ * drain/backfill in a loop against a persistently failing source. A pass
+ * deferred by a lock eviction keeps its entry too and resumes from its
+ * checkpoint at the next backend start, since a re-offer would re-run an op
+ * that can hold the mutex for the whole watchdog on every lap.
  *
  * Entries are released again only where the run never really got its turn — a
  * refused start, a rejected eligibility query, or a wallet lock — since those
@@ -818,6 +837,12 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     // all belong to the wallet this generation names.
     generation = await readGuardianHistoryGeneration();
     const result = await recoverPendingNotes(account, generation);
+    if (result.deferred && result.evicted) {
+      console.warn(
+        `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
+      );
+      return;
+    }
     if (result.deferred) {
       // Giving way is not a failing source: release the reservation so the
       // provider's poll restarts this account once the wallet is free again,

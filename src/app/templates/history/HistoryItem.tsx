@@ -46,11 +46,13 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     [entry]
   );
 
-  if (!entry.guardianRecovered && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  // An unconfirmed bridge or earn-withdraw row falls through to the plain not-confirmed row below
+  // (#1250 F-024), the same way HistoryView's list keeps it out of the bridge/earn layout.
+  if (!entry.guardianRecovered && !entry.isUnconfirmed && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
-  if (isEarnWithdrawEntry(entry)) {
+  if (!entry.isUnconfirmed && isEarnWithdrawEntry(entry)) {
     return <EarnWithdrawRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
@@ -71,7 +73,9 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
     : isFaucet
       ? t('faucetRequest')
-      : entry.message;
+      : entry.isUnconfirmed
+        ? t('notConfirmed')
+        : entry.message;
   return (
     <div
       className={classNames(

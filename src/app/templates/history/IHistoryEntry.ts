@@ -49,6 +49,8 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
+  /** A failed row whose outcome is unknown rather than confirmed-failed (`isUnconfirmedFailure`). */
+  isUnconfirmed?: boolean;
   /**
    * `tx.noteDelivery` — whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on

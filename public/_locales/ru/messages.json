@@ -646,6 +646,14 @@
     "message": "Отменено",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "Не подтверждено",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Кошелек не смог подтвердить, прошла ли эта операция. Возможно, она ещё поступит, поэтому проверьте свой баланс после синхронизации кошелька, прежде чем отправлять её заново.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "Показать полный текст ошибки",
     "englishSource": "Show full error"
@@ -2809,8 +2817,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "При ротации вашего повседневного ключа произошла ошибка.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "При смене вашего повседневного ключа произошла ошибка. Ваши средства в безопасности, и вы можете повторить попытку сейчас.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Ежедневная ротация ключей не подтверждена",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Кошелек не смог подтвердить, прошла ли ротация. Ваши средства в безопасности, хотя, возможно, была уплачена сетевая комиссия. Подождите минуту, пока кошелек синхронизируется, прежде чем повторить попытку.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Повторить попытку",
@@ -2856,6 +2872,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "Полученный вами MIDEN не удалось активировать.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Кошелек не смог подтвердить, был ли полученный вами MIDEN уже использован. Подождите минуту, пока кошелек синхронизируется, прежде чем повторить попытку.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Попробуйте ещё раз",
@@ -3979,6 +3999,14 @@
   "transactionFailedNotificationBody": {
     "message": "Не удалось завершить транзакцию. Откройте кошелек, чтобы проверить.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Транзакция не подтверждена",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Кошелек не смог подтвердить, прошла ли транзакция. Откройте кошелек, прежде чем отправить её снова.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
   },
   "noteReceivedTapToClaim": {
     "message": "Нажмите здесь, чтобы принять",
