@@ -19,7 +19,7 @@ import { withRpcTimeout } from './rpc-timeout';
 // The in-memory guard below (`invalidateOnEndpointChange`) re-discovers when
 // either changes. (`v4`: added network name; v3 keyed by RPC URL only, v2 by
 // base network name — both are discarded, which is intended.)
-function cacheScope(): string {
+export function cacheScope(): string {
   return `${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
 }
 function idCacheKey(): string {
@@ -293,6 +293,17 @@ export function getNativeAssetIdSync(): string | null {
 export function getVerificationBaseFeeSync(): number | null {
   invalidateOnEndpointChange();
   return feeMemCache;
+}
+
+/**
+ * True only when a block header was read for the current scope and it carried no
+ * usable fee (no accessor, or an implausible value). False before any read, after a
+ * read that threw, during its retry cooldown, and whenever a fee is known, `0` included:
+ * those are "not known yet", which a caller may retry, not an answer from the chain.
+ */
+export function isVerificationBaseFeeKnownAbsent(): boolean {
+  invalidateOnEndpointChange();
+  return feeProbedScope === cacheScope() && feeMemCache === null;
 }
 
 /**
