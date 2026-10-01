@@ -74,8 +74,8 @@ export function deriveClientSeed(mnemonic: string, spec: ClientSeedSpec): Uint8A
  * Build a `deriveSeed(spec)` closure that computes the master seed once.
  * `mnemonicToSeed` runs 2048 rounds of PBKDF2-HMAC-SHA512, which is slow on
  * the UI thread. Callers that derive more than one seed or walk a range of HD
- * indices (the restore probes, guardian recovery, the guardian discovery
- * probe) pay that cost once instead of once per derivation.
+ * indices (guardian recovery, the guardian discovery probe) pay that cost once
+ * instead of once per derivation.
  *
  * The output is equal to {@link deriveClientSeed} for the same spec.
  */

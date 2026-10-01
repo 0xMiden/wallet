@@ -708,8 +708,8 @@ export class MidenClientInterface {
   async importPublicMidenWalletFromSeed(seed: Uint8Array, auth?: AuthScheme) {
     // The SDK reconstructs the account from `seed` + `auth` (default Falcon
     // when omitted). For the wallet's mnemonic-restore path the caller
-    // PROBES with each known auth scheme to find which account id actually
-    // exists on chain — see `Vault.spawn`. Forwarding `auth` only when
+    // imports under the one current auth scheme to find whether the account
+    // exists on chain - see `Vault.spawn`. Forwarding `auth` only when
     // explicitly provided keeps any other call site behaving exactly as
     // before.
     const account = await this.client.accounts.import({

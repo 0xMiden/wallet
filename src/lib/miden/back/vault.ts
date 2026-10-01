@@ -73,7 +73,7 @@ import {
 import type { CreatedGuardianKeys } from '../guardian/account';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { normalizeHex } from '../guardian/operator-map';
-import { deriveClientSeed, makeColdSeedDeriver, makeSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
+import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -106,11 +106,6 @@ const NEW_ACCOUNT_AUTH_SCHEME: AuthScheme = 'ecdsa';
 
 /** Derivation of every HD account seed, stamped on each account this wallet creates. */
 const NEW_ACCOUNT_KEY_DERIVATION: KeyDerivation = 'v1';
-
-/** Mnemonic-only restore probes, tried in order against the chain. */
-const RESTORE_PROBES: readonly { keyDerivation: KeyDerivation; authScheme: AuthScheme }[] = [
-  { keyDerivation: 'v1', authScheme: 'ecdsa' }
-];
 
 /**
  * Derives an `AuthSecretKey` from a mnemonic-derived seed under the given
@@ -844,10 +839,7 @@ export class Vault {
       }
 
       const hdAccIndex = 0;
-      // One PBKDF2 for every scheme this spawn may derive under: the current
-      // scheme for a fresh create, and each restore probe below.
-      const deriveSpawnSeed = makeSeedDeriver(mnemonic!);
-      const walletSeed = deriveSpawnSeed({
+      const walletSeed = deriveClientSeed(mnemonic!, {
         keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
         walletType,
         authScheme: NEW_ACCOUNT_AUTH_SCHEME,
@@ -984,62 +976,51 @@ export class Vault {
 
             if (ownMnemonic && client.network !== 'mock') {
               // Non-guardian mnemonic restore: look the account up on chain at
-              // hdIndex=0 under each restore probe. If no probe finds it, the
+              // hdIndex=0 under the current derivation. If the import misses, the
               // mnemonic is "fresh" - fall through to a brand-new create.
-              for (const probe of RESTORE_PROBES) {
-                const scheme = probe.authScheme;
-                const probeSeed = deriveSpawnSeed({
-                  keyDerivation: probe.keyDerivation,
-                  walletType,
-                  authScheme: scheme,
-                  hdIndex: hdAccIndex
-                });
-                // Per-iteration: each probe is a parking on-chain lookup, and an
-                // eviction during probe N must neither let probe N+1 re-borrow a
-                // client a successor is inside, nor let the loop fall through to
-                // the fresh-create below — which would mint an EMPTY wallet off
-                // an abandoned restore, the same fund-loss shape as the
-                // network-error abort.
-                assertWasmHoldCurrent(hold, 'in Vault.spawn before an import probe');
-                try {
-                  console.log(`[Vault.spawn] Step 8a: probing ${probe.keyDerivation} ${scheme} import...`);
-                  const id = await client.importPublicMidenWalletFromSeed(probeSeed, scheme);
-                  return { accountId: id, accAuthScheme: scheme, keyDerivation: probe.keyDerivation };
-                } catch (probeError) {
-                  // An abandonment is not a "not on chain" answer, and neither is a
-                  // client that was disposed under us. Swallowed as a miss, either
-                  // one lets the loop run out of schemes and fall through to the
-                  // fresh create below — an EMPTY wallet minted off a restore whose
-                  // outcome nobody knows, hiding the user's real account. Exactly
-                  // the same guard `createHDAccount` carries, and it must be here
-                  // too: the per-iteration `assertWasmHoldCurrent` above only
-                  // catches an eviction of THIS realm's hold, not a probe that
-                  // rejected because the client itself went away (issue #775).
-                  if (isWasmClientPoisonedError(probeError) || client.isDisposed) {
-                    throw probeError;
-                  }
-                  // A probe miss and an UNREACHABLE NODE are different answers, and
-                  // swallowing both is a fund-loss-shaped bug: if the RPC is down
-                  // mid-restore, every scheme "misses", we fall through, and the user
-                  // who typed a correct seed gets a brand-new EMPTY wallet — their real
-                  // account simply doesn't appear. Only a definitive "not on chain" may
-                  // fall through; anything that smells like connectivity aborts the
-                  // restore so it can be retried against a reachable node.
-                  if (isLikelyNetworkError(probeError)) {
-                    console.error(`[Vault.spawn] ${scheme} probe could not reach the node`, probeError);
-                    throw new PublicError(
-                      'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
-                        'please check your connection and try restoring again.'
-                    );
-                  }
-                  // probe miss; try next scheme
+              // The import is a parking on-chain lookup, and an eviction during it
+              // must not let the fall-through below mint an EMPTY wallet off an
+              // abandoned restore, the same fund-loss shape as the network-error abort.
+              assertWasmHoldCurrent(hold, 'in Vault.spawn before the import probe');
+              try {
+                console.log('[Vault.spawn] Step 8a: probing the import...');
+                return {
+                  accountId: await client.importPublicMidenWalletFromSeed(walletSeed, NEW_ACCOUNT_AUTH_SCHEME),
+                  accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME,
+                  keyDerivation: NEW_ACCOUNT_KEY_DERIVATION
+                };
+              } catch (probeError) {
+                // An abandonment is not a "not on chain" answer, and neither is a
+                // client that was disposed under us. Swallowed as a miss, either
+                // one falls through to the fresh create below - an EMPTY wallet
+                // minted off a restore whose outcome nobody knows, hiding the user's
+                // real account. Exactly the same guard `createHDAccount` carries,
+                // and it must be here too: the `assertWasmHoldCurrent` above only
+                // catches an eviction of THIS realm's hold, not an import that
+                // rejected because the client itself went away (issue #775).
+                if (isWasmClientPoisonedError(probeError) || client.isDisposed) {
+                  throw probeError;
+                }
+                // A miss and an UNREACHABLE NODE are different answers, and
+                // swallowing both is a fund-loss-shaped bug: if the RPC is down
+                // mid-restore, the import "misses", we fall through, and the user
+                // who typed a correct seed gets a brand-new EMPTY wallet - their real
+                // account simply doesn't appear. Only a definitive "not on chain" may
+                // fall through; anything that smells like connectivity aborts the
+                // restore so it can be retried against a reachable node.
+                if (isLikelyNetworkError(probeError)) {
+                  console.error('[Vault.spawn] the import could not reach the node', probeError);
+                  throw new PublicError(
+                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
+                      'please check your connection and try restoring again.'
+                  );
                 }
               }
-              console.warn('[Vault.spawn] no on-chain account at hdIndex=0 under any scheme; creating fresh');
+              console.warn('[Vault.spawn] no on-chain account at hdIndex=0; creating fresh');
             }
-            // When the probe loop ran, control arrives here off its last
-            // (rejected) await; on the plain create path this re-asks the
-            // top-of-lock question one line later, which is cheap.
+            // When the import ran, control arrives here off its (rejected) await;
+            // on the plain create path this re-asks the top-of-lock question one
+            // line later, which is cheap.
             assertWasmHoldCurrent(hold, 'in Vault.spawn before the pre-create sync');
             // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
             console.log('[Vault.spawn] Step 8b: syncing state...');
@@ -1612,9 +1593,7 @@ export class Vault {
       hdAccIndex = accounts.length;
       console.log('[Vault.createHDAccount] Step 4: hdAccIndex =', hdAccIndex);
 
-      // One PBKDF2 for the fresh-create seed and for every restore probe below.
-      const deriveAccountSeed = makeSeedDeriver(mnemonic);
-      const walletSeed = deriveAccountSeed({
+      const walletSeed = deriveClientSeed(mnemonic, {
         keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
         walletType,
         authScheme: NEW_ACCOUNT_AUTH_SCHEME,
@@ -1674,50 +1653,38 @@ export class Vault {
           }
 
           if (isOwnMnemonic && walletType === WalletType.OnChain) {
-            for (const probe of RESTORE_PROBES) {
-              // Same per-iteration guard as the `Vault.spawn` probes: an eviction
-              // during probe N must not let probe N+1 re-borrow a client a
-              // successor is inside, nor let the loop fall through to a fresh create.
-              assertWasmHoldCurrent(hold, 'in createHDAccount before an import probe');
-              const probeSeed = deriveAccountSeed({
-                keyDerivation: probe.keyDerivation,
-                walletType,
-                authScheme: probe.authScheme,
-                hdIndex: hdAccIndex
-              });
-              try {
-                console.log(
-                  `[Vault.createHDAccount] Step 8a: probing ${probe.keyDerivation} ${probe.authScheme} import`
-                );
-                const accountId = await midenClient.importPublicMidenWalletFromSeed(probeSeed, probe.authScheme);
-                return { accountId, keyDerivation: probe.keyDerivation };
-              } catch (e) {
-                // A lock-recovery eviction is not a "not on chain" answer either:
-                // the outer caller has already been rejected, so falling through
-                // would create a spurious empty account nobody is waiting for, on
-                // a client recovery just replaced — the same fund-loss shape as
-                // the network case below (issue #775).
-                if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
-                  throw e;
-                }
-                // A network-unreachable import and a genuine "not on chain" miss are
-                // different answers; swallowing both creates a fresh EMPTY wallet on a
-                // transient node blip, hiding the user's real (correctly-seeded)
-                // account — a fund-loss shape. Mirror the Vault.spawn guard: only a
-                // definitive miss may move on to the next probe and then to
-                // create-fresh; connectivity aborts so the user can retry against a
-                // reachable node (resilience gap 13).
-                if (isLikelyNetworkError(e)) {
-                  console.error('[Vault.createHDAccount] import could not reach the node', e);
-                  throw new PublicError(
-                    'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
-                      'please check your connection and try again.'
-                  );
-                }
-                console.warn(`[Vault.createHDAccount] no ${probe.keyDerivation} account on chain at this index`, e);
+            // Same guard as the `Vault.spawn` import: an eviction during the
+            // import must not let it fall through to a fresh create.
+            assertWasmHoldCurrent(hold, 'in createHDAccount before the import probe');
+            try {
+              console.log('[Vault.createHDAccount] Step 8a: probing the import');
+              const accountId = await midenClient.importPublicMidenWalletFromSeed(walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
+              return { accountId, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };
+            } catch (e) {
+              // A lock-recovery eviction is not a "not on chain" answer either:
+              // the outer caller has already been rejected, so falling through
+              // would create a spurious empty account nobody is waiting for, on
+              // a client recovery just replaced - the same fund-loss shape as
+              // the network case below (issue #775).
+              if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
+                throw e;
               }
+              // A network-unreachable import and a genuine "not on chain" miss are
+              // different answers; swallowing both creates a fresh EMPTY wallet on a
+              // transient node blip, hiding the user's real (correctly-seeded)
+              // account - a fund-loss shape. Mirror the Vault.spawn guard: only a
+              // definitive miss may move on to create-fresh; connectivity aborts so
+              // the user can retry against a reachable node (resilience gap 13).
+              if (isLikelyNetworkError(e)) {
+                console.error('[Vault.createHDAccount] import could not reach the node', e);
+                throw new PublicError(
+                  'Could not reach the Miden network to look up your account. Your recovery phrase is fine — ' +
+                    'please check your connection and try again.'
+                );
+              }
+              console.warn('[Vault.createHDAccount] no account on chain at this index', e);
             }
-            console.warn('Seed not found on chain under any derivation; creating a new wallet instead');
+            console.warn('Seed not found on chain; creating a new wallet instead');
             assertWasmHoldCurrent(hold, 'in createHDAccount before the fresh create');
             const accountId = await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
             return { accountId, keyDerivation: NEW_ACCOUNT_KEY_DERIVATION };

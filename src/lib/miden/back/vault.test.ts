@@ -1895,6 +1895,7 @@ describe('Vault.spawn', () => {
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fallback-pk');
     const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fallback-pk');
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     const probeCalls: unknown[][] = mockMidenClient.importPublicMidenWalletFromSeed.mock.calls;
     expect(probeCalls.map(call => call[1])).toEqual(['ecdsa']);
     const seedHex = (value: unknown) =>
@@ -3266,9 +3267,9 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
 
   it('Vault.spawn (restore probes): eviction during the probe stops the fresh-create fallback', async () => {
     // The probe loses the mutex mid-lookup and then reports a definitive miss,
-    // so the loop runs out (one probe) and falls through. Pre-guard, that would
-    // mint a fresh EMPTY wallet off an abandoned restore - it's the guard
-    // `'in Vault.spawn before the pre-create sync'`, after the loop, that
+    // so the restore falls through. Pre-guard, that would mint a fresh EMPTY
+    // wallet off an abandoned restore - it's the guard
+    // `'in Vault.spawn before the pre-create sync'`, after the import, that
     // catches the revoked hold and stops it.
     mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
       revokeWasmHold();
@@ -3277,6 +3278,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
       name: 'WasmClientPoisonedError'
     });
+    expect(mockMidenClient.syncState).not.toHaveBeenCalled();
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
