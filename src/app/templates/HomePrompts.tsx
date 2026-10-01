@@ -9,6 +9,11 @@ import { IconName } from 'app/icons/v2';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardHero, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
+import {
+  clearGuardianNoteRecoveryProgress,
+  dismissGuardianNoteRecoveryProgress,
+  fetchGuardianNoteRecoveryDismissal
+} from 'lib/guardian-note-recovery-progress';
 import { formatUsd } from 'lib/i18n/numbers';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
@@ -280,8 +285,34 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const rotatingRef = useRef(false);
   const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
   const noteRecoveryProgress = useGuardianNoteRecoveryProgress(
-    account.guardianNoteRecoveryPending === true ? account.publicKey : null
+    account.publicKey,
+    account.guardianNoteRecoveryPending === true
   );
+  // The `updatedAt` of the record whose finished card this account dismissed, tagged with the
+  // account like `markerRead`. Until it is read the card stays hidden, so a dismissed card never
+  // flashes back on a visit.
+  const [noteRecoveryDismissal, setNoteRecoveryDismissal] = useState<{
+    accountId: string;
+    updatedAt: number | null;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchGuardianNoteRecoveryDismissal(account.publicKey)
+      .catch(error => {
+        console.warn('[HomePrompts] failed to read the recovery card dismissal:', error);
+        return null;
+      })
+      .then(updatedAt => {
+        if (!cancelled) setNoteRecoveryDismissal({ accountId: account.publicKey, updatedAt });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account.publicKey]);
+  const noteRecoveryHidden =
+    noteRecoveryDismissal?.accountId !== account.publicKey ||
+    (noteRecoveryProgress?.updatedAt !== undefined &&
+      noteRecoveryProgress.updatedAt === noteRecoveryDismissal.updatedAt);
   const bridgePromptPending = isPromptPending(WalletPromptType.Bridge);
   const hotKeyPromptPending = isPromptPending(WalletPromptType.HotKeyHardwareUnavailable);
   // A DECLINED transfer is not waiting for anything. It stays claimable — declining only hides
@@ -318,6 +349,15 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const noteRecoveryBody = useMemo(() => {
     if (!noteRecoveryProgress) return undefined;
     switch (noteRecoveryProgress.step) {
+      case 'history':
+        return t('guardianHistoryProgress', {
+          operator: noteRecoveryProgress.operator,
+          count: noteRecoveryProgress.restored ?? 0
+        });
+      case 'history-failed':
+        return t('guardianHistoryFailed');
+      case 'history-partial':
+        return t('guardianHistoryPartial', { count: noteRecoveryProgress.restored ?? 0 });
       case 'transport':
         return t('guardianNoteRecoveryTransportStep');
       case 'proposals':
@@ -887,7 +927,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     if (!isLoaded || balancesLoading) return [];
     return WALLET_PROMPT_ORDER.filter(type => {
       if (type === WalletPromptType.VerifySeedPhrase && seedStatus && seedStatus !== 'stored') return false;
-      if (type === WalletPromptType.GuardianNoteRecovery) return noteRecoveryProgress !== null;
+      if (type === WalletPromptType.GuardianNoteRecovery) return noteRecoveryProgress !== null && !noteRecoveryHidden;
       if (type === WalletPromptType.PendingNotes) return showPendingNotesPrompt && !faucetHeroActive;
       if (type === WalletPromptType.Faucet) return showFaucetPrompt;
       if (type === WalletPromptType.Bridge) return bridgePromptPending && bridgeTransactions.length > 0;
@@ -900,6 +940,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     faucetHeroActive,
     isLoaded,
     isPromptPending,
+    noteRecoveryHidden,
     noteRecoveryProgress,
     showFaucetPrompt,
     showPendingNotesPrompt,
@@ -914,7 +955,25 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.GuardianNoteRecovery:
           return {
             body: noteRecoveryBody,
-            status: 'loading'
+            status:
+              noteRecoveryProgress?.step === 'history-partial' || noteRecoveryProgress?.step === 'history-failed'
+                ? 'failure'
+                : 'loading',
+            dismissible:
+              noteRecoveryProgress?.step === 'history-partial' || noteRecoveryProgress?.step === 'history-failed',
+            onDismiss:
+              noteRecoveryProgress?.step === 'history-partial' || noteRecoveryProgress?.step === 'history-failed'
+                ? () => {
+                    const updatedAt = noteRecoveryProgress.updatedAt ?? null;
+                    setNoteRecoveryDismissal({ accountId: account.publicKey, updatedAt });
+                    // A partial record is the checkpoint a retry resumes from; only the terminal one goes.
+                    if (noteRecoveryProgress.step === 'history-failed') {
+                      clearGuardianNoteRecoveryProgress(account.publicKey).catch(console.warn);
+                    } else if (updatedAt !== null) {
+                      dismissGuardianNoteRecoveryProgress(account.publicKey, updatedAt).catch(console.warn);
+                    }
+                  }
+                : undefined
           };
         case WalletPromptType.Faucet: {
           const funding = awaitingFaucetFunds || faucetStatusIndicator === 'loading';
@@ -997,6 +1056,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       cannotPayFee,
       bridgeTransactions,
       noteRecoveryBody,
+      noteRecoveryProgress,
       copyHotKeyError,
       copyStatusIndicator,
       faucetError,

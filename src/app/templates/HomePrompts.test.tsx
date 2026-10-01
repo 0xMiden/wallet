@@ -5,6 +5,11 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
+import {
+  fetchGuardianNoteRecoveryProgress,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
+  reportGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { _setSwapTokensForTest, SWAP_TOKENS } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
@@ -149,6 +154,16 @@ jest.mock('lib/wallet-prompts', () => {
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
+
+// Backs the real note-recovery progress module, whose record and dismissal the recovery card reads.
+const mockStorageValues = new Map<string, unknown>();
+jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
+  fetchFromStorage: async (key: string) => mockStorageValues.get(key) ?? null,
+  putToStorage: async (key: string, value: unknown) => {
+    mockStorageValues.set(key, value);
+  }
+}));
 
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
@@ -3905,5 +3920,126 @@ describe('HomePrompts', () => {
     expect(completePrompt).not.toHaveBeenCalled();
     expect(jest.requireMock('lib/woozie').navigate).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  describe('Guardian history recovery card', () => {
+    const recoveringAccount = { ...account, guardianNoteRecoveryPending: true } as WalletAccount;
+    const renderCard = () =>
+      render(
+        <HomePrompts
+          account={recoveringAccount}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+    const settle = async () => {
+      for (let i = 0; i < 10; i++) await act(async () => {});
+    };
+
+    beforeEach(() => {
+      mockStorageValues.clear();
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState({ isPromptPending: () => false }));
+    });
+
+    it('hides a dismissed partial history card and keeps the record a retry resumes from', async () => {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history-partial',
+        restored: 2,
+        sourcesClean: true
+      });
+      const { unmount } = renderCard();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' }));
+      await settle();
+
+      expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toMatchObject({
+        step: 'history-partial',
+        sourcesClean: true
+      });
+      expect(screen.queryByText('guardianNoteRecoveryPromptTitle')).not.toBeInTheDocument();
+      unmount();
+      renderCard();
+      await settle();
+      expect(screen.queryByText('guardianNoteRecoveryPromptTitle')).not.toBeInTheDocument();
+    });
+
+    it('clears a dismissed failed history record', async () => {
+      await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'history-failed', restored: 0 });
+      renderCard();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' }));
+
+      await waitFor(async () => expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull());
+    });
+
+    // A terminal history failure clears the flag and keeps its record, so the card outlives the flag.
+    it('shows a failed history card after the flag is cleared, and clears the record on dismiss', async () => {
+      await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'history-failed', restored: 0 });
+      render(
+        <HomePrompts
+          account={{ ...account, guardianNoteRecoveryPending: false } as WalletAccount}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+
+      fireEvent.click(await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' }));
+
+      await waitFor(async () => expect(await fetchGuardianNoteRecoveryProgress(account.publicKey)).toBeNull());
+    });
+
+    it('shows no card for a live history record once the flag is cleared', async () => {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey,
+        step: 'history',
+        operator: 'https://guardian.test',
+        restored: 1,
+        sourcesClean: true
+      });
+      render(
+        <HomePrompts
+          account={{ ...account, guardianNoteRecoveryPending: false } as WalletAccount}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await settle();
+
+      expect(screen.queryByText('guardianNoteRecoveryPromptTitle')).not.toBeInTheDocument();
+    });
+
+    // A terminal record is written once and stays until its card is dismissed, so the live-record age rule skips it.
+    it.each(['history-failed', 'history-partial'] as const)(
+      'keeps a %s card up after the live-record window has passed',
+      async step => {
+        const writtenAt = Date.now() - GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS - 1_000;
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(writtenAt);
+        try {
+          await reportGuardianNoteRecoveryProgress({
+            accountId: account.publicKey,
+            step,
+            restored: 2,
+            sourcesClean: true
+          });
+        } finally {
+          clock.mockRestore();
+        }
+        renderCard();
+
+        expect(
+          await screen.findByRole('button', { name: 'dismiss-guardianNoteRecoveryPromptTitle' })
+        ).toBeInTheDocument();
+      }
+    );
   });
 });

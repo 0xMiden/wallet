@@ -256,3 +256,36 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
   deterministic instead of recording transient sync or probe placeholders.
 - Review Council, repository-wide gates, PR CI, authorized publication, and public verification are
   still pending.
+
+# Issue #1294 - private-note relay outbox
+
+- [x] Create an isolated worktree from the fetched origin/main.
+- [x] Trace delivery sweep, initial relay, SDK outbox, and sync retry behavior.
+- [x] Reproduce duplicate retries and existing-outbox recovery in regression tests.
+- [x] Implement a bounded, durable fix that preserves private-note recovery.
+- [x] Run affected tests, TypeScript, coverage and build checks.
+- [x] Apply every actionable finding from the independent advisory check.
+- [x] Complete the required four-seat review.
+
+## Review for #1294
+
+- Base: origin/main at 607c4c025.
+- Scope: private-note relay retries; preserve the nullifier as the only delivery confirmation.
+- Do not attribute the stress-run claim timeout solely to relay retries without a controlled run.
+- Regression: 12 real SDK fetch-boundary assertions and 3 sweep assertions failed before their fixes.
+- Deployed transport (0.5.0-rc.2, probed 2026-10-01): a duplicate SendNote is a headers-only
+  `grpc-status: 13` with `Failed to store note: ConstraintViolation("Unique constraint violation:
+  UNIQUE constraint failed: notes.id")`. The helper recognises it from the headers alone.
+- Real browser WASM, committed as `playwright/tests/note-relay-outbox.spec.ts` (hermetic, one recorded
+  RPC): that duplicate retires the 232-byte outbox entry and the next sync sends nothing; a genuine
+  storage failure stays in the outbox and is sent again.
+- 607 affected tests pass, including 93 transport tests. The canonical helper has 100% statements,
+  branches, functions and lines. Types, scoped lint, formatting, generated-patch verification,
+  dependency integrity, changelog and Chrome/mobile builds pass.
+- All 843 suites and 17,702 tests pass across the three CI coverage shards. Merged coverage clears
+  the 95% gate: statements and lines 98.13%, branches 96.01%, functions 97.26%.
+- The local unsharded attempt exhausted the parent process's default heap. The successful shards
+  used two workers, a 768 MB worker recycle limit and an 8 GB Node heap; source gates are unchanged.
+- Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
+  decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
+  earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
