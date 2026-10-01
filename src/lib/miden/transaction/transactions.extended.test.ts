@@ -1136,6 +1136,69 @@ describe('initiateConsumeTransaction reuse path', () => {
       expect(mockedReportOperation).not.toHaveBeenCalled();
     });
 
+    describe('the unconfirmed-failure exception', () => {
+      it('merges only the reclaim height into an already-Failed unconfirmed row, reporting nothing', async () => {
+        // mayHaveSubmitted makes this row's outcome unknown rather than failed - the note may
+        // still have landed, so the row only gains the height its reclaim button needs.
+        txStore.push({
+          id: 'bs-fail-unconfirmed',
+          type: 'bridged-send',
+          status: ITransactionStatus.Failed,
+          error: 'allocator unreachable',
+          displayMessage: 'Not confirmed',
+          mayHaveSubmitted: true,
+          extraInputs: { provider: 'epoch', claimStatus: 'pending', epochStatus: 'pending' }
+        });
+
+        await markBridgedSendFailed('bs-fail-unconfirmed', 'intent rejected', 1234);
+
+        const row = txStore.find(t => t.id === 'bs-fail-unconfirmed')!;
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.error).toBe('allocator unreachable');
+        expect(row.displayMessage).toBe('Not confirmed');
+        expect(row.extraInputs.claimStatus).toBe('pending');
+        expect(row.extraInputs.epochStatus).toBe('pending');
+        expect(row.extraInputs.reclaimHeight).toBe(1234);
+        expect(mockedReportOperation).not.toHaveBeenCalled();
+      });
+
+      it('leaves a definite-failure row untouched even though a reclaim height is given', async () => {
+        // epochStatus 'failed' is route evidence a reader already treats as a definite failure
+        // (isBridgeRouteFailedRow), so it stays outside the exception above.
+        txStore.push({
+          id: 'bs-fail-definite',
+          type: 'bridged-send',
+          status: ITransactionStatus.Failed,
+          error: 'allocator rejected the intent',
+          displayMessage: 'Bridge failed - funds unspent',
+          extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' }
+        });
+
+        await markBridgedSendFailed('bs-fail-definite', 'allocator rejected the intent', 1234);
+
+        const row = txStore.find(t => t.id === 'bs-fail-definite')!;
+        expect(row.extraInputs).toEqual({ provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' });
+        expect(mockedReportOperation).not.toHaveBeenCalled();
+      });
+
+      it('leaves an unconfirmed row unchanged when no reclaim height is given', async () => {
+        txStore.push({
+          id: 'bs-fail-unconfirmed-no-height',
+          type: 'bridged-send',
+          status: ITransactionStatus.Failed,
+          mayHaveSubmitted: true,
+          extraInputs: { provider: 'epoch', claimStatus: 'pending', epochStatus: 'pending' }
+        });
+
+        await markBridgedSendFailed('bs-fail-unconfirmed-no-height', 'intent rejected');
+
+        const row = txStore.find(t => t.id === 'bs-fail-unconfirmed-no-height')!;
+        expect(row.status).toBe(ITransactionStatus.Failed);
+        expect(row.extraInputs).toEqual({ provider: 'epoch', claimStatus: 'pending', epochStatus: 'pending' });
+        expect(mockedReportOperation).not.toHaveBeenCalled();
+      });
+    });
+
     it('still demotes a row that was in flight (not yet terminal)', async () => {
       txStore.push({
         id: 'bs-fail-in-flight',

@@ -17,6 +17,7 @@ import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
+import { isUnconfirmedFailure } from './constants';
 import {
   applyVerifiedLanding,
   recordNoteDelivery,
@@ -1518,7 +1519,10 @@ export const updateBridgeClaimStatus = async (
  * A row the note pipeline already failed for its own reason - its own status,
  * error and classification already stored - keeps that failure instead of this
  * one: the early return below leaves an already-Failed row untouched, since
- * that failure was already reported by `cancelTransaction` (#1250).
+ * that failure was already reported by `cancelTransaction`. The one exception is
+ * a row `isUnconfirmedFailure` holds for, given a `reclaimHeight`: its note may
+ * still have landed, so only `extraInputs.reclaimHeight` is merged in, leaving
+ * status, error and classification exactly as stored and reporting nothing (#1250).
  */
 export const markBridgedSendFailed = async (id: string, error: string, reclaimHeight?: number) => {
   console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
@@ -1527,10 +1531,16 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
   });
   let demoted: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    // A row the note pipeline already failed keeps the pipeline's own Failed
-    // write rather than this later one; `demoted` stays undefined, so nothing
-    // is reported for a row nothing here actually changed (#1250).
-    if (tx.status === ITransactionStatus.Failed) return false;
+    if (tx.status === ITransactionStatus.Failed) {
+      // Unconfirmed-failure exception (#1250): the note may still have landed, so merge only
+      // `reclaimHeight`. Setting epochStatus/claimStatus here would make `isBridgeRouteFailedRow`
+      // true, turning the row's unknown outcome into a definite one. Mutate after the return-false
+      // check, never before it: Dexie discards an object's mutations when the callback returns false.
+      if (reclaimHeight == null || !isUnconfirmedFailure(tx)) return false;
+      const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
+      tx.extraInputs = { ...ei, reclaimHeight };
+      return undefined;
+    }
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Bridge failed — funds reclaimable';
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};

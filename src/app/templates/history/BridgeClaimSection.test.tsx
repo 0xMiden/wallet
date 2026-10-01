@@ -191,6 +191,16 @@ describe('BridgeClaimSection', () => {
       expect(await screen.findByText('t:reclaimFunds')).toBeInTheDocument();
     });
 
+    it('withholds the reclaim UI for an unconfirmed row with no reclaim height stored (#1250)', async () => {
+      // A row markBridgedSendFailed never reached (or reached with no reclaimHeight argument)
+      // has nothing for canShowReclaim to gate on, unconfirmed or not.
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200);
+      renderSection({ entry: entry({ isUnconfirmed: true, bridgeReclaimHeight: undefined }) });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
     it('shows Not confirmed while unconfirmed and pending, then the live fill once it reports confirmed', async () => {
       mockPollEpochIntentFill.mockResolvedValueOnce({ status: 'confirmed' });
       renderSection({
