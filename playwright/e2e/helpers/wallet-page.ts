@@ -441,6 +441,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
   /** Create a Guardian wallet through every current extension onboarding screen. */
   createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string>;
+  /**
+   * Seed an imported account from a serialized auth secret through the E2E-only frontend store hook, and make it
+   * the current account, as a 1.16.2 wallet that imported one would carry it. The account-import page is gone.
+   */
+  importPrivateKey(privateKeyHex: string, name: string): Promise<string>;
   /** Export a password-encrypted wallet file through the real Settings flow. */
   exportEncryptedWalletFile(options: {
     walletPassword: string;
@@ -1451,6 +1456,39 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('onboarding-confirmation-submit').click();
     await this.page.getByTestId('explore-page').waitFor({ timeout: 120_000 });
     return this.getAccountAddress();
+  }
+
+  async importPrivateKey(privateKeyHex: string, name: string): Promise<string> {
+    const publicKey = await this.page.evaluate(
+      async ({ secret, accountName }) => {
+        type StoreState = {
+          importAccount(privateKey: string, name?: string): Promise<string>;
+          updateCurrentAccount(accountPublicKey: string): Promise<void>;
+        };
+        const store = (window as unknown as { __TEST_STORE__?: { getState(): StoreState } }).__TEST_STORE__;
+        if (!store?.getState) throw new Error('importPrivateKey requires the E2E wallet store hook');
+
+        // The import adds the account without selecting it; the removed page selected it, and the specs expect it.
+        const imported = await store.getState().importAccount(secret, accountName);
+        await store.getState().updateCurrentAccount(imported);
+        return imported;
+      },
+      { secret: privateKeyHex, accountName: name }
+    );
+
+    return this.page
+      .waitForFunction(
+        ({ expectedKey, expectedName }) => {
+          type Account = { name?: string; publicKey?: string };
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: Account | null } } })
+            .__TEST_STORE__;
+          const account = store?.getState?.().currentAccount;
+          return account?.publicKey === expectedKey && account.name === expectedName ? expectedKey : false;
+        },
+        { expectedKey: publicKey, expectedName: name },
+        { timeout: 60_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>);
   }
 
   async exportEncryptedWalletFile(options: {
