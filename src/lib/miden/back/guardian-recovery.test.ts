@@ -507,7 +507,8 @@ describe('detached recovery run', () => {
 
       expect(setPendingFlag).not.toHaveBeenCalled();
       await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
-      // The lock hook releases only failed runs, so only a backend restart frees an evicted pass's entry.
+      // The lock hook releases only failed runs, so for the same wallet generation only a backend restart frees an
+      // evicted pass's entry; a replaced wallet is admitted (see the #1302 tests).
       releaseGuardianRecoveriesOnLock();
       await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
     } finally {
@@ -564,6 +565,9 @@ describe('detached recovery run', () => {
     mockReadGeneration.mockRejectedValueOnce(new Error('storage down'));
     try {
       await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
     } finally {
       mockReadGeneration.mockReset();
     }
