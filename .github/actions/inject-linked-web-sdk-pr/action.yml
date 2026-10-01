@@ -780,6 +780,10 @@ runs:
         fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
         console.log('Original deps replaced:', JSON.stringify(orig, null, 2));
         EOF
+        # The committed SDK relay patch targets the published package's bundles, so
+        # patch-package cannot apply it to this source build and would fail the install
+        # under CI. The linked build runs without the relay fix (patches/README.md).
+        rm -f patches/@miden-sdk+miden-sdk+*.patch
         echo "::endgroup::"
 
         # Surface the patch state in the job summary regardless of comment-on/off.
