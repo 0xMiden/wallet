@@ -1241,7 +1241,12 @@ describe('claimBridgeSubmit (#1250)', () => {
 
 describe('recordBridgeNoteLanded (#1250)', () => {
   it('records the landed note and the failed route on an Epoch row (#1250)', async () => {
-    const extraInputs = { provider: 'epoch', claimStatus: 'not-applicable', reclaimNoteId: 'note-stamped' };
+    const extraInputs = {
+      provider: 'epoch',
+      claimStatus: 'not-applicable',
+      reclaimNoteId: 'note-stamped',
+      submitClaimed: true
+    };
     txStore.push(
       {
         id: 'bs-landed-generating',
@@ -1257,7 +1262,7 @@ describe('recordBridgeNoteLanded (#1250)', () => {
         status: ITransactionStatus.Failed,
         error: 'allocator rejected the intent',
         displayMessage: 'Bridge failed',
-        extraInputs: { ...extraInputs, submitClaimed: true }
+        extraInputs: { ...extraInputs }
       }
     );
 
@@ -1272,12 +1277,7 @@ describe('recordBridgeNoteLanded (#1250)', () => {
     expect(generating.displayMessage).toBe('Generating');
     const failed = txStore.find(t => t.id === 'bs-landed-failed')!;
     expect(failed.outputNoteIds).toEqual(['note-stamped']);
-    expect(failed.extraInputs).toEqual({
-      ...extraInputs,
-      submitClaimed: true,
-      claimStatus: 'failed',
-      epochStatus: 'failed'
-    });
+    expect(failed.extraInputs).toEqual({ ...extraInputs, claimStatus: 'failed', epochStatus: 'failed' });
     expect(failed.status).toBe(ITransactionStatus.Failed);
     expect(failed.error).toBe('allocator rejected the intent');
     expect(failed.displayMessage).toBe('Bridge failed');
@@ -1294,14 +1294,21 @@ describe('recordBridgeNoteLanded (#1250)', () => {
         provider: 'epoch',
         claimStatus: 'not-applicable',
         epochStatus: 'pending',
-        reclaimNoteId: 'note-stamped'
+        reclaimNoteId: 'note-stamped',
+        submitClaimed: true
       }
     });
     txStore.push(recorded(), {
       id: 'bs-landed-pending',
       type: 'bridged-send',
       status: ITransactionStatus.GeneratingTransaction,
-      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending', reclaimNoteId: 'note-2' }
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending',
+        reclaimNoteId: 'note-2',
+        submitClaimed: true
+      }
     });
 
     await recordBridgeNoteLanded('bs-landed-recorded');
@@ -1319,13 +1326,13 @@ describe('recordBridgeNoteLanded (#1250)', () => {
       id: 'bs-landed-agglayer',
       type: 'bridged-send',
       status: ITransactionStatus.GeneratingTransaction,
-      extraInputs: { provider: 'agglayer', claimStatus: 'pending', reclaimNoteId: 'note-stamped' }
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', reclaimNoteId: 'note-stamped', submitClaimed: true }
     });
     const unstamped = () => ({
       id: 'bs-landed-unstamped',
       type: 'bridged-send',
       status: ITransactionStatus.GeneratingTransaction,
-      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable' }
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', submitClaimed: true }
     });
     txStore.push(agglayer(), unstamped());
 
@@ -1334,6 +1341,22 @@ describe('recordBridgeNoteLanded (#1250)', () => {
 
     expect(txStore.find(t => t.id === 'bs-landed-agglayer')).toEqual(agglayer());
     expect(txStore.find(t => t.id === 'bs-landed-unstamped')).toEqual(unstamped());
+  });
+
+  it('records nothing for a row whose submit was never claimed (#1250)', async () => {
+    txStore.push({
+      id: 'bs-landed-unclaimed',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', reclaimNoteId: 'note-stamped' }
+    });
+
+    await recordBridgeNoteLanded('bs-landed-unclaimed');
+
+    const row = txStore.find(t => t.id === 'bs-landed-unclaimed')!;
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(row.extraInputs.epochStatus).toBeUndefined();
+    expect(row.extraInputs.claimStatus).toBe('not-applicable');
   });
 });
 

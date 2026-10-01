@@ -1338,6 +1338,47 @@ describe('generateTransactionsLoop error paths', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore[0]!.requestBytes).toBe(earnBytes);
   });
+
+  it('a requeue drops the bridge submit claim of its attempt (#1250)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    const extraInputs = {
+      provider: 'epoch',
+      claimStatus: 'not-applicable',
+      epochStatus: 'pending',
+      recallBlocks: 1200,
+      reclaimNoteId: 'note-stamped'
+    };
+    let claimedAtSign: unknown;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        claimedAtSign = txStore.find(t => t.id === 'tx-bridge-claim-requeued')?.extraInputs.submitClaimed;
+        throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-bridge-claim-requeued',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { ...extraInputs }
+    });
+
+    try {
+      expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    } finally {
+      sdk.withWasmClientLock = origLock;
+    }
+
+    expect(claimedAtSign).toBe(true);
+    const row = txStore.find(t => t.id === 'tx-bridge-claim-requeued');
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.extraInputs).toStrictEqual(extraInputs);
+  });
 });
 
 describe('generateTransactionsLoop — head-of-line fairness', () => {

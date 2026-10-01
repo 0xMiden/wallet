@@ -865,6 +865,14 @@ async function requeueTransactionForRetry(
     row?.unauthorizedRetryUntil !== undefined
       ? { unauthorizedRetryUntil: row.unauthorizedRetryUntil + cooldownSec }
       : {};
+  // Every caller requeues a pre-submit attempt, so a bridge submit claim never outlives its attempt.
+  await Repo.transactions.where({ id: txId }).modify(tx => {
+    const ei: Record<string, unknown> | undefined = tx.extraInputs;
+    if (ei?.submitClaimed === undefined) return false;
+    const { submitClaimed: _claim, ...rest } = ei;
+    tx.extraInputs = rest;
+    return undefined;
+  });
   const nextEligibleAt = Math.floor(Date.now() / 1000) + cooldownSec;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,

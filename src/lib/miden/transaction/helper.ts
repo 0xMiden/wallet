@@ -498,7 +498,10 @@ export const claimBridgeSubmit = async (id: string): Promise<boolean> => {
 
 /**
  * Record the collateral note of an Epoch bridged-send whose submit is proven to
- * have landed: its local apply or canonicalization failed after it. The stamped
+ * have landed: its local apply or canonicalization failed after it. It acts only
+ * on a row whose pipeline claimed its submit (`claimBridgeSubmit`), which is
+ * what makes such a failure post-submit; a canonicalization refusal can also be
+ * raised while the proposal is created, before any claim. The stamped
  * `reclaimNoteId` is that note's id, computed from the bytes that were submitted,
  * and the pipeline failing the row means the intent never went out, so the row
  * is recorded as a route-failed bridge with a committed note, the shape the
@@ -516,6 +519,7 @@ export const recordBridgeNoteLanded = async (id: string): Promise<void> => {
     const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
     const noteId = ei?.reclaimNoteId;
     if (tx.type !== 'bridged-send' || ei?.provider !== 'epoch' || !noteId) return false;
+    if (ei.submitClaimed !== true) return false;
     if (tx.outputNoteIds?.length) return false;
     tx.outputNoteIds = [noteId];
     if (ei.epochStatus === undefined) tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };

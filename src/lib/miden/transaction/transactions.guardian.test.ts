@@ -2743,6 +2743,131 @@ describe('generateTransaction — Guardian routing', () => {
     );
   });
 
+  const epochBridgeRow = (id: string) => ({
+    id,
+    type: 'bridged-send',
+    accountId: 'guardian-acc',
+    amount: '1000',
+    secondaryAccountId: 'allocator',
+    faucetId: 'faucet',
+    noteType: 'public',
+    extraInputs: {
+      provider: 'epoch',
+      destinationAddress: '0xevm',
+      destinationNetwork: 8453,
+      sourceFaucetId: 'faucet',
+      claimStatus: 'not-applicable',
+      recallBlocks: 1200,
+      reclaimNoteId: 'note-stamped'
+    },
+    delegateTransaction: true,
+    initiatedAt: Math.floor(Date.now() / 1000)
+  });
+  const canonicalizationRefusal = () =>
+    new Error('Refusing to overwrite local state: incoming nonce 5 is not greater than local nonce 7');
+
+  it('Guardian Epoch bridged-send: a canonicalization refusal before the submit claim records no landed note (#1250)', async () => {
+    const txId = 'bridge-guardian-refused-unclaimed';
+    const transaction = epochBridgeRow(txId);
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([57, 58, 59]) });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => {
+        throw canonicalizationRefusal();
+      }),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    const client = Object.assign(makeClientApi(makeResult()), {
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      transaction as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(1);
+    expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.outputNoteIds).toBeUndefined();
+    expect((row?.extraInputs as Record<string, unknown> | undefined)?.epochStatus).toBeUndefined();
+  });
+
+  it('a claim from a requeued attempt does not mark a later pre-claim refusal as landed (#1250)', async () => {
+    jest.useFakeTimers();
+    try {
+      const txId = 'bridge-guardian-requeued-claim';
+      txStore.push({ ...epochBridgeRow(txId), status: ITransactionStatus.Queued });
+
+      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([60, 61, 62]) });
+
+      let proposals = 0;
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => {
+          proposals += 1;
+          if (proposals === 1) return { id: 'bridge-requeued-proposal', nonce: 12 };
+          throw canonicalizationRefusal();
+        }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate: jest.fn(async () => {}),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
+      });
+      // The first attempt claims its submit, then its execute sign finds the vault locked.
+      let claimedAtSign: unknown;
+      client.transactions.executeRequest.mockImplementation(async () => {
+        claimedAtSign = (txStore.find(r => r.id === txId)?.extraInputs as Record<string, unknown> | undefined)
+          ?.submitClaimed;
+        throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+      const provider = makeGuardianProvider(true);
+      const sign = jest.fn(async () => new Uint8Array([2]));
+
+      await generateTransactionsLoop(sign, false, provider);
+      expect(claimedAtSign).toBe(true);
+      expect(txStore.find(r => r.id === txId)?.status).toBe(ITransactionStatus.Queued);
+
+      // Past the locked requeue's cooldown, the next attempt is refused while creating its proposal.
+      jest.setSystemTime(Date.now() + 60_000);
+      await generateTransactionsLoop(sign, false, provider);
+
+      expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(2);
+      expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledTimes(1);
+      const row = txStore.find(r => r.id === txId);
+      expect(row?.status).toBe(ITransactionStatus.Failed);
+      expect(row?.outputNoteIds).toBeUndefined();
+      expect((row?.extraInputs as Record<string, unknown> | undefined)?.epochStatus).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('Guardian earn-deposit: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
     // The other arm of the same guard: a canonicalization nonce-lag error would mark
     // any other guardian tx Completed, but for earn-deposit that Completed-without-
