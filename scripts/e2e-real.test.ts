@@ -17,15 +17,20 @@ import { SUITES, composeGrep, pricedAmountFrom, resolveOperatorInput, run, suite
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-function runCli(...args: string[]) {
-  // A key in the caller's environment would add its own refusal ahead of the one
-  // under test.
+// A leading object sets variables for the child, over an environment that holds
+// none of the four the runner reads: a key or an empty URL in the caller's
+// environment would add its own refusal ahead of the one under test.
+function runCli(first: string | Record<string, string>, ...rest: string[]) {
+  const override = typeof first === 'string' ? {} : first;
+  const args = typeof first === 'string' ? [first, ...rest] : rest;
   const env = { ...process.env };
-  delete env.E2E_SEPOLIA_PRIVATE_KEY;
+  for (const name of ['E2E_SEPOLIA_PRIVATE_KEY', 'EPOCH_ALLOCATOR_URL', 'EPOCH_POSITIONS_URL', 'E2E_SEPOLIA_RPC_URL']) {
+    delete env[name];
+  }
   const res = spawnSync(process.execPath, ['scripts/e2e-real.mjs', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    env,
+    env: { ...env, ...override },
     timeout: 30_000
   });
   return { status: res.status, stdout: res.stdout, stderr: res.stderr };
@@ -196,6 +201,14 @@ describe('the command refuses operator input before any probe or build', () => {
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 
+  it('never echoes a value given with =', () => {
+    const res = runCli(`--sepolia-key=0x${'1'.repeat(64)}`);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown argument: --sepolia-key=<value>');
+    expect(res.stderr).not.toContain('1'.repeat(64));
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
   it('refuses a flag given no value', () => {
     const res = runCli('--suite');
     expect(res.status).toBe(1);
@@ -274,6 +287,20 @@ describe('the command refuses operator input before any probe or build', () => {
     35_000
   );
 
+  // Taken as a value, the key would be printed by whatever refused or ran it.
+  it.each(['--suite', '--min-eth', '--grep'])(
+    'refuses an option given with = as the value of %s',
+    flag => {
+      const key = `0x${'1'.repeat(64)}`;
+      const res = runCli('--suite', 'bridge-out-agglayer', '--min-eth', 'abc', flag, `--sepolia-key=${key}`);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} needs a value`);
+      expect(res.stderr).not.toContain('1'.repeat(64));
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
   // Only an option name is refused: a value may start with '-', and a name
   // Object.prototype carries is not an option.
   it.each(['-x', 'constructor'])(
@@ -295,6 +322,40 @@ describe('the command refuses operator input before any probe or build', () => {
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('unknown argument: constructor');
     expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  // `export EPOCH_ALLOCATOR_URL=` is not `unset`: '' would be probed and built in.
+  it.each(['EPOCH_ALLOCATOR_URL', 'EPOCH_POSITIONS_URL', 'E2E_SEPOLIA_RPC_URL'])(
+    'refuses %s set but empty',
+    name => {
+      const res = runCli({ [name]: '' }, '--suite', 'swap', '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${name} is set but empty`);
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('takes a flag over an empty variable', () => {
+    const res = runCli(
+      { EPOCH_POSITIONS_URL: '' },
+      '--suite',
+      'swap',
+      '--epoch-positions-url',
+      'https://positions.example',
+      '--min-eth',
+      'abc'
+    );
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+    expect(res.stderr).not.toContain('is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('prints the usage despite an empty variable', () => {
+    const res = runCli({ EPOCH_POSITIONS_URL: '' }, '-h');
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('yarn e2e:real --suite <name> [options]');
   }, 35_000);
 });
 

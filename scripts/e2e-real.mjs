@@ -170,6 +170,9 @@ function parseArgs(argv) {
   // build and run a suite the operator asked only to preflight. A Set, so an
   // inherited name such as `constructor` stays a valid value.
   const optionNames = new Set([...helpNames, ...Object.keys(booleanFlags), ...Object.keys(takesValue)]);
+  // `--sepolia-key=<key>` names an option too, so it is never a value either:
+  // whatever later refused or ran that value would print the key.
+  const namesAnOption = token => optionNames.has(token.split('=', 1)[0]);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (helpNames.includes(arg)) return { help: true };
@@ -178,10 +181,17 @@ function parseArgs(argv) {
       const value = argv[++i];
       // A quoted unset variable arrives as '': `--grep "$UNSET"` would otherwise
       // drop the operator's narrowing and widen a real-money run.
-      if (value === undefined || value === '' || optionNames.has(value)) fail(`${arg} needs a value`);
+      if (value === undefined || value === '' || namesAnOption(value)) fail(`${arg} needs a value`);
       opts[takesValue[arg]] = value;
+    } else if (arg.includes('=')) {
+      fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
     } else fail(`unknown argument: ${arg}`);
   }
+  // A flag is never '', so an empty URL here was exported empty and would be
+  // probed and built in. After the loop, so a flag overrides it and -h still works.
+  if (opts.epochUrl === '') fail('EPOCH_ALLOCATOR_URL is set but empty');
+  if (opts.epochPositionsUrl === '') fail('EPOCH_POSITIONS_URL is set but empty');
+  if (opts.sepoliaRpc === '') fail('E2E_SEPOLIA_RPC_URL is set but empty');
   return opts;
 }
 
