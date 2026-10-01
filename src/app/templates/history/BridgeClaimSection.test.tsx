@@ -210,6 +210,13 @@ describe('BridgeClaimSection', () => {
       expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
     });
 
+    it('offers no Reclaim for a definite failure whose note committed (#1250)', () => {
+      renderSection({ entry: entry({ bridgeEpochStatus: undefined }) });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
     it('offers no Reclaim for a route-failed row whose note never committed (#1250)', () => {
       // markBridgedSendFailed also demotes a row still Queued or in flight, so 'failed' alone
       // does not prove a note exists; only a committed outputNoteIds[0] does.
