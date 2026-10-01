@@ -9,10 +9,27 @@
  * Those are exactly the things that should not rest on having read the code
  * carefully once.
  */
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { SUITES, composeGrep, pricedAmountFrom, run, suiteRetries } from './e2e-real.mjs';
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+
+function runCli(...args: string[]) {
+  // A key in the caller's environment would add its own refusal ahead of the one
+  // under test.
+  const env = { ...process.env };
+  delete env.E2E_SEPOLIA_PRIVATE_KEY;
+  const res = spawnSync(process.execPath, ['scripts/e2e-real.mjs', ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env,
+    timeout: 30_000
+  });
+  return { status: res.status, stdout: res.stdout, stderr: res.stderr };
+}
 
 describe('composeGrep', () => {
   it('requires BOTH patterns when a suite filter and a user filter are given', () => {
@@ -60,6 +77,44 @@ describe('composeGrep', () => {
   it('refuses an invalid user pattern even with no suite filter to compose with', () => {
     expect(() => composeGrep(undefined, '(')).toThrow('not a valid regular expression');
   });
+
+  it("says why a pattern is invalid, in the engine's own words", () => {
+    const invalid = 'x))|((';
+    let reason = '';
+    try {
+      new RegExp(invalid);
+    } catch (error) {
+      reason = (error as Error).message;
+    }
+    expect(reason).toMatch(/Unmatched|Invalid regular expression/);
+    expect(() => composeGrep('Slow AggLayer', invalid)).toThrow(reason);
+  });
+});
+
+describe('the command refuses operator input before any probe or build', () => {
+  // Each refusal must come before the banner: under --preflight-only a later one
+  // is never reached, and otherwise it costs the probes and a build first.
+  it('refuses an invalid --grep', () => {
+    const res = runCli('--suite', 'bridge-out-agglayer', '--grep', 'x))|((', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('not a valid regular expression');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses a Sepolia key that is not 32 bytes of hex', () => {
+    const res = runCli('--suite', 'bridge-out-agglayer', '--sepolia-key', '0x01', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('not a valid private key');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses an --min-eth that is not a plain decimal', () => {
+    const key = `0x${'1'.repeat(64)}`;
+    const res = runCli('--suite', 'bridge-out-agglayer', '--sepolia-key', key, '--min-eth', 'abc', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
 });
 
 describe('suiteRetries', () => {

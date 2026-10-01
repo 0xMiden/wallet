@@ -210,8 +210,8 @@ function assertRegExp(pattern, label) {
   if (!pattern) return;
   try {
     new RegExp(pattern);
-  } catch {
-    throw new Error(`${label} is not a valid regular expression: ${pattern}`);
+  } catch (error) {
+    throw new Error(`${label} is not a valid regular expression: ${pattern} - ${error.message}`);
   }
 }
 
@@ -678,6 +678,25 @@ async function main() {
   if (!suite) fail(`unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}`);
   if (!MIDEN_RPC[opts.network]) fail(`--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}`);
 
+  // Every refusal of operator input happens here, before the banner: one found
+  // later is never reached under --preflight-only, and otherwise costs the probes
+  // and a build first. probeFundedKey keeps its own checks as a backstop.
+  let grep;
+  try {
+    grep = composeGrep(suite.grep, opts.grep);
+  } catch (error) {
+    fail(error.message);
+  }
+  if (!/^\d+(\.\d+)?$/.test(opts.minEth)) {
+    fail(`--min-eth must be a plain non-negative decimal amount of ether, got "${opts.minEth}"`);
+  }
+  // The key itself is never echoed.
+  if (suite.probes?.includes('sepolia') && opts.sepoliaKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(opts.sepoliaKey)) {
+    fail(
+      'the Sepolia key (--sepolia-key or E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
+    );
+  }
+
   console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
   console.log(`Network  ${opts.network}`);
   if (suite.probes?.includes('epoch')) console.log(`Epoch    ${opts.epochUrl}`);
@@ -759,12 +778,6 @@ async function main() {
   // the suite's - and `--suite bridge-out-agglayer --grep 'Fast Epoch'` would
   // then run the real-money Epoch spec the suite exists to exclude. Lookaheads
   // are how two patterns become one that requires both.
-  let grep;
-  try {
-    grep = composeGrep(suite.grep, opts.grep);
-  } catch (error) {
-    fail(error.message);
-  }
   if (grep) args.push('--grep', grep);
   if (suite.grepInvert) args.push('--grep-invert', suite.grepInvert);
   if (opts.headed) args.push('--headed');
