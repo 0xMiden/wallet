@@ -25,18 +25,23 @@ export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string)
   const useCache = rpcUrl === 'https://rpc.testnet.miden.io';
   if (useCache && (await fetchFromStorage<string[]>(CACHE_KEY))?.includes(id)) return true;
 
-  const key = new Word(new BigUint64Array([0n, 0n, faucet.suffix().asInt(), faucet.prefix().asInt()]));
-  const requirements = AccountStorageRequirements.fromSlotAndKeysArray([new SlotAndKeys(REGISTRY_SLOT, [key])]);
+  const registryKey = () => new Word(new BigUint64Array([0n, 0n, faucet.suffix().asInt(), faucet.prefix().asInt()]));
+  const keyHex = registryKey().toHex();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
+  // The SDK takes these arguments by value and frees them, so each attempt, a retry included, builds its own.
   const proof = await withRpcTimeout(
-    () => rpc.getAccountProof(AccountId.fromHex(MIDEN_BRIDGE_ID), requirements),
+    () =>
+      rpc.getAccountProof(
+        AccountId.fromHex(MIDEN_BRIDGE_ID),
+        AccountStorageRequirements.fromSlotAndKeysArray([new SlotAndKeys(REGISTRY_SLOT, [registryKey()])])
+      ),
     'agglayer faucet registry'
   );
   const entries = proof.getStorageMapEntries(REGISTRY_SLOT);
   if (!entries || proof.hasStorageMapTooManyEntries(REGISTRY_SLOT)) {
     throw new Error('The bridge registry entries are unavailable.');
   }
-  const entry = entries.find(item => item.key().toHex() === key.toHex());
+  const entry = entries.find(item => item.key().toHex() === keyHex);
   if (!entry) throw new Error('The bridge registry did not return the requested key.');
   const allowed = entry.value().toU64s()[0] === 1n;
   if (allowed && useCache) {
