@@ -384,7 +384,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleClose}
           aria-label={t('closeDappCard', { name: displayName })}
           data-testid="dapp-peek-card-close"
-          className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-pure-black/55 backdrop-blur-sm transition-transform active:scale-90"
+          className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-pure-black/55 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-90"
         >
           <Icon name={IconName.Close} size="xs" className="text-pure-white" fill="currentColor" />
         </button>
@@ -398,7 +398,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           onClick={handleShowAll}
           aria-label={t('showAllDapps', { count: overflowCount })}
           data-testid="dapp-peek-show-all"
-          className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-pure-black/60 px-2 backdrop-blur-sm transition-transform active:scale-95"
+          className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-pure-black/60 px-2 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)] transition-transform active:scale-95"
         >
           <span className="text-[10px] font-bold text-pure-white">
             {t('dappPeekCardOverflowBadge', { count: overflowCount })}

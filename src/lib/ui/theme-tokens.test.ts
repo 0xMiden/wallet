@@ -96,3 +96,30 @@ describe('theme-dependent black and white', () => {
     ).toEqual([]);
   });
 });
+
+describe('backdrop filters', () => {
+  // Tailwind v4 composes these from @property variables read with an empty fallback, which an Android
+  // WebView at Chrome 113 computes to none, and iOS before 18 reads only the -webkit- property. The
+  // mobile minifier keeps that prefix only because vite.mobile.config.ts sets cssTarget.
+  const COMPOSED_BACKDROP_UTILITY =
+    /\bbackdrop-(blur|saturate|brightness|contrast|grayscale|hue-rotate|invert|opacity|sepia)\b/;
+
+  it.each(['backdrop-blur-sm', 'backdrop-blur-[6px]', 'backdrop-saturate-150', 'dark:backdrop-brightness-50'])(
+    'the backdrop pattern flags %s',
+    cls => expect(COMPOSED_BACKDROP_UTILITY.test(cls)).toBe(true)
+  );
+
+  it.each(['[backdrop-filter:blur(8px)]', '[-webkit-backdrop-filter:blur(8px)]', 'blur-sm', 'backdrop:bg-pure-black'])(
+    'the backdrop pattern leaves %s alone',
+    cls => expect(COMPOSED_BACKDROP_UTILITY.test(cls)).toBe(false)
+  );
+
+  it('no surface composes its backdrop filter from Tailwind utilities', () => {
+    expect(
+      scanSource(
+        COMPOSED_BACKDROP_UTILITY,
+        cls => `drop ${cls}: write plain backdrop-filter and -webkit-backdrop-filter values as arbitrary properties`
+      )
+    ).toEqual([]);
+  });
+});

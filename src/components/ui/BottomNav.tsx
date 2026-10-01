@@ -43,9 +43,13 @@ export interface BottomNavProps {
 //
 // Dark mode uses the same parts with much less white. At the light values the bar is a white slab
 // on the dark page.
+//
+// The blur is written as plain values, not a Tailwind backdrop utility: Tailwind v4 composes those
+// from @property variables read with an empty fallback, which an Android WebView at Chrome 113
+// computes to none, and iOS before 18 reads only the -webkit- property.
 const BAR_GLASS_CLASS_NAME = [
   'overflow-hidden border border-pure-white/30 bg-pure-white/2 dark:border-pure-white/10',
-  'backdrop-blur-[6px]',
+  '[backdrop-filter:blur(6px)] [-webkit-backdrop-filter:blur(6px)]',
   'shadow-[0_8px_32px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(255,255,255,0.1),inset_0_0_12px_2px_rgba(255,255,255,0.12)]',
   'dark:shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(255,255,255,0.04),inset_0_0_12px_2px_rgba(255,255,255,0.02)]',
   "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:content-['']",

@@ -84,7 +84,12 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
           aria-modal="true"
           aria-label={t('dappSwitcher')}
           className="fixed inset-0 flex flex-col items-center justify-start"
-          style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(24px)' }}
+          style={{
+            zIndex: 80,
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)'
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

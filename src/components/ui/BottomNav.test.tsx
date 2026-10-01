@@ -92,7 +92,9 @@ describe('BottomNav — exports & structure', () => {
     // 4px of bar around the 48px tabs, centred, fully rounded.
     expect(nav).toHaveClass('rounded-full', 'p-1', 'justify-center', 'overflow-hidden');
     expect(nav).toHaveClass('border', 'border-pure-white/30', 'bg-pure-white/2');
-    expect(nav).toHaveClass('backdrop-blur-[6px]');
+    // Plain filter values, prefixed and not: a composed `backdrop-blur-*` draws no blur on older WebViews.
+    expect(nav).toHaveClass('[backdrop-filter:blur(6px)]', '[-webkit-backdrop-filter:blur(6px)]');
+    expect(nav).not.toHaveClass('backdrop-blur-[6px]');
     // A thin glow: a larger one fills the 58px bar with white. Dark mode uses much less white.
     expect(nav.className).toContain('inset_0_0_12px_2px_rgba(255,255,255,0.12)');
     expect(nav.className).toContain('inset_0_0_12px_2px_rgba(255,255,255,0.02)');
