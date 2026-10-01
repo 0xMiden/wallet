@@ -55,6 +55,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
 import {
   accountRefToSdk,
@@ -65,11 +66,17 @@ import {
   walletAccountIdToSdk
 } from './helpers';
 import { getLocalProveTransport, proveInWorker, recordProveTiming } from './local-prove-transport';
-import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
+import {
+  getCurrentWasmLockHold,
+  retireWasmClientForCaughtTrap,
+  withWasmLockWatchdogPaused,
+  yieldWasmClientLock,
+  type WasmLockHold
+} from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
 import { ApplyAfterSubmitError, isApplyAfterSubmitError } from './sdk-error-code';
-import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
 // statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
@@ -317,10 +324,13 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);
   } catch (noteFileError) {
+    // A trap or an eviction is the client's, not the bytes': no fallback call on it, and importNoteBytes retires a trap.
+    if (isClientFault(noteFileError)) throw noteFileError;
     let note: Note;
     try {
       note = Note.deserialize(noteBytes);
     } catch (noteError) {
+      if (isClientFault(noteError)) throw noteError;
       const noteFileDetail = noteFileError instanceof Error ? noteFileError.message : String(noteFileError);
       const noteDetail = noteError instanceof Error ? noteError.message : String(noteError);
       throw new Error(
@@ -331,6 +341,22 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
     }
     return NoteFile.fromExpectedNote(new NoteDetails(note.assets(), note.recipient()), note.metadata().tag(), 0);
   }
+}
+
+function isClientFault(error: unknown): boolean {
+  return error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+}
+
+/**
+ * For a catch that counts a failure and moves on: a trap retires the client through the hold and ends the batch, and
+ * an eviction ends it too, so nothing runs on either client afterwards. Anything else is left to the catch.
+ */
+function rethrowClientFault(error: unknown, hold: WasmLockHold): void {
+  if (error instanceof WebAssembly.RuntimeError) {
+    retireWasmClientForCaughtTrap(hold, error);
+    throw error;
+  }
+  if (isWasmClientPoisonedError(error)) throw error;
 }
 
 /** The host of an endpoint, for a log line: an RPC URL may carry a key in its path or query. */
@@ -915,12 +941,19 @@ export class MidenClientInterface {
    * (`NoteFile.fromExpectedNote`), so for that path the returned hex is a
    * details commitment, not a note ID.
    */
-  async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
-    const noteFile = deserializeNoteFileOrNote(noteBytes);
-    // String(...) tolerates both return shapes across the 0.15 alpha line:
-    // alpha.4 resolves a NoteId object, current `next` resolves the hex
-    // string directly.
-    return String(await this.client.notes.import(noteFile));
+  async importNoteBytes(noteBytes: Uint8Array, hold: WasmLockHold): Promise<string> {
+    try {
+      const noteFile = deserializeNoteFileOrNote(noteBytes);
+      // String(...) tolerates both return shapes across the 0.15 alpha line:
+      // alpha.4 resolves a NoteId object, current `next` resolves the hex
+      // string directly.
+      return String(await this.client.notes.import(noteFile));
+    } catch (error) {
+      // A trap from either deserialize, the fallback's conversion or the import: this hold's callers catch a
+      // note's failure and go on, so the lock may never see it.
+      if (error instanceof WebAssembly.RuntimeError) retireWasmClientForCaughtTrap(hold, error);
+      throw error;
+    }
   }
 
   /**
@@ -944,7 +977,18 @@ export class MidenClientInterface {
    * from pending Guardian `consume_notes` proposals, attaching a node-fetched
    * inclusion proof when one exists.
    */
-  async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
+  async decodeGuardianHistory(encoded: string, hold: WasmLockHold) {
+    return decodeGuardianSummary(encoded, hold);
+  }
+
+  async getGuardianResultCommitment(bytes: Uint8Array, hold: WasmLockHold) {
+    return guardianResultCommitment(bytes, hold);
+  }
+
+  async importRecoveryNoteBytes(
+    proposalNoteBytes: Uint8Array[],
+    hold: WasmLockHold
+  ): Promise<{ imported: number; failures: number }> {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
     let imported = 0;
     let failures = 0;
@@ -954,6 +998,7 @@ export class MidenClientInterface {
       try {
         notes.push(Note.deserialize(noteBytes));
       } catch (error) {
+        rethrowClientFault(error, hold);
         failures++;
         console.warn('[GuardianRecovery] Failed to deserialize one proposal note:', error);
       }
@@ -981,6 +1026,7 @@ export class MidenClientInterface {
           if (proof) proofs.set(String(entry.noteId), proof);
         }
       } catch (error) {
+        rethrowClientFault(error, hold);
         console.warn('[GuardianRecovery] Proposal note proof lookup failed; importing as Expected:', error);
       }
     }
@@ -1002,6 +1048,7 @@ export class MidenClientInterface {
         await this.client.notes.import(NoteFile.fromInputNote(inputNote));
         imported++;
       } catch (error) {
+        rethrowClientFault(error, hold);
         failures++;
         console.warn('[GuardianRecovery] Failed to import one proposal note:', error);
       }
@@ -1250,6 +1297,8 @@ export class MidenClientInterface {
           await this.client.notes.import(NoteFile.fromInputNote(inputNote));
           imported++;
         } catch (error) {
+          // A trap or an eviction ends the range; the lock this runs under retires a trap.
+          if (isClientFault(error)) throw error;
           failures++;
           console.warn('[GuardianRecovery] Failed to import one public note:', error);
         }
@@ -2151,7 +2200,9 @@ export function remoteProver(): TransactionProver | undefined {
     // own ceiling agree, leaving `withDelegatedProveTimeout` as the outer bound
     // against a prover that stops answering entirely.
     return TransactionProver.newRemoteProver(endpoint, BigInt(DELEGATED_PROVE_TIMEOUT_MS));
-  } catch {
+  } catch (error) {
+    // A trap is not a construction failure: it goes to the lock this runs under.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     // Never break a prove over prover construction — the caller falls back to the
     // SDK default, i.e. exactly the previous behaviour.
     return undefined;
@@ -2248,7 +2299,14 @@ export async function proveWithFallback<T>(
     // re-running it could broadcast the transaction a second time. Propagate the
     // ORIGINAL error untouched so `generateTransactionsLoop`'s
     // `isApplyAfterSubmitError` classification still sees it.
-    if (shouldDelegate && !submitReached && !isApplyAfterSubmitError(err)) {
+    // A trap is not a delegated-prover failure: re-running would deserialize the request again on the trapped
+    // client, so it takes the non-retryable tail to its lock.
+    if (
+      shouldDelegate &&
+      !submitReached &&
+      !isApplyAfterSubmitError(err) &&
+      !(err instanceof WebAssembly.RuntimeError)
+    ) {
       const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is
@@ -2332,7 +2390,9 @@ export async function proveWithFallback<T>(
 function isLocalProver(prover: TransactionProver): boolean {
   try {
     return (prover as unknown as { serialize: () => string }).serialize() === 'local';
-  } catch {
+  } catch (error) {
+    // A trap is not an unreadable descriptor: it goes to the lock this runs under.
+    if (error instanceof WebAssembly.RuntimeError) throw error;
     return false;
   }
 }

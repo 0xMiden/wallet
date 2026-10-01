@@ -1,6 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
 export interface IInputNote {
@@ -409,9 +410,10 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     nothing. This is the state the wallet previously had no way
  *                     to represent, which is why an interrupted relay was
  *                     indistinguishable from a successful one.
- *   - `relayed`     — the transport is believed to HOLD the note: either it accepted
- *                     the push, or it rejected a re-push as a duplicate, which is
- *                     itself evidence the body is already there. Deliberately not
+ *   - `relayed`     - the transport is believed to HOLD the note: it acknowledged
+ *                     the push, which it also does for a note it already stores
+ *                     (the SDK fetch boundary turns that duplicate into an ACK,
+ *                     `sdk/note-relay-fetch.mjs`). Deliberately not
  *                     terminal, for two separate reasons. An empty
  *                     `SendNoteResponse` means acceptance is not proof of storage, so
  *                     the row stays eligible for the re-push sweep, which tests
@@ -444,6 +446,17 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /**
+   * Set on a row rebuilt from a Guardian operator's retained history, and the
+   * only field that means so; `recovery` is the data such a row, or a local row
+   * it matched, carries. History and HistoryDetails key the recovered title and
+   * icon and the suppressed bridge, swap and earn-settlement UI on it, and the
+   * history merge replaces or merges only rows carrying it. `restoredFromBackup`,
+   * set with it, is what keeps the processing loop, retry and the delivery
+   * sweep away from such a row.
+   */
+  recovered?: boolean;
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -724,6 +737,8 @@ export interface IFailedTransactionOutput {
 export type TransactionOutput = ISuccessTransactionOutput | IFailedTransactionOutput;
 
 export class Transaction implements ITransaction {
+  recovered?: boolean;
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;

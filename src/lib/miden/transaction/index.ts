@@ -2125,6 +2125,8 @@ const runGuardianPipeline = async (
         // eviction outranks the prove failure as the reason to stop, so it is
         // checked before the fallback rather than only after it. Still pre-submit.
         assertStillHoldingLock(hold, 'before the local prove fallback');
+        // A trap is not a prover failure: the pipeline's lock retires it, and a re-prove would run on the trapped client.
+        if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         // The outage the fallback is covering for. `proveWithFallback` marks this
         // too, and without it a prover failing only on guardian operations would
@@ -2773,7 +2775,7 @@ const generateGuardianTransaction = async (
             t.requestBytes = aggBytes;
           });
         }
-        proposalResult = await service.createCustomProposal(aggBytes);
+        proposalResult = await service.createCustomProposal(aggBytes, 'agglayer_bridged_send');
       }
       break;
     }
