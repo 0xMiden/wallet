@@ -312,6 +312,28 @@ describe('BridgeClaimSection', () => {
         expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
       });
 
+      it('offers Reclaim for a completed bridge-out whose fill failed, once its height passes (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      });
+
+      it('shows the countdown for a completed bridge-out whose fill failed (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(900); // below 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
+        expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out whose fill is still pending (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+      });
+
       it('offers nothing for a completed bridge-out whose recorded intent carries no nonce (#1250)', async () => {
         mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
         renderSection({ entry: completed({ bridgeEpochStatus: 'pending' }) });
