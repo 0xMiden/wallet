@@ -16,7 +16,8 @@ export function useAgglayerEligibility(faucetId?: string): AgglayerEligibility {
       allowed => {
         if (active) setResult({ faucetId, rpcUrl, status: allowed ? 'allowed' : 'unsupported' });
       },
-      () => {
+      error => {
+        console.warn('Agglayer registry check failed', { faucetId, rpcUrl }, error);
         if (active) setResult({ faucetId, rpcUrl, status: 'error' });
       }
     );

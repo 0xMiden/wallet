@@ -29,9 +29,13 @@ it('blocks an unregistered token', async () => {
 });
 
 it('blocks a failed read', async () => {
-  jest.mocked(isAgglayerFaucetAllowed).mockRejectedValue(new Error('RPC unavailable'));
+  const failure = new Error('RPC unavailable');
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.mocked(isAgglayerFaucetAllowed).mockRejectedValue(failure);
   const { result } = renderHook(() => useAgglayerEligibility('token'));
   await waitFor(() => expect(result.current).toBe('error'));
+  expect(warn.mock.calls.map(call => call[call.length - 1])).toContain(failure);
+  warn.mockRestore();
 });
 
 it('does not apply an old approval to a newly selected token', async () => {
