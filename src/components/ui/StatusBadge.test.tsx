@@ -53,7 +53,7 @@ describe('StatusBadge', () => {
   });
 
   it('covers every status in the table above', () => {
-    expect(STATUSES).toHaveLength(23);
+    expect(STATUSES).toHaveLength(24);
   });
 
   it.each(STATUSES)('labels %s with a key that exists in the English catalog', status => {

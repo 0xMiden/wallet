@@ -129,7 +129,8 @@ function installMocks(harness: Harness) {
     getEffectiveNetworkName: () => 'localnet',
     getEffectiveRpcUrl: () => 'rpc-local',
     getEffectiveProverUrl: () => undefined,
-    getEffectiveNoteTransportUrl: () => undefined
+    getEffectiveNoteTransportUrl: () => undefined,
+    getEffectiveFeeFaucetId: () => '0xfee'
   }));
   jest.doMock('./helpers', () => ({
     getBech32AddressFromAccountId: (id: unknown) => String(id),
