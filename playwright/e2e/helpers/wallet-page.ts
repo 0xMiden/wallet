@@ -441,8 +441,6 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
   /** Create a Guardian wallet through every current extension onboarding screen. */
   createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string>;
-  /** Import a serialized auth secret through the real account-import page. */
-  importPrivateKey(privateKeyHex: string, name: string): Promise<string>;
   /** Export a password-encrypted wallet file through the real Settings flow. */
   exportEncryptedWalletFile(options: {
     walletPassword: string;
@@ -1453,28 +1451,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('onboarding-confirmation-submit').click();
     await this.page.getByTestId('explore-page').waitFor({ timeout: 120_000 });
     return this.getAccountAddress();
-  }
-
-  async importPrivateKey(privateKeyHex: string, name: string): Promise<string> {
-    await suspendScreenCapture(this.page);
-    await this.navigateTo('/import-account');
-    await this.page.locator('#importacc-privatekey').fill(privateKeyHex);
-    await this.page.locator('#importacc-name').fill(name);
-    await this.page.getByTestId('import-account-submit').click();
-
-    return this.page
-      .waitForFunction(
-        expectedName => {
-          type Account = { name?: string; publicKey?: string };
-          const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: Account | null } } })
-            .__TEST_STORE__;
-          const account = store?.getState?.().currentAccount;
-          return account?.name === expectedName && account.publicKey ? account.publicKey : false;
-        },
-        name,
-        { timeout: 60_000 }
-      )
-      .then(handle => handle.jsonValue() as Promise<string>);
   }
 
   async exportEncryptedWalletFile(options: {

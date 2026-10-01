@@ -5,7 +5,7 @@ import { extendTailwindMerge } from 'tailwind-merge';
 import { TYPE_STYLES } from './type-styles';
 
 /**
- * Wipes the clipboard, used after a secret is pasted (see `ImportAccount`'s private-key field).
+ * Wipes the clipboard, for use after a secret is pasted into a field.
  *
  * Resolves whether the wipe happened, and never rejects.
  */
