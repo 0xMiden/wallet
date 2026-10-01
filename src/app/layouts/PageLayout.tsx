@@ -15,7 +15,7 @@ import { PropsWithChildren } from 'lib/props-with-children';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 import { PageLayoutSelectors } from './PageLayout.selectors';
-import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
+import { useSetOnboardingCompleted } from '../hooks/useOnboardingProgress';
 import { ChangelogOverlay } from './PageLayout/ChangelogOverlay/ChangelogOverlay';
 
 interface PageLayoutProps extends PropsWithChildren, ToolbarProps {
@@ -66,7 +66,10 @@ const PageLayout: FC<PageLayoutProps> = ({
         </ContentPaper>
       </div>
 
-      <ChangelogOverlay />
+      {/* Outside the page's own Suspense: a cold storage key here must not suspend the whole screen. */}
+      <Suspense fallback={null}>
+        <ChangelogOverlay />
+      </Suspense>
     </>
   );
 };
@@ -133,7 +136,7 @@ const Toolbar: FC<ToolbarProps> = ({
   const { t } = useTranslation();
   const { historyPosition, pathname } = useLocation();
   const { registerBackHandler, onBack } = useAppEnv();
-  const { setOnboardingCompleted } = useOnboardingProgress();
+  const setOnboardingCompleted = useSetOnboardingCompleted();
 
   const onStepBack = () => {
     if (step && setStep && step > 0) {

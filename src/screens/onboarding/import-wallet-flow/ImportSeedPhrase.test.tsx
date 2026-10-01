@@ -23,11 +23,12 @@ const SEED_WORD_ERROR_KEY = 'importSeedPhraseError';
 // callbacks the parent wires up, indexed by the `seed-phrase-input-N` id.
 const mockInputProps: any[] = [];
 jest.mock('components/ui/TextField', () => ({
-  TextField: (props: any) => {
+  TextField: React.forwardRef((props: any, ref: any) => {
     const index = Number(String(props.id).replace('seed-phrase-input-', ''));
     mockInputProps[index] = props;
     return (
       <input
+        ref={ref}
         data-testid={props.id}
         data-prefix={props.leading}
         value={props.value ?? ''}
@@ -35,7 +36,7 @@ jest.mock('components/ui/TextField', () => ({
         onPaste={props.onPaste}
       />
     );
-  }
+  })
 }));
 
 // The child `Button` is stubbed so we can (a) read its `disabled`/`title`

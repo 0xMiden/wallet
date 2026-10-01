@@ -12,13 +12,17 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
+import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
-import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { tokenQuote } from 'lib/miden/swap/tokens';
+import { bridgedSendLandedValues, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { isUnconfirmedFailure } from 'lib/miden/transaction/constants';
+import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
-import { getTokenPrice } from 'lib/prices';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
 
 export enum WalletPromptType {
@@ -76,20 +80,28 @@ export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
 };
 
 export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'> & {
-  metadata: Pick<AssetMetadata, 'decimals' | 'symbol'>;
+  metadata: Pick<AssetMetadata, 'decimals' | 'symbol' | 'name' | 'scaleIsUnknown'>;
 };
 
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
 const VALID_TYPES = new Set<string>(Object.values(WalletPromptType).filter(type => type !== WalletPromptType.Faucet));
 
-export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], tokenPrices: TokenPrices): number {
-  return notes.reduce((total, note) => {
+/**
+ * The notes' USD total, or none when any of them has no quote or no known scale. It sits beside
+ * the button that accepts exactly these transfers, so a sum over only some of them would misstate it.
+ */
+export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], tokenPrices: TokenPrices): number | null {
+  let total = 0;
+  for (const note of notes) {
+    // A registry faucet is priced by its id even when its note still carries the placeholder's
+    // guessed decimals, so an unknown scale leaves no total, as a missing quote does.
+    const quote = tokenQuote(tokenPrices, note.faucetId, note.metadata.symbol);
+    if (!quote || !hasKnownScale(note.metadata)) return null;
     // `amount` is a base-units bigint string; BigNumber keeps full integer
     // precision where Number(amount) would silently round above 2^53.
-    const amount = new BigNumber(note.amount).shiftedBy(-note.metadata.decimals).toNumber();
-    const { price } = getTokenPrice(tokenPrices, note.metadata.symbol);
-    return total + amount * price;
-  }, 0);
+    total += new BigNumber(note.amount).shiftedBy(-note.metadata.decimals).toNumber() * quote.price;
+  }
+  return total;
 }
 
 function isBridgePromptActive(tx: ITransaction): boolean {
@@ -116,17 +128,58 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
 
+// A background poll of a row whose landing is unknown has a terminal condition - it
+// cannot rely on an answer ever arriving, the way a Completed row can. Windowed from
+// the row's own failure stamp, not from initiatedAt alone: a stamp ahead of the clock
+// pauses the poll until the clock reaches it, rather than reading as already elapsed.
+// Longer than an Agglayer L2-to-L1 exit and any Epoch fill, so a bridge that landed is
+// settled in the background, and one that never landed stops costing a fetch every
+// tick; past it, the detail page's own on-demand tracker and fill poll still settle
+// the row (#1250).
+const FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Poll one bridge row against its provider - a Completed row with something left to
+ * settle, with no window, or a Failed row whose outcome `isUnconfirmedFailure` still
+ * calls unknown AND is still within `FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS` of its
+ * own failure stamp: `completedAt` (written by `cancelTransaction` at the moment of
+ * every failure) when present, `initiatedAt` otherwise - both stored in seconds. A
+ * stamp ahead of the clock (a clock stepped back, or a stamp written while the clock
+ * ran fast) pauses the poll until the clock reaches it, the same way the faucet
+ * marker's `stampedAhead` already distrusts a future `requestedAt` in this file; the
+ * total background polling still stays capped at 24 hours. Either way the row is
+ * settled by evidence bound to it alone, never a general resweep of every Failed row
+ * (#1250). `isBridgePromptActive` and the prompts built from it are unaffected: a
+ * Failed row shows no Claim affordance until this promotes it.
+ */
 async function pollBridgedSend(tx: ITransaction): Promise<void> {
-  if (tx.type !== 'bridged-send' || tx.status !== ITransactionStatus.Completed) return;
-  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
+  if (tx.type !== 'bridged-send') return;
+  const failedAtSeconds = tx.completedAt ?? tx.initiatedAt;
+  const ageMs = Date.now() - failedAtSeconds * 1000;
+  const failedUnconfirmed =
+    tx.status === ITransactionStatus.Failed &&
+    isUnconfirmedFailure(tx) &&
+    ageMs >= 0 &&
+    ageMs < FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS;
+  if (tx.status !== ITransactionStatus.Completed && !failedUnconfirmed) return;
+  // Read defensively, the same way the promotion filter in `reconcileBridgedSends`
+  // already does: a Failed row with no `extraInputs` at all must not crash the pass.
+  const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+  if (!inputs) return;
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
+    // An unbound lookup on a Failed row could claim a sibling deposit for a bridge
+    // that never even landed, so a Failed row is looked up only once its own Miden
+    // transaction id is known - that is what binds the lookup to it.
+    if (failedUnconfirmed && !tx.transactionId) return;
     // Bound to this row's own Miden transaction id: several rows can share one
     // destination address, and marking them all ready off ANY claimable deposit
     // points every one of them at the same deposit.
     const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
-    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
+    // Passed through unconditionally so a Failed row's write always carries the
+    // bound hash `updateBridgeClaimStatus` needs to promote it (#1250).
+    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true }, deposit.tx_hash);
     return;
   }
 
@@ -163,13 +216,34 @@ export async function reconcileBridgedSends(): Promise<void> {
   // A restored row keeps what the backup recorded, but must not drive work:
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
+  const active = rows.filter(tx => !tx.restoredFromBackup);
+
+  // A Failed row whose stored Epoch evidence already proves it landed settles
+  // without waiting for another poll. Only stored Epoch evidence qualifies: it
+  // is keyed by the row's own intent nonce, where a stored Agglayer claim
+  // status carries no bound deposit hash and is never enough on its own
+  // (#1250).
   await Promise.all(
-    rows
-      .filter(tx => !tx.restoredFromBackup)
+    active
+      .filter(tx => {
+        if (tx.status !== ITransactionStatus.Failed) return false;
+        const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
+        if (!inputs) return false;
+        return inputs.epochStatus === 'confirmed' && inputs.claimStatus !== 'failed';
+      })
       .map(tx =>
-        // One row's failing indexer or allocator call must not reject the pass for the others.
-        pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+        // One row's failing write must not reject the pass for the others.
+        completeVerifiedLandedTransaction(tx.id, bridgedSendLandedValues()).catch(error =>
+          console.warn('[wallet-prompts] bridged-send landing failed', tx.id, error)
+        )
       )
+  );
+
+  await Promise.all(
+    active.map(tx =>
+      // One row's failing indexer or allocator call must not reject the pass for the others.
+      pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+    )
   );
 }
 
@@ -216,14 +290,13 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // as it is now, one operation at a time. A writer building on a copy read before another
 // writer's put would store the old value of every field it does not own. The hook's own
 // reads take their turn too, so a load never lands after a write it predates.
-// The turn is a Web Lock, which the extension's popup, side panel, tabs and service worker
-// share, so a surface cannot put back a field another surface just changed.
+// The turn is a storage turn (`inStorageTurn`): the Web Lock the extension's popup, side panel,
+// tabs and service worker share, so a surface cannot put back a field another surface just
+// changed, or without Web Locks this realm's own chain.
 // There is no timeout on a turn: a write already sent to storage cannot be called back,
 // so starting the next one early would let the slow one land over it.
-// (The type argument is what `navigator.locks.request` needs to hand back the record the
-// operation resolves with; the faucet-marker lock can leave it out only because it resolves void.)
 function inWalletPromptStorageTurn(operation: () => Promise<WalletPromptStorage>): Promise<WalletPromptStorage> {
-  return navigator.locks.request<Promise<WalletPromptStorage>>(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
+  return inStorageTurn(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
 }
 
 function updateWalletPromptStorage(
@@ -336,20 +409,30 @@ export type FaucetFundingMarker = {
   // When the token request went out, stored with the flag: a request held back for
   // minutes before sending is judged from here, not from when it was asked for.
   submittedAt?: number;
+  // The arrival window ended with the mint's outcome unknown. The card asks from the derived
+  // state (sent and past its window); what the flag adds is surviving a clock stepped back,
+  // where a stamp in the future hides that state: a flagged record is kept and never read as
+  // live. A sent record the step reaches before it is flagged reads back flagged.
+  unresolved?: true;
 };
 
 const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
 
-export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
-  const raw = await fetchFromStorage(faucetFundingMarkerKey(address));
+/** The one reading of a stored funding marker, whatever holds it; null when the value is not one. */
+export function parseFaucetFundingMarker(raw: unknown): FaucetFundingMarker | null {
   if (!raw || typeof raw !== 'object') return null;
   const requestedAt = Reflect.get(raw, 'requestedAt');
   const baselineNoteIds = Reflect.get(raw, 'baselineNoteIds');
   if (typeof requestedAt !== 'number' || !Number.isFinite(requestedAt)) return null;
+  const storedSubmitted = Reflect.get(raw, 'submitted') !== undefined;
+  const storedUnresolved = Reflect.get(raw, 'unresolved') !== undefined;
   // A persisted wall-clock stamp is untrusted input: a forward clock step (NTP,
   // a manual change) leaves a stamp in the future, which reads as "always
-  // fresh" and would wedge the wait past its own timeout.
-  if (requestedAt > Date.now()) return null;
+  // fresh" and would wedge the wait past its own timeout. An unsent marker is dropped.
+  // A sent one reads as unresolved, flagged or not: that is never live, so its stamp
+  // wedges nothing, and dropping it would let a second request go out unasked.
+  const stampedAhead = requestedAt > Date.now();
+  if (stampedAhead && !storedSubmitted && !storedUnresolved) return null;
   if (!Array.isArray(baselineNoteIds)) return null;
   const marker: FaucetFundingMarker = {
     requestedAt,
@@ -357,7 +440,13 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   };
   // Any stored value reads as submitted: erring the other way would clear a marker
   // for a mint that could still land.
-  if (Reflect.get(raw, 'submitted') !== undefined) marker.submitted = true;
+  if (storedSubmitted) marker.submitted = true;
+  // Any stored value reads as unresolved: erring the other way would resubmit silently. Only
+  // a sent request is left unresolved, so the flag also reads as sent.
+  if (storedUnresolved || stampedAhead) {
+    marker.submitted = true;
+    marker.unresolved = true;
+  }
   // Untrusted like requestedAt; an unusable send time falls back to the request time.
   const submittedAt = Reflect.get(raw, 'submittedAt');
   if (
@@ -371,27 +460,35 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   return marker;
 }
 
-/**
- * Runs `operation` holding the funding-marker lock for `address`. Every read of the marker that
- * decides a write to it runs under this lock: navigator.locks is shared by the extension's popup,
- * side panel, tabs and service worker, so two surfaces can no longer both find no live marker and
- * both send.
- */
-export function withFaucetFundingMarkerLock(address: string, operation: () => Promise<void>): Promise<void> {
-  return navigator.locks.request(`faucet-funding-marker:${address}`, operation);
+export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
+  return parseFaucetFundingMarker(await fetchFromStorage(faucetFundingMarkerKey(address)));
 }
 
-export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
+/**
+ * Runs `operation` holding the funding-marker lock for `address`, a storage turn (`inStorageTurn`).
+ * Every read of the marker that decides a write to it runs under this lock: navigator.locks is
+ * shared by the extension's popup, side panel, tabs and service worker, so two surfaces can no
+ * longer both find no live marker and both send. Without Web Locks it still returns a promise, so a
+ * caller's `.catch` sees any failure.
+ */
+export function withFaucetFundingMarkerLock(address: string, operation: () => Promise<void>): Promise<void> {
+  return inStorageTurn(`faucet-funding-marker:${address}`, operation);
+}
+
+export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker): Promise<void> {
   await putToStorage(faucetFundingMarkerKey(address), marker);
+}
+
+// A cleared marker leaves no key behind, rather than a stored null.
+export async function clearFaucetFundingMarker(address: string): Promise<void> {
+  await getStorageProvider().remove([faucetFundingMarkerKey(address)]);
 }
 
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // Bail out of a hung faucet request. The timeout also aborts the underlying
-// work: the signal is linked into each fetch and checked per PoW iteration.
-// (A 429 back-off sleep inside faucetFetch is not itself interrupted, so
-// cancellation of the work can lag the wrapper's rejection by up to that
-// capped wait — the next fetch attempt then aborts immediately.)
+// work: the signal is linked into each fetch, checked per PoW iteration, and
+// cuts a 429 back-off short.
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 /**
  * How long a funding marker not flagged `submitted` may still belong to a live
@@ -412,13 +509,15 @@ export const FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS = 3 * 60_000;
  * it rather than offering Fund. While a request still runs in this realm (`runningHere`:
  * held back, as in a backgrounded app) it has not settled, so its window has not started.
  * Otherwise a marker not flagged submitted is abandoned once its request's timeout has
- * certainly passed, and a flagged one waits out the arrival window from when it went out.
+ * certainly passed, and a flagged one waits out the arrival window from when it went out,
+ * unless a surface already flagged it unresolved when that window ended.
  */
 export function isFaucetFundingMarkerLive(
   marker: FaucetFundingMarker,
   { runningHere, settledAt }: { runningHere: boolean; settledAt: number | null }
 ): boolean {
   if (runningHere) return true;
+  if (marker.unresolved) return false;
   const now = Date.now();
   if (!marker.submitted) return now - marker.requestedAt < FAUCET_UNSUBMITTED_MARKER_MS;
   return now - faucetArrivalWindowStart(marker, settledAt) < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS;
@@ -440,7 +539,21 @@ export class FaucetRequestInProgressError extends Error {
   }
 }
 
-async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): Promise<void> {
+/**
+ * A request refused because the account's stored request is unresolved and the caller did not
+ * name it as the one the user confirmed replacing; `record` is that request. Nothing was sent.
+ */
+export class FaucetRequestUnresolvedError extends Error {
+  readonly record: Pick<FaucetFundingMarker, 'requestedAt' | 'baselineNoteIds'>;
+
+  constructor({ requestedAt, baselineNoteIds }: Pick<FaucetFundingMarker, 'requestedAt' | 'baselineNoteIds'>) {
+    super('An earlier faucet request for this account is unresolved');
+    this.name = 'FaucetRequestUnresolvedError';
+    this.record = { requestedAt, baselineNoteIds };
+  }
+}
+
+async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, replaces?: number): Promise<void> {
   const controller = new AbortController();
   let submitted = false;
   // Set once the submitted flag is being stored: from then on the flag may land, and every
@@ -478,6 +591,19 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): 
           })
         ) {
           throw new FaucetRequestInProgressError(stored);
+        }
+        // The user is asked before a request replaces an unresolved one, but a surface that read
+        // storage before another surface flagged it never asked: only a confirmed replacement passes.
+        // Every live record of another request was refused above, so another one read as sent (a
+        // flagged one always is) is past its window: unresolved flagged or not, as the mount read
+        // treats it, since the flag is best effort and a surface whose read failed never saw it.
+        if (
+          stored !== null &&
+          stored.requestedAt !== marker.requestedAt &&
+          stored.submitted &&
+          replaces !== stored.requestedAt
+        ) {
+          throw new FaucetRequestUnresolvedError(stored);
         }
         // A request its timeout already ended reported a safe failure and writes nothing: a
         // retry may have stored its own marker by now.
@@ -559,9 +685,15 @@ export function getFaucetRequestSettledAt(address: string, requestedAt: number):
  * Requests test tokens for `address`, or joins the request already running for it.
  * Given a `marker`, the request persists it and flags it submitted before the token
  * request goes out, so a later open can tell a mint that may land from one that
- * never went out.
+ * never went out. A stored unresolved request is replaced only when `replaces` names
+ * its `requestedAt`, the request the user confirmed replacing; any other request is
+ * refused with `FaucetRequestUnresolvedError`.
  */
-export function faucet(address: string, marker?: FaucetFundingMarker): Promise<void> {
+export function faucet(
+  address: string,
+  marker?: FaucetFundingMarker,
+  { replaces }: { replaces?: number } = {}
+): Promise<void> {
   const existing = inFlightFaucetRequests.get(address);
   if (existing) return existing.request;
   const recordSettled = () => {
@@ -570,7 +702,7 @@ export function faucet(address: string, marker?: FaucetFundingMarker): Promise<v
   // Storage reads settle asynchronously, so a reader of the marker always finds
   // this request registered by the `set` below. A joiner's marker is ignored: the
   // request it joins already persists its own.
-  const request: Promise<void> = runFaucetRequest(address, marker)
+  const request: Promise<void> = runFaucetRequest(address, marker, replaces)
     .then(recordSettled, (error: unknown) => {
       if (error instanceof FaucetOutcomeUnknownError) recordSettled();
       throw error;

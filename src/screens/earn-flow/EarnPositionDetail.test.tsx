@@ -24,6 +24,8 @@ import EarnPositionDetail from './EarnPositionDetail';
 // A load that did not fully succeed is driven per test; the default is a clean load.
 let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
+// Whether pos-normal is a position the latest read did not load.
+let mockStale = false;
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
@@ -69,8 +71,8 @@ jest.mock('recharts', () => {
 
 // i18n: assert on keys, not English. The mock echoes the key and appends any
 // interpolation values so data-bearing assertions (protocol/asset/network/
-// estimate) still hold — e.g. `t('earnPositionHeaderTitle', { protocol, asset })`
-// renders "earnPositionHeaderTitle FlatProto FUSD".
+// estimate) still hold, e.g. `t('earnAssetOnNetwork', { asset, network })`
+// renders "earnAssetOnNetwork FUSD Flatnet".
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key} ${Object.values(opts).join(' ')}` : key)
@@ -123,12 +125,20 @@ jest.mock('./components', () => {
         { 'data-testid': 'metric-card', 'data-label': label, 'data-valueclass': valueClassName ?? '' },
         value
       ),
-    // The token mark with its network badge, in place of the logo-plus-pill pair.
-    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+    earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+    EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
+      `${subject.asset} on ${subject.network}`,
+    // The token mark, which names the pair for assistive tech unless it is decorative, as the real one does.
+    EarnAssetMark: ({ asset, network, decorative }: { asset: string; network: string; decorative?: boolean }) =>
       R.createElement(
         'div',
-        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
-        'earnAssetOnNetwork'
+        {
+          'data-testid': 'earn-asset-mark',
+          'data-asset': asset,
+          'data-network': network,
+          'data-decorative': String(Boolean(decorative))
+        },
+        decorative ? null : 'earnAssetOnNetwork'
       )
   };
 });
@@ -178,6 +188,7 @@ jest.mock('./useEarnPositions', () => ({
         yearlyEstimate: '+$53.68 / yr',
         withdrawTime: '~30 sec no lockup',
         route: 'Miden -> Aave (Ethereum)',
+        stale: mockStale,
         // varying values -> (max - min) * 0.18 is truthy.
         chartData: [
           { label: 'A', value: 10 },
@@ -299,12 +310,8 @@ describe('EarnPositionDetail', () => {
     // Page shell.
     expect(screen.getByTestId('earn-position-detail-page')).toBeInTheDocument();
 
-    // Header title: t('earnPositionHeaderTitle', { protocol, asset }). The mock
-    // echoes the key + interpolation values -> "earnPositionHeaderTitle FlatProto FUSD".
-    const heading = screen.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle/ });
-    expect(heading).toHaveTextContent('earnPositionHeaderTitle');
-    expect(heading).toHaveTextContent('FlatProto');
-    expect(heading).toHaveTextContent('FUSD');
+    // Header title: the protocol, as on every earn page.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^FlatProto$/);
 
     // EarnSummaryPanel is rendered with metrics hidden and the correct titleId.
     const summary = screen.getByTestId('earn-summary');
@@ -325,12 +332,12 @@ describe('EarnPositionDetail', () => {
     expect(byLabel('earnMetricTimeActive')).toHaveTextContent('7d');
     expect(byLabel('earnMetricStarted')).toHaveTextContent('Jan 01');
 
-    // PositionHeading: the shared asset mark + "{protocol} • {asset}".
+    // PositionHeading: the shared asset mark beside the protocol.
     const mark = screen.getByTestId('earn-asset-mark');
     expect(mark).toHaveAttribute('data-asset', 'FUSD');
     expect(mark).toHaveAttribute('data-network', 'Flatnet');
-    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('FlatProto');
-    // The pair is still named in text, for assistive tech and in the details rows.
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^FlatProto$/);
+    // The details rows name the pair in text too.
     expect(container.textContent).toContain('earnAssetOnNetwork');
     expect(container.textContent).toContain('Flatnet');
 
@@ -349,6 +356,21 @@ describe('EarnPositionDetail', () => {
     // row label, so target the buttons by role to disambiguate).
     expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+  });
+
+  // One naming for the position in the header and above its figures: the protocol over its asset on its
+  // network, with the mark beside them decorative, never the old "{protocol} • {asset}" join.
+  it('names the position as every earn page does, in the header and in the heading over its figures', () => {
+    renderDetail('pos-flat');
+
+    expect(within(screen.getByRole('banner')).getByText('FUSD on Flatnet')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^FlatProto$/);
+
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(heading).not.toHaveTextContent('•');
+    expect(heading).toHaveTextContent(/^FlatProto$/);
+    expect(screen.getAllByText('FUSD on Flatnet')).toHaveLength(2);
+    expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-decorative', 'true');
   });
 
   it('gives the Withdraw CTA the earn flow colour', () => {
@@ -384,6 +406,7 @@ describe('EarnPositionDetail', () => {
     // `?? placeholderPosition()` — every display field renders "—" and both
     // actions are disabled (no vaultId, nothing withdrawable).
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnPositionsTitle$/);
+    expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
     expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-asset', EARN_PLACEHOLDER);
 
     const cards = screen.getAllByTestId('metric-card');
@@ -453,7 +476,7 @@ describe('EarnPositionDetail', () => {
     // pos-normal -> varying values -> padding truthy branch.
     const normal = renderDetail('pos-normal');
     expect(normal.getByTestId('area-chart')).toBeInTheDocument();
-    expect(normal.getByRole('heading', { level: 1, name: /earnPositionHeaderTitle Aave/ })).toBeInTheDocument();
+    expect(normal.getByRole('heading', { level: 1, name: 'Aave' })).toBeInTheDocument();
   });
 
   describe('the deposited-USD figure across a count', () => {
@@ -504,6 +527,7 @@ describe('EarnPositionDetail', () => {
 describe('EarnPositionDetail after a failed load', () => {
   afterEach(() => {
     mockLoadState = { isLoading: false };
+    mockStale = false;
   });
 
   it('says a per-owner positions failure too, which is not a request failure', () => {
@@ -524,8 +548,8 @@ describe('EarnPositionDetail after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom' };
+  it('keeps the failure said while a retry is out, and names only the route in the header', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
     renderDetail('no-such-position');
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -547,7 +571,20 @@ describe('EarnPositionDetail after a failed load', () => {
     renderDetail('pos-normal');
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+  });
+
+  it('disables Withdraw for a position the latest read did not load, under the notice with Retry', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    mockStale = true;
+    renderDetail('pos-normal');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Aave' })).toBeInTheDocument();
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
   });
 });
 
@@ -569,5 +606,7 @@ describe('EarnPositionDetail with no position to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^earnPositionsTitle$/);
+    // No subtitle names a placeholder subject: the header's line reads "<asset> on <network>".
+    expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
   });
 });

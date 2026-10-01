@@ -48,10 +48,12 @@ jest.mock('lib/miden/front', () => ({
 // `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
 // through a selector, so run the selector against a controllable slice.
 let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
-// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different.
+// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different. As
+// the SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
-  getBech32AddressFromAccountId: (id: string) => `bech32:${id}`
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => (id.startsWith('bech32:') ? id : `bech32:${id}`)
 }));
 
 jest.mock('lib/store', () => ({
@@ -68,17 +70,21 @@ jest.mock('components/TokenLogo', () => ({
 
 // vaul drawer — render children plus a probe button so we can fire the
 // `onOpenChange` the component wires to the sheet, and surface `open`.
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} ref={() => (mockDrawerCloseOnBack = closeOnBack)}>
       <button data-testid="drawer-openchange" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -130,6 +136,11 @@ beforeEach(() => {
 });
 
 describe('SelectSwapTokenDrawer', () => {
+  it("leaves mobile back to SwapManager's handler, which closes the sheet", () => {
+    renderDrawer();
+    expect(mockDrawerCloseOnBack).toBe(false);
+  });
+
   it('renders the open drawer with the localized title and one row per swap token', () => {
     renderDrawer();
 

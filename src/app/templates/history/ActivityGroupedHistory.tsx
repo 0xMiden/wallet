@@ -30,7 +30,7 @@ interface ActivityGroupedHistoryProps {
  * groups, as actionable here as in the List view.
  */
 export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ search, programId, onInitialLoad }) => {
-  const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, hiddenCount } =
+  const { account, representedItems, listItems, renderPendingItem, isLoadingNotes, hidden, declinedIds, hiddenCount } =
     useActivityClaimList(search, 'all');
   const { allContacts } = useFilteredContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -51,7 +51,7 @@ export const ActivityGroupedHistory: React.FC<ActivityGroupedHistoryProps> = ({ 
       <ClaimsLoadingBar loading={isLoadingNotes} />
       {/* `pb-28` clears the floating navbar, as the feed's own scroller does. */}
       <div ref={scrollRef} data-testid="activity-groups" className="min-h-0 flex-1 overflow-y-auto pb-28">
-        <RestoreDeclinedTransfers count={hiddenCount} onRestore={() => hidden.restore()} />
+        <RestoreDeclinedTransfers count={hiddenCount} onRestore={() => hidden.restore(declinedIds)} />
         <div className="px-4">
           {listItems.length > 0 && (
             <div data-testid="activity-group-claims" className="flex flex-col gap-3 pt-4">

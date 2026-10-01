@@ -119,6 +119,13 @@ describe('TextField — hint and error', () => {
     expect(message.getAttribute('role')).toBe('alert');
   });
 
+  // Guardian and RPC failures carry long unbreakable strings (endpoint URLs, hashes). Unwrapped they
+  // run past the fixed-width popup and are clipped, hiding the reason (#454).
+  it('wraps a long error instead of letting it overflow', () => {
+    render(<TextField value="" onChange={jest.fn()} error="Invalid address" />);
+    expect(screen.getByRole('alert')).toHaveClass('wrap-break-word');
+  });
+
   it('rings the field negative and sets aria-invalid while there is an error', () => {
     render(<TextField value="" onChange={jest.fn()} error="Invalid" />);
     const box = screen.getByRole('textbox').parentElement as HTMLElement;

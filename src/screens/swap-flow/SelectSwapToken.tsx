@@ -57,8 +57,9 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
     onOpenChange(false);
   };
 
+  // SwapManager's back handler closes this sheet, so the sheet does not register its own.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} screenKey="swap-token">
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="swap-token" closeOnBack={false}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('selectAToken')}</DrawerTitle>

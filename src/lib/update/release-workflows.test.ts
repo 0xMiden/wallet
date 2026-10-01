@@ -14,6 +14,23 @@ describe('native logic test gates', () => {
   });
 });
 
+describe('pull request gate triggers', () => {
+  // A base filter on any of these skipped every stacked PR's gates while the command checks above stayed green.
+  const gates = fs
+    .readdirSync(path.join(ROOT, '.github/workflows'))
+    .filter(file => /\.ya?ml$/.test(file) && /^ {2}pull_request:/m.test(workflow(file)));
+
+  it('finds the pull request gates', () => {
+    expect(gates).toEqual(expect.arrayContaining(['pr.yml', 'pr-compile-surfaces.yml']));
+  });
+
+  it.each(gates)('%s runs on a pull request to any base', file => {
+    // The trigger line and everything under it up to the next two-space key, blank and comment lines included.
+    const trigger = workflow(file).match(/^ {2}pull_request:.*\n(?:(?: {4}.*|[ \t]*#.*|[ \t]*)\n)*/m);
+    expect(trigger?.[0]).not.toMatch(/branches(-ignore)?:/);
+  });
+});
+
 describe('release update manifest gates', () => {
   it('validates the catalog on every pull request, where a failure is actionable', () => {
     expect(workflow('pr.yml')).toContain('check:update-manifest');

@@ -11,6 +11,7 @@ import { IBridgeInInfo, ITransaction } from '../db/types';
 const mockStore: Record<string, unknown> = {};
 
 jest.mock('../front/storage', () => ({
+  inStorageTurn: jest.requireActual('../front/storage').inStorageTurn,
   fetchFromStorage: jest.fn(async (key: string) => mockStore[key]),
   putToStorage: jest.fn(async (key: string, value: unknown) => {
     mockStore[key] = value;

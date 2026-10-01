@@ -7,10 +7,11 @@ import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
-// Covers only the deposit submission: the tap that turns a quoted/valid amount
-// into a tracked bridge transfer, and the reporter the hosting page wraps it
-// with. Every collaborator beyond the step components is stubbed — this suite is
-// not a test of the bridge itself.
+// Covers the deposit submission (the tap that turns a quoted/valid amount into a
+// tracked bridge transfer, and the reporter the hosting page wraps it with) and
+// the network banner the shell renders over the committing steps. Every
+// collaborator beyond the step components is stubbed - this suite is not a test
+// of the bridge itself.
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -38,13 +39,15 @@ const epochState = {
   poll: jest.fn(),
   reset: jest.fn()
 };
+const idleEpoch = { ...epochState };
 
 jest.mock('lib/epoch', () => ({
   MIDEN_DESTINATION_CHAIN_ID: 1,
-  // Mirrors the real contract (`string | undefined`): the screen aborts a requote on
-  // a falsy result, so a constant would hide that branch. Unused on the slow route
-  // these tests drive, which needs no quote.
-  evmToMidenMinTokenOut: (amount: string) => (Number(amount) > 0 ? '1000000' : undefined),
+  // The real conversion: `fastReady` holds only while the quote's `minTokenOut` is what the typed
+  // amount asks for, and the screen aborts a requote on an undefined result. Unused on the Slow
+  // route, which needs no quote.
+  evmToMidenMinTokenOut:
+    jest.requireActual<typeof import('lib/epoch/bridge')>('lib/epoch/bridge').evmToMidenMinTokenOut,
   useEpochStore: (selector: (s: typeof epochState) => unknown) => selector(epochState)
 }));
 
@@ -56,6 +59,17 @@ jest.mock('lib/miden/activity', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn(),
   hapticMedium: jest.fn()
+}));
+
+// The banner renders nothing on mainnet: pin a test network so its assertion does not rest on jest.setup's default.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+
+// The sheet the banner opens needs a router this suite does not mount; it is never opened here.
+jest.mock('components/NetworkModeSheet', () => ({
+  NetworkModeSheet: () => null
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -92,6 +106,12 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
         amount
       </button>
+      <button data-testid="set-amount-padded" onClick={() => onAmountChange('1.5050')}>
+        padded amount
+      </button>
+      <button data-testid="set-amount-four-places" onClick={() => onAmountChange('10.6512')}>
+        four-place amount
+      </button>
       <button data-testid="open-token-drawer" onClick={onSelectToken}>
         token
       </button>
@@ -103,10 +123,25 @@ jest.mock('./EvmBridgeDepositForm', () => ({
 }));
 
 jest.mock('./EvmBridgeDepositReview', () => ({
-  EvmBridgeDepositReview: ({ onConfirm }: { onConfirm: () => void }) => (
-    <button data-testid="confirm-deposit" onClick={onConfirm}>
-      confirm
-    </button>
+  EvmBridgeDepositReview: ({
+    amount,
+    fiat,
+    outputAmount,
+    onConfirm
+  }: {
+    amount: string;
+    fiat?: number;
+    outputAmount?: string;
+    onConfirm: () => void;
+  }) => (
+    <div>
+      <span data-testid="review-amount">{amount}</span>
+      <span data-testid="review-fiat">{fiat}</span>
+      <span data-testid="review-output">{outputAmount}</span>
+      <button data-testid="confirm-deposit" onClick={onConfirm}>
+        confirm
+      </button>
+    </div>
   )
 }));
 
@@ -148,12 +183,50 @@ const settle = () =>
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-const reachReview = async () => {
+const reachReview = async (amountButton = 'set-amount') => {
   fireEvent.click(screen.getByTestId('open-token-drawer'));
   await settle();
   fireEvent.click(screen.getByTestId('pick-eth'));
   await settle();
-  fireEvent.click(screen.getByTestId('set-amount'));
+  fireEvent.click(screen.getByTestId(amountButton));
+  await settle();
+  fireEvent.click(screen.getByTestId('continue'));
+  await settle();
+  fireEvent.click(await screen.findByTestId('pick-slow'));
+  await settle();
+  fireEvent.click(screen.getByTestId('confirm-route'));
+  await settle();
+};
+
+/**
+ * A Fast quote for the padded typed amount: `minTokenOut` is what 1.5050 asks for (1.505 at the
+ * faucet's 6 decimals), `tokenOut` a quote of 10, and `tokenIn` a deposit of 10.6512 at 18. Both
+ * need more than two decimals so typed, rounded up, half-up and rounded down each read differently.
+ */
+const quoteFast = () =>
+  Object.assign(epochState, {
+    quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
+    status: 'quoted',
+    flow: 'evm-to-miden',
+    quote: {
+      params: { minTokenOut: '1505000' },
+      quoteResult: { tokenIn: '10651200000000000000', tokenOut: '10000000' }
+    }
+  });
+
+const reachFastReview = async () => {
+  fireEvent.click(screen.getByTestId('set-amount-padded'));
+  await settle();
+  fireEvent.click(screen.getByTestId('continue'));
+  await settle();
+  fireEvent.click(await screen.findByTestId('confirm-route'));
+  await settle();
+};
+
+/** Drive USDC (the default token) + Slow route to Review. The amount is typed on the default Fast route, which quotes it. */
+const reachSlowUsdcReview = async () => {
+  Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
+  fireEvent.click(screen.getByTestId('set-amount-four-places'));
   await settle();
   fireEvent.click(screen.getByTestId('continue'));
   await settle();
@@ -179,6 +252,11 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     jest.clearAllMocks();
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
+  });
+
+  // The Fast case below quotes into the shared store; every case starts from it idle.
+  afterEach(() => {
+    Object.assign(epochState, idleEpoch);
   });
 
   it('routes the deposit submission through the reporter', async () => {
@@ -233,5 +311,120 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     });
 
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  // The deposit is what the wallet signs for, so it rounds up: never less than leaves the account.
+  it('shows the Fast-route deposit on the Review rounded up, never down or half-up', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.66$/);
+    expect(idleEpoch.quoteEVMToMiden()).toBeUndefined();
+  });
+
+  it('prices the Fast-route deposit on the Review at the rounded-up figure it shows', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.66$/);
+    expect(screen.getByTestId('review-fiat')).toHaveTextContent(/^10\.66$/);
+  });
+
+  it('prices a Slow-route USDC deposit on the Review at the typed amount it shows', async () => {
+    renderScreen();
+
+    await reachSlowUsdcReview();
+
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^10\.6512$/);
+    expect(screen.getByTestId('review-fiat')).toHaveTextContent(/^10\.6512$/);
+  });
+
+  it('shows the Fast "you receive" as the typed minTokenOut, not the quote', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+
+    expect(await screen.findByTestId('review-output')).toHaveTextContent(/^1\.505$/);
+  });
+
+  it('stores the exact typed "you receive" on a Fast row, and the quoted tokenOut as its amount', async () => {
+    quoteFast();
+    renderScreen();
+
+    await reachFastReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 10_000_000n, sourceAmount: '10.6512', outputAmount: '1.505' })
+    );
+  });
+
+  it('shows a Slow-route amount on the Review as typed, without its trailing zero', async () => {
+    renderScreen();
+
+    await reachReview('set-amount-padded');
+
+    expect(screen.getByTestId('review-amount')).toHaveTextContent(/^1\.505$/);
+    expect(screen.getByTestId('review-output')).toHaveTextContent(/^1\.505$/);
+  });
+
+  it("keeps storing a Slow row's amounts exactly as typed", async () => {
+    renderScreen();
+
+    await reachReview('set-amount-padded');
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceAmount: '1.5050', outputAmount: '1.5050' })
+    );
+  });
+
+  it('starts every case from an idle epoch store', () => {
+    expect(epochState).toMatchObject({ status: 'idle', flow: null, quote: null });
+    expect(epochState.quoteEVMToMiden).toBe(idleEpoch.quoteEVMToMiden);
+    expect(epochState.quoteEVMToMiden()).toBeUndefined();
+  });
+});
+
+describe('EvmBridgeDepositScreen names the network', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
+  });
+
+  // The shell's banner names the network on every step of this flow, review included (the
+  // registry in NetworkModeBanner.registry.test.ts points here).
+  it('shows the banner on amount entry, route choice and review', async () => {
+    renderScreen();
+
+    expect(screen.getByTestId('set-amount')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+
+    expect(await screen.findByTestId('pick-slow')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('pick-slow'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    await settle();
+
+    expect(await screen.findByTestId('confirm-deposit')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 });

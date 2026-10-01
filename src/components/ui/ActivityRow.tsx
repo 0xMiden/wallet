@@ -5,11 +5,12 @@ import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { springs, useMotion } from 'lib/animation';
+import { useSettleLayoutTransition } from 'app/layouts/page-active';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { FOCUSABLE_CLASSES } from './Card';
 import { Status, StatusBadge } from './StatusBadge';
 
 /** Extra batch-claim assets rendered inline before the row collapses to a count. */
@@ -32,6 +33,11 @@ export interface ActivityRowProps {
     /** Token symbol, rendered in the neutral heading color next to the value. */
     symbol?: string;
     direction?: ActivityAmountDirection;
+    /**
+     * The value is already a display string from `formatMoneyAmount`, so it is shown as given
+     * instead of re-rounded to three decimals (which would turn an Earn withdrawal's 0.0012 into 0.001).
+     */
+    preformatted?: boolean;
     /**
      * Further assets appended inline after the first, comma-separated and in the
      * same colour — a batch claim of several tokens reads "+20 A, +10 B". Each
@@ -122,7 +128,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // comes to rest with no overshoot. Under reduced motion `useMotion`
   // collapses it to an instant tween, so a filter change still swaps the
   // list, only without the movement.
-  const transition = useMotion(springs.settle);
+  const transition = useSettleLayoutTransition();
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
@@ -146,23 +152,15 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // motion value. The avatar and the status dot below are plain elements whose
   // radius is a class, so under a full `layout` both draw as ovals for the whole
   // spring. Same reason as the inline radius on SegmentedActionBar's pill and segments.
-  return (
-    <motion.div
-      layout="position"
-      whileTap={onClick ? { opacity: 0.9 } : undefined}
-      transition={transition}
-      data-testid={testId}
-      data-entry-key={entryKey}
-      role={onClick ? 'button' : undefined}
-      onClick={onClick ? handleClick : undefined}
-      // Every row is the same height: the title and subtitle each hold one line, so a long
-      // subtitle (a guardian's two provider names) truncates instead of pushing the row taller.
-      className={cn(
-        'relative w-full flex items-center py-4 justify-between gap-3',
-        onClick && 'cursor-pointer',
-        className
-      )}
-    >
+  // Every row is the same height: the title and subtitle each hold one line, so a long
+  // subtitle (a guardian's two provider names) truncates instead of pushing the row taller.
+  const rowClassName = cn(
+    'relative w-full flex items-center py-4 justify-between gap-3',
+    onClick && ['cursor-pointer text-left', FOCUSABLE_CLASSES],
+    className
+  );
+  const content = (
+    <>
       {leading}
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <div
@@ -191,7 +189,9 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         {amount && (
           <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
             {amount.value !== '' && (
-              <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
+              <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>
+                {amount.preformatted ? amount.value : formatDisplayAmount(amount.value)}
+              </span>
             )}
             {amount.symbol ? (
               <span className="text-ink">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
@@ -226,6 +226,35 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         {status && <StatusBadge status={status} data-testid={testId && `${testId}-status`} />}
         {timestamp && <span className="text-caption text-muted">{timestamp}</span>}
       </div>
+    </>
+  );
+  // A row that opens something is a native button, as CardButton is, so focus, Enter and Space are the
+  // element's own.
+  if (onClick) {
+    return (
+      <motion.button
+        type="button"
+        layout="position"
+        whileTap={{ opacity: 0.9 }}
+        transition={transition}
+        data-testid={testId}
+        data-entry-key={entryKey}
+        onClick={handleClick}
+        className={rowClassName}
+      >
+        {content}
+      </motion.button>
+    );
+  }
+  return (
+    <motion.div
+      layout="position"
+      transition={transition}
+      data-testid={testId}
+      data-entry-key={entryKey}
+      className={rowClassName}
+    >
+      {content}
     </motion.div>
   );
 };

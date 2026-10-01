@@ -8,6 +8,7 @@ import { useWriteContract } from 'wagmi';
 
 import { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import { ReceiveStep } from 'app/pages/Receive/steps';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { NetworkModeBanner, NetworkNamedByShell } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
@@ -24,7 +25,6 @@ import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
 } from 'lib/epoch/bridgeable-token';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -520,8 +520,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Fast (Epoch): the EVM amount the sponsor deposits, from the reverse quote's
   // `tokenIn` (EVM token base units). This is what the wallet signs for, so it
   // is the amount shown as "depositing". It stays exact because the tracking row
-  // stores it; only the Review step rounds it. Falls back to the typed amount for
-  // the Slow route and while no quote is present.
+  // stores it; every screen that shows it rounds it up. Falls back to the typed
+  // amount for the Slow route and while no quote is present.
   const quotedDeposit = useMemo(() => {
     if (route === 'agglayer') return undefined;
     const raw = epochQuote?.quoteResult.tokenIn;
@@ -533,6 +533,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [route, epochQuote?.quoteResult.tokenIn]);
   const depositAmount = quotedDeposit ?? amount;
+  // What the Review hero prints; its fiat prices this figure, not the exact quote.
+  const reviewAmount = quotedDeposit
+    ? formatMoneyAmount(quotedDeposit, 'pays', token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL)
+    : formatMoneyAmount(amount, 'typed');
   const fastFeeUsd = useMemo(() => {
     const rawIn = epochQuote?.quoteResult.tokenIn;
     const rawOut = epochQuote?.quoteResult.tokenOut;
@@ -548,20 +552,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [epochQuote?.quoteResult.tokenIn, epochQuote?.quoteResult.tokenOut]);
   const error = route === 'epoch' && epochFlow === 'evm-to-miden' ? epochError : slowError;
 
-  // Output the recipient receives on Miden, shown on the Review step. Fast
-  // (Epoch) reads the reverse quote's tokenOut (Miden faucet base units); Slow
-  // (Agglayer) bridges the dedicated token 1:1.
+  // Output the recipient receives on Miden, exact, as the tracking row stores it. Both routes
+  // receive what was typed: Fast asks the reverse quote for `minTokenOut` (pinned to the typed
+  // amount by `fastReady`), Slow (Agglayer) bridges the dedicated token 1:1.
   const outputAmount = useMemo(() => {
     if (route === 'agglayer') return isValidAmount(amount) ? amount : undefined;
-    const raw = epochQuote?.quoteResult.tokenOut;
-    if (raw == null) return undefined;
+    const minTokenOut = epochQuote?.params.minTokenOut;
+    if (minTokenOut === undefined) return undefined;
     try {
-      const human = formatUnits(BigInt(String(raw)), MIDEN_USDC_FAUCET_DECIMALS);
-      return toAdaptiveFixed(human);
+      return formatUnits(BigInt(minTokenOut), MIDEN_USDC_FAUCET_DECIMALS);
     } catch {
       return undefined;
     }
-  }, [route, amount, epochQuote?.quoteResult.tokenOut]);
+  }, [route, amount, epochQuote?.params.minTokenOut]);
 
   const networkName = getChain(DEFAULT_CHAIN_ID)?.name ?? '';
 
@@ -676,11 +679,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
-              amount={quotedDeposit ? toAdaptiveFixed(quotedDeposit) : amount}
+              amount={reviewAmount}
               symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
-              fiat={token === 'USDC' ? Number(depositAmount) : undefined}
+              fiat={token === 'USDC' ? Number(reviewAmount) : undefined}
               route={route}
-              outputAmount={outputAmount}
+              outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               networkName={networkName}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
@@ -723,8 +726,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [
       amount,
       bridgeTxId,
-      depositAmount,
-      quotedDeposit,
+      reviewAmount,
       error,
       evmAddress,
       epochStatus,

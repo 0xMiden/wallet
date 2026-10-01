@@ -171,8 +171,9 @@ describe('generating-transaction/types', () => {
       const processing: TransactionHeroState = 'processing';
       const success: TransactionHeroState = 'success';
       const failed: TransactionHeroState = 'failed';
+      const unconfirmed: TransactionHeroState = 'unconfirmed';
 
-      const states: TransactionHeroState[] = [processing, success, failed];
+      const states: TransactionHeroState[] = [processing, success, failed, unconfirmed];
 
       const labels = states.map(state => {
         switch (state) {
@@ -182,6 +183,8 @@ describe('generating-transaction/types', () => {
             return state;
           case 'failed':
             return state;
+          case 'unconfirmed':
+            return state;
           default: {
             const never: never = state;
             return never;
@@ -189,7 +192,7 @@ describe('generating-transaction/types', () => {
         }
       });
 
-      expect(labels).toEqual(['processing', 'success', 'failed']);
+      expect(labels).toEqual(['processing', 'success', 'failed', 'unconfirmed']);
     });
   });
 

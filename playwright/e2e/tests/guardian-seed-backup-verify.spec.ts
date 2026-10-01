@@ -61,7 +61,7 @@ const SEED_WORD_COUNT = 12;
 // Copy this flow renders, from public/_locales/en/en.json:
 //   continue / verifySeedPhrasePromptTitle / verifyStepWrong / verifyStepCorrect
 const CONTINUE = 'Continue';
-const BACKUP_PROMPT_TITLE = 'Verify your recovery phrase';
+const BACKUP_PROMPT_TITLE = 'Back up your wallet';
 const VERDICT_WRONG = "That's not the first and last word — tap them again";
 const VERDICT_CORRECT = "That's the first and last word — tap Continue";
 

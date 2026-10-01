@@ -159,6 +159,21 @@ describe('ChoiceCardGroup', () => {
     expect(mockHapticSelection).toHaveBeenCalledTimes(1);
   });
 
+  // #1083: a tap on the card already chosen must still record it as the user's pick,
+  // through the dedicated callback rather than onChange (which stays "once per real change").
+  it('calls onReselect, not onChange or the haptic, for a tap on the chosen card', () => {
+    const onChange = jest.fn();
+    const onReselect = jest.fn();
+    renderGroup({ onChange, onReselect });
+
+    fireEvent.click(radio('OpenZeppelin'));
+
+    expect(onReselect).toHaveBeenCalledWith('oz');
+    expect(onReselect).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(mockHapticSelection).not.toHaveBeenCalled();
+  });
+
   it('disables an option: out of reach, dimmed, and never selected', () => {
     const onChange = jest.fn();
     renderGroup({ onChange });
@@ -219,14 +234,6 @@ describe('ChoiceCardGroup', () => {
     expect([...group.children]).toEqual(screen.getAllByRole('radio'));
   });
 
-  // C-08: with nothing focused and nothing chosen, the first arrow lands on the FIRST option.
-  it('starts the keyboard walk at the first enabled option when nothing is chosen', () => {
-    const onChange = jest.fn();
-    renderGroup({ value: null, onChange });
-    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowDown' });
-    expect(onChange).toHaveBeenCalledWith('oz');
-  });
-
   it('keeps only the chosen card in the tab order', () => {
     renderGroup({ value: 'gateway' });
     expect(radio('Gateway')).toHaveAttribute('tabindex', '0');
@@ -268,6 +275,22 @@ describe('ChoiceCardGroup', () => {
     expect(mockHapticSelection).toHaveBeenCalledTimes(6);
   });
 
+  // #1083: Home landing back on the already-chosen first card is activation too, the same as a
+  // tap, and must go through onReselect rather than being swallowed.
+  it('calls onReselect, not onChange or the haptic, for Home on the chosen first card', () => {
+    const onChange = jest.fn();
+    const onReselect = jest.fn();
+    renderGroup({ onChange, onReselect });
+
+    radio('OpenZeppelin').focus();
+    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'Home' });
+
+    expect(onReselect).toHaveBeenCalledWith('oz');
+    expect(onReselect).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(mockHapticSelection).not.toHaveBeenCalled();
+  });
+
   it('ignores other keys', () => {
     const onChange = jest.fn();
     render(<Owner onChange={onChange} />);
@@ -291,8 +314,14 @@ describe('ChoiceCardGroup', () => {
   it('starts either walk at the first enabled option when nothing is chosen', () => {
     const onChange = jest.fn();
     renderGroup({ value: null, onChange });
+
+    fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowDown' });
+    expect(onChange).toHaveBeenNthCalledWith(1, 'oz');
+
+    radio('OpenZeppelin').blur();
     fireEvent.keyDown(screen.getByRole('radiogroup'), { key: 'ArrowUp' });
-    expect(onChange).toHaveBeenCalledWith('oz');
+    expect(onChange).toHaveBeenNthCalledWith(2, 'oz');
+    expect(onChange).toHaveBeenCalledTimes(2);
   });
 
   it('dips a pressed card on the tab-bar press and pops the check when a card becomes chosen', () => {

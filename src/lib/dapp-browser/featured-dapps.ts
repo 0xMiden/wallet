@@ -84,7 +84,8 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     icon: faucetIcon,
     shortDescription: 'Get testnet MIDEN tokens',
     genre: 'Helper Tool',
-    brandColor: '#0EA5E9',
+    // The brand card green (`card-green`): the brand orange would swallow the orange faucet mark.
+    brandColor: '#778C72',
     category: 'tools',
     badge: 'verified'
   },

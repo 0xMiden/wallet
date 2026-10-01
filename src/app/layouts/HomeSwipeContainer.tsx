@@ -2,6 +2,7 @@ import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, 
 
 import { animate, motion, useDragControls, useMotionValue, useReducedMotion } from 'framer-motion';
 
+import { PageActiveContext, usePageActive, useTabShownAgain } from 'app/layouts/page-active';
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
@@ -128,8 +129,11 @@ const HomeSwipeContainer: FC = () => {
   // way back before it slid to the page the action bar named.
   const onHome = routeIdx !== -1;
   const lastHomeIdxRef = useRef(0);
-  const wasOnHomeRef = useRef(onHome);
+  const shownAgain = useTabShownAgain();
   const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
+  // Every page stays mounted in the track, so only the centred one, on a shown and uncovered tab, is
+  // on screen; the others pause their display-only work as a hidden tab's pages do.
+  const parentActive = usePageActive();
 
   // Measure container width — drives both the snap positions and the
   // drag constraints. Set synchronously on mount so the first render
@@ -197,10 +201,6 @@ const HomeSwipeContainer: FC = () => {
   useEffect(() => {
     const dragTargetIdx = dragTargetIdxRef.current;
     dragTargetIdxRef.current = null;
-    // The pane was hidden until now, so this is a tab change, which swaps rather
-    // than slides — across every page in between, it would read as a glitch.
-    const returning = onHome && !wasOnHomeRef.current;
-    wasOnHomeRef.current = onHome;
     if (onHome) lastHomeIdxRef.current = activeIdx;
     if (!width) {
       x.set(-activeIdx * (containerRef.current?.clientWidth ?? 0));
@@ -216,12 +216,18 @@ const HomeSwipeContainer: FC = () => {
     if (dragTargetIdx === activeIdx && isReleaseRunning()) return;
     // Any other route change outranks a release still in flight.
     endRelease(true);
-    if (returning) {
+    // The pane was hidden until now, so this is a tab change, which swaps rather than slides across
+    // every page in between. Read, not a dependency: TabLayout shows this pane only on Home's own routes
+    // and keeps it mounted, hidden, on every other tab's route, so `onHome` is false exactly while the
+    // pane is hidden and rises in the commit that shows it again, which runs this effect; a later render
+    // must not re-run it mid-gesture.
+    if (shownAgain) {
       x.set(-activeIdx * width);
       return;
     }
     const controls = animate(x, -activeIdx * width, resolveTransition(reduceMotion, springs.standard));
     return () => controls.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- shownAgain is read, not a trigger (above)
   }, [activeIdx, onHome, width, x, reduceMotion, endRelease, isReleaseRunning]);
 
   useEffect(() => () => releaseRef.current?.cancel(), []);
@@ -470,9 +476,11 @@ const HomeSwipeContainer: FC = () => {
         onDragEnd={handleDragEnd}
         onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
-        {pages.map(page => (
+        {pages.map((page, index) => (
           <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>
-            {page.node}
+            <PageActiveContext.Provider value={parentActive && index === activeIdx}>
+              {page.node}
+            </PageActiveContext.Provider>
           </div>
         ))}
       </motion.div>

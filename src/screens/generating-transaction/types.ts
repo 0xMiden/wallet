@@ -53,7 +53,7 @@ export interface GeneratingTransactionProps {
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
 export type TransactionStep = TransactionStepDef;
-export type TransactionHeroState = 'processing' | 'success' | 'failed';
+export type TransactionHeroState = 'processing' | 'success' | 'failed' | 'unconfirmed';
 
 /** Circle diameter in px. 64 is the spec's status-circle size (Hero's `visual` slot); 96 is kept for a caller that needs a bigger hero. */
 export type TransactionHeroIconSize = 64 | 96;

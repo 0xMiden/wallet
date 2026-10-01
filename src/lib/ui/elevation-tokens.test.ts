@@ -1,7 +1,7 @@
 /**
  * The design system's raised elevation (design-system.md, "Elevation"): the tab bars' active bubble
- * and the network ribbon read their shadows from named tokens, never literals, and the raised
- * tokens are defined for both themes.
+ * reads its shadows from named tokens, never literals, and the raised tokens are defined for both
+ * themes.
  */
 import fs from 'fs';
 import path from 'path';
@@ -19,10 +19,9 @@ describe('raised elevation tokens', () => {
   const boxShadow = (extend?.boxShadow ?? {}) as Record<string, string>;
   const colors = (tailwindConfig.theme?.colors ?? {}) as Record<string, unknown>;
 
-  it('names shadow-raised, shadow-raised-pressed and shadow-ribbon in the Tailwind theme', () => {
+  it('names shadow-raised and shadow-raised-pressed in the Tailwind theme', () => {
     expect(boxShadow.raised).toBe('var(--ds-shadow-raised)');
     expect(boxShadow['raised-pressed']).toBe('var(--ds-shadow-raised-pressed)');
-    expect(boxShadow.ribbon).toMatch(/rgba\(0, 0, 0/);
     expect(colors.raised).toBe('var(--ds-raised)');
   });
 

@@ -14,8 +14,9 @@ import { type BackHandlerOptions, registerMobileBackHandler } from './back-handl
  *
  * @param handler - Function that returns true if it handled the back press
  * @param deps - Dependency array (like useEffect)
- * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree;
- *   read at registration
+ * @param options - `{ overlay: true }` for UI rendered outside the routed page's tree; a sheet on the
+ *   shared Drawer or a popover that closes itself is registered there by the Drawer or
+ *   `useCloseOnBack`; read at registration
  *
  * @example
  * ```typescript
@@ -35,8 +36,9 @@ export function useMobileBackHandler(
   options?: BackHandlerOptions
 ): void {
   const overlay = options?.overlay === true;
-  // A retained page that is off screen (a hidden tab, a page under a slide page) registers nothing, so the page
-  // on screen always gets the press; a page coming back on screen registers again, on top.
+  // A retained page that is off screen (a hidden tab, a page a slide page covers, or a Home page the carousel has not
+  // centred) registers nothing, so the page on screen always gets the press; a page coming back on screen registers
+  // again, on top, as a swipe does for the Home page it centres.
   const onScreen = usePageActive();
   useEffect(() => {
     if (!isMobile() || !onScreen) {

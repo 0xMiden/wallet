@@ -15218,12 +15218,24 @@ tldts-core@^6.1.86:
   resolved "https://registry.yarnpkg.com/tldts-core/-/tldts-core-6.1.86.tgz#a93e6ed9d505cb54c542ce43feb14c73913265d8"
   integrity sha512-Je6p7pkk+KMzMv2XXKmAE3McmolOQFdxkKw0R8EYNr7sELW46JqnNeTX8ybPiQgvg1ymCoF8LXs5fzFaZvJPTA==
 
+tldts-core@^7.4.16:
+  version "7.4.16"
+  resolved "https://registry.yarnpkg.com/tldts-core/-/tldts-core-7.4.16.tgz#f4b1711fd30e5d9a742d94f6b391d8649acc8ae1"
+  integrity sha512-MDolfaSJtlSK5Y0A1xl3277ekubZwobpBjugknDizI9O5Rm60a1m8k4ICK+MRsCDzPygT81mp3BBf5RKDlFRfA==
+
 tldts@^6.1.32:
   version "6.1.86"
   resolved "https://registry.yarnpkg.com/tldts/-/tldts-6.1.86.tgz#087e0555b31b9725ee48ca7e77edc56115cd82f7"
   integrity sha512-WMi/OQ2axVTf/ykqCQgXiIct+mSQDFdH2fkwhPwgEwvJ1kSzZRiinb0zF2Xb8u4+OqPChmyI6MEu4EezNJz+FQ==
   dependencies:
     tldts-core "^6.1.86"
+
+tldts@^7:
+  version "7.4.16"
+  resolved "https://registry.yarnpkg.com/tldts/-/tldts-7.4.16.tgz#0bb8768d14c7f540dbf38256ae88e637b08937d9"
+  integrity sha512-QwBER5KMR86IIjpIiO7H/Z3IMJPsZ1A6RKPAqzTTgOyUQUSt9FdnKcqhTaJmkY6HVrgouZHZR0ncK5QxvmnQeg==
+  dependencies:
+    tldts-core "^7.4.16"
 
 tmp@^0.2.4:
   version "0.2.7"

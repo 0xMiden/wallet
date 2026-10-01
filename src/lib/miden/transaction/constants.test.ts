@@ -2,16 +2,33 @@ import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  GUARDIAN_UNREACHABLE_ERROR,
+  INVALID_NOTE_ERROR,
+  isGuardianOutage,
   isProverProcedureMismatch,
+  isUnconfirmedFailure,
+  isVaultShortfallError,
+  isVaultShortfallRow,
   resolveTransactionErrorMessage,
+  ROTATION_FUNDING_NON_NATIVE_ERROR,
+  ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_ERROR,
-  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
+import { ITransaction, ITransactionStatus } from '../db/types';
 
 // The real native-prover error captured in #487.
 const MISSING_PROCEDURE =
@@ -120,6 +137,48 @@ describe('resolveTransactionErrorMessage', () => {
       'Error: insufficient balance'
     );
   });
+
+  it('names an unreachable guardian before submit in plain language (#779)', () => {
+    // Hedged between the guardian and the network, since the proposal stages also call the node.
+    expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'creating-proposal')).toBe(
+      'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are ' +
+        'safe; try again in a moment.'
+    );
+    expect(
+      resolveTransactionErrorMessage(Object.assign(new Error('Bad Gateway'), { status: 502 }), 'signing-proposal')
+    ).toBe(GUARDIAN_UNREACHABLE_ERROR);
+  });
+
+  it('leaves an unreachable-looking failure at any other stage raw (#779)', () => {
+    expect(resolveTransactionErrorMessage(new TypeError('Failed to fetch'), 'sending')).toBe(
+      'TypeError: Failed to fetch'
+    );
+  });
+
+  it('names a fee or vault failure a guardian 5xx carries rather than calling it unreachable (#779)', () => {
+    // A 5xx reads as unreachable, but the kernel's own code in its text is the more specific reading.
+    const feeCode = Object.assign(new Error('assertion failed with error code: 14712559985122731094'), {
+      status: 500
+    });
+    expect(resolveTransactionErrorMessage(feeCode, 'creating-proposal')).toBe(
+      TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR
+    );
+    const shortfall = Object.assign(
+      new Error('the amount of the asset in the vault is less than the amount to remove'),
+      { status: 502 }
+    );
+    expect(resolveTransactionErrorMessage(shortfall, 'signing-proposal')).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+
+  it.each(['creating-proposal', 'signing-proposal'] as const)(
+    'passes the reaper reasons through unchanged at %s, where every requeued row is reaped (#779)',
+    stage => {
+      // The reapers write these as bare strings; a copy edit adding "timed out" or "connection" would otherwise
+      // relabel every reaped row as a guardian outage.
+      expect(resolveTransactionErrorMessage(TRANSACTION_EXPIRED_ERROR, stage)).toBe(TRANSACTION_EXPIRED_ERROR);
+      expect(resolveTransactionErrorMessage(TRANSACTION_STUCK_ERROR, stage)).toBe(TRANSACTION_STUCK_ERROR);
+    }
+  );
 });
 describe('fee failures', () => {
   const vaultShortfall = new Error(
@@ -164,5 +223,174 @@ describe('fee failures', () => {
     const message = resolveTransactionErrorMessage(err);
     expect(message).not.toMatch(/receive some miden/i);
     expect(message).not.toMatch(/not enough/i);
+  });
+});
+
+describe('the vault shortfall by its kernel code (#805)', () => {
+  // What an unfunded account's rotation failed with on a fee-charging chain: the code, no text.
+  const codeOnly = 'assertion failed with error code: 644413868907058392';
+
+  it('maps the code-only kernel line to the vault-shortfall copy', () => {
+    expect(isVaultShortfallError(codeOnly)).toBe(true);
+    expect(resolveTransactionErrorMessage(new Error(codeOnly))).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+
+  it('reads the code-only line in a guardian 5xx as the shortfall, not an outage to retry (#779)', () => {
+    const in5xx = Object.assign(new Error(codeOnly), { status: 500 });
+    expect(isGuardianOutage(in5xx)).toBe(false);
+    expect(resolveTransactionErrorMessage(in5xx, 'creating-proposal')).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+
+  it('keeps the conversion-info reading when a line carries both codes', () => {
+    const both = new Error('assertion failed with error code: 14712559985122731094, then 644413868907058392');
+    expect(resolveTransactionErrorMessage(both)).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+  });
+
+  it('does not read another kernel code as a shortfall', () => {
+    expect(isVaultShortfallError('assertion failed with error code: 9876543210')).toBe(false);
+  });
+});
+
+describe('isVaultShortfallRow', () => {
+  type RowShape = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError'>;
+  const failedRotation: RowShape = { type: 'replace-hot-key', status: ITransactionStatus.Failed };
+
+  it('is true for a failed rotation classified as a vault shortfall', () => {
+    expect(isVaultShortfallRow({ ...failedRotation, error: TRANSACTION_VAULT_SHORTFALL_ERROR })).toBe(true);
+  });
+
+  it('is true for a failed rotation an older build left with the raw code-only line', () => {
+    expect(
+      isVaultShortfallRow({ ...failedRotation, error: 'assertion failed with error code: 644413868907058392' })
+    ).toBe(true);
+  });
+
+  it('reads the raw error when the display message was rewritten', () => {
+    const row: RowShape = {
+      ...failedRotation,
+      error: 'Something else',
+      rawError: 'Error: assertion failed with error code: 644413868907058392'
+    };
+    expect(isVaultShortfallRow(row)).toBe(true);
+  });
+
+  it('is false for a rotation that failed for another reason', () => {
+    expect(isVaultShortfallRow({ ...failedRotation, error: 'guardian unreachable' })).toBe(false);
+    expect(isVaultShortfallRow(failedRotation)).toBe(false);
+  });
+
+  it('is false for other types and for a rotation that has not failed', () => {
+    expect(isVaultShortfallRow({ ...failedRotation, type: 'consume', error: TRANSACTION_VAULT_SHORTFALL_ERROR })).toBe(
+      false
+    );
+    expect(
+      isVaultShortfallRow({
+        ...failedRotation,
+        status: ITransactionStatus.Queued,
+        error: TRANSACTION_VAULT_SHORTFALL_ERROR
+      })
+    ).toBe(false);
+  });
+});
+
+// The one predicate the rotation gate (HotKeyRotationGate.selectors) and Activity History both
+// read a failed row through (#1250), so the two never disagree on which rows are unconfirmed.
+describe('isUnconfirmedFailure', () => {
+  type Row = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<Pick<ITransaction, 'extraInputs'>>;
+  const failed = (extra: Partial<Row> = {}): Row => ({ type: 'send', status: ITransactionStatus.Failed, ...extra });
+
+  it.each<[string, Row]>([
+    ['mayHaveSubmitted', failed({ mayHaveSubmitted: true })],
+    [
+      'a non-rotation row with the vault-shortfall error and mayHaveSubmitted',
+      failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true })
+    ],
+    ['the engine-recovered copy as error', failed({ error: TRANSACTION_ENGINE_RECOVERED_ERROR })],
+    ['the stuck-reaper reason as error', failed({ error: TRANSACTION_STUCK_ERROR })],
+    [
+      'the stuck-reaper reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_STUCK_ERROR })
+    ],
+    ['the cold-start-sweep reason as error', failed({ error: TRANSACTION_INTERRUPTED_ON_STARTUP })],
+    [
+      'the cold-start-sweep reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_INTERRUPTED_ON_STARTUP })
+    ],
+    ['the not-landed-consume reason as error', failed({ error: TRANSACTION_INTERRUPTED_ERROR })],
+    [
+      'the not-landed-consume reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_INTERRUPTED_ERROR })
+    ],
+    ['the debug force-cancel reason as error', failed({ error: TRANSACTION_FORCE_CANCELLED_ERROR })],
+    [
+      'the debug force-cancel reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_FORCE_CANCELLED_ERROR })
+    ],
+    [
+      'a user cancel the write stamp reached',
+      failed({ error: USER_CANCELLED_TRANSACTION_REASON, processingStartedAt: 1_700_000_000 })
+    ],
+    [
+      'a bridged-send whose fill is still pending, mayHaveSubmitted',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'pending' } })
+    ],
+    [
+      'a bridged-send whose fill confirmed, mayHaveSubmitted',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'confirmed' } })
+    ]
+  ])('is true for %s', (_label, row) => {
+    expect(isUnconfirmedFailure(row)).toBe(true);
+  });
+
+  it.each<[string, Row]>([
+    ['a user cancel the write stamp never reached', failed({ error: USER_CANCELLED_TRANSACTION_REASON })],
+    ['the expired-in-queue final reason', failed({ error: TRANSACTION_EXPIRED_ERROR })],
+    ['the invalid-note final reason', failed({ error: INVALID_NOTE_ERROR })],
+    ['an unclassified failure before the submit crossing', failed({ error: 'some other reason' })],
+    ['a row that has not failed', { type: 'send', status: ITransactionStatus.Queued, error: TRANSACTION_STUCK_ERROR }],
+    [
+      'a shortfall rotation row with the vault-shortfall error and mayHaveSubmitted',
+      failed({ type: 'replace-hot-key', error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true })
+    ],
+    [
+      'a shortfall rotation row with the raw kernel shortfall line as rawError and mayHaveSubmitted',
+      failed({
+        type: 'replace-hot-key',
+        rawError: 'assertion failed with error code: 644413868907058392',
+        mayHaveSubmitted: true
+      })
+    ],
+    [
+      'a bridged-send its own route evidence proves failed, mayHaveSubmitted (#1250)',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'failed' } })
+    ],
+    [
+      'a rotation row with no extraInputs at all',
+      { type: 'replace-hot-key', status: ITransactionStatus.Failed, error: 'guardian unreachable' }
+    ]
+  ])('is false for %s', (_label, row) => {
+    expect(isUnconfirmedFailure(row)).toBe(false);
+  });
+});
+
+describe('RotationGateConsumeRefusal', () => {
+  it.each([ROTATION_PENDING_CONSUME_ERROR, ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR, ROTATION_FUNDING_NON_NATIVE_ERROR])(
+    'lands on the row as written: %s',
+    message => {
+      expect(resolveTransactionErrorMessage(new RotationGateConsumeRefusal(message))).toBe(message);
+    }
+  );
+
+  it('keeps its own text at a proving stage and over a shortfall reading', () => {
+    const refusal = new RotationGateConsumeRefusal(
+      'amount of the asset in the vault is less than the amount to remove'
+    );
+    expect(resolveTransactionErrorMessage(refusal, 'proving', true)).toBe(refusal.message);
+  });
+
+  it('is never read as a guardian outage, whatever its text (#779)', () => {
+    // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
+    expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
   });
 });

@@ -91,8 +91,10 @@ const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
  * Callers need this to reason about what a JS-level timeout actually buys them. A
  * timeout that rejects out of a `withWasmClientLock` callback RELEASES the mutex
  * while the underlying call keeps running; that is harmless when the WASM lives in
- * another realm behind its own mutex, and a double borrow of the single-threaded
- * client when it does not.
+ * another realm behind its own mutex, or when the abandoned tail makes no WASM call
+ * after its first suspension except on objects the flow built itself from plain
+ * inputs (such as a signer key from a seed), never the client or any object a
+ * client call returned. Otherwise it is a double borrow of the single-threaded client.
  */
 export function runsWasmInThisRealm(): boolean {
   return !USE_OFFSCREEN_CLIENT || !isOffscreenAvailable();
@@ -933,7 +935,8 @@ export const midenClientProxy = {
       // `getMidenClient().getAccount(id)` does NOT take the WASM client lock.
       // That is correct because it exactly preserves today's behavior: every
       // current caller supplies its own serialization around getAccount — the
-      // hot balance poll uses `tryWithWasmClientLock` (fetchBalances), and
+      // balance read (fetchBalances) uses `tryWithWasmClientLock` for a refresh and
+      // `withWasmClientLock` for a first read, and
       // vault / guardian-sync use `withWasmClientLock`. An unlocked read fired
       // inside a transaction's `_withInnerWebClient` window double-borrows the
       // WASM RefCell and crashes (see `sdk/miden-client.ts` isWasmClientBusy).
