@@ -709,7 +709,7 @@ const apiWriterViolations = (file: string, text: string): Violation[] => {
 describe('a stacked pull request reports its E2E checks under names no branch requires', () => {
   it.each(REQUIRED_NAMES)('%s is reported as itself or as (stacked), never as a bare literal name', required => {
     const src = combinedWorkflowSource();
-    const escaped = required.replace(/[()]/g, '\\$&');
+    const escaped = escapeRegExp(required);
     expect(src).toMatch(
       new RegExp(
         `name:\\s*\\$\\{\\{\\s*\\([\\s\\S]+?\\)\\s*&&\\s*'${escaped}'\\s*\\|\\|\\s*'${escaped} \\(stacked\\)'\\s*\\}\\}`
