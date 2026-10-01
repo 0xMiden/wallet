@@ -15,6 +15,9 @@ const DUPLICATE =
 const GENUINE_FAILURE =
   'Failed%20to%20store%20note:%20ConstraintViolation(%22Not%20null%20constraint%20violation:%20NOT%20NULL%20constraint%20failed:%20notes.tag%22)';
 
+// The SDK's outbox row holding this one private note, under the pinned SDK 0.16.1.
+const ONE_ENTRY_BYTES = 232;
+
 type OutboxRun = { seeded: number; afterFirstSync: number; afterSecondSync: number; sendCalls: number };
 
 let server: Server;
@@ -152,7 +155,7 @@ test.describe('SDK relay outbox, real WASM', () => {
 
   test("the transport's duplicate response retires the entry, so the next sync sends nothing", async ({ page }) => {
     const run = await runOutbox(page, DUPLICATE);
-    expect(run.seeded).toBeGreaterThan(0);
+    expect(run.seeded).toBe(ONE_ENTRY_BYTES);
     expect(run.afterFirstSync).toBe(0);
     expect(run.afterSecondSync).toBe(0);
     expect(run.sendCalls).toBe(2);
@@ -160,7 +163,7 @@ test.describe('SDK relay outbox, real WASM', () => {
 
   test('a genuine storage failure stays in the outbox and is sent again', async ({ page }) => {
     const run = await runOutbox(page, GENUINE_FAILURE);
-    expect(run.seeded).toBeGreaterThan(0);
+    expect(run.seeded).toBe(ONE_ENTRY_BYTES);
     expect(run.afterFirstSync).toBe(run.seeded);
     expect(run.afterSecondSync).toBe(run.seeded);
     expect(run.sendCalls).toBe(3);
