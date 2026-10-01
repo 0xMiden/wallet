@@ -462,11 +462,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
     },
 
-    swapHotKey: async (accountPublicKey, newHotPubKey) => {
+    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey) => {
       const res = await request({
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey,
-        newHotPubKey
+        newHotPubKey,
+        expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },

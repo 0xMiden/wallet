@@ -269,7 +269,12 @@ describe('zustandProvider', () => {
 
   it('swapHotKey delegates to the store', async () => {
     await zustandProvider.swapHotKey?.('account-pub', 'new-hot-pub');
-    expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub', undefined);
+  });
+
+  it('swapHotKey passes the expectation to the store (#1233)', async () => {
+    await zustandProvider.swapHotKey?.('account-pub', 'new-hot-pub', 'old-hot-pub');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub', 'old-hot-pub');
   });
 
   it('setGuardianEndpoint delegates to the store', () => {
@@ -1447,6 +1452,17 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     }
     nowSpy.mockRestore();
   };
+  // The vault's check, against the record the store holds when the swap lands, refused in the shape
+  // deserializeError gives it on the extension.
+  const swapAsTheVault = () =>
+    storeState.swapHotKey.mockImplementation(
+      async (accountPublicKey: string, _newHotPubKey: string, expectedHotPubKey?: string | null) => {
+        const current = storeState.accounts.find(stored => stored.publicKey === accountPublicKey);
+        if (expectedHotPubKey !== undefined && (current?.hotPublicKey ?? null) !== expectedHotPubKey) {
+          throw Object.assign(new Error('The account hot key changed'), { code: 'HOT_KEY_CHANGED' });
+        }
+      }
+    );
 
   it("finishes this device's own rotation once the chain-verified signer set names its key (#1233)", async () => {
     arrangeOwnRotation('acct-own-rotation');
@@ -1455,7 +1471,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
 
     expect(mockReRegister).toHaveBeenCalledTimes(1);
-    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-rotation', 'new-hot-pub');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-rotation', 'new-hot-pub', 'hot');
     const swappedAt = storeState.swapHotKey.mock.invocationCallOrder[0]!;
     expect(swappedAt).toBeGreaterThan(mockReRegister.mock.invocationCallOrder[0]!);
     expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot');
@@ -1537,6 +1553,41 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(isGuardianUnrepairable('acct-own-locked')).toBe(false);
   });
 
+  // The user's own rotation completed while the push ran: the heal swaps only from the record it read
+  // at the start of its lap, so the vault refuses and the newer key stays (#1233).
+  it("does not finish its own rotation when the account's hot key moved during the push, and keeps the budget open (#1233)", async () => {
+    arrangeOwnRotation('acct-own-moved');
+    swapAsTheVault();
+    let pushes = 0;
+    mockReRegister.mockImplementation(
+      async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+        pushes += 1;
+        if (pushes < SELF_HEAL_MAX_ATTEMPTS) {
+          onPushStart?.(['0xAABB', '0xc01d']);
+          return;
+        }
+        onPushStart?.(['0xbeef', '0xc01d']);
+        storeState.accounts = [
+          {
+            publicKey: 'acct-own-moved',
+            type: WalletType.Guardian,
+            hotPublicKey: 'retry-hot-pub',
+            coldPublicKey: 'cold'
+          }
+        ] as never;
+      }
+    );
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS - 1);
+
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+    expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-moved', 'new-hot-pub', 'hot');
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    // Two attempts booked, not three.
+    expect(isGuardianUnrepairable('acct-own-moved')).toBe(false);
+  });
+
   // #1233: a post-recovery or migrated account has no hot key, so the sync loop filters it out and it
   // never 401s into the heal; its own trigger finishes its landed rotation.
   describe('a rotation-pending account', () => {
@@ -1580,7 +1631,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
       );
       expect(mockReRegister).toHaveBeenCalledTimes(1);
-      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub');
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null);
       expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
       expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
     });
@@ -1593,8 +1644,26 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
       await syncGuardianAccounts();
 
-      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub');
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'cold');
       expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+    });
+
+    it('does not finish a keyless activation whose account gained a key during the push (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      swapAsTheVault();
+      mockReRegister.mockImplementationOnce(
+        async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+          onPushStart?.(['0xbeef', '0xc01d']);
+          storeState.accounts = [
+            { ...pendingAccount, hotPublicKey: 'retry-hot-pub', requiresHotKeyRotation: false }
+          ] as never;
+        }
+      );
+
+      await syncGuardianAccounts();
+
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null);
+      expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
     });
 
     it('backs off a pending activation the chain has not confirmed (#1233)', async () => {

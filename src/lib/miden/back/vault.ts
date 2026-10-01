@@ -18,7 +18,7 @@ import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
-import { HOT_KEY_NOT_STORED, PublicError } from 'lib/miden/back/defaults';
+import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from 'lib/miden/back/defaults';
 import {
   encryptAndSaveMany,
   fetchAndDecryptOneWithLegacyFallBack,
@@ -2114,13 +2114,24 @@ export class Vault {
    * On mobile we release the SE/StrongBox wrapper key for the old ciphertext
    * via secureHotKey.deleteHotKey — best-effort, not fatal if it fails (the
    * JS fallback's deleteHotKey is a no-op anyway).
+   *
+   * `expectedHotPubKey` is the hot key the caller read before it decided to swap. Omitted, nothing is
+   * checked. A string must equal the stored `hotPublicKey`, and null requires a record with none (a
+   * keyless pending activation). Any other record is refused with a `PublicError` coded
+   * `HOT_KEY_CHANGED`, and nothing is written or released.
    */
-  async swapHotKey(accountPublicKey: string, newHotPubKey: string) {
+  async swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
     return withError('Failed to swap hot key', async () => {
       const allAccounts = await this.fetchAccounts();
       const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
+      }
+      // Checked here, inside the caller's accounts-write-queue turn, because a background heal in
+      // another realm shares no lock with the rotation pipeline. Ahead of the stored-key check, whose
+      // code closes the heal's budget for good, so a moved pointer is never reported as a missing key.
+      if (expectedHotPubKey !== undefined && (account.hotPublicKey ?? null) !== expectedHotPubKey) {
+        throw Object.assign(new PublicError('The account hot key changed'), { code: HOT_KEY_CHANGED });
       }
       // Before the pointer: a swap to a key this vault lacks points the account at nothing, and an
       // encrypted-file restore keeps the rotation rows without necessarily keeping their keys.

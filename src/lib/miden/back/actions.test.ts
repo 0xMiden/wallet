@@ -51,7 +51,8 @@ import {
   saveSpendingLimit,
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
-  verifyStrictActionAuthentication
+  verifyStrictActionAuthentication,
+  swapHotKey
 } from './actions';
 
 jest.mock('lib/miden/spending-limits/valuation', () => ({ resolveSpendsUsd: jest.fn() }));
@@ -76,6 +77,7 @@ const mockVault = {
   setGuardianEndpoint: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
+  swapHotKey: jest.fn(),
   retire: jest.fn(),
   insertKeySink: jest.fn()
 };
@@ -1112,6 +1114,26 @@ describe('actions', () => {
 
       expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'commitment-hex');
       expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  describe('swapHotKey', () => {
+    it('passes the expectation to the vault and fires accountsUpdated (#1233)', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.swapHotKey.mockResolvedValueOnce(updated);
+
+      await swapHotKey('pk1', 'new-pub', 'old-pub');
+
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', 'old-pub');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+
+    it('passes no expectation when the caller passes none (#1233)', async () => {
+      mockVault.swapHotKey.mockResolvedValueOnce({ accounts: [], currentAccount: undefined });
+
+      await swapHotKey('pk1', 'new-pub');
+
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', undefined);
     });
   });
 

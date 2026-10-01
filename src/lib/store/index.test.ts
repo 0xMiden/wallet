@@ -665,6 +665,34 @@ describe('useWalletStore', () => {
       await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
     });
 
+    it('swapHotKey posts a SwapHotKeyRequest carrying the expectation (#1233)', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
+
+      const { swapHotKey } = useWalletStore.getState();
+      await swapHotKey('acc', 'new-pub', null);
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'acc',
+        newHotPubKey: 'new-pub',
+        expectedHotPubKey: null
+      });
+    });
+
+    // A completion passes no expectation, and a null one would refuse every keyed swap (#1233).
+    it('swapHotKey posts no expectation when the caller passes none (#1233)', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
+
+      const { swapHotKey } = useWalletStore.getState();
+      await swapHotKey('acc', 'new-pub');
+
+      expect(mockRequest.mock.calls[0]?.[0]).toEqual({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'acc',
+        newHotPubKey: 'new-pub'
+      });
+    });
+
     it('setGuardianOperatorCommitment posts a SetGuardianOperatorCommitmentRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SetGuardianOperatorCommitmentResponse });
 

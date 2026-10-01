@@ -776,10 +776,10 @@ export async function retryDeadletteredNotes(): Promise<{ requeued: number }> {
   return result;
 }
 
-export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {
+export function swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
   return withUnlocked(({ vault }) =>
     getAccountsWriteQueue().add(async () => {
-      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
       // Push the updated WalletAccount[] into the Effector store so the
       // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
       // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next

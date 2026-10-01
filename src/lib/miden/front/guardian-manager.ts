@@ -62,7 +62,7 @@ export interface GuardianAccountProvider {
   // path runs only inside the SW-side transaction processor where the
   // vault-backed provider implements them.
   persistNewHotKey?: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey?: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
+  swapHotKey?: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   // Persist a per-account guardian endpoint after a switch-guardian lands.
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.

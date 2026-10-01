@@ -51,6 +51,8 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  *                             more; no later tick can change that, so stop asking.
  *  - `refused-transiently`  — could not tell (unreadable account/commitment); no
  *                             guardian traffic happened, so retry later for free.
+ *                             Also a push whose finish found the account's key moved
+ *                             on: a later rotation owns the pointer, so nothing is spent.
  */
 export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently';
 

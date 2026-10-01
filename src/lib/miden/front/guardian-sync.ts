@@ -1,7 +1,7 @@
 // lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
 // this adds no module to that cycle; the function is only called during a sync, never at module load.
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
-import { HOT_KEY_NOT_STORED } from 'lib/miden/back/defaults';
+import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED } from 'lib/miden/back/defaults';
 import { isGuardianAuthRejection, isGuardianReRegisterRefusal, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
@@ -76,8 +76,8 @@ export const zustandProvider: GuardianAccountProvider = {
     useWalletStore.getState().signWord(publicKey, wordHex, transactionId),
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
-  swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>
-    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey),
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) =>
+    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey),
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
     useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
 };
@@ -938,23 +938,31 @@ async function findOwnRotation(accountPublicKey: string, onChainCommitment: stri
 
 /**
  * Point the account at the rotation's key and complete its row, once the chain-verified signer set
- * names that key. Only the vault's coded refusal is permanent: this wallet does not hold the key, so
- * this device cannot sign as the chain's hot signer. Matched on the code, which the extension port
- * carries, never on the message. Any other failure (a locked vault, the intercom, storage) returns
+ * names that key. The swap expects the hot key in the record this lap read, so a rotation the user
+ * completed during the push is never overwritten: the vault refuses with `HOT_KEY_CHANGED`, which is
+ * transient, since the pointer moved on and the next lap reads the newer record. Only the vault's
+ * `HOT_KEY_NOT_STORED` refusal is permanent: this wallet does not hold the key, so this device cannot
+ * sign as the chain's hot signer. Both are matched on the code, which the extension port carries,
+ * never on the message. Any other failure (a locked vault, the intercom, storage) returns
  * 'attempted', since the push ran and is booked like every push: the row stays Failed, the next due
  * heal re-verifies and swaps, and three failures in a row still bound the `/configure` writes.
  */
 async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation): Promise<SelfHealOutcome> {
   try {
     if (!zustandProvider.swapHotKey) throw new Error('swapHotKey not implemented in this provider');
-    await zustandProvider.swapHotKey(account.publicKey, rotation.newHotPublicKey);
+    await zustandProvider.swapHotKey(account.publicKey, rotation.newHotPublicKey, account.hotPublicKey ?? null);
   } catch (swapError) {
-    if (
-      typeof swapError === 'object' &&
-      swapError !== null &&
-      'code' in swapError &&
-      swapError.code === HOT_KEY_NOT_STORED
-    ) {
+    const code =
+      typeof swapError === 'object' && swapError !== null && 'code' in swapError ? swapError.code : undefined;
+    if (code === HOT_KEY_CHANGED) {
+      console.warn(
+        `[Guardian Sync] not swapping ${account.publicKey} to the key the chain names: its hot key moved ` +
+          `since this heal read it.`,
+        swapError
+      );
+      return 'refused-transiently';
+    }
+    if (code === HOT_KEY_NOT_STORED) {
       console.warn(
         `[Guardian Sync] could not swap ${account.publicKey} to the key the chain names; this device cannot ` +
           `sign as the account's hot signer:`,
