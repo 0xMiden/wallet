@@ -11,6 +11,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
+import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
@@ -47,7 +48,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 
   // An unconfirmed bridge or earn-withdraw row falls through to the plain not-confirmed row below
   // (#1250 F-024), the same way HistoryView's list keeps it out of the bridge/earn layout.
-  if (!entry.isUnconfirmed && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  if (!entry.guardianRecovered && !entry.isUnconfirmed && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
@@ -60,12 +61,21 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   // leg while it is still pending or has failed (settled reads as the plain row).
   // Never on a cancelled or Miden-failed row: that failure is the real story.
   const settlement =
-    entry.txType === 'earn-deposit' && !entry.isCancelled && entry.transactionIcon !== 'FAILED'
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    !entry.isCancelled &&
+    entry.transactionIcon !== 'FAILED'
       ? earnDepositSettlementOf(entry)
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
-  const title = isFaucet ? t('faucetRequest') : entry.isUnconfirmed ? t('notConfirmed') : entry.message;
+  const title = entry.guardianRecovered
+    ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+    : isFaucet
+      ? t('faucetRequest')
+      : entry.isUnconfirmed
+        ? t('notConfirmed')
+        : entry.message;
   return (
     <div
       className={classNames(

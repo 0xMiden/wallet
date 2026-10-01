@@ -4445,6 +4445,32 @@ describe('seed phrase removal', () => {
     }
   );
 
+  it('keeps the phrase while Guardian recovery is pending, and removes it once the flag is cleared', async () => {
+    const account: WalletAccount = {
+      publicKey: 'guardian',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false,
+      hotPublicKey: 'hot-key',
+      coldPublicKey: '02' + 'ab'.repeat(32),
+      guardianNoteRecoveryPending: true
+    };
+    const vault = await seedVault('password123', { accounts: [account] });
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const key = await Passworder.importVaultKey(await Passworder.decryptVaultKeyWithPassword(protector, 'password123'));
+    await encryptAndSaveMany([[keys.accAuthSecretKey('hot-key'), 'daily-secret']], key);
+
+    await expect(vault.removeSeedPhrase()).rejects.toThrow();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('stored');
+
+    // The write the detached recovery's clearPendingFlag makes.
+    await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
+    await vault.removeSeedPhrase();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('removed');
+  });
+
   // An evicted callback keeps running after its caller saw the poison, so a
   // missing re-check keeps deleting keys that nobody is waiting on.
   async function guardianRemovalVault() {

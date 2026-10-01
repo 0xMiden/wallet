@@ -1,0 +1,74 @@
+diff --git a/node_modules/@openzeppelin/guardian-client/dist/conversion.js b/node_modules/@openzeppelin/guardian-client/dist/conversion.js
+index 2646f1f..d0ef3e0 100644
+--- a/node_modules/@openzeppelin/guardian-client/dist/conversion.js
++++ b/node_modules/@openzeppelin/guardian-client/dist/conversion.js
+@@ -66,7 +66,8 @@ export function fromServerProposalMetadata(server) {
+ export function fromServerDeltaObject(server) {
+     const { txSummary, signatures, metadata } = extractDeltaPayload(server.delta_payload);
+     return {
+-        accountId: server.account_id,
++        metadata: server.metadata ? { proposal: server.metadata.proposal ? fromServerProposalMetadata(server.metadata.proposal) : undefined } : undefined,
++    accountId: server.account_id,
+         nonce: server.nonce,
+         prevCommitment: server.prev_commitment,
+         newCommitment: server.new_commitment,
+diff --git a/node_modules/@openzeppelin/guardian-client/dist/server-types.d.ts b/node_modules/@openzeppelin/guardian-client/dist/server-types.d.ts
+index bd7a868..57f246d 100644
+--- a/node_modules/@openzeppelin/guardian-client/dist/server-types.d.ts
++++ b/node_modules/@openzeppelin/guardian-client/dist/server-types.d.ts
+@@ -62,6 +62,7 @@ export interface ServerProposalMetadata {
+     timelock_height?: number;
+ }
+ export interface ServerDeltaObject {
++    metadata?: { proposal?: ServerProposalMetadata };
+     account_id: string;
+     nonce: number;
+     prev_commitment: string;
+diff --git a/node_modules/@openzeppelin/guardian-client/dist/types.d.ts b/node_modules/@openzeppelin/guardian-client/dist/types.d.ts
+index e0c5fe6..d9d9874 100644
+--- a/node_modules/@openzeppelin/guardian-client/dist/types.d.ts
++++ b/node_modules/@openzeppelin/guardian-client/dist/types.d.ts
+@@ -102,6 +102,7 @@ export interface ProposalMetadata {
+     timelockHeight?: number;
+ }
+ export interface DeltaObject {
++    metadata?: { proposal?: ProposalMetadata };
+     accountId: string;
+     nonce: number;
+     prevCommitment: string;
+diff --git a/node_modules/@openzeppelin/guardian-client/src/conversion.ts b/node_modules/@openzeppelin/guardian-client/src/conversion.ts
+index 164079a..1ad343d 100644
+--- a/node_modules/@openzeppelin/guardian-client/src/conversion.ts
++++ b/node_modules/@openzeppelin/guardian-client/src/conversion.ts
+@@ -125,6 +125,7 @@ export function fromServerDeltaObject(server: ServerDeltaObject): DeltaObject {
+   const { txSummary, signatures, metadata } = extractDeltaPayload(server.delta_payload as ServerDeltaPayload);
+ 
+   return {
++    metadata: server.metadata ? { proposal: server.metadata.proposal ? fromServerProposalMetadata(server.metadata.proposal) : undefined } : undefined,
+     accountId: server.account_id,
+     nonce: server.nonce,
+     prevCommitment: server.prev_commitment,
+diff --git a/node_modules/@openzeppelin/guardian-client/src/server-types.ts b/node_modules/@openzeppelin/guardian-client/src/server-types.ts
+index 5e4050b..1e9449b 100644
+--- a/node_modules/@openzeppelin/guardian-client/src/server-types.ts
++++ b/node_modules/@openzeppelin/guardian-client/src/server-types.ts
+@@ -66,6 +66,7 @@ export interface ServerProposalMetadata {
+ }
+ 
+ export interface ServerDeltaObject {
++    metadata?: { proposal?: ServerProposalMetadata };
+   account_id: string;
+   nonce: number;
+   prev_commitment: string;
+diff --git a/node_modules/@openzeppelin/guardian-client/src/types.ts b/node_modules/@openzeppelin/guardian-client/src/types.ts
+index dfbc9a7..5027bac 100644
+--- a/node_modules/@openzeppelin/guardian-client/src/types.ts
++++ b/node_modules/@openzeppelin/guardian-client/src/types.ts
+@@ -119,6 +119,7 @@ export interface ProposalMetadata {
+ }
+ 
+ export interface DeltaObject {
++    metadata?: { proposal?: ProposalMetadata };
+   accountId: string;
+   nonce: number;
+   prevCommitment: string;
