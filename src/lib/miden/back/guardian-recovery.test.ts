@@ -731,7 +731,7 @@ describe('detached recovery run', () => {
     const progressClear: { fail: () => void } = { fail: () => undefined };
     mockClearProgress.mockResolvedValueOnce(undefined).mockImplementationOnce(
       () =>
-        new Promise<void>((resolve, reject) => {
+        new Promise<void>((_resolve, reject) => {
           progressClear.fail = () => reject(new Error('storage down'));
         })
     );
