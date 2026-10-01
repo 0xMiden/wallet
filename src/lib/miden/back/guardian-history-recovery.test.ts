@@ -848,6 +848,43 @@ it('defers a run whose generation was read before the key was removed', async ()
   expect(await transactions.count()).toBe(0);
 });
 
+const runWithClientBuildError = async (error: Error) =>
+  recoverGuardianHistory(account, {
+    createClient: async () => {
+      throw error;
+    },
+    shouldYield,
+    generation: await storedGeneration()
+  });
+
+it('reports an eviction that ends the pass', async () => {
+  expect(await runWithClientBuildError(new WasmClientPoisonedError('watchdog'))).toEqual({
+    deferred: true,
+    evicted: true,
+    sourceFailures: 0,
+    restored: 0,
+    deferredSources: 0
+  });
+});
+
+it('reports a name-only eviction the same way', async () => {
+  const error = new Error('evicted');
+  error.name = 'WasmClientPoisonedError';
+  expect(await runWithClientBuildError(error)).toEqual({
+    deferred: true,
+    evicted: true,
+    sourceFailures: 0,
+    restored: 0,
+    deferredSources: 0
+  });
+});
+
+it('does not mark a yield as an eviction', async () => {
+  const result = await runWithClientBuildError(new OperationAbortedError('op-1', 'deadline'));
+  expect(result.deferred).toBe(true);
+  expect(result.evicted).toBeUndefined();
+});
+
 it('defers an operator the account never used while it serves no history, once per session and up to a cap', async () => {
   const client = source('https://two', []);
   jest.spyOn(client, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));

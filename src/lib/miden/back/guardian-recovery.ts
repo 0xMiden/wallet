@@ -690,10 +690,10 @@ export async function recoverPendingNotes(
  * that FAILED a source keeps its entry, so an account gets at most one such
  * attempt per unlock: the flag stays set for the next unlock or backend start
  * to retry, without GuardianRecoveryProvider's 5s poll re-running the full
- * drain/backfill in a loop against a persistently failing source. A pass
- * deferred by a lock eviction keeps its entry too and resumes from its
- * checkpoint at the next backend start, since a re-offer would re-run an op
- * that can hold the mutex for the whole watchdog on every lap.
+ * drain/backfill in a loop against a persistently failing source. A notes or
+ * history pass deferred by a lock eviction keeps its entry too and resumes
+ * from its checkpoint at the next backend start, since a re-offer would re-run
+ * an op that can hold the mutex for the whole watchdog on every lap.
  *
  * Entries are released again only where the run never really got its turn — a
  * refused start, a rejected eligibility query, or a wallet lock — since those
@@ -867,6 +867,12 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       shouldYield,
       generation
     });
+    if (history.deferred && history.evicted) {
+      console.warn(
+        `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
+      );
+      return;
+    }
     if (history.deferred) {
       startedRecoveries.delete(account.publicKey);
       return;

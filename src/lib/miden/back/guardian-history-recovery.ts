@@ -31,7 +31,7 @@ import {
 } from '../guardian/history-storage';
 import { db, transactions } from '../repo';
 import { canonicalWalletAccountId } from '../sdk/helpers';
-import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
@@ -406,7 +406,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             const decodeSession = unsupportedHistorySession;
             decodeScope = cacheScope();
             const summary = await midenClientProxy.decodeGuardianHistory(encoded).catch(async (error: unknown) => {
-              if (!(error instanceof WasmClientPoisonedError || error instanceof OperationAbortedError)) throw error;
+              if (!(isWasmClientPoisonedError(error) || error instanceof OperationAbortedError)) throw error;
               if (await interrupted()) throw error;
               throw new HistoryDecodeAborted(decodeSession, error);
             });
@@ -430,7 +430,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             try {
               commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
             } catch (error) {
-              if (error instanceof OperationAbortedError || error instanceof WasmClientPoisonedError) {
+              if (error instanceof OperationAbortedError || isWasmClientPoisonedError(error)) {
                 if (await interrupted()) throw error;
                 throw new HistoryDecodeAborted(commitmentSession, error);
               }
@@ -528,7 +528,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         if (
           error instanceof HistoryInterrupted ||
           error instanceof OperationAbortedError ||
-          error instanceof WasmClientPoisonedError
+          isWasmClientPoisonedError(error)
         )
           throw error;
         if (error instanceof GuardianHistoryFeeUnavailableError) {
@@ -592,11 +592,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       return { deferred: false, sourceFailures, restored, failed: true, deferredSources };
     }
   } catch (error) {
-    if (
-      error instanceof HistoryInterrupted ||
-      error instanceof OperationAbortedError ||
-      error instanceof WasmClientPoisonedError
-    ) {
+    // Reported apart from a yield: an evicted run keeps its reservation until the next backend start, as for notes.
+    if (isWasmClientPoisonedError(error))
+      return { deferred: true, evicted: true, sourceFailures, restored, deferredSources };
+    if (error instanceof HistoryInterrupted || error instanceof OperationAbortedError) {
       return { deferred: true, sourceFailures, restored, deferredSources };
     }
     throw error;

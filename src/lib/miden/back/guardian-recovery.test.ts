@@ -492,6 +492,52 @@ describe('detached recovery run', () => {
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
   });
 
+  it('keeps an evicted history pass reserved for the next backend start (F-118)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+      deferred: true,
+      evicted: true,
+      sourceFailures: 0,
+      restored: 0,
+      deferredSources: 0
+    });
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).not.toHaveBeenCalled();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      // The lock hook releases only failed runs, so only a backend restart frees an evicted pass's entry.
+      releaseGuardianRecoveriesOnLock();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    } finally {
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockReset()
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+
+  it('still re-offers a history pass deferred by a yield (F-118)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest
+      .mocked(recoverGuardianHistory)
+      .mockResolvedValueOnce({ deferred: true, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).not.toHaveBeenCalled();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockReset()
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+
   it('keeps the flag set when a source failed, so the next backend start retries', async () => {
     const account = pendingAccount();
     mockProxy.recoverPublicNotesRange.mockRejectedValue(new Error('node unavailable'));
