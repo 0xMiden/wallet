@@ -4,12 +4,16 @@ import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 
 import { useAgglayerEligibility } from './useAgglayerEligibility';
 
+let mockRpcUrl = '';
 jest.mock('lib/agglayer/allowed-faucets', () => ({ isAgglayerFaucetAllowed: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getEffectiveRpcUrl: () => 'https://rpc.testnet.miden.io'
+  getEffectiveRpcUrl: () => mockRpcUrl
 }));
 
-beforeEach(() => jest.resetAllMocks());
+beforeEach(() => {
+  jest.resetAllMocks();
+  mockRpcUrl = 'https://rpc.testnet.miden.io';
+});
 
 it('shows loading, then allows an approved token', async () => {
   jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
@@ -47,6 +51,27 @@ it('does not apply an old approval to a newly selected token', async () => {
     await oldCheck;
   });
   expect(result.current).toBe('unsupported');
+});
+
+it('shows loading for a newly selected token after the old one settled (#1276)', async () => {
+  const pending = new Promise<boolean>(() => {});
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValueOnce(true).mockReturnValueOnce(pending);
+  const { result, rerender } = renderHook(({ id }) => useAgglayerEligibility(id), {
+    initialProps: { id: 'old-token' }
+  });
+  await waitFor(() => expect(result.current).toBe('allowed'));
+  rerender({ id: 'new-token' });
+  expect(result.current).toBe('loading');
+});
+
+it('shows loading after the endpoint changes (#1276)', async () => {
+  const pending = new Promise<boolean>(() => {});
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValueOnce(true).mockReturnValueOnce(pending);
+  const { result, rerender } = renderHook(() => useAgglayerEligibility('token'));
+  await waitFor(() => expect(result.current).toBe('allowed'));
+  mockRpcUrl = 'https://rpc.other.example';
+  rerender();
+  expect(result.current).toBe('loading');
 });
 
 it('does not check Miden registry entries for an EVM deposit', () => {
