@@ -724,12 +724,11 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
   // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
-  // (offscreen) client's store — which is what makes the relay belong here: under
-  // 0.16 `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
-  // resolves the note by id from the calling client's store and derives the
-  // recipient's forward-scan hint from its stored `expected_height` (the chain tip
-  // when the note's transaction was submitted). On the dormant SW client that
-  // lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
+  // (offscreen) client's store, which is what makes the relay belong here.
+  // `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
+  // resolves the note by id from the calling client's store and reads the
+  // inclusion proof sync stored once that client has synced past the commitment.
+  // On the dormant SW client that lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
   // `Note.serialize()` raw bytes and is re-hydrated here purely to read its id back.
   // A transport relay — no prove / sign — so a void result (nothing to
   // re-hydrate); the SW-side caller only awaits it.
@@ -741,8 +740,8 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Re-push of an already-relayed private note, by id (see `relayPrivateNoteById`).
   // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
-  // THIS realm's store, so the id lookup and the `expected_height` hint derivation
-  // only resolve here. No note bytes to carry — the sweep has only the row.
+  // THIS realm's store, so the id lookup and the stored inclusion proof
+  // only resolve here. No note bytes to carry. The sweep has only the row.
   relayPrivateNoteById: async (_context, client, noteId: string, to: string) => {
     await client.relayPrivateNoteById(noteId, to);
     return null;

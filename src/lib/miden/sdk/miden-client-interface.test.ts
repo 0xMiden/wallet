@@ -632,10 +632,9 @@ describe('MidenClientInterface', () => {
     const mockNote = { id: () => 'note-id', assets: () => [] } as any;
     await client.sendPrivateNote(mockNote, 'recipient-bech32');
 
-    expect(fakeMidenClient.notes.sendPrivate).toHaveBeenCalledWith({
-      note: mockNote,
-      to: acct,
-      scanAfterBlockNum: 5
+    expect(fakeMidenClient.notes.sendPrivateOutput).toHaveBeenCalledWith({
+      noteId: 'note-id',
+      to: acct
     });
   });
 
