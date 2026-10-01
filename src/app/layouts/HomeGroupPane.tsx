@@ -107,7 +107,10 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
       // nowhere else, so no pane can quietly take the swipe back.
       style={{ touchAction: 'pan-y' }}
       className={clsx(
-        'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain',
+        // The body is the page's scroller: a flex child that clips (`overflow-hidden`, as reveal
+        // animations need) would otherwise shrink to the space left and hide its overflow instead
+        // of letting the body scroll (#1291).
+        'no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain [&>*]:shrink-0',
         PANE_GUTTER,
         PANE_TOP[top],
         // With a footer the cushion is the footer's; without one it is the body's, from the same

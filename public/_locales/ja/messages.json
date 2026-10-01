@@ -524,34 +524,6 @@
     "message": "アカウントを作成する",
     "englishSource": "Create Account"
   },
-  "importAccount": {
-    "message": "アカウントのインポート",
-    "englishSource": "Import account"
-  },
-  "accountName": {
-    "message": "アカウント名",
-    "englishSource": "Account name"
-  },
-  "accountNameInputPlaceholder": {
-    "message": "例: 貯蓄",
-    "englishSource": "e.g. Savings"
-  },
-  "accountNameInputInvalid": {
-    "message": "1～16文字で入力し、空白またはハイフンで始めないでください。",
-    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
-  },
-  "privateKeyInputDescription": {
-    "message": "インポートするアカウントの秘密鍵。",
-    "englishSource": "The private key of the account you want to import."
-  },
-  "privateKeyInputPlaceholder": {
-    "message": "例: APrivateKey1zkp...",
-    "englishSource": "e.g. APrivateKey1zkp..."
-  },
-  "privateKeyClipboardNotCleared": {
-    "message": "秘密鍵がクリップボードから削除できませんでした。続行する前に、ご自身でクリップボードをクリアしてください。",
-    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
-  },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"
