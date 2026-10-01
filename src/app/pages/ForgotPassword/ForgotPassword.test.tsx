@@ -510,8 +510,8 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
-    // Stage 1 of #408: the detected endpoint is threaded explicitly into
-    // registerWallet rather than written to the global GUARDIAN_URL_STORAGE_KEY.
+    // The detected endpoint is threaded into registerWallet, never written to
+    // storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,

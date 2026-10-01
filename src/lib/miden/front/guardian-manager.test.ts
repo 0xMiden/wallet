@@ -63,9 +63,7 @@ jest.mock('lib/miden-chain/constants', () => ({
   DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
 }));
 
-jest.mock('lib/settings/constants', () => ({
-  GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
-}));
+jest.mock('lib/settings/constants', () => ({}));
 
 const GUARDIAN_PK = 'guardian-pk';
 const OTHER_PK = 'other-pk';

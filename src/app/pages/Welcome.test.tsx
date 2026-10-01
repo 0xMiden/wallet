@@ -148,10 +148,7 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   }
 }));
 
-// GUARDIAN_URL_STORAGE_KEY is a plain string constant — keep the real value.
-jest.mock('lib/settings/constants', () => ({
-  GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
-}));
+jest.mock('lib/settings/constants', () => ({}));
 
 // Whether the user has already answered the telemetry consent prompt, which
 // decides whether a finished onboarding detours through it. Defaults to `true`
@@ -1096,8 +1093,8 @@ describe('Welcome — choose-guardian-submit', () => {
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
     mockNavigate.mockClear();
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
-    // Stage 1 of #408: the picked endpoint is captured in state (not written to
-    // the global GUARDIAN_URL_STORAGE_KEY) and threaded into registerWallet.
+    // The picked endpoint is held in state, never written to storage, and
+    // threaded into registerWallet.
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
@@ -1137,11 +1134,9 @@ describe('Welcome — choose-guardian-submit', () => {
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
     mockPutToStorage.mockClear();
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' } });
-    // The global GUARDIAN_URL_STORAGE_KEY is frozen (#568 — per-account endpoints
-    // are authoritative), so onboarding must not write it for ANY value: the
-    // no-guardian branch leaves the endpoint unbound and threads `undefined`
-    // through registerWallet instead.
-    expect(mockPutToStorage).not.toHaveBeenCalledWith('guardian_url_setting', expect.anything());
+    // The no-guardian branch leaves the endpoint unbound: nothing is written to
+    // storage, and `undefined` is threaded through registerWallet instead.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
     // driving to confirmation registers a private, no-guardian (OffChain) wallet
     await dispatch({ id: 'confirmation' });
     // ...threading an UNDEFINED guardian endpoint, the no-guardian marker the
@@ -1285,7 +1280,7 @@ describe('Welcome — import-select-recovery-method', () => {
       id: 'import-select-recovery-method',
       payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
     });
-    // Stage 1 of #408: no longer written to the global GUARDIAN_URL_STORAGE_KEY.
+    // The endpoint is threaded into registerWallet, never written to storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
@@ -3262,7 +3257,7 @@ describe('Welcome — E2E onboarding bypass', () => {
       false, // not an import
       'http://localhost:3001' // the threaded override
     );
-    // The bypass no longer writes the global GUARDIAN_URL_STORAGE_KEY.
+    // The bypass threads the endpoint and writes nothing to storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
   });
 
