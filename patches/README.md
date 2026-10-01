@@ -3,6 +3,20 @@
 Everything except `inspect-cli-cdp-fix.patch` is applied automatically by
 `patch-package` from the `postinstall` script.
 
+## @miden-sdk/miden-sdk 0.16.1
+
+Treat the note transport's exact stored-note duplicate response as a successful
+`SendNote`, so the SDK removes the relay payload from its outbox. This also drains
+entries already stranded by an earlier duplicate rejection on the next sync.
+Other responses and genuine transport failures pass through unchanged.
+
+The patch covers both WASM fetch imports in all six single-threaded and
+multithreaded bundles, including classic workers. The canonical helper is
+`src/lib/miden/sdk/note-relay-fetch.mjs`; it is inlined because classic workers
+cannot depend on a new module import. After editing it, regenerate with
+`node scripts/generate-note-relay-patch.mjs`, then verify with the same command's
+`--check` flag. Updating the SDK requires checking these seams again.
+
 ## inspect-cli-cdp-fix.patch
 
 Fixes the "single-use" CDP bug in `@inspectdotdev/cli@2.1.1` where WebSocket

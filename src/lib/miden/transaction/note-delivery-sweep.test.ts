@@ -2,9 +2,8 @@
  * Tests for the private-note delivery sweep: when it pushes again, when it stops,
  * and how it reads each outcome.
  *
- * The distinction most of them pin down is that an ACCEPTED re-push both detects and
- * repairs a silently-lost note, whereas one REJECTED as a duplicate repairs nothing
- * — it only proves the original relay arrived. So the row must be neither condemned
+ * A relay acknowledgement may insert a missing note or acknowledge an existing one.
+ * Neither outcome proves receipt by the recipient. So the row must be neither condemned
  * as `undelivered` nor promoted to `confirmed`. `note-delivery-sweep.ts` has the why.
  */
 
@@ -26,7 +25,7 @@ jest.mock('lib/miden/repo', () => ({
             // later writes the STORED row in its own transaction, so the sweep never
             // sees its own writes reflected in the array it is looping over. A fake
             // that returned the live objects would alias the two and could hide a
-            // missing `continue` — it did, until this was fixed.
+            // missing `continue` - it did, until this was fixed.
             toArray: async () => rows.filter(row => states.includes(String(row.noteDelivery))).map(row => ({ ...row }))
           })
         };
@@ -134,7 +133,7 @@ describe('sweepNoteDeliveries', () => {
   });
 
   it('arms an old row from its original relay, so a late first sighting is due at once', async () => {
-    // The wait exists because the original relay just happened — which is false for a
+    // The wait exists because the original relay just happened - which is false for a
     // row first seen hours later (wallet closed, or first sync since the send). Arming
     // another full wait from now would push its only attempts toward the far end of
     // the sweep window, or past it, leaving a genuinely lost note never re-pushed.
@@ -150,7 +149,7 @@ describe('sweepNoteDeliveries', () => {
     // `initiatedAt` is stamped when the transaction is QUEUED, so a send that waited
     // in the FIFO and then proved and submitted can be many minutes older than its
     // relay. Anchoring on that would arm the row due-now and re-push it while the
-    // original relay may still be in flight — an attempt spent against the identical
+    // original relay may still be in flight - an attempt spent against the identical
     // conditions the wait exists to avoid.
     rows.push(row({ nextRelayAt: undefined, initiatedAt: NOW - 40 * 60, completedAt: NOW - 5 }));
 
@@ -227,7 +226,7 @@ describe('sweepNoteDeliveries', () => {
 
   it('ignores sends older than the sweep window', async () => {
     // Beyond the window this client may no longer track the output note at all, so
-    // a re-push could only fail — and would light up a warning on an old, fine send.
+    // a re-push could only fail - and would light up a warning on an old, fine send.
     rows.push(row({ initiatedAt: NOW - 7 * 60 * 60 }));
 
     await sweepNoteDeliveries();
@@ -262,10 +261,10 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
   });
 
-  it('does NOT claim delivery on a duplicate rejection — the note may be stored yet unreachable', async () => {
+  it('does NOT claim delivery on a duplicate rejection - the note may be stored yet unreachable', async () => {
     // The whole point of the sweep (note-transport-service#77) is that a stored note
     // can sit below the recipient's cursor and be unreachable forever. A duplicate
-    // rejection says the bytes are stored, which is exactly that state — so it must
+    // rejection says the bytes are stored, which is exactly that state - so it must
     // never be promoted to `confirmed`, whose UI copy asserts the recipient spent it.
     // The row also has to stay sweepable so the nullifier check can still confirm it.
     rows.push(row({ noteDelivery: 'undelivered' }));
@@ -281,7 +280,7 @@ describe('sweepNoteDeliveries', () => {
 
   it('counts the attempt on a duplicate rejection so the row still retires', async () => {
     // Without this the row would be re-pushed on every sweep cycle for the whole
-    // relay window, and each push is rejected again — pure traffic. The counter is
+    // relay window, and each push is rejected again - pure traffic. The counter is
     // what bounds it.
     rows.push(row({ noteDelivery: 'pending' }));
     mockRelayById.mockRejectedValue(
@@ -295,6 +294,8 @@ describe('sweepNoteDeliveries', () => {
   });
 
   it.each([
+    ['the deployed transport message', 'Failed to store note: ConstraintViolation(Unique constraint violation)'],
+    ['the quoted transport message', 'Failed to store note: ConstraintViolation("Unique constraint violation")'],
     ['the Display spelling', 'grpc error: status: AlreadyExists, message: "note stored"'],
     ['the Debug spelling', 'Status { code: AlreadyExists, message: "note stored" }'],
     [
@@ -302,7 +303,7 @@ describe('sweepNoteDeliveries', () => {
       'unexpected trailer: grpc-status: 6, grpc-message: Some entity that we attempted to create already exists'
     ],
     ['the numeric code', 'rpc failed: code: 6, message: the note already exists']
-  ])('reads a proper AlreadyExists status the same way — %s', async (_label, message) => {
+  ])('reads a proper AlreadyExists status the same way - %s', async (_label, message) => {
     // So a service that starts returning a distinguishable status keeps working
     // without a wallet change.
     rows.push(row({ noteDelivery: 'pending' }));
@@ -315,7 +316,7 @@ describe('sweepNoteDeliveries', () => {
   });
 
   it('reads the duplicate rejection through the offscreen wrapper, which is what the SW sees', async () => {
-    // With the offscreen client on — the extension default — the sweep never sees
+    // With the offscreen client on - the extension default - the sweep never sees
     // the raw rejection. `dispatchOp` rebuilds it as this shape, so that is the only
     // string the classifier is actually handed on the primary platform.
     rows.push(row({ noteDelivery: 'pending' }));
@@ -342,7 +343,7 @@ describe('sweepNoteDeliveries', () => {
   });
 
   // The classifier matches on message TEXT, and a match suppresses the delivery
-  // warning — so an over-broad pattern hides the very failure this sweep surfaces.
+  // warning - so an over-broad pattern hides the very failure this sweep surfaces.
   // These are the near-miss strings the same call path can genuinely produce.
   it.each([
     ['a UNIQUE violation on a different column', 'ConstraintViolation("UNIQUE constraint failed: notes.seq")'],
@@ -362,7 +363,7 @@ describe('sweepNoteDeliveries', () => {
     ['a UNIQUE violation naming another table', 'UNIQUE constraint failed: tags.id'],
     [
       'a UNIQUE violation on another table that mentions ours far later',
-      'UNIQUE constraint failed: tags.id — while storing the row that carries notes.id and its metadata blob'
+      'UNIQUE constraint failed: tags.id - while storing the row that carries notes.id and its metadata blob'
     ]
   ])('still reports undelivered for %s', async (_label, message) => {
     rows.push(row({ noteDelivery: 'pending' }));
@@ -376,8 +377,6 @@ describe('sweepNoteDeliveries', () => {
   it.each([['pending'], ['undelivered'], ['relayed']] as const)(
     'records an accepted re-push as relayed from a %s prior',
     async priorState => {
-      // Acceptance is the silent-loss case whatever the row said before: the note was
-      // not on the transport and now is, at a fresh `seq`.
       rows.push(row({ noteDelivery: priorState }));
       mockRelayById.mockResolvedValue(undefined);
 
@@ -389,10 +388,7 @@ describe('sweepNoteDeliveries', () => {
     }
   );
 
-  it('reports an accepted re-push at error level only when the row already held an ACK', async () => {
-    // This one line is the incident signal the whole feature is for: an ACK that did
-    // not produce a stored note means the ACK was worthless. From `pending` the same
-    // acceptance is just the sweep working, and crying wolf there would bury it.
+  it('does not report an idempotent relay acknowledgement as a lost note', async () => {
     const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     rows.push(row({ id: 'acked', noteDelivery: 'relayed', initiatedAt: NOW - 600 }));
@@ -400,14 +396,13 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0]![1]).toMatchObject({ txId: 'acked' });
-    expect(warn.mock.calls.map(call => call[1])).toContainEqual(expect.objectContaining({ txId: 'never-acked' }));
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('says so once when a row exhausts its attempts without a receipt', async () => {
-    // At the cap the row leaves the candidate set for good — no further push, and no
-    // further nullifier check either — while `relayed` renders as nothing at all in
+    // At the cap the row leaves the candidate set for good - no further push, and no
+    // further nullifier check either - while `relayed` renders as nothing at all in
     // history. Without this line, giving up leaves no trace anywhere.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     rows.push(row({ relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
@@ -419,7 +414,7 @@ describe('sweepNoteDeliveries', () => {
 
   it('does not announce exhaustion for a row the nullifier just retired', async () => {
     // The receipt check exits before the attempt is even counted, so a row confirmed
-    // on its last eligible cycle has not exhausted anything — it succeeded.
+    // on its last eligible cycle has not exhausted anything - it succeeded.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     rows.push(row({ relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
     mockIsConsumed.mockResolvedValue(true);
@@ -494,7 +489,7 @@ describe('sweepNoteDeliveries', () => {
     // Every relay carries a 45-second deadline, so a sweep with several slow rows can
     // outlive a whole backoff step. A schedule derived from the sweep's START would
     // then be stamped in the past and the row re-pushed on the very next cycle,
-    // burning the attempt budget back to back — which is what these delays exist to
+    // burning the attempt budget back to back - which is what these delays exist to
     // prevent. Stamping from the clock at write time keeps the spread intact.
     rows.push(row());
     let clock = NOW;

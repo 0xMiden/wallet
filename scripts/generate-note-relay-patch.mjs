@@ -1,0 +1,62 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packagePath = 'node_modules/@miden-sdk/miden-sdk';
+const patchPath = resolve(root, 'patches/@miden-sdk+miden-sdk+0.16.1.patch');
+const bundles = [
+  'dist/st/Cargo-aQznLgDn.js',
+  'dist/st/workers/Cargo-aQznLgDn-C_gzj3-H.js',
+  'dist/st/workers/web-client-methods-worker.js',
+  'dist/mt/Cargo-B2P22_Kp.js',
+  'dist/mt/workers/Cargo-B2P22_Kp-DiJZmkfy.js',
+  'dist/mt/workers/web-client-methods-worker.js'
+];
+const helper = readFileSync(resolve(root, 'src/lib/miden/sdk/note-relay-fetch.mjs'), 'utf8').replace(/^export /gm, '');
+const block = `// BEGIN note-relay-fetch\n${helper}// END note-relay-fetch\n\n`;
+const seams = [
+  ['const ret = arg0.fetch(arg1, arg2);', 'const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));'],
+  ['const ret = fetch(arg0, arg1);', 'const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));']
+];
+const check = process.argv.includes('--check');
+const version = JSON.parse(readFileSync(resolve(root, packagePath, 'package.json'), 'utf8')).version;
+if (version !== '0.16.1') throw new Error(`Relay patch requires SDK 0.16.1, found ${version}`);
+
+const temporary = mkdtempSync(join(tmpdir(), 'note-relay-patch-'));
+try {
+  let patch = '';
+  for (const bundle of bundles) {
+    const path = `${packagePath}/${bundle}`;
+    const current = readFileSync(resolve(root, path), 'utf8');
+    let original = current.replace(/\/\/ BEGIN note-relay-fetch\n[^]*?\/\/ END note-relay-fetch\n\n/g, '');
+    for (const [raw, wrapped] of seams) original = original.replace(wrapped, raw);
+    let patched = original;
+    for (const [raw, wrapped] of seams) {
+      if (patched.split(raw).length !== 2) throw new Error(`Expected one SDK fetch seam in ${bundle}: ${raw}`);
+      patched = patched.replace(raw, wrapped);
+    }
+    const imports = patched.match(/function __wbg_get_imports\([^)]*\) \{/g);
+    if (imports?.length !== 1) throw new Error(`Missing imports in ${bundle}`);
+    patched = patched.replace(imports[0], `${block}${imports[0]}`);
+    if (check && current !== patched) throw new Error(`Installed SDK relay patch is stale: ${bundle}`);
+    if (!check) writeFileSync(resolve(root, path), patched);
+    const before = join(temporary, 'before');
+    const after = join(temporary, 'after');
+    writeFileSync(before, original);
+    writeFileSync(after, patched);
+    const result = spawnSync('diff', ['-u', '-L', `a/${path}`, '-L', `b/${path}`, before, after], { encoding: 'utf8' });
+    if (result.status !== 1) throw new Error(`Cannot generate SDK diff: ${result.stderr}`);
+    patch += `diff --git a/${path} b/${path}\n${result.stdout}`;
+  }
+  if (check) {
+    if (readFileSync(patchPath, 'utf8') !== patch) throw new Error('Committed relay patch is stale');
+  } else {
+    writeFileSync(patchPath, patch);
+  }
+  console.log(`SDK relay patch ${check ? 'verified' : 'generated'} for ${bundles.length} bundles`);
+} finally {
+  rmSync(temporary, { recursive: true, force: true });
+}
