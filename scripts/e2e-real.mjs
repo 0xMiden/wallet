@@ -165,7 +165,7 @@ function parseArgs(argv) {
     if (arg === '--preflight-only') opts.preflightOnly = true;
     else if (arg === '--skip-build') opts.skipBuild = true;
     else if (arg === '--headed') opts.headed = true;
-    else if (takesValue[arg]) {
+    else if (Object.hasOwn(takesValue, arg)) {
       const value = argv[++i];
       if (value === undefined) fail(`${arg} needs a value`);
       opts[takesValue[arg]] = value;
@@ -213,6 +213,42 @@ function assertRegExp(pattern, label) {
   } catch (error) {
     throw new Error(`${label} is not a valid regular expression: ${pattern} - ${error.message}`);
   }
+}
+
+/**
+ * Check parsed operator input in the order main() refuses it. Returns `{ error }`
+ * with the refusal, or `{ suite, grep }`: the suite's record and its grep
+ * composed with the operator's.
+ *
+ * Names are looked up as own properties, so `toString` or `constructor` is
+ * refused as unknown instead of resolving to what Object.prototype carries.
+ */
+export function resolveOperatorInput(opts) {
+  if (!opts.suite) return { error: `--suite is required. One of: ${Object.keys(SUITES).join(', ')}${USAGE}` };
+  if (!Object.hasOwn(SUITES, opts.suite)) {
+    return { error: `unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}` };
+  }
+  const suite = SUITES[opts.suite];
+  if (!Object.hasOwn(MIDEN_RPC, opts.network)) {
+    return { error: `--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}` };
+  }
+  let grep;
+  try {
+    grep = composeGrep(suite.grep, opts.grep);
+  } catch (error) {
+    return { error: error.message };
+  }
+  if (!/^\d+(\.\d+)?$/.test(opts.minEth)) {
+    return { error: `--min-eth must be a plain non-negative decimal amount of ether, got "${opts.minEth}"` };
+  }
+  // The key itself is never echoed.
+  if (suite.probes?.includes('sepolia') && opts.sepoliaKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(opts.sepoliaKey)) {
+    return {
+      error:
+        'the Sepolia key (--sepolia-key or E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
+    };
+  }
+  return { suite, grep };
 }
 
 function fail(message) {
@@ -673,29 +709,11 @@ async function main() {
     console.log(USAGE);
     return 0;
   }
-  if (!opts.suite) fail(`--suite is required. One of: ${Object.keys(SUITES).join(', ')}${USAGE}`);
-  const suite = SUITES[opts.suite];
-  if (!suite) fail(`unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}`);
-  if (!MIDEN_RPC[opts.network]) fail(`--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}`);
-
   // Every refusal of operator input happens here, before the banner: one found
   // later is never reached under --preflight-only, and otherwise costs the probes
   // and a build first. probeFundedKey keeps its own checks as a backstop.
-  let grep;
-  try {
-    grep = composeGrep(suite.grep, opts.grep);
-  } catch (error) {
-    fail(error.message);
-  }
-  if (!/^\d+(\.\d+)?$/.test(opts.minEth)) {
-    fail(`--min-eth must be a plain non-negative decimal amount of ether, got "${opts.minEth}"`);
-  }
-  // The key itself is never echoed.
-  if (suite.probes?.includes('sepolia') && opts.sepoliaKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(opts.sepoliaKey)) {
-    fail(
-      'the Sepolia key (--sepolia-key or E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
-    );
-  }
+  const { error, suite, grep } = resolveOperatorInput(opts);
+  if (error !== undefined) fail(error);
 
   console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
   console.log(`Network  ${opts.network}`);

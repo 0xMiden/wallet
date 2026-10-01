@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { SUITES, composeGrep, pricedAmountFrom, run, suiteRetries } from './e2e-real.mjs';
+import { SUITES, composeGrep, pricedAmountFrom, resolveOperatorInput, run, suiteRetries } from './e2e-real.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -91,6 +91,79 @@ describe('composeGrep', () => {
   });
 });
 
+describe('resolveOperatorInput', () => {
+  // What parseArgs returns for `--suite swap` with no key in the environment.
+  // Each case changes only the field under test.
+  const parseArgsDefaults = {
+    suite: 'swap',
+    network: 'testnet',
+    epochUrl: 'https://epoch.invalid',
+    epochPositionsUrl: 'https://epoch-positions.invalid',
+    sepoliaRpc: 'https://sepolia.invalid',
+    sepoliaKey: undefined,
+    minEth: '0.02',
+    preflightOnly: false,
+    skipBuild: false,
+    headed: false,
+    grep: undefined
+  };
+  const resolve = (changed: Record<string, unknown> = {}) => resolveOperatorInput({ ...parseArgsDefaults, ...changed });
+  const hex64 = 'ab'.repeat(32);
+
+  it('returns the suite and its composed grep for the defaults', () => {
+    expect(resolve()).toStrictEqual({ suite: SUITES.swap, grep: composeGrep(SUITES.swap.grep, undefined) });
+  });
+
+  it('accepts devnet', () => {
+    expect(resolve({ network: 'devnet' }).error).toBeUndefined();
+  });
+
+  it('requires --suite', () => {
+    expect(resolve({ suite: undefined }).error).toContain('--suite is required');
+  });
+
+  // toString and __proto__ are on every object, so a plain index finds them.
+  it.each(['nope', 'toString', '__proto__'])('refuses the unknown suite %s', suite => {
+    expect(resolve({ suite }).error).toContain(`unknown suite "${suite}"`);
+  });
+
+  it.each(['mainnet', 'constructor'])('refuses the unknown network %s', network => {
+    expect(resolve({ network }).error).toContain('--network must be one of');
+  });
+
+  it.each(['1', '0.02'])('accepts --min-eth %s', minEth => {
+    expect(resolve({ minEth }).error).toBeUndefined();
+  });
+
+  it('refuses a --min-eth that is not a plain decimal', () => {
+    expect(resolve({ minEth: 'abc' }).error).toContain('--min-eth must be a plain non-negative decimal');
+  });
+
+  it.each([
+    ['with', `0x${hex64}`],
+    ['without', hex64]
+  ])('accepts a 32-byte key %s 0x on a suite that probes Sepolia', (_, sepoliaKey) => {
+    expect(resolve({ suite: 'bridge-out-agglayer', sepoliaKey }).error).toBeUndefined();
+  });
+
+  it('refuses a short key on a suite that probes Sepolia', () => {
+    expect(resolve({ suite: 'bridge-out-agglayer', sepoliaKey: '0x01' }).error).toContain('not a valid private key');
+  });
+
+  it('does not judge a key handed to a suite that never talks to Sepolia', () => {
+    expect(resolve({ sepoliaKey: '0x01' }).error).toBeUndefined();
+  });
+
+  it('refuses an invalid --grep before a bad --min-eth', () => {
+    expect(resolve({ grep: 'x))|((', minEth: 'abc' }).error).toContain('not a valid regular expression');
+  });
+
+  it('refuses a bad --min-eth before a bad key', () => {
+    const { error } = resolve({ suite: 'bridge-out-agglayer', minEth: 'abc', sepoliaKey: '0x01' });
+    expect(error).toContain('--min-eth must be a plain non-negative decimal');
+  });
+});
+
 describe('the command refuses operator input before any probe or build', () => {
   // Each refusal must come before the banner: under --preflight-only a later one
   // is never reached, and otherwise it costs the probes and a build first.
@@ -113,6 +186,29 @@ describe('the command refuses operator input before any probe or build', () => {
     const res = runCli('--suite', 'bridge-out-agglayer', '--sepolia-key', key, '--min-eth', 'abc', '--preflight-only');
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses an unknown argument', () => {
+    const res = runCli('--bogus');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown argument: --bogus');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses a flag given no value', () => {
+    const res = runCli('--suite');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--suite needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses a name inherited from Object.prototype as an unknown argument', () => {
+    // Indexed plainly, `constructor` would take 'x' as its value and the run
+    // would go on to refuse the suite instead.
+    const res = runCli('constructor', 'x', '--suite', 'nope');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown argument: constructor');
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 });
