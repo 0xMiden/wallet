@@ -82,6 +82,15 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      # WiX rejects an rc.N prerelease. Tauri 2.11 uses bundle.windows.wix.version
+      # for the MSI when it is set, and the app version stays the release candidate.
+      - name: Map the release candidate onto a WiX product version
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          node --test .github/scripts/wix-product-version.test.mjs
+          node .github/scripts/wix-product-version.mjs --apply
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
