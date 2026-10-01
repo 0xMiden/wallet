@@ -286,6 +286,6 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
   the 95% gate: statements and lines 98.13%, branches 96.01%, functions 97.26%.
 - The local unsharded attempt exhausted the parent process's default heap. The successful shards
   used two workers, a 768 MB worker recycle limit and an 8 GB Node heap; source gates are unchanged.
-- Four-seat review: 22 findings fixed across 12 commits, 2 rejected with evidence, 1 deferred by
+- Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
   decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
   earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
