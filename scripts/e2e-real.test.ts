@@ -203,6 +203,69 @@ describe('the command refuses operator input before any probe or build', () => {
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 
+  // A swallowed option is lost without a word: `--grep --preflight-only` would
+  // build and run a real-money suite the operator asked only to preflight. The
+  // trailing bad --min-eth keeps each run off the network if the flag does take it.
+  it('refuses another option as the value of --grep', () => {
+    const res = runCli('--suite', 'swap', '--grep', '--preflight-only', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--grep needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses another option as the value of --network', () => {
+    const res = runCli('--network', '--suite', 'swap', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--network needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses -h as the value of --suite', () => {
+    const res = runCli('--suite', '-h');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--suite needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it.each([
+    '--suite',
+    '--network',
+    '--epoch-url',
+    '--epoch-positions-url',
+    '--sepolia-rpc',
+    '--sepolia-key',
+    '--min-eth',
+    '--grep',
+    '--preflight-only',
+    '--skip-build',
+    '--headed',
+    '-h',
+    '--help'
+  ])(
+    'refuses the documented option %s as the value of --grep',
+    name => {
+      const res = runCli('--suite', 'swap', '--grep', name, '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain('--grep needs a value');
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  // Only an option name is refused: a value may start with '-', and a name
+  // Object.prototype carries is not an option.
+  it.each(['-x', 'constructor'])(
+    'takes %s as the value of --grep',
+    value => {
+      const res = runCli('--suite', 'swap', '--grep', value, '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+      expect(res.stderr).not.toContain('needs a value');
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
   it('refuses a name inherited from Object.prototype as an unknown argument', () => {
     // Indexed plainly, `constructor` would take 'x' as its value and the run
     // would go on to refuse the suite instead.

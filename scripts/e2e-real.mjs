@@ -149,6 +149,12 @@ function parseArgs(argv) {
     headed: false,
     grep: undefined
   };
+  const helpNames = ['-h', '--help'];
+  const booleanFlags = {
+    '--preflight-only': 'preflightOnly',
+    '--skip-build': 'skipBuild',
+    '--headed': 'headed'
+  };
   const takesValue = {
     '--suite': 'suite',
     '--network': 'network',
@@ -159,15 +165,18 @@ function parseArgs(argv) {
     '--min-eth': 'minEth',
     '--grep': 'grep'
   };
+  // A flag never takes another option as its value: `--epoch-positions-url
+  // $UNSET --preflight-only` would otherwise store the option as the URL and
+  // build and run a suite the operator asked only to preflight. A Set, so an
+  // inherited name such as `constructor` stays a valid value.
+  const optionNames = new Set([...helpNames, ...Object.keys(booleanFlags), ...Object.keys(takesValue)]);
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '-h' || arg === '--help') return { help: true };
-    if (arg === '--preflight-only') opts.preflightOnly = true;
-    else if (arg === '--skip-build') opts.skipBuild = true;
-    else if (arg === '--headed') opts.headed = true;
+    if (helpNames.includes(arg)) return { help: true };
+    if (Object.hasOwn(booleanFlags, arg)) opts[booleanFlags[arg]] = true;
     else if (Object.hasOwn(takesValue, arg)) {
       const value = argv[++i];
-      if (value === undefined) fail(`${arg} needs a value`);
+      if (value === undefined || optionNames.has(value)) fail(`${arg} needs a value`);
       opts[takesValue[arg]] = value;
     } else fail(`unknown argument: ${arg}`);
   }
