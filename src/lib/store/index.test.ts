@@ -468,14 +468,13 @@ describe('useWalletStore', () => {
       ];
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words', [], 2, importedAccounts);
+      await importWalletFromClient('password123', 'mnemonic words', [], importedAccounts);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
         mnemonic: 'mnemonic words',
         walletAccounts: [],
-        formatVersion: 2,
         importedAccounts
       });
     });
@@ -1144,11 +1143,10 @@ describe('useWalletStore', () => {
       const importedAccounts = [
         { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
       ];
-      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], 2, importedAccounts);
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], importedAccounts);
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({
           type: WalletMessageType.ImportFromClientRequest,
-          formatVersion: 2,
           importedAccounts
         })
       );

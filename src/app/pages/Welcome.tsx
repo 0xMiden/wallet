@@ -167,10 +167,9 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
 };
 
 // The registration key must tell two backups apart without ever carrying a
-// secret, so it keeps the payload as it is and drops only secretKeyHex; a field
-// added to either record later stays in the key by construction.
+// secret, so it keeps both records as they are and drops only secretKeyHex; a
+// field added to either record later stays in the key by construction.
 const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
-  formatVersion: payload.formatVersion,
   accounts: payload.accounts,
   importedAccounts: payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest)
 });
@@ -456,7 +455,6 @@ const Welcome: FC = () => {
                 actualPassword,
                 seedPhraseFormatted,
                 walletFilePayload.accounts,
-                walletFilePayload.formatVersion,
                 walletFilePayload.importedAccounts
               );
             } else {

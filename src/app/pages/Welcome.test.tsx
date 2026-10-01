@@ -1360,7 +1360,6 @@ describe('Welcome — confirmation / register', () => {
       'new-password',
       'alpha beta gamma delta',
       VERSION_TWO_PAYLOAD.accounts,
-      2,
       VERSION_TWO_PAYLOAD.importedAccounts
     );
     expect(mockRegisterWallet).not.toHaveBeenCalled();

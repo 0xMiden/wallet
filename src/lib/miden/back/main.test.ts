@@ -532,10 +532,9 @@ describe('processRequest', () => {
       password: 'pw',
       mnemonic: 'm',
       walletAccounts: [],
-      formatVersion: 2,
       importedAccounts
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], 2, importedAccounts);
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], importedAccounts);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 

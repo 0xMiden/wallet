@@ -1,5 +1,4 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
-import type { CURRENT_BACKUP_FORMAT_VERSION } from 'lib/miden/backup-file';
 import type {
   PersistedSpendingLimit,
   SerializedSpendingLimitAssessment,
@@ -1199,7 +1198,6 @@ export interface ImportFromClientRequest extends WalletMessageBase {
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic: string;
   walletAccounts: WalletAccount[];
-  formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION;
   importedAccounts: ImportedAccountBackup[];
 }
 

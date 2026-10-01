@@ -661,7 +661,7 @@ describe('actions', () => {
       Vault.spawnFromMidenClient.mockRejectedValueOnce(new Error('restore failed'));
       mockStoreState.status = WalletStatus.Idle;
       mockInstallRealmKeystore.mockClear();
-      await expect(registerImportedWallet('pw', 'mnemonic', [], 2, [])).rejects.toThrow('restore failed');
+      await expect(registerImportedWallet('pw', 'mnemonic', [], [])).rejects.toThrow('restore failed');
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: null });
     });
 
@@ -674,7 +674,7 @@ describe('actions', () => {
         Object.assign(mockStoreState, { vault });
       });
       mockInstallRealmKeystore.mockClear();
-      await registerImportedWallet('pw', 'mnemonic', [], 2, []);
+      await registerImportedWallet('pw', 'mnemonic', [], []);
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: imported.insertKeySink });
     });
 
@@ -756,11 +756,11 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerImportedWallet('password123', 'mnemonic words', [], 2, importedAccounts);
+      await registerImportedWallet('password123', 'mnemonic words', [], importedAccounts);
 
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words', [], 2, importedAccounts);
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words', [], importedAccounts);
       expect(Vault.setup).not.toHaveBeenCalled();
     });
 
@@ -777,7 +777,7 @@ describe('actions', () => {
 
       mockStorageClear.mockClear();
 
-      await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
+      await expect(registerImportedWallet('password', 'mnemonic', [], [])).rejects.toThrow('account read failed');
       expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
       expect(mockUnlocked).not.toHaveBeenCalled();
       // The spawn RESOLVED, so its own undo cannot fire: without this one the
@@ -799,7 +799,7 @@ describe('actions', () => {
 
       // The undo runs in a finally, so an unguarded throw there would surface the
       // storage error and hide the real cause.
-      await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
+      await expect(registerImportedWallet('password', 'mnemonic', [], [])).rejects.toThrow('account read failed');
       // Prove the undo was actually attempted: without this the assertion above is
       // equally satisfied by a run in which it never fired.
       expect(mockStorageClear).toHaveBeenCalled();
@@ -819,9 +819,9 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerImportedWallet(undefined, undefined, [], 2, []);
+      await registerImportedWallet(undefined, undefined, [], []);
 
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', [], 2, []);
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', [], []);
     });
   });
 

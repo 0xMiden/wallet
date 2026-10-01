@@ -28,7 +28,6 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
-import type { CURRENT_BACKUP_FORMAT_VERSION } from 'lib/miden/backup-file';
 import { clearStorage } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
@@ -279,7 +278,6 @@ export function registerImportedWallet(
   password: string | undefined,
   mnemonic: string | undefined,
   walletAccounts: WalletAccount[],
-  formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION,
   importedAccounts: ImportedAccountBackup[]
 ) {
   return withInited(() =>
@@ -289,13 +287,7 @@ export function registerImportedWallet(
       try {
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await Vault.spawnFromMidenClient(
-          password ?? '',
-          mnemonic ?? '',
-          walletAccounts,
-          formatVersion,
-          importedAccounts
-        );
+        vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();

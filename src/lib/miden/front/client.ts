@@ -4,7 +4,6 @@ import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wall
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import type { CURRENT_BACKUP_FORMAT_VERSION } from 'lib/miden/backup-file';
 import {
   GuardianSyncStatus,
   ImportedAccountBackup,
@@ -139,10 +138,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       walletAccounts: WalletAccount[],
-      formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION,
       importedAccounts: ImportedAccountBackup[]
     ) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts, formatVersion, importedAccounts);
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts);
     },
     [storeImportWalletFromClient]
   );

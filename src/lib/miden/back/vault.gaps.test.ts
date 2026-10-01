@@ -387,14 +387,13 @@ describe('Vault.spawnFromMidenClient: error branches', () => {
         '',
         VALID_MNEMONIC,
         [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-        2,
         []
       )
     ).rejects.toThrow('Password is required for password-based vault protection');
   });
 
   it('throws when walletAccounts is empty, before anything is written', async () => {
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [], 2, [])).rejects.toThrow(
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [], [])).rejects.toThrow(
       'Encrypted file contains no restorable accounts'
     );
   });
@@ -508,7 +507,6 @@ describe('Vault hardware-backed unlock + reveal', () => {
         '',
         VALID_MNEMONIC,
         [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-        2,
         []
       )
     ).rejects.toThrow(PublicError);

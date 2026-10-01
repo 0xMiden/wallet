@@ -53,13 +53,7 @@ import {
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import {
-  CURRENT_BACKUP_FORMAT_VERSION,
-  MNEMONIC_PATTERN,
-  importedAccountBackupFailure,
-  isWalletAccount,
-  normalizeBackupHex
-} from '../backup-file';
+import { MNEMONIC_PATTERN, importedAccountBackupFailure, isWalletAccount, normalizeBackupHex } from '../backup-file';
 import {
   authorizeRecovery,
   beginRecoveryAuthorization,
@@ -1273,7 +1267,6 @@ export class Vault {
     password: string,
     mnemonic: string,
     walletAccounts: WalletAccount[],
-    formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION,
     importedAccounts: ImportedAccountBackup[]
   ): Promise<Vault> {
     let spawned: Vault | undefined;
@@ -1308,9 +1301,6 @@ export class Vault {
       }
       if (mnemonic === '' && walletAccounts.some(account => account.hdIndex >= 0)) {
         failMalformedImport('hd-account-without-seed');
-      }
-      if (formatVersion !== 2) {
-        throw new PublicError('Encrypted file uses an unsupported backup version');
       }
       if (importedAccounts.length < importedWalletAccounts.length) failMissingImport('fewer-imports-than-accounts');
       if (importedAccounts.length > importedWalletAccounts.length) failMalformedImport('more-imports-than-accounts');

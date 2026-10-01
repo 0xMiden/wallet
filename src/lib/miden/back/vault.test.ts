@@ -2014,7 +2014,7 @@ describe('Vault.spawnFromMidenClient', () => {
   const restoreVersionTwo = (
     walletAccounts: WalletAccount[] = [importedWalletAccount],
     importedAccounts: ImportedAccountBackup[] = [importedBackup]
-  ) => Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, walletAccounts, 2, importedAccounts);
+  ) => Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, walletAccounts, importedAccounts);
 
   beforeEach(() => {
     // Default: miden client has one account whose id bech32s to 'pk-1'.
@@ -2076,7 +2076,7 @@ describe('Vault.spawnFromMidenClient', () => {
     mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
     mockMidenClient.getAccount.mockResolvedValueOnce(account);
 
-    const vault = await Vault.spawnFromMidenClient('pw', '', [importedWalletAccount], 2, [importedBackup]);
+    const vault = await Vault.spawnFromMidenClient('pw', '', [importedWalletAccount], [importedBackup]);
 
     expect(vault).toBeInstanceOf(Vault);
     await expect(vault.isOwnMnemonic()).resolves.toBe(false);
@@ -2096,7 +2096,7 @@ describe('Vault.spawnFromMidenClient', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(
-      Vault.spawnFromMidenClient('pw', 'abandon abandon abandon', [importedWalletAccount], 2, [importedBackup])
+      Vault.spawnFromMidenClient('pw', 'abandon abandon abandon', [importedWalletAccount], [importedBackup])
     ).rejects.toThrow(MALFORMED);
 
     const logged = consoleErrorSpy.mock.calls.map(call => call.map(String).join(' ')).join('\n');
@@ -2120,44 +2120,10 @@ describe('Vault.spawnFromMidenClient', () => {
       authScheme: 'ecdsa'
     };
 
-    await expect(Vault.spawnFromMidenClient('pw', '', [hdAccount], 2, [])).rejects.toThrow(
+    await expect(Vault.spawnFromMidenClient('pw', '', [hdAccount], [])).rejects.toThrow(
       'Encrypted file contains malformed imported account data'
     );
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
-  });
-
-  it('rejects a restore request that names no backup version', async () => {
-    await expect(
-      Vault.spawnFromMidenClient(
-        'pw',
-        VALID_MNEMONIC,
-        [
-          { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
-        ],
-        // @ts-expect-error the type admits only version 2; the runtime guard covers a request that bypasses it.
-        undefined,
-        []
-      )
-    ).rejects.toThrow('Encrypted file uses an unsupported backup version');
-    expect(mockKeystoreInsert).not.toHaveBeenCalled();
-    expect(await Vault.hasPasswordProtector()).toBe(false);
-  });
-
-  it('rejects a restore request that names backup version 1', async () => {
-    await expect(
-      Vault.spawnFromMidenClient(
-        'pw',
-        VALID_MNEMONIC,
-        [
-          { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
-        ],
-        // @ts-expect-error the type admits only version 2; the runtime guard covers a request that bypasses it.
-        1,
-        []
-      )
-    ).rejects.toThrow('Encrypted file uses an unsupported backup version');
-    expect(mockKeystoreInsert).not.toHaveBeenCalled();
-    expect(await Vault.hasPasswordProtector()).toBe(false);
   });
 
   it('rejects a version 2 restore with a missing imported-secret entry', async () => {
@@ -2372,7 +2338,6 @@ describe('Vault.spawnFromMidenClient', () => {
           authScheme: 'ecdsa'
         }
       ],
-      2,
       []
     );
     expect(vault).toBeInstanceOf(Vault);
@@ -2392,7 +2357,6 @@ describe('Vault.spawnFromMidenClient', () => {
       'pw',
       VALID_MNEMONIC,
       [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-      2,
       []
     );
     expect(vault).toBeInstanceOf(Vault);
@@ -2413,7 +2377,6 @@ describe('Vault.spawnFromMidenClient', () => {
         { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' },
         { publicKey: 'pk-2', name: 'B', isPublic: false, type: WalletType.OffChain, hdIndex: 0, authScheme: 'ecdsa' }
       ],
-      2,
       []
     );
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(2);
@@ -2427,7 +2390,6 @@ describe('Vault.spawnFromMidenClient', () => {
       'pw',
       VALID_MNEMONIC,
       [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-      2,
       []
     );
     expect(vault).toBeInstanceOf(Vault);
@@ -2443,7 +2405,6 @@ describe('Vault.spawnFromMidenClient', () => {
         [
           { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
         ],
-        2,
         []
       )
     ).rejects.toThrow('Failed to spawn from miden client');
@@ -2473,7 +2434,6 @@ describe('Vault.spawnFromMidenClient', () => {
           authScheme: 'ecdsa'
         }
       ],
-      2,
       []
     );
 
@@ -3328,7 +3288,6 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
           { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' },
           { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1, authScheme: 'ecdsa' }
         ],
-        2,
         []
       )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
@@ -3355,7 +3314,6 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
         'pw',
         VALID_MNEMONIC,
         [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-        2,
         []
       )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
@@ -3377,7 +3335,6 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
         'pw',
         VALID_MNEMONIC,
         [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-        2,
         []
       )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
@@ -3396,7 +3353,6 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
         'pw',
         VALID_MNEMONIC,
         [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-        2,
         []
       )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
@@ -3415,7 +3371,6 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
         'pw',
         VALID_MNEMONIC,
         [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
-        2,
         []
       )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
