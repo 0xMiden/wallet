@@ -18,32 +18,21 @@ function trackedSourceFiles(): string[] {
     .filter(file => file !== '' && !/\.test\.tsx?$/.test(file) && fs.existsSync(path.join(ROOT, file)));
 }
 
-/**
- * One `file:line class -> advice` entry for every match of `pattern` in the tracked source. The entry
- * names the whole class from the match onwards, since a pattern may stop partway through it.
- */
-function scanSource(pattern: RegExp, advise: (cls: string) => string): string[] {
-  const global = new RegExp(pattern.source, 'g');
-  const offences: string[] = [];
-  for (const file of trackedSourceFiles()) {
-    fs.readFileSync(path.join(ROOT, file), 'utf8')
-      .split('\n')
-      .forEach((line, i) => {
-        for (const hit of line.matchAll(global)) {
-          const cls = line.slice(hit.index ?? 0).match(/^[^\s'"`]+/)?.[0] ?? hit[0];
-          offences.push(`${file}:${i + 1} ${cls} -> ${advise(cls)}`);
-        }
-      });
-  }
-  return offences;
-}
-
 const CLASS_FUNCTIONS = new Set(['cn', 'clsx', 'classNames', 'twMerge']);
+const EVENT_LISTENER_METHODS = new Set(['addEventListener', 'removeEventListener']);
+
+/** The name a call is made by, whether a plain `f()` or a property access `a.f()`. */
+function calleeName(call: ts.CallExpression): string | undefined {
+  if (ts.isIdentifier(call.expression)) return call.expression.text;
+  if (ts.isPropertyAccessExpression(call.expression)) return call.expression.name.text;
+  return undefined;
+}
 
 /**
  * The text in a source that can become a class, each piece with the line it starts on: every string and
  * template literal, and every object key inside a cn, clsx, classNames or twMerge call, so `{ invert: dark }`
- * counts. Comments and identifiers never become a class, so they are not read.
+ * counts. Comments, identifiers and the event type string in an addEventListener or removeEventListener call
+ * never become a class, so they are not read.
  */
 function classText(source: string, fileName: string): { line: number; text: string }[] {
   const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest);
@@ -70,7 +59,11 @@ function classText(source: string, fileName: string): { line: number; text: stri
     const nested =
       inClassCall ||
       (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_FUNCTIONS.has(node.expression.text));
-    ts.forEachChild(node, child => visit(child, nested));
+    const eventType =
+      ts.isCallExpression(node) && EVENT_LISTENER_METHODS.has(calleeName(node) ?? '') ? node.arguments[0] : undefined;
+    ts.forEachChild(node, child => {
+      if (!(child === eventType && ts.isStringLiteral(child))) visit(child, nested);
+    });
   };
   visit(file, false);
   return pieces;
@@ -95,14 +88,27 @@ function scanClassText(pattern: RegExp, advise: (cls: string) => string): string
   );
 }
 
+// Source snippets run through the scan's own parse. A JSX attribute sits in an element and a doc-comment
+// line in its comment, so each parses as it does in a component.
+const inElement = (attribute: string) => `<i ${attribute} />`;
+const inDocComment = (line: string) => `/**\n${line}\n */`;
+
 describe('theme-dependent black and white', () => {
+  // Each pattern is one whole class token, built like the filter pattern below: its variants, an important
+  // prefix, the utility with any opacity, an important suffix, the end of the token.
+  const OPACITY = /(\/(\d+|\[[^\s'"`]*\]|\([^\s'"`]*\)))?/.source;
   // `black` is `ink`, which is white in dark theme, so a scrim written with it turns into a white wash and
   // a surface that must stay dark, such as a camera frame, turns white.
-  const THEME_BLACK_FILL = /\b(bg|from|via|to)-black\/\d|\bbg-black(?![\w/-])/;
+  const THEME_BLACK_FILL = new RegExp(
+    `(?<![^\\s'"\`])([^\\s'"\`]*:)?!?(bg|from|via|to)-black${OPACITY}!?(?=$|[\\s'"\`])`
+  );
   // `white` is the surface colour, a grey in dark theme, so this override fights the token it sits on,
-  // with or without further variants after `dark:`.
-  const DARK_OVERRIDE_TO_SURFACE =
-    /\bdark:([^\s'"`]*:)?(text|border|bg|fill|stroke|from|via|to|ring|outline|divide|placeholder|caret|decoration|shadow)-white\b/;
+  // with or without further variants before or after `dark:`.
+  const SURFACE_UTILITY =
+    /(text|border|bg|fill|stroke|from|via|to|ring|outline|divide|placeholder|caret|decoration|shadow)/.source;
+  const DARK_OVERRIDE_TO_SURFACE = new RegExp(
+    `(?<![^\\s'"\`])([^\\s'"\`]*:)?dark:([^\\s'"\`]*:)?!?${SURFACE_UTILITY}-white${OPACITY}!?(?=$|[\\s'"\`])`
+  );
 
   // An empty file list would pass both scans below vacuously.
   it('scans the tracked non-test source', () => {
@@ -113,12 +119,24 @@ describe('theme-dependent black and white', () => {
   });
 
   // Hand-written arms, so narrowing either pattern fails here even while the tree has no offence.
-  it.each(['bg-black/55', 'from-black/85', 'via-black/40', 'to-black/10', 'hover:bg-black/60', 'bg-black'])(
-    'the black pattern flags %s',
-    cls => expect(THEME_BLACK_FILL.test(cls)).toBe(true)
-  );
+  it.each([
+    'bg-black/55',
+    'from-black/85',
+    'via-black/40',
+    'to-black/10',
+    'hover:bg-black/60',
+    'bg-black',
+    'from-black',
+    'via-black',
+    'to-black',
+    'bg-black/[0.5]',
+    'bg-black/(--a)',
+    'md:from-black',
+    '!bg-black/50',
+    'bg-black!'
+  ])('the black pattern flags %s', cls => expect(THEME_BLACK_FILL.test(cls)).toBe(true));
 
-  it.each(['bg-pure-black/55', 'from-pure-black/85', 'border-black', 'bg-black-40', 'text-ink'])(
+  it.each(['bg-pure-black/55', 'from-pure-black/85', 'border-black', 'bg-black-40', 'text-ink', 'bg-blackish'])(
     'the black pattern leaves %s alone',
     cls => expect(THEME_BLACK_FILL.test(cls)).toBe(false)
   );
@@ -139,17 +157,39 @@ describe('theme-dependent black and white', () => {
     'dark:placeholder-white',
     'dark:caret-white',
     'dark:decoration-white',
-    'dark:shadow-white'
+    'dark:shadow-white',
+    'md:dark:text-white',
+    'dark:bg-white/[0.1]',
+    'dark:bg-white/(--a)',
+    'dark:text-white!',
+    'dark:!text-white'
   ])('the dark override pattern flags %s', cls => expect(DARK_OVERRIDE_TO_SURFACE.test(cls)).toBe(true));
 
-  it.each(['dark:text-pure-white', 'dark:bg-pure-white/10', 'text-white', 'dark:text-ink'])(
+  it.each(['dark:text-pure-white', 'dark:bg-pure-white/10', 'text-white', 'dark:text-ink', 'dark:text-whitesmoke'])(
     'the dark override pattern leaves %s alone',
     cls => expect(DARK_OVERRIDE_TO_SURFACE.test(cls)).toBe(false)
   );
 
+  it.each([inElement('className="flex from-black/85"')])('the black scan flags %s', source =>
+    expect(matchingClasses(source, 'snippet.tsx', THEME_BLACK_FILL)).not.toEqual([])
+  );
+
+  it.each([inDocComment(' * never bg-black/50'), '// from-black was white in dark'])(
+    'the black scan leaves %s alone',
+    source => expect(matchingClasses(source, 'snippet.tsx', THEME_BLACK_FILL)).toEqual([])
+  );
+
+  it.each([inElement('className="dark:text-white"')])('the dark override scan flags %s', source =>
+    expect(matchingClasses(source, 'snippet.tsx', DARK_OVERRIDE_TO_SURFACE)).not.toEqual([])
+  );
+
+  it.each([inDocComment(' * no dark:text-white here')])('the dark override scan leaves %s alone', source =>
+    expect(matchingClasses(source, 'snippet.tsx', DARK_OVERRIDE_TO_SURFACE)).toEqual([])
+  );
+
   it('no overlay or dark surface uses the theme black', () => {
     expect(
-      scanSource(
+      scanClassText(
         THEME_BLACK_FILL,
         cls => `use ${cls.replace('-black', '-pure-black')}: black is ink, white in dark theme`
       )
@@ -158,7 +198,7 @@ describe('theme-dependent black and white', () => {
 
   it('no dark: override reaches for the surface colour', () => {
     expect(
-      scanSource(
+      scanClassText(
         DARK_OVERRIDE_TO_SURFACE,
         cls => `drop ${cls}: white is the surface colour, rely on the flipping token (text-ink, border-black)`
       )
@@ -172,10 +212,12 @@ describe('composed filters', () => {
   // nothing; iOS before 18 also reads only the -webkit- backdrop property. The mobile minifier keeps that
   // prefix only because vite.mobile.config.ts sets cssTarget.
   const FILTER = /(blur|brightness|contrast|drop-shadow|grayscale|hue-rotate|invert|saturate|sepia)/.source;
-  // Only a theme step, a number or an arbitrary value follows the name in a real class, so code such as
-  // `addEventListener('blur', ...)` or `'grayscale-firefox-fix'` is not flagged.
+  // Only a theme step, a number or an arbitrary value follows the name in a real class, so a string such as
+  // `'grayscale-firefox-fix'` is not flagged.
   const VALUE = /(xs|sm|md|lg|xl|2xl|3xl|none|\d+|\[[^\s'"`]*\]|\([^\s'"`]*\))(\/\d+)?/.source;
-  const BARE = /((backdrop-)?(grayscale|invert|sepia)|backdrop-blur|drop-shadow)/.source;
+  // Tailwind 4 compiles a bare `blur` to the composed filter too; the 'blur' event type in
+  // `addEventListener('blur', ...)` is never read as class text.
+  const BARE = /((backdrop-)?(grayscale|invert|sepia)|blur|backdrop-blur|drop-shadow)/.source;
   // One whole class token: its variants, an important or negative prefix, the utility, the end of the token.
   const COMPOSED_FILTER_UTILITY = new RegExp(
     `(?<![^\\s'"\`])([^\\s'"\`]*:)?!?-?((backdrop-)?${FILTER}-${VALUE}|backdrop-opacity-${VALUE}|${BARE})!?(?=$|[\\s'"\`])`
@@ -191,7 +233,25 @@ describe('composed filters', () => {
     'backdrop-opacity-50',
     '-hue-rotate-15',
     'drop-shadow-lg/50',
-    'blur-sm!'
+    'blur-sm!',
+    'blur',
+    'sepia',
+    'backdrop-blur',
+    'backdrop-grayscale',
+    'backdrop-invert',
+    'backdrop-sepia',
+    'blur-xs',
+    'backdrop-blur-md',
+    'blur-xl',
+    'blur-2xl',
+    'blur-3xl',
+    'blur-none',
+    'blur-(--x)',
+    'contrast-50',
+    'grayscale-50',
+    'invert-50',
+    'sepia-50',
+    '!blur-sm'
   ])('the filter pattern flags %s', cls => expect(COMPOSED_FILTER_UTILITY.test(cls)).toBe(true));
 
   it.each([
@@ -200,11 +260,6 @@ describe('composed filters', () => {
     '[-webkit-backdrop-filter:blur(8px)]',
     'backdrop:bg-pure-black'
   ])('the filter pattern leaves %s alone', cls => expect(COMPOSED_FILTER_UTILITY.test(cls)).toBe(false));
-
-  // Source snippets run through the scan's own parse. A JSX attribute sits in an element and a doc-comment
-  // line in its comment, so each parses as it does in a component.
-  const inElement = (attribute: string) => `<i ${attribute} />`;
-  const inDocComment = (line: string) => `/**\n${line}\n */`;
 
   it.each([
     inElement('className="flex grayscale"'),
@@ -215,7 +270,16 @@ describe('composed filters', () => {
     "cn('icon', { invert: dark })",
     'classNames({ grayscale })',
     "cn('md:blur-sm')",
-    "'backdrop-blur-[6px]'"
+    "'backdrop-blur-[6px]'",
+    inElement('className="flex blur"'),
+    "cn('md:blur')",
+    "cn('icon', { blur: hidden })",
+    "cn(hidden && 'blur')",
+    "const c = 'blur';",
+    // eslint-disable-next-line no-template-curly-in-string -- the snippet's ${ is template source, not a placeholder
+    inElement('className={`grayscale ${a}`}'),
+    // eslint-disable-next-line no-template-curly-in-string -- the snippet's ${ is template source, not a placeholder
+    inElement('className={`${a} grayscale ${b}`}')
   ])('the filter scan flags %s', source =>
     expect(matchingClasses(source, 'snippet.tsx', COMPOSED_FILTER_UTILITY)).not.toEqual([])
   );
@@ -229,7 +293,10 @@ describe('composed filters', () => {
     "window.addEventListener('blur', invert);",
     "// don't invert, it's fine",
     "filter: 'blur(4px)'",
-    "'grayscale-firefox-fix'"
+    "'grayscale-firefox-fix'",
+    "el.removeEventListener('blur', hide);",
+    "addEventListener('blur', hide);",
+    'const filters = { invert: 1 };'
   ])('the filter scan leaves %s alone', source =>
     expect(matchingClasses(source, 'snippet.tsx', COMPOSED_FILTER_UTILITY)).toEqual([])
   );
