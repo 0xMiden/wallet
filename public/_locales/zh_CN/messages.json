@@ -2965,6 +2965,10 @@
     "message": "您需要 MIDEN 来支付网络费用。请获取一定数量的 MIDEN 以继续操作。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
   },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
+  },
   "amountMustBeLessThanBalance": {
     "message": "金额必须小于余额",
     "englishSource": "Amount must be less than balance"

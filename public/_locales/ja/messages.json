@@ -2965,6 +2965,10 @@
     "message": "ネットワーク手数料の支払いにMIDENが必要です。続行するには、MIDENを受け取ってください。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
   },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
+  },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高より少なければなりません",
     "englishSource": "Amount must be less than balance"

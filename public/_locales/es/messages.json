@@ -2965,6 +2965,10 @@
     "message": "Necesitas MIDEN para pagar la comisión de red. Obtén algo de MIDEN para continuar.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
   },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
+  },
   "amountMustBeLessThanBalance": {
     "message": "El importe debe ser inferior al saldo",
     "englishSource": "Amount must be less than balance"

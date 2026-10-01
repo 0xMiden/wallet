@@ -236,7 +236,7 @@ describe('EarnPositions', () => {
     const empty = screen.getByTestId('earn-positions-empty');
     expect(within(empty).getByText('earnNoActivePositionsTitle')).toBeInTheDocument();
     expect(within(empty).getByText('earnNoActivePositionsBody')).toBeInTheDocument();
-    expect(empty).toHaveClass('border-dashed', 'bg-page');
+    expect(empty).toHaveClass('border-dashed', 'bg-page', 'text-center', 'py-4');
     expect(empty).not.toHaveClass('bg-fill');
     expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();

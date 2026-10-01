@@ -156,6 +156,17 @@ describe('AmountInput', () => {
       expect(screen.getByTestId('token')).toBeInTheDocument();
     });
 
+    it('sits 8px under the helper line with no divider, and 16px under the divider', () => {
+      const token = <button data-testid="token">USDC</button>;
+      const { rerender } = render(
+        <AmountInput showDivider={false} helper="Available 0" tokenSelector={token} data-testid={TESTID} />
+      );
+      expect(screen.getByTestId('token').parentElement).toHaveClass('mt-2');
+
+      rerender(<AmountInput showDivider helper="Available 0" tokenSelector={token} data-testid={TESTID} />);
+      expect(screen.getByTestId('token').parentElement).toHaveClass('mt-4');
+    });
+
     it('does not render a token selector chip when omitted', () => {
       render(<AmountInput data-testid={TESTID} />);
       expect(screen.queryByTestId('token')).not.toBeInTheDocument();

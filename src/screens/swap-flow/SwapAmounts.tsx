@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
@@ -134,9 +135,17 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             amount={offerAmount}
             isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
             error={offerAmountError}
+            // The fee shortfall keeps the amount red but says so under the token.
+            hideErrorText={feeAssetMissing}
             onAmountChange={onOfferAmountChange}
             onSelectToken={onSelectOfferToken}
           />
+          {feeAssetMissing && (
+            <div data-testid="swap-fee-notice" className="mt-3 flex items-start gap-1.5 text-red-500 face-heading">
+              <Icon name={IconName.InformationFill} size="xs" fill="currentColor" className="mt-0.5 shrink-0" />
+              <p className="text-body-sm font-semibold">{t('insufficientFeeAssetShort')}</p>
+            </div>
+          )}
         </motion.div>
 
         <div className="flex items-center gap-3">

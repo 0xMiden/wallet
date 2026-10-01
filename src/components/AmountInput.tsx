@@ -212,7 +212,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         />
       )}
 
-      {tokenSelector != null && <div className={classNames(showDivider && 'mt-4')}>{tokenSelector}</div>}
+      {/* 8px under the helper or error line when there is no divider between them, so the line
+          does not sit on the token pill. */}
+      {tokenSelector != null && <div className={showDivider ? 'mt-4' : 'mt-2'}>{tokenSelector}</div>}
     </div>
   );
 };

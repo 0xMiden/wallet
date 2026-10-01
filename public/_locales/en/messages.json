@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Total Earned Rewards",
-    "englishSource": "Total Earned Rewards"
+    "message": "Total earned",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "Earning $apy$ blended APY",
@@ -2964,6 +2964,10 @@
   "insufficientFeeAsset": {
     "message": "You need MIDEN to pay the network fee. Receive some MIDEN to continue.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",
