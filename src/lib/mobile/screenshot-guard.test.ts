@@ -18,10 +18,12 @@ const settle = () =>
 
 function deferred() {
   let resolve: () => void = () => {};
-  const promise = new Promise<void>(res => {
+  let reject: (err: unknown) => void = () => {};
+  const promise = new Promise<void>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function nativeCallOrder() {
@@ -143,5 +145,57 @@ describe('useScreenshotGuard', () => {
     await settle();
     active.unmount();
     expect(mockDisable).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a newer shared enable when an enable from before the release rejects', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const firstEnable = deferred();
+    mockEnable.mockReturnValueOnce(firstEnable.promise);
+    const first = renderHook(() => useScreenshotGuard());
+    await settle();
+    first.unmount();
+    expect(mockDisable).toHaveBeenCalledTimes(1);
+
+    const secondEnable = deferred();
+    mockEnable.mockReturnValueOnce(secondEnable.promise);
+    const second = renderHook(() => useScreenshotGuard());
+    await settle();
+
+    firstEnable.reject(new Error('enable failed'));
+    await settle();
+
+    const third = renderHook(() => useScreenshotGuard());
+    await settle();
+    expect(mockEnable).toHaveBeenCalledTimes(2);
+
+    secondEnable.resolve();
+    await settle();
+    expect(second.result.current).toBe(true);
+    expect(third.result.current).toBe(true);
+    warn.mockRestore();
+  });
+
+  it('ignores an enable that resolves after its holder released and acquired again', async () => {
+    const firstEnable = deferred();
+    mockEnable.mockReturnValueOnce(firstEnable.promise);
+    const { result, rerender } = renderHook(({ active }) => useScreenshotGuard(active), {
+      initialProps: { active: true }
+    });
+    await settle();
+
+    const secondEnable = deferred();
+    mockEnable.mockReturnValueOnce(secondEnable.promise);
+    rerender({ active: false });
+    rerender({ active: true });
+    await settle();
+    expect(nativeCallOrder()).toEqual(['enable', 'disable', 'enable']);
+
+    firstEnable.resolve();
+    await settle();
+    expect(result.current).toBe(false);
+
+    secondEnable.resolve();
+    await settle();
+    expect(result.current).toBe(true);
   });
 });
