@@ -103,7 +103,10 @@ function buildHarness() {
 
 type Harness = ReturnType<typeof buildHarness>;
 
-function installMocks(harness: Harness) {
+function installMocks(
+  harness: Harness,
+  { proverUrl, newRemoteProver = jest.fn(() => 'remote') }: { proverUrl?: string; newRemoteProver?: jest.Mock } = {}
+) {
   jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
     MidenClient: { create: jest.fn(async () => harness.fakeClient) },
     NoteFile: { deserialize: jest.fn() },
@@ -112,7 +115,7 @@ function installMocks(harness: Harness) {
     NoteType: { Private: 'Private', Public: 'Public' },
     TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ requestBytes: Array.from(bytes) })) },
     TransactionProver: {
-      newRemoteProver: jest.fn(() => 'remote'),
+      newRemoteProver,
       newLocalProver: jest.fn(() => 'local'),
       newCallbackProver: jest.fn(() => 'callback')
     },
@@ -128,7 +131,7 @@ function installMocks(harness: Harness) {
   jest.doMock('lib/miden-chain/effective-endpoints', () => ({
     getEffectiveNetworkName: () => 'localnet',
     getEffectiveRpcUrl: () => 'rpc-local',
-    getEffectiveProverUrl: () => undefined,
+    getEffectiveProverUrl: () => proverUrl,
     getEffectiveNoteTransportUrl: () => undefined
   }));
   jest.doMock('./helpers', () => ({
@@ -175,6 +178,47 @@ function expectWorkerProved(harness: Harness) {
   expect(harness.transport.prove.mock.calls[0]?.[0]).toEqual({ txResult: new Uint8Array([7, 7]) });
   expect(harness.submitProven).toHaveBeenCalledWith({ proofBytes: [5, 5] }, harness.result);
 }
+
+describe('a trap is not a prover failure', () => {
+  const proveTrap = new WebAssembly.RuntimeError('unreachable');
+
+  it.each<[string, unknown, PromiseSettledResult<unknown>['status'], unknown, number]>([
+    ['a trap', proveTrap, 'rejected', proveTrap, 1],
+    ['a delegated failure', new Error('bad endpoint'), 'fulfilled', 'local', 2]
+  ])(
+    'proveWithFallback after %s re-proves locally only when it is not a trap',
+    async (_kind, failure, status, settledWith, calls) => {
+      const { proveWithFallback, withWasmClientLock } = await load(buildHarness());
+      const fn = jest.fn().mockRejectedValueOnce(failure).mockResolvedValue('local');
+      const [settled] = await Promise.allSettled([
+        withWasmClientLock(async () => proveWithFallback(fn, true, { disposed: false }))
+      ]);
+      expect(settled.status).toBe(status);
+      expect(settled.status === 'rejected' ? settled.reason : settled.value).toBe(settledWith);
+      expect(fn).toHaveBeenCalledTimes(calls);
+    }
+  );
+
+  it('remoteProver rethrows a trap and answers undefined for a construction failure', async () => {
+    const trap = new WebAssembly.RuntimeError('unreachable');
+    const newRemoteProver = jest.fn(() => {
+      throw trap;
+    });
+    installMocks(buildHarness(), { proverUrl: 'https://prover.example', newRemoteProver });
+    const { remoteProver } = await import('./miden-client-interface');
+    let thrown: unknown;
+    try {
+      remoteProver();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(trap);
+    newRemoteProver.mockImplementation(() => {
+      throw new Error('bad endpoint');
+    });
+    expect(remoteProver()).toBeUndefined();
+  });
+});
 
 describe('send (site 5)', () => {
   it('a local attempt proves in the worker, then submits the proof and applies it', async () => {

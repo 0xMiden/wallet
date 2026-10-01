@@ -1,6 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
 export interface IInputNote {
@@ -431,6 +432,17 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /**
+   * Set on a row rebuilt from a Guardian operator's retained history, and the
+   * only field that means so; `recovery` is the data such a row, or a local row
+   * it matched, carries. History and HistoryDetails key the recovered title and
+   * icon and the suppressed bridge, swap and earn-settlement UI on it, and the
+   * history merge replaces or merges only rows carrying it. `restoredFromBackup`,
+   * set with it, is what keeps the processing loop, retry and the delivery
+   * sweep away from such a row.
+   */
+  recovered?: boolean;
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -711,6 +723,8 @@ export interface IFailedTransactionOutput {
 export type TransactionOutput = ISuccessTransactionOutput | IFailedTransactionOutput;
 
 export class Transaction implements ITransaction {
+  recovered?: boolean;
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;
