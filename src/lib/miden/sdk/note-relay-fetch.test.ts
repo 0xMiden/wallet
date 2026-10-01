@@ -116,17 +116,26 @@ withInstalledPatch('generate-note-relay-patch --check', () => {
     expect(() => runScratch('--check')).toThrow(/unexpected file.*dist\/st\/index\.js/);
   });
 
-  it('names both remedies when an installed bundle lacks the patch', () => {
+  it.each([
+    [
+      'lacks the patch',
+      'const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));',
+      'const ret = arg0.fetch(arg1, arg2);'
+    ],
+    [
+      'carries an older relay patch',
+      '    // SendNoteResponse is empty, but tonic still requires a unary protobuf data frame.\n',
+      '    // An older relay patch said something else here.\n'
+    ]
+  ])('names a remedy that works when an installed bundle %s', (_state, current, stale) => {
     scratchRepo('copy');
     const bundle = join(scratch, sdkPath, relayBundles[0]!);
-    writeFileSync(
-      bundle,
-      readFileSync(bundle, 'utf8').replace(
-        'const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));',
-        'const ret = arg0.fetch(arg1, arg2);'
-      )
+    writeFileSync(bundle, readFileSync(bundle, 'utf8').replace(current, stale));
+    // patch-package cannot repair a bundle that already carries another relay patch, so the
+    // remedy reinstalls the package and lets postinstall apply the committed patch afresh.
+    expect(() => runScratch('--check')).toThrow(
+      /rm -rf node_modules\/@miden-sdk\/miden-sdk && yarn install --check-files.*generate-note-relay-patch\.mjs/s
     );
-    expect(() => runScratch('--check')).toThrow(/npx patch-package.*generate-note-relay-patch\.mjs/s);
   });
 
   it('skips a linked SDK build, which carries no relay patch', () => {

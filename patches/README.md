@@ -20,8 +20,10 @@ cannot depend on a new module import. After editing it, regenerate with
 `node scripts/generate-note-relay-patch.mjs`. Its `--check` flag verifies the
 installed bundles, which postinstall built from the committed patch, and that the
 patch lists only the six bundles; it never compares the patch text, because GNU and
-BSD `diff` print the same edit differently. Updating the SDK requires checking these
-seams again.
+BSD `diff` print the same edit differently. When `--check` reports a stale bundle after
+a pull, reinstall the package (`rm -rf node_modules/@miden-sdk/miden-sdk && yarn install
+--check-files`): patch-package cannot repair a bundle that already carries an older
+relay patch. Updating the SDK requires checking these seams again.
 
 A linked web-sdk build (`Web SDK PR: #N`, `scripts/dev-with-web-sdk-pr.sh`) installs a
 `file:` source build the patch cannot apply to, so that build runs without the relay

@@ -49,8 +49,9 @@ try {
       // never regenerated here: GNU and BSD diff align the same edit differently.
       if (current !== patched) {
         throw new Error(
-          `Installed SDK relay patch is stale: ${bundle}. Run \`npx patch-package\` if node_modules predates ` +
-            'the committed patch, or `node scripts/generate-note-relay-patch.mjs` after editing the helper.'
+          `Installed SDK relay patch is stale: ${bundle}. After a pull, reinstall the SDK so postinstall applies ` +
+            'the committed patch: `rm -rf node_modules/@miden-sdk/miden-sdk && yarn install --check-files`. ' +
+            'After editing the helper, regenerate with `node scripts/generate-note-relay-patch.mjs`.'
         );
       }
       continue;
