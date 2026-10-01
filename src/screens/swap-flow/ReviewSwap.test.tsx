@@ -506,8 +506,8 @@ describe('ReviewSwap', () => {
   });
 
   // This screen commits value, so it names the network. The banner comes from the shared
-  // ReviewLayout, not from this component: ReviewLayout hides the tab bar, and the network ribbon
-  // lives in the tab bar's footer, so this screen showed no network at all.
+  // ReviewLayout, not from this component: the network pill lives on Home, so without it this
+  // screen would show no network at all.
   it('names the network it will commit on', () => {
     renderComponent();
 

@@ -2,18 +2,18 @@ import React, { FC, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
 import { goBack, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, earnSubjectTitle } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderPosition } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -43,7 +43,8 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
   // `Button` fires the tap haptic itself; calling it here too would buzz twice.
   const handleWithdraw = async () => {
-    if (isSubmitting) return;
+    // A position the latest read did not load signs nothing; the disabled button and the notice say why.
+    if (isSubmitting || position.stale) return;
     if (!account.evmAddress || account.evmAddress.toLowerCase() !== position.owner.toLowerCase()) {
       setSubmitError(t('earnWithdrawNotOwned'));
       return;
@@ -82,8 +83,9 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       <SubPageLayout
         data-testid="earn-withdraw-review-page"
         title={found ? earnSubjectTitle(found) : t('withdraw')}
+        subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (
@@ -99,7 +101,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
                 variant={ButtonVariant.Primary}
                 accent="earn"
                 onClick={handleWithdraw}
-                disabled={isSubmitting || amountValue <= 0 || !position.id}
+                disabled={isSubmitting || amountValue <= 0 || !position.id || position.stale}
                 className="w-full max-w-none"
               />
             </>
@@ -113,7 +115,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
             {loadFailed && <EarnLoadError onRetry={refetch} />}
             <EarnHero
               labelId="earn-withdraw-review-amount"
-              value={toAdaptiveFixed(amountValue)}
+              value={formatMoneyAmount(position.withdrawable, 'receives', withdrawSymbol)}
               unit={<EarnAmountUnit symbol={withdrawSymbol} />}
               label={t('earnWithdrawAmount')}
             />

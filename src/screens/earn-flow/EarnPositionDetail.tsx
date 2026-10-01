@@ -12,7 +12,7 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnAssetMark, EarnSummaryPanel, MetricCard } from './components';
+import { EarnAssetMark, EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel, MetricCard } from './components';
 import { formatApy, placeholderPosition, usdFigureFormatter } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnPosition } from './types';
@@ -35,9 +35,8 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
     <SubPageLayout
       data-testid="earn-position-detail-page"
       // Until the position is found the header names the route, never a placeholder position.
-      title={
-        found ? t('earnPositionHeaderTitle', { protocol: found.protocol, asset: found.asset }) : t('earnPositionsTitle')
-      }
+      title={found ? earnSubjectTitle(found) : t('earnPositionsTitle')}
+      subtitle={found && <EarnSubjectSubtitle subject={found} />}
       onBack={goBack}
       footer={
         (loadFailed && !found) || pending ? undefined : (
@@ -56,7 +55,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
               title={t('withdraw')}
               variant={ButtonVariant.Primary}
               accent="earn"
-              disabled={!position.id || Number(position.withdrawable) <= 0}
+              disabled={!position.id || position.stale || Number(position.withdrawable) <= 0}
               onClick={() => navigate(`/earn/positions/${encodeURIComponent(position.id)}/withdraw/review`)}
               className="flex-1 max-w-none"
             />
@@ -136,14 +135,17 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
   );
 };
 
-/** What the rest of the page is about: the position itself, under the account-wide summary. The
- *  asset and its network are the shared mark, not a second pill. */
+/** What the rest of the page is about: the position itself, under the account-wide summary, named
+ *  as the header names it, the protocol over its asset and network beside the decorative mark. */
 const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => (
   <div className="flex items-center gap-2">
-    <EarnAssetMark asset={position.asset} network={position.network} />
-    <h2 className="min-w-0 text-hero-name text-ink">
-      {position.protocol} &bull; {position.asset}
-    </h2>
+    <EarnAssetMark asset={position.asset} network={position.network} decorative />
+    <div className="min-w-0">
+      <h2 className="text-hero-name text-ink">{earnSubjectTitle(position)}</h2>
+      <p className="text-caption-heading text-muted">
+        <EarnSubjectSubtitle subject={position} />
+      </p>
+    </div>
   </div>
 );
 

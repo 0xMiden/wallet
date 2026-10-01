@@ -182,6 +182,23 @@ describe('BridgeClaimSection', () => {
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
     });
+
+    it('still shows the reclaim UI when the row is also unconfirmed (#1250)', async () => {
+      // The reclaim gate reads the raw status, not the shared not-confirmed rule: a reclaim of a
+      // note that never landed fails before it moves funds, so it stays keyed on transactionFailed.
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({ entry: entry({ isUnconfirmed: true }) });
+      expect(await screen.findByText('t:reclaimFunds')).toBeInTheDocument();
+    });
+
+    it('shows Not confirmed while unconfirmed and pending, then the live fill once it reports confirmed', async () => {
+      mockPollEpochIntentFill.mockResolvedValueOnce({ status: 'confirmed' });
+      renderSection({
+        entry: entry({ isUnconfirmed: true, bridgeEpochStatus: 'pending', bridgeIntentNonce: 'nonce-1' })
+      });
+      expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
+      expect(await screen.findByText(/t:confirmed/)).toBeInTheDocument();
+    });
   });
 
   describe('Agglayer (Slow) claim', () => {
@@ -205,6 +222,39 @@ describe('BridgeClaimSection', () => {
       const claimBtn = await screen.findByText('t:claimAsset');
       fireEvent.click(claimBtn);
       await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalled());
+    });
+
+    // Route evidence has to name the deposit it is bound to, so `updateBridgeClaimStatus` can
+    // tell this row's own claim apart from a sibling's (#1250).
+    it("passes the found deposit's tx hash as the tracker's ready write", async () => {
+      mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+          'tx-1',
+          'ready',
+          { depositReady: true },
+          '0xdeposit-hash'
+        )
+      );
+    });
+
+    it("passes the claimable deposit's tx hash on handleClaim's claiming and claimed writes", async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'claiming', undefined, '0xdeposit-hash')
+      );
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+          'tx-1',
+          'claimed',
+          { claimTxHash: '0xclaimhash' },
+          '0xdeposit-hash'
+        )
+      );
     });
 
     it("looks the deposit up against THIS row's own bridge-out transaction", async () => {
@@ -251,6 +301,55 @@ describe('BridgeClaimSection', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       renderSection({ entry: agglayer({ bridgeClaimStatus: 'claimed' }) });
       expect(screen.getByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    });
+
+    // A Failed agglayer row can still be unconfirmed: the not-confirmed rule wins over
+    // bridgeFailed, and live evidence (a found deposit, a claim, a lookup with no id) wins
+    // over Not confirmed in turn (#1250).
+    describe('an unconfirmed row', () => {
+      it('reads Not confirmed and keeps the claim UI open while no deposit has been found', async () => {
+        const row = agglayer({ status: FAILED, isUnconfirmed: true, externalTxId: '0xrow-origin' });
+        renderSection({ entry: row });
+        await waitFor(() => expect(mockFindClaimable).toHaveBeenCalledWith('0xdead', '0xrow-origin'));
+        expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
+        expect(screen.queryByText(/t:bridgeFailed/)).not.toBeInTheDocument();
+        expect(screen.getByText('t:connectEvmWallet')).toBeInTheDocument();
+      });
+
+      it('reads Claimable over Not confirmed once the tracker finds a deposit', async () => {
+        mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1' });
+        renderSection({
+          entry: agglayer({ status: FAILED, isUnconfirmed: true, externalTxId: '0xrow-origin' })
+        });
+        expect(await screen.findByText(/t:claimable/)).toBeInTheDocument();
+      });
+
+      it('reads Claimed over Not confirmed once bridgeClaimStatus is claimed', () => {
+        renderSection({
+          entry: agglayer({
+            status: FAILED,
+            isUnconfirmed: true,
+            externalTxId: '0xrow-origin',
+            bridgeClaimStatus: 'claimed'
+          })
+        });
+        expect(screen.getByText(/t:claimed/)).toBeInTheDocument();
+      });
+
+      it('reads Not confirmed with no lookup and no claim UI when the row has no transaction id', () => {
+        renderSection({ entry: agglayer({ status: FAILED, isUnconfirmed: true }) });
+        expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
+        expect(mockFindClaimable).not.toHaveBeenCalled();
+        expect(screen.queryByText('t:connectEvmWallet')).not.toBeInTheDocument();
+        expect(screen.queryByText('t:claimPending')).not.toBeInTheDocument();
+      });
+
+      it('keeps the confirmed-failed reading, with no lookup or claim UI, when the row never reports unconfirmed', () => {
+        renderSection({ entry: agglayer({ status: FAILED }) });
+        expect(screen.getByText(/t:bridgeFailed/)).toBeInTheDocument();
+        expect(mockFindClaimable).not.toHaveBeenCalled();
+        expect(screen.queryByText('t:connectEvmWallet')).not.toBeInTheDocument();
+      });
     });
   });
 

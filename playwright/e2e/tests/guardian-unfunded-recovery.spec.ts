@@ -3,6 +3,7 @@ import { expect, test } from '../fixtures/two-wallets';
 import { vaultBalance } from '../helpers/balance-truth';
 import { readTransactionRows } from '../helpers/history';
 import { FUNDING_MIDEN } from '../helpers/miden-cli';
+import { PUBLIC_FAUCET_GRANT, publicFaucetApiUrl } from '../helpers/public-faucet';
 import { PASSWORD } from '../helpers/wallet-page';
 
 const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
@@ -115,8 +116,11 @@ test.describe('Guardian recovery - unfunded account', () => {
         );
         expect(flagged).toBe(false);
 
-        // The funding note less two fees, each at most the kernel's cap: the claim's and the rotation's.
-        const funded = BigInt(FUNDING_MIDEN);
+        // A public chain's note is the faucet grant. The local chain sends FUNDING_MIDEN.
+        // Two fees can leave, each at most the kernel's cap: the claim's and the rotation's.
+        const funded = publicFaucetApiUrl(getEnvironmentConfig().name)
+          ? PUBLIC_FAUCET_GRANT
+          : BigInt(FUNDING_MIDEN);
         const floor = funded - 2n * FEE_RESERVE_MULTIPLE * BASE_FEE;
         await expect
           .poll(() => vaultBalance(walletB.page, 'MIDEN'), { timeout: 120_000 })

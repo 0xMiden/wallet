@@ -10,9 +10,11 @@ import { Button, ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
+import { ErrorDetails } from 'components/ui/ErrorDetails';
 import {
   bridgeProviderOf,
   isRequeueableTransaction,
+  isUnconfirmedFailure,
   isUnverifiableSendRetryError,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
@@ -286,6 +288,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const commitUnconfirmed =
     isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
   const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
+  // A failed row whose outcome is unknown reads as not confirmed here too, by the rule Activity and the
+  // rotation gate share (#1250): no failed title, and no classifier copy that claims the send did not land.
+  const failedRow = activeTransaction ?? completedTransaction;
+  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isUnconfirmedFailure(failedRow);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
 
   useEffect(() => {
@@ -313,16 +319,17 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const headerText = useCallback(() => {
     if (transactionComplete && hasErrors) {
-      return t('transactionFailed');
+      return t(unconfirmed ? 'notConfirmed' : 'transactionFailed');
     }
     if (transactionComplete) {
       return t('transactionCompleted');
     }
     return t(getStageTitleKey(activeStage, activeType));
-  }, [transactionComplete, hasErrors, t, activeStage, activeType]);
+  }, [transactionComplete, hasErrors, unconfirmed, t, activeStage, activeType]);
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
+      if (unconfirmed) return t('transactionNotConfirmedHint');
       // Prefer the row's own error. The pipeline writes prose here for the failures it
       // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
       // be the MIDEN for the network fee rather than the amount sent, which the generic
@@ -335,7 +342,16 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
       return t(commitUnconfirmed ? 'transactionSubmittedUnconfirmedDescription' : 'transactionSuccessDescription');
     }
     return t(getStageDescriptionKey(activeStage));
-  }, [transactionComplete, hasErrors, t, activeStage, commitUnconfirmed, activeTransaction, completedTransaction]);
+  }, [
+    transactionComplete,
+    hasErrors,
+    unconfirmed,
+    t,
+    activeStage,
+    commitUnconfirmed,
+    activeTransaction,
+    completedTransaction
+  ]);
 
   const dismissalDescription = useMemo(() => {
     if (keepOpen) {
@@ -360,7 +376,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // A successful tx still renders here for SUCCESS_RECEIPT_DELAY_MS before the
   // receipt takes over, so the hero has to show a settled success state — not
   // the spinner — while the title already reads "Transaction completed".
-  const heroState: TransactionHeroState = !transactionComplete ? 'processing' : hasErrors ? 'failed' : 'success';
+  const failedHeroState: TransactionHeroState = unconfirmed ? 'unconfirmed' : 'failed';
+  const heroState: TransactionHeroState = !transactionComplete ? 'processing' : hasErrors ? failedHeroState : 'success';
   const actionTitle = transactionComplete ? t('done') : t('hide');
 
   if (showSuccessReceipt) {
@@ -471,7 +488,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
           <div className="mt-6 w-full overflow-hidden rounded-2xl bg-fill">
             {steps.map((step, index) => {
-              const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
+              const state = getTransactionStepState(
+                index,
+                activeStepIndex,
+                transactionComplete,
+                hasErrors,
+                unconfirmed
+              );
               return (
                 <TransactionStepRow
                   key={step.id}
@@ -486,6 +509,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           </div>
           {footerDescription && (
             <p className="w-full pt-4 text-center font-heading text-sm font-bold text-ink">{footerDescription}</p>
+          )}
+          {/* The row's own text stays one tap away, as on its Activity card. */}
+          {unconfirmed && (
+            <ErrorDetails details={failedRow?.rawError ?? failedRow?.error} className="mt-2 w-full items-center" />
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

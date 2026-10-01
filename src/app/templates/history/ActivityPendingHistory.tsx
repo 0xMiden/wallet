@@ -1,13 +1,13 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { usdFormatterFor } from 'lib/i18n/numbers';
-import { markActivityRead } from 'lib/settings/activity-read';
+import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
-import { getPendingNotesUsdTotal } from 'lib/wallet-prompts';
+import { getPendingNotesUsdTotal, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 
 import { ClaimsLoadingBar } from './ActivityClaimsStatus';
 import { pendingNoteUnreadKey } from './activityUnread';
@@ -24,9 +24,22 @@ interface ActivityPendingHistoryProps {
 
 export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
-  const { representedItems, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden, hiddenCount } =
-    useActivityClaimList(search, filter);
+  const {
+    representedItems,
+    listItems,
+    renderPendingItem,
+    acceptMany,
+    account,
+    isLoadingNotes,
+    hidden,
+    declinedIds,
+    hiddenCount
+  } = useActivityClaimList(search, filter);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const recovery = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending ? account.publicKey : null);
+  const isRecovering = recovery !== null && recovery.step !== 'history-partial' && recovery.step !== 'history-failed';
+  const isFetching = isLoadingNotes || isLoadingHistory || isRecovering;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Accept All takes every listed transfer that can be accepted - whatever the asset, whoever
@@ -69,18 +82,21 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
         ? t('activityPendingWaitingHidden', { count: waitingCount, hidden: hiddenCount })
         : t('activityPendingWaiting', { count: waitingCount });
 
-  // Accepting everything listed: reading them all, then the one batch-claim path. The Accept All
-  // button in the row beside Restore is its only caller.
+  // Accepting everything listed: reading them all in one write, then the one batch-claim path.
+  // The Accept All button in the row beside Restore is its only caller.
   const acceptAll = () => {
-    for (const note of claimableNotes) {
-      markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
-    }
+    markActivitiesRead(
+      claimableNotes.map(note => ({ id: pendingNoteUnreadKey(note.id), timestamp: note.receivedAt ?? Number.NaN }))
+    );
     acceptMany(claimableNotes);
   };
 
   return (
     <>
-      <ClaimsLoadingBar loading={isLoadingNotes} />
+      <ClaimsLoadingBar loading={isFetching} label={t('activityFetchingHistoryAndNotes')} />
+      <div role="status" aria-live="polite" className="shrink-0 px-4 text-xs text-text-secondary-token">
+        {isFetching && <p className="pt-2 pb-1">{t('activityFetchingHistoryAndNotes')}</p>}
+      </div>
 
       {/* `pb-28` clears the floating navbar. There is no pinned footer any more: Accept All sits
           in the row below, so the tab keeps its navbar the way every other tab does. */}
@@ -116,7 +132,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 size="sm"
                 className="w-auto shrink-0"
                 title={t('activityRestoreTransfers')}
-                onClick={() => hidden.restore()}
+                onClick={() => hidden.restore(declinedIds)}
               />
             )}
             {showAcceptAll && (
@@ -145,6 +161,9 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             drawnPendingItems={listItems}
             renderPendingItem={renderPendingItem}
             onInitialLoad={onInitialLoad}
+            onLoadingChange={setIsLoadingHistory}
+            externalLoading={isLoadingNotes || isRecovering}
+            hideLoadingSpinner
           />
         </div>
       </div>

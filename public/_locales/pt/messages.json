@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "Como consultar seu histórico de transações e notes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Troca",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Transferência de saída",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Ganhe com depósitos",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian alterado",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Chave do dispositivo atualizada",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Conta protegida",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Executado",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "Recuperando o histórico de $operator$. Transações de $count$ restauradas.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "A recuperação do histórico de transações foi interrompida porque a rede ou um operador Guardian não pode fornecê-lo. A recuperação não será repetida automaticamente.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ Transações restauradas. Algumas fontes Guardian não puderam ser lidas. A recuperação tentará novamente quando você desbloquear a carteira pela próxima vez.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Carga útil",
     "englishSource": "Payload"
@@ -179,18 +236,6 @@
   "unlockBrandName": {
     "message": "Pão",
     "englishSource": "Bread"
-  },
-  "earnPositionHeaderTitle": {
-    "message": "Minha posição no $protocol$ • $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
   },
   "earnAssetOnNetwork": {
     "message": "$asset$ em $network$",
@@ -600,6 +645,14 @@
   "cancelled": {
     "message": "Cancelado",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "Não confirmado",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "A carteira não conseguiu confirmar se essa transação foi processada. Ela ainda pode chegar, portanto, verifique seu saldo após a sincronização da carteira antes de enviá-la novamente.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
   },
   "showFullError": {
     "message": "Mostrar o erro completo",
@@ -1878,12 +1931,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Verifique sua frase de recuperação",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Faça backup da sua carteira",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Anote sua frase de recuperação e verifique se você se lembra da primeira e da última palavra para poder restaurar essa carteira mais tarde.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Guarde sua frase de recuperação para poder restaurar esta carteira em um novo dispositivo.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Assinatura segura indisponível",
@@ -2190,31 +2243,6 @@
     "message": "Um “Guardian” armazena o estado da sua conta e ajuda você a recuperá-la. Pense nisso como um servidor que faz backup dos seus dados, mas que nunca tem acesso aos seus fundos.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "O operador mais rápido no momento, entre $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "O operador desta rede",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "O Guardian não pode movimentar seus fundos por conta própria",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "O “Guardian” faz o backup do estado da sua conta",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "Você pode trocar de Guardian com sua frase de recuperação",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Verificando qual operador responde mais rápido…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2254,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Prefiro criar uma conta totalmente privada",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Escolha um Guardian diferente",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Um operador independente da Guardian no Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "A OpenZeppelin é uma empresa de segurança blockchain responsável por bibliotecas de contratos inteligentes amplamente usadas no Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "A Gateway.fm desenvolve e opera infraestrutura blockchain para redes e rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "A LambdaClass é uma empresa de engenharia que desenvolve criptografia avançada e infraestrutura de \"blockchain\".",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "A Korea Digital Asset (KODA) é uma custódia de ativos digitais regulamentada na Coreia do Sul.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Saiba mais sobre a Guardian",
@@ -2294,6 +2298,19 @@
   "meetGuardianYourGuardian": {
     "message": "Seu Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Alterar",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ faz backup da sua conta. Nunca pode movimentar seus fundos, e você pode trocar quando quiser.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Um “Guardian” é um serviço independente que <b>co-assina todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
@@ -2800,8 +2817,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Algo deu errado durante a rotação da sua chave de uso diário.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Ocorreu um erro ao alternar sua chave de uso diário. Seus fundos estão seguros, e você pode tentar novamente agora.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "A rotação diária da chave não foi confirmada",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "A carteira não conseguiu confirmar se a rotação foi realizada. Seus fundos estão seguros, embora a taxa de rede possa ter sido paga. Aguarde um minuto para que a carteira sincronize antes de tentar novamente.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Tentar novamente",
@@ -2847,6 +2872,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "O MIDEN que você recebeu não pôde ser resgatado.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "A carteira não conseguiu confirmar se o MIDEN que você recebeu foi reivindicado. Aguarde um minuto para que a carteira sincronize antes de tentar novamente.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Tente novamente",
@@ -3987,6 +4016,14 @@
     "message": "Não foi possível concluir uma transação. Abra a carteira para verificar.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Transação não confirmada",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "A carteira não conseguiu confirmar se uma transação foi concluída. Abra a carteira antes de enviá-la novamente.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "Toque aqui para aceitar",
     "englishSource": "Tap here to accept it"
@@ -4330,6 +4367,10 @@
   "share": {
     "message": "Compartilhar",
     "englishSource": "Share"
+  },
+  "receiveShareCaption": {
+    "message": "Envie seu endereço",
+    "englishSource": "Send your address"
   },
   "copy": {
     "message": "Copiar",
@@ -4755,6 +4796,10 @@
     "message": "Salvar e continuar",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Esses endpoints não puderam ser salvos. Tente novamente.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Redefinir para os padrões",
     "englishSource": "Reset to defaults"
@@ -4762,6 +4807,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Redefinir para as configurações padrão e realizar a integração novamente",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "A redefinição não foi concluída. Tente novamente.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Terminais de rede",
@@ -5049,14 +5098,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — sobre esta rede",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Os tokens não têm valor real",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Restaurar",
@@ -5485,5 +5538,51 @@
   "revealRecoveryPhrase": {
     "message": "Revelar a frase de recuperação",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Ocultar token",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Exibir token",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Ocultada da página inicial. Ela permanece na sua carteira e suas transferências ainda podem ser resgatadas.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Ativos ocultos",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Ativos ocultos ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Mostrar",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Exibir $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Não foi possível atualizar os tokens ocultos. Tente novamente.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Não foi possível carregar os tokens ocultos.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

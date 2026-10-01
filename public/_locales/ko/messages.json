@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "거래 내역 조회 및 notes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "스왑",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "브리지 아웃",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "예치 수익",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian 수정됨",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "기기 키가 갱신되었습니다",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "계정 보안 유지",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "실행됨",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "$operator$에서 내역을 복원 중입니다. $count$ 거래 내역이 복원되었습니다.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "네트워크나 Guardian 운영자가 거래 내역을 제공할 수 없어 거래 내역 복구가 중단되었습니다. 복구는 자동으로 재시도되지 않습니다.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ 거래 내역이 복원되었습니다. 일부 Guardian 소스를 읽을 수 없었습니다. 다음에 지갑 잠금을 해제할 때 복구 작업이 다시 시도됩니다.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "페이로드",
     "englishSource": "Payload"
@@ -179,18 +236,6 @@
   "unlockBrandName": {
     "message": "빵",
     "englishSource": "Bread"
-  },
-  "earnPositionHeaderTitle": {
-    "message": "제 '$protocol$' • $asset$ 포지션",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
   },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$에서",
@@ -600,6 +645,14 @@
   "cancelled": {
     "message": "취소됨",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "확인되지 않음",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "지갑에서 이 거래가 정상적으로 처리되었는지 확인할 수 없었습니다. 아직 도착하지 않았을 수도 있으니, 다시 보내기 전에 지갑이 동기화된 후 잔액을 확인해 주십시오.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
   },
   "showFullError": {
     "message": "전체 오류 보기",
@@ -1878,12 +1931,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "복구 문구를 확인하세요",
-    "englishSource": "Verify your recovery phrase"
+    "message": "지갑을 백업하세요",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "나중에 이 지갑을 복구할 수 있도록 복구 문구를 적어두고, 그 문구의 첫 번째 단어와 마지막 단어를 정확히 알고 있는지 확인하세요.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "새 기기에서 이 지갑을 복원할 수 있도록 복구 문구를 저장하세요.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "보안 서명 사용 불가",
@@ -2190,31 +2243,6 @@
     "message": "Guardian는 귀하의 계정 상태를 저장하고 복구를 돕습니다. 이를 귀하의 데이터를 백업해 주는 서버라고 생각하시면 되지만, 이 지갑은 귀하의 자금을 절대 건드릴 수 없습니다.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "운영자 $operators$곳 중 현재 가장 빠른 운영자",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "이 네트워크의 운영자",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian는 자체적으로 자금을 이동할 수 없습니다.",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian는 계정 상태를 백업합니다.",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "복구 문구로 Guardian을 전환할 수 있습니다",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "어느 운영자가 가장 빨리 응답하는지 확인해 보겠습니다…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2254,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "차라리 완전히 비공개 계정을 만드는 편이 낫겠습니다",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "다른 Guardian를 선택하세요",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Miden의 독립적인 Guardian 운영자.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin은 이더리움에서 널리 쓰이는 스마트 계약 라이브러리를 만든 blockchain 보안 기업입니다.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm은 네트워크 및 롤업을 위한 blockchain 인프라를 구축하고 운영합니다.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass는 첨단 암호화 및 blockchain 인프라를 구축하는 엔지니어링 기업입니다.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset(KODA)은 한국의 규제 대상 디지털 자산 수탁 기관입니다.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardian에 대해 자세히 알아보기",
@@ -2294,6 +2298,19 @@
   "meetGuardianYourGuardian": {
     "message": "내 Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "변경",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$이(가) 계정을 백업합니다. 자금을 옮길 수 없으며 언제든지 바꿀 수 있습니다.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
@@ -2800,8 +2817,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "일상용 키를 교체하는 과정에서 문제가 발생했습니다.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "일상용 키를 교체하는 과정에서 문제가 발생했습니다. 자금은 안전하며, 지금 다시 시도할 수 있습니다.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "매일 키 교체는 확인되지 않음",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "지갑에서 키 교체가 성공적으로 완료되었는지 확인할 수 없습니다. 네트워크 수수료가 지불되었을 수는 있으나, 자금은 안전합니다. 다시 시도하기 전에 지갑이 동기화될 때까지 1분 정도 기다려 주십시오.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "다시 시도",
@@ -2847,6 +2872,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "수령하신 MIDEN은 청구할 수 없었습니다.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "지갑에서 수신한 MIDEN이 이미 청구되었는지 확인할 수 없습니다. 다시 시도하기 전에 지갑이 동기화될 때까지 1분 정도 기다려 주십시오.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "다시 시도해 보세요",
@@ -3987,6 +4016,14 @@
     "message": "거래를 완료할 수 없습니다. 지갑을 열어 확인해 주세요.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "거래가 확인되지 않았습니다",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "지갑에서 거래가 처리되었는지 확인할 수 없었습니다. 다시 전송하기 전에 지갑을 열어보세요.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "여기를 눌러 수락하세요",
     "englishSource": "Tap here to accept it"
@@ -4330,6 +4367,10 @@
   "share": {
     "message": "공유하기",
     "englishSource": "Share"
+  },
+  "receiveShareCaption": {
+    "message": "주소 보내기",
+    "englishSource": "Send your address"
   },
   "copy": {
     "message": "복사",
@@ -4755,6 +4796,10 @@
     "message": "저장하고 계속하기",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "이 엔드포인트를 저장할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "기본값으로 재설정",
     "englishSource": "Reset to defaults"
@@ -4762,6 +4807,10 @@
   "devEndpointResetAndReonboard": {
     "message": "기본값으로 재설정 및 재등록",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "재설정이 완료되지 않았습니다. 다시 시도해 주세요.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "네트워크 엔드포인트",
@@ -5049,14 +5098,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — 이 네트워크 정보",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "토큰에는 실제 가치가 없습니다",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "복원",
@@ -5485,5 +5538,51 @@
   "revealRecoveryPhrase": {
     "message": "복구 문구 공개",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "토큰 숨기기",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "토큰 숨김 해제",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "홈에서 숨김. 이는 지갑에 남아 있으며, 해당 전송 내역은 여전히 청구할 수 있습니다.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "숨겨진 자산",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "숨겨진 자산($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "숨김 해제",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$ 숨김 해제",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "숨겨진 토큰을 업데이트할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "숨겨진 토큰을 불러올 수 없습니다.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

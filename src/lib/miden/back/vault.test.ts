@@ -25,6 +25,7 @@ import {
 } from './safe-storage';
 import { Vault } from './vault';
 import { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } from '../sdk/guardian-recovery-errors';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 jest.setTimeout(30_000);
 
@@ -4284,6 +4285,54 @@ describe('recovery seed waiting time', () => {
       await Repo.transactions.bulkDelete([transaction.id, other.id]);
     }
   });
+
+  it('refuses the seed without authorizing it when the account read loses the hold (F-053)', async () => {
+    const account: WalletAccount = {
+      publicKey: 'guardian-read-evicted',
+      name: 'Imported from hot key',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false
+    };
+    const vault = await seedVault('pw', { mnemonic: '', accounts: [account] });
+    const transaction: ITransaction = new Transaction(account.publicKey, new Uint8Array());
+    transaction.type = 'replace-hot-key';
+    await Repo.transactions.add(transaction);
+    const sdk = jest.requireMock<{ AuthSecretKey: { ecdsaWithRNG: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+    const ecdsaWithRNG = sdk.AuthSecretKey.ecdsaWithRNG.getMockImplementation();
+    try {
+      await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
+      // A key and an on-chain signer that match, so only the hold check can refuse.
+      sdk.AuthSecretKey.ecdsaWithRNG.mockImplementationOnce(() => ({
+        publicKey: () => ({
+          serialize: () => new Uint8Array([1, 2, 3, 4]),
+          toCommitment: () => ({ toHex: () => '0x020304', free: jest.fn() }),
+          free: jest.fn()
+        }),
+        serialize: () => new Uint8Array([1, 5, 6]),
+        free: jest.fn()
+      }));
+      mockGetAccount.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return {};
+      });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+
+      const error = await vault
+        .provideRecoverySeed(transaction.id, VALID_MNEMONIC, getRecoveryAction(transaction))
+        .catch((cause: unknown) => cause);
+
+      expect(isWasmClientPoisonedError(error)).toBe(true);
+      expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
+      await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
+    } finally {
+      // Neither queued reply is consumed once the read is refused.
+      sdk.AuthSecretKey.ecdsaWithRNG.mockReset().mockImplementation(ecdsaWithRNG);
+      mockGetSignerDetailsFromAccount.mockReset();
+      clearRecoveryAuthorizations();
+      await Repo.transactions.delete(transaction.id);
+    }
+  });
 });
 
 describe('seed phrase removal', () => {
@@ -4395,6 +4444,103 @@ describe('seed phrase removal', () => {
       expect(mockKeystoreGet).not.toHaveBeenCalled();
     }
   );
+
+  it('keeps the phrase while Guardian recovery is pending, and removes it once the flag is cleared', async () => {
+    const account: WalletAccount = {
+      publicKey: 'guardian',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false,
+      hotPublicKey: 'hot-key',
+      coldPublicKey: '02' + 'ab'.repeat(32),
+      guardianNoteRecoveryPending: true
+    };
+    const vault = await seedVault('password123', { accounts: [account] });
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const key = await Passworder.importVaultKey(await Passworder.decryptVaultKeyWithPassword(protector, 'password123'));
+    await encryptAndSaveMany([[keys.accAuthSecretKey('hot-key'), 'daily-secret']], key);
+
+    await expect(vault.removeSeedPhrase()).rejects.toThrow();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('stored');
+
+    // The write the detached recovery's clearPendingFlag makes.
+    await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
+    await vault.removeSeedPhrase();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('removed');
+  });
+
+  // An evicted callback keeps running after its caller saw the poison, so a
+  // missing re-check keeps deleting keys that nobody is waiting on.
+  async function guardianRemovalVault() {
+    const account: WalletAccount = {
+      publicKey: 'guardian',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false,
+      hotPublicKey: 'hot-key',
+      coldPublicKey: '02' + 'ab'.repeat(32)
+    };
+    const vault = await seedVault('password123', { accounts: [account] });
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const key = await Passworder.importVaultKey(await Passworder.decryptVaultKeyWithPassword(protector, 'password123'));
+    await encryptAndSaveMany([[keys.accAuthSecretKey('hot-key'), 'daily-secret']], key);
+    return vault;
+  }
+
+  async function expectRemovalResumes(vault: Vault) {
+    expect(await vault.fetchSeedPhraseStatus()).toBe('removing');
+    const reopened = await Vault.setup('password123');
+    await reopened.removeSeedPhrase();
+    expect(await reopened.fetchSeedPhraseStatus()).toBe('removed');
+  }
+
+  it('stops before the mapping lookup when a keystore removal loses the hold (F-053)', async () => {
+    const vault = await guardianRemovalVault();
+    mockKeystoreRemove.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+
+    const error = await vault.removeSeedPhrase().catch((cause: unknown) => cause);
+
+    expect(isWasmClientPoisonedError(error)).toBe(true);
+    expect(mockKeystoreGetAccountId).not.toHaveBeenCalled();
+    await expectRemovalResumes(vault);
+  });
+
+  it('stops before any keystore removal when the client build loses the hold (F-053)', async () => {
+    const vault = await guardianRemovalVault();
+    const buildClient = mockGetMidenClient.getMockImplementation()!;
+    mockGetMidenClient.mockImplementationOnce(async (...args) => {
+      const client = await buildClient(...args);
+      revokeWasmHold();
+      return client;
+    });
+
+    const error = await vault.removeSeedPhrase().catch((cause: unknown) => cause);
+
+    expect(isWasmClientPoisonedError(error)).toBe(true);
+    expect(mockKeystoreRemove).not.toHaveBeenCalled();
+    await expectRemovalResumes(vault);
+  });
+
+  it('stops before freeing the mapping when the mapping lookup loses the hold (F-053)', async () => {
+    const vault = await guardianRemovalVault();
+    const free = jest.fn();
+    mockKeystoreGetAccountId.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return { free };
+    });
+
+    const error = await vault.removeSeedPhrase().catch((cause: unknown) => cause);
+
+    expect(isWasmClientPoisonedError(error)).toBe(true);
+    expect(free).not.toHaveBeenCalled();
+    await expectRemovalResumes(vault);
+  });
 
   it('keeps the phrase when the everyday key is not ready', async () => {
     const account: WalletAccount = {

@@ -23,8 +23,8 @@ import {
   resolveGuardianEndpoint
 } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
-import { registerGuardianOrigin } from './native-http';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
+import { registerGuardianOrigin, withGuardianProbe } from './native-http';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
@@ -76,10 +76,12 @@ const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
  * bounds its counterparts for exactly this reason; the coordinated path had the
  * same hole (F-144 bounded only the endpoint persist beside it).
  *
- * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` /
- * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS`: generous, because expiring early costs an
- * attempt out of the budget, and its job is only to convert silence into a
- * failure the loop can consume.
+ * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` and to the shared
+ * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS` (./serialize), which bounds the pre-sign
+ * pubkey check on both switch paths, this file's `createSwitchGuardianProposal`
+ * included: generous, because expiring early costs an attempt out of the
+ * budget, and its job is only to convert silence into a failure the loop can
+ * consume.
  */
 export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
 // The per-attempt backoff (capped exponential, and Retry-After-aware on 429s)
@@ -101,8 +103,14 @@ export class MultisigService {
   // awaiting prior ticks, and the cached service instance is shared, so two ticks
   // could otherwise drive `syncState()` concurrently and clobber `syncRetryCount`.
   private syncInFlight: Promise<void> | null = null;
+  private switchProposalId?: string;
 
-  constructor(multisig: Multisig, client: MultisigClient, guardianEndpoint: string) {
+  constructor(
+    multisig: Multisig,
+    client: MultisigClient,
+    guardianEndpoint: string,
+    private readonly requestSigner?: WalletSigner
+  ) {
     this.multisig = multisig;
     this.client = client;
     this.guardianEndpoint = guardianEndpoint;
@@ -158,7 +166,7 @@ export class MultisigService {
         return { multisig: await multisigClient.load(account.id().toString(), signer), client: multisigClient };
       });
 
-      return new MultisigService(multisig, client, guardianEndpoint);
+      return new MultisigService(multisig, client, guardianEndpoint, signer);
     } catch (error) {
       console.log('Error initializing MultisigService:', error);
       throw error;
@@ -363,7 +371,9 @@ export class MultisigService {
       const request = TransactionRequest.deserialize(requestBytes);
       return request.extendAdviceMap(advice);
     }
-    return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
+    const request = await withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
+    if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
+    return request;
   }
 
   /**
@@ -509,16 +519,21 @@ export class MultisigService {
     newGuardianEndpoint: string
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
-      registerGuardianOrigin(newGuardianEndpoint);
-      const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
-      // Fetch the new guardian's ECDSA commitment to match the account's scheme.
-      // Validated before use: the SDK interpolates this wire value into
-      // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
-      // nor length. Same boundary the direct-switch path applies.
-      const commitment = assertGuardianKeyCommitment(
-        (await newGuardian.getPubkey('ecdsa')).commitment,
-        newGuardianEndpoint
-      );
+      // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
+      const commitment = await withGuardianProbe(newGuardianEndpoint, async () => {
+        const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
+        // Fetch the new guardian's ECDSA commitment to match the account's scheme.
+        // Validated before use: the SDK interpolates this wire value into
+        // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
+        // nor length. Same boundary the direct-switch path applies.
+        // Every probed check carries its own deadline: a caller's deadline abandons it without cancelling it.
+        const answer = await withTimeout(
+          newGuardian.getPubkey('ecdsa'),
+          NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
+          `New guardian ${newGuardianEndpoint} pubkey fetch`
+        );
+        return assertGuardianKeyCommitment(answer.commitment, newGuardianEndpoint);
+      });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
       const proposal = await withWasmClientLock(() =>
@@ -670,6 +685,9 @@ export class MultisigService {
    * guardians.
    */
   async finalizeGuardianSwitch(newGuardianEndpoint: string): Promise<void> {
+    // Beside the registration, never ahead of it: the old operator is often why the switch was made. Awaited before
+    // returning all the same: a cold signer's authority ends with the pipeline that awaits this.
+    const recorded = this.recordCommittedGuardianSwitch();
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
       const updatedStateBase64 = await withWasmClientLock(async hold => {
@@ -712,6 +730,33 @@ export class MultisigService {
     } catch (error) {
       console.error('Error finalizing guardian switch:', error);
       throw error;
+    } finally {
+      await recorded;
+    }
+  }
+
+  // Everything is taken before the first await: finalize moves guardianEndpoint on, and the id is cleared so the
+  // history is pushed at most once, whatever the push's outcome.
+  private async recordCommittedGuardianSwitch(): Promise<void> {
+    if (!this.switchProposalId || !this.requestSigner) return;
+    const proposalId = this.switchProposalId;
+    this.switchProposalId = undefined;
+    try {
+      const guardian = new GuardianHttpClient(this.guardianEndpoint);
+      guardian.setSigner(this.requestSigner);
+      // Switch requests do not push a delta before submission. Record the
+      // committed switch on the old operator before changing endpoints.
+      await withTimeout(
+        (async () => {
+          const delta = await guardian.getDeltaProposal(this.accountId, proposalId);
+          await guardian.pushDelta({ ...delta, deltaPayload: delta.deltaPayload.txSummary });
+        })(),
+        POST_COMMIT_GUARDIAN_TIMEOUT_MS,
+        'Recording the committed Guardian switch'
+      );
+    } catch (error) {
+      // The switch has committed. A history failure must not stop registration.
+      console.warn('[Guardian] Failed to retain committed switch history on the old operator:', error);
     }
   }
 

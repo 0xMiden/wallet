@@ -47,7 +47,10 @@ jest.mock('lib/telemetry/report-operation', () => ({
 }));
 (global as unknown as { __reported: SettledOperation[] }).__reported = reported;
 
-jest.mock('../back/background-notification', () => ({ notifyBackgroundTransactionFailed: jest.fn() }));
+jest.mock('../back/background-notification', () => ({
+  notifyBackgroundTransactionFailed: jest.fn(),
+  notifyBackgroundTransactionNotConfirmed: jest.fn()
+}));
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: { getInputNoteDetails: jest.fn(async () => []), syncState: jest.fn(async () => ({})) },
   dispatchGuardianPipeline: jest.fn()

@@ -1,7 +1,7 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { ITransaction, ITransactionStage, ITransactionStatus } from '../db/types';
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStage, ITransactionStatus } from '../db/types';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -93,6 +93,71 @@ export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
+
+/**
+ * Final reasons the wallet itself passes to `cancelTransaction` as copy, stored as the row's error with no
+ * `rawError`, whatever the row's stage: the wallet has proved the row can never land, so the reason is shown
+ * as a completed failure. A Queued row that expired before it ever started, and a note that can never be
+ * consumed, both qualify unconditionally. User cancel does not: it goes through
+ * `cancelWhilePipelineMayStillRun`, which stops no pipeline, so it is final only while the row's write stamp
+ * (`processingStartedAt`) is unset. A reader that keeps that field must gate this one member on it rather than
+ * treat membership here as sufficient by itself (see `describeRotationFailure`).
+ */
+export const WALLET_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  USER_CANCELLED_TRANSACTION_REASON,
+  TRANSACTION_EXPIRED_ERROR,
+  INVALID_NOTE_ERROR
+]);
+
+export const isWalletFailureReason = (text: string): boolean => WALLET_FAILURE_REASONS.has(text);
+
+/**
+ * Reasons a writer sets on a row without proving the pipeline stopped before its submit, stored as the row's
+ * error with no `rawError`, same as {@link WALLET_FAILURE_REASONS}, but the row's outcome is unknown rather
+ * than failed, so a reader shows it as not confirmed instead of as a completed failure: the stuck reaper (the
+ * pipeline it cancels keeps running), the cold-start sweep (its own docs say the row may already be on chain),
+ * `verifyStuckTransactions`' not-landed arm (it fails a consume still in progress without stopping it), and the
+ * debug force-cancel (same shape as the reaper).
+ */
+export const UNCONFIRMED_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR
+]);
+
+export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED_FAILURE_REASONS.has(text);
+
+/**
+ * True for a Failed row whose outcome cannot be told apart from "may still land" - the one
+ * predicate both readers of a failed row share (the rotation gate's `describeRotationFailure`
+ * and Activity History), so a row never reads confirmed-failed in one and not-confirmed in the
+ * other (#1250). True when `mayHaveSubmitted` is set, the row's `error` is the engine-recovered
+ * copy, its reason (`rawError ?? error`) is a member of {@link UNCONFIRMED_FAILURE_REASONS}, or
+ * the reason is a user cancel that reached the write stamp (`processingStartedAt` set) - see
+ * {@link WALLET_FAILURE_REASONS} for why an unstamped cancel is final rather than unconfirmed.
+ * False whenever {@link isVaultShortfallRow} holds, even with `mayHaveSubmitted` set: a
+ * rotation moves no asset, so a fee shortfall is a definite failure, not an unknown outcome.
+ * False whenever {@link isBridgeRouteFailedRow} holds too: a bridged-send its own route
+ * evidence (the allocator or the fill poll) reports failed is settled by that, not unknown.
+ */
+export function isUnconfirmedFailure(
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<Pick<ITransaction, 'extraInputs'>>
+): boolean {
+  if (row.status !== ITransactionStatus.Failed) return false;
+  // A vault shortfall is provable straight from the error, so it stays a definite failure.
+  if (isVaultShortfallRow(row)) return false;
+  // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
+  if (isBridgeRouteFailedRow(row)) return false;
+  const reason = row.rawError ?? row.error;
+  return (
+    row.mayHaveSubmitted === true ||
+    row.error === TRANSACTION_ENGINE_RECOVERED_ERROR ||
+    (reason !== undefined && isUnconfirmedFailureReason(reason)) ||
+    (row.processingStartedAt !== undefined && reason !== undefined && isUserCancelledTransaction(reason))
+  );
+}
 
 /**
  * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim
@@ -285,6 +350,21 @@ export function isVaultShortfallRow(row: Pick<ITransaction, 'type' | 'status' | 
   if (row.error === TRANSACTION_VAULT_SHORTFALL_ERROR) return true;
   const raw = row.rawError ?? row.error;
   return raw !== undefined && isVaultShortfallError(raw);
+}
+
+/**
+ * True for a Failed `bridged-send` whose own route evidence proves the allocator rejected the
+ * intent, or the fill itself failed - `extraInputs.epochStatus === 'failed'`. That is what
+ * `markBridgedSendFailed` writes when the allocator rejects an intent whose note already
+ * committed (funds reclaimable), and what the Epoch fill poll persists when the allocator
+ * reports the fill failed (#1250).
+ */
+export function isBridgeRouteFailedRow(
+  row: Pick<ITransaction, 'type' | 'status'> & Partial<Pick<ITransaction, 'extraInputs'>>
+): boolean {
+  if (row.type !== 'bridged-send' || row.status !== ITransactionStatus.Failed) return false;
+  const extraInputs: Partial<IBridgedSendExtraInputs> | undefined = row.extraInputs;
+  return extraInputs?.epochStatus === 'failed';
 }
 
 /** A consume for an account whose everyday key is not active yet, other than the gate's own claim (#805). */

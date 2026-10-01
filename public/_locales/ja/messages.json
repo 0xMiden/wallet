@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "取引履歴の取得とnotes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "スワップ",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "ブリッジアウト",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "預金による収益",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian 変更済み",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "デバイスキーが更新されました",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "アカウントは安全に保護されています",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "実行済み",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "$operator$ からの履歴を復元しました。$count$件の取引が復元されました。",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "ネットワークまたはGuardianのオペレーターが提供できないため、取引履歴の復元が停止しました。復元は自動的に再試行されません。",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ トランザクションが復元されました。一部のGuardianソースを読み取ることができませんでした。次回ウォレットのロックを解除した際に、復元処理が再試行されます。",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "ペイロード",
     "englishSource": "Payload"
@@ -179,18 +236,6 @@
   "unlockBrandName": {
     "message": "パン",
     "englishSource": "Bread"
-  },
-  "earnPositionHeaderTitle": {
-    "message": "私の$protocol$ • $asset$ position",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
   },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$ にて",
@@ -600,6 +645,14 @@
   "cancelled": {
     "message": "中止",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "未確認",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "ウォレットでは、この送金が正常に処理されたかどうかを確認できませんでした。まだ着金する可能性もありますので、再度送金する前に、ウォレットの同期が完了した後で残高を確認してください。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
   },
   "showFullError": {
     "message": "エラーの全文を表示",
@@ -1878,12 +1931,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "リカバリーフレーズを確認してください",
-    "englishSource": "Verify your recovery phrase"
+    "message": "ウォレットのバックアップを取る",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "後でこのウォレットを復元できるよう、リカバリーフレーズを書き留め、その最初と最後の単語を正しく覚えているか確認してください。",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "新しいデバイスでこのウォレットを復元できるよう、リカバリーフレーズを保管してください。",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "安全な署名機能は利用できません",
@@ -2190,31 +2243,6 @@
     "message": "Guardianは、アカウントの状態を保存し、アカウントの復旧を支援します。これは、アカウントのバックアップを行うサーバーのようなものと考えてください。ただし、が資金にアクセスすることは決してありません。",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$社の中で現在最速のオペレーター",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "このネットワークの運営者",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardianは、単独では資金を移動することはできません",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardianはアカウントの状態をバックアップします",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "リカバリーフレーズを使ってGuardianを切り替えられます",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2254,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "それなら、完全に非公開のアカウントを作成したほうがいいと思います",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "別のGuardianを選択してください",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Miden上の独立したGuardianオペレーター。",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelinは、イーサリアムで広く使用されているスマートコントラクトライブラリを開発しているblockchainのセキュリティ企業です。",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fmは、ネットワークおよびロールアップ向けのblockchainインフラを構築・運用しています。",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClassは、高度な暗号技術およびblockchainインフラを構築するエンジニアリング企業です。",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset（KODA）は、韓国で規制対象となっているデジタル資産カストディアンです。",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardianの詳細はこちら",
@@ -2294,6 +2298,19 @@
   "meetGuardianYourGuardian": {
     "message": "あなたのGuardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "変更",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ はあなたのアカウントをバックアップします。資金を動かすことはできず、いつでも切り替えられます。",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardianは、<b>ウォレットからのすべての取引</b>に共同署名を行う独立したサービスであり、自己管理を放棄することなく安全網を追加します。",
@@ -2800,8 +2817,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "日常キーのローテーション中に問題が発生しました。",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "日常キーのローテーション中に問題が発生しました。資金は安全ですので、今すぐ再試行できます。",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "毎日の鍵のローテーションは確認されていません",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "ウォレットはローテーションが正常に実行されたかどうかを確認できませんでした。ネットワーク手数料が支払われた可能性はありますが、資金は安全です。再試行する前に、ウォレットが同期するまで1分ほどお待ちください。",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "再試行",
@@ -2847,6 +2872,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "受け取ったMIDENは、受け取り請求できませんでした。",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "ウォレットは、受け取ったMIDENがすでに請求済みかどうかを確認できませんでした。再試行する前に、ウォレットが同期を完了するまで1分ほどお待ちください。",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "もう一度試してみてください",
@@ -3987,6 +4016,14 @@
     "message": "取引を完了できませんでした。ウォレットを開いて確認してください。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "取引が未確認です",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "ウォレットは、取引が成立したかどうかを確認できませんでした。再度送信する前に、ウォレットを開いてください。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "ここをタップして受け取る",
     "englishSource": "Tap here to accept it"
@@ -4330,6 +4367,10 @@
   "share": {
     "message": "シェア",
     "englishSource": "Share"
+  },
+  "receiveShareCaption": {
+    "message": "アドレスを送る",
+    "englishSource": "Send your address"
   },
   "copy": {
     "message": "コピー",
@@ -4755,6 +4796,10 @@
     "message": "保存して続行",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "これらのエンドポイントを保存できませんでした。もう一度お試しください。",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "デフォルト設定に戻す",
     "englishSource": "Reset to defaults"
@@ -4762,6 +4807,10 @@
   "devEndpointResetAndReonboard": {
     "message": "デフォルト設定にリセットして、オンボーディングをやり直す",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "リセットが完了しませんでした。もう一度お試しください。",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "ネットワークエンドポイント",
@@ -5049,14 +5098,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — このネットワークについて",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "トークンに実際の価値はありません",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "復元",
@@ -5485,5 +5538,51 @@
   "revealRecoveryPhrase": {
     "message": "リカバリーフレーズを表示",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "トークンを非表示にする",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "トークンの非表示を解除",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "ホームから非表示。ウォレット内に残っており、その送金は引き続き受け取ることができます。",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "隠された資産",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "隠された資産（$count$）",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "非表示を解除",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$ の非表示を解除",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "非表示のトークンを更新できませんでした。もう一度お試しください。",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "非表示のトークンを読み込むことができませんでした。",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

@@ -334,6 +334,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             <StatusPill
               status={entry.status}
               isCancelled={entry.isCancelled}
+              isUnconfirmed={entry.isUnconfirmed}
               swapSettlement={entry.swapSettlement}
               testId="history-status-pill"
             />
@@ -440,6 +441,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               errorMessage={entry.errorMessage}
               rawErrorMessage={entry.rawErrorMessage}
               isCancelled={entry.isCancelled}
+              isUnconfirmed={entry.isUnconfirmed}
             />
           </section>
         )}

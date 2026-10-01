@@ -220,8 +220,8 @@ setConnectivityReporter(postConnectivityEvent);
 // Memoized so the storage read happens once per realm. The memo is deliberately a
 // NEVER-REJECTING shadow of the load: it is awaited on the client-creation path, and
 // a permanently-rejected slot there would fail every later `getOrCreateClient()`.
-// (`loadEndpointOverrides` already swallows its own storage errors — falling back to
-// "no override" — so the catch only covers the unexpected.)
+// (`loadEndpointOverrides` already swallows its own storage errors, so the catch only covers
+// the unexpected.)
 let endpointOverridesPromise: Promise<void> | null = null;
 
 function ensureEndpointOverrides(): Promise<void> {
@@ -688,8 +688,8 @@ const DISPATCH: Record<string, DispatchFn> = {
   // Import serialized note bytes into THIS (offscreen) client's store — a store
   // WRITE so the offscreen realm (which syncs + consumes) can see the note. Ships the
   // imported note id / details-commitment string back as UTF-8 bytes.
-  importNoteBytes: async (_context, client, noteBytes: Uint8Array) => {
-    const id = await client.importNoteBytes(noteBytes);
+  importNoteBytes: async (context, client, noteBytes: Uint8Array) => {
+    const id = await client.importNoteBytes(noteBytes, context.hold);
     return new TextEncoder().encode(id);
   },
 
@@ -700,8 +700,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
-  importRecoveryNoteBytes: async (_context, client, encodedProposalNotes: string[]) => {
-    const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes));
+  decodeGuardianHistory: async (context, client, encoded: string) => {
+    return new TextEncoder().encode(JSON.stringify(await client.decodeGuardianHistory(encoded, context.hold)));
+  },
+  getGuardianResultCommitment: async (context, client, encoded: string) => {
+    return new TextEncoder().encode(await client.getGuardianResultCommitment(b64ToBytes(encoded), context.hold));
+  },
+  importRecoveryNoteBytes: async (context, client, encodedProposalNotes: string[]) => {
+    const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes), context.hold);
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
@@ -1011,6 +1017,8 @@ const DISPATCH: Record<string, DispatchFn> = {
         // ownership is re-checked BEFORE the re-prove, not only after it. Still
         // pre-submit — nothing has been broadcast.
         assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
+        // A trap is not a prover failure: the dispatch's lock retires it, and a re-prove would run on the trapped client.
+        if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
         // Marked HERE, in the realm that watched the prove fail, and not left to
         // the worker's catch. That catch gates its own `markConnectivityIssue`
@@ -1578,9 +1586,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const response: OffscreenReloadEndpointsResponse = { ok: true };
         sendResponse(response);
       } catch (err) {
-        // `loadEndpointOverrides` swallows its own storage failures (falling back to
-        // "no override"), so reaching here means something unexpected. Answer ok:false
-        // rather than dropping the response, which would leave the SW's await hanging.
+        // `loadEndpointOverrides` swallows its own storage errors, so reaching here means
+        // something unexpected. Answer ok:false rather than dropping the response, which would
+        // leave the SW's await hanging.
         console.error(`${TAG} endpoint-override reload failed:`, err);
         const response: OffscreenReloadEndpointsResponse = {
           ok: false,

@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "檢索您的交易紀錄與notes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "兌換",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "跨鏈轉出",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "賺取存款",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian 已修改",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "裝置金鑰已輪替",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "帳戶已受保障",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "已執行",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "從 $operator$ 恢復歷史紀錄。$count$筆交易已還原。",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "交易紀錄的還原已中斷，原因是網路或 Guardian 營運商無法提供該資料。系統不會自動重新嘗試還原。",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ 交易已恢復。部分 Guardian 來源無法讀取。下次解鎖錢包時，系統將重新嘗試恢復。",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "有效載荷",
     "englishSource": "Payload"
@@ -179,18 +236,6 @@
   "unlockBrandName": {
     "message": "麵包",
     "englishSource": "Bread"
-  },
-  "earnPositionHeaderTitle": {
-    "message": "我的 $protocol$ • $asset$ 持倉狀況",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
   },
   "earnAssetOnNetwork": {
     "message": "$asset$ 網址：$network$",
@@ -600,6 +645,14 @@
   "cancelled": {
     "message": "已取消",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "未確認",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "錢包無法確認此筆交易是否已成功完成。交易仍有可能送達，因此請在錢包同步完成後檢查餘額，再決定是否重新發送。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
   },
   "showFullError": {
     "message": "顯示完整錯誤訊息",
@@ -1878,12 +1931,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "驗證您的恢復短語",
-    "englishSource": "Verify your recovery phrase"
+    "message": "備份您的錢包",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "請將您的恢復短語記錄下來，並確認您是否記得該短語的第一個和最後一個詞，以便日後能還原此錢包。",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "保存您的恢復短語，以便在新裝置上恢復此錢包。",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "無法進行安全簽署",
@@ -2190,31 +2243,6 @@
     "message": "Guardian 會儲存您的帳戶狀態，並協助您恢復帳戶。您可以將其視為為您提供備份的伺服器，但它絕不會接觸您的資金。",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$ 家營運商中目前最快的營運商",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "本網路的營運方",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian 無法自行轉移您的資金",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian 會備份您的帳戶狀態",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "您可以使用您的恢復短語來切換 Guardians",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "正在確認哪位客服人員回應最快……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2254,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "我寧可建立一個完全私密的帳戶",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "請選擇其他Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "一位在 Miden 上獨立經營的 Guardian 營運商。",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin 是一家 blockchain 資安公司，開發了乙太坊上廣泛使用的智慧合約函式庫。",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm 為網路和捲積層（rollups）建置並營運 blockchain 基礎架構。",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass 是一家專注於開發先進加密技術與 blockchain 基礎架構的工程公司。",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) 是南韓一家受監管的數位資產託管機構。",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "進一步了解Guardian",
@@ -2294,6 +2298,19 @@
   "meetGuardianYourGuardian": {
     "message": "你的 Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "更換",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ 會備份您的帳戶。它永遠無法轉移您的資金，您也可以隨時更換。",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
@@ -2800,8 +2817,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "在輪替您的日常金鑰時發生了錯誤。",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "在輪替您的日常金鑰時發生了錯誤。您的資金是安全的，現在可以重試。",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "每日金鑰輪替尚未確認",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "錢包無法確認輪替是否成功。您的資金是安全的，但可能已支付網路手續費。請等待錢包同步一分鐘後再重新嘗試。",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "重試",
@@ -2847,6 +2872,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "您收到的 MIDEN 無法被領取。",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "錢包無法確認您收到的 MIDEN 是否已被領取。請讓錢包同步一分鐘後再試一次。",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "請重新嘗試",
@@ -3987,6 +4016,14 @@
     "message": "交易無法完成。請開啟錢包進行檢視。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "交易尚未確認",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "錢包無法確認交易是否已成功完成。請在再次發送前開啟錢包。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "點擊此處接受",
     "englishSource": "Tap here to accept it"
@@ -4330,6 +4367,10 @@
   "share": {
     "message": "分享",
     "englishSource": "Share"
+  },
+  "receiveShareCaption": {
+    "message": "傳送您的地址",
+    "englishSource": "Send your address"
   },
   "copy": {
     "message": "複製",
@@ -4755,6 +4796,10 @@
     "message": "儲存並繼續",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "無法儲存這些端點。請重試。",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "重設為預設值",
     "englishSource": "Reset to defaults"
@@ -4762,6 +4807,10 @@
   "devEndpointResetAndReonboard": {
     "message": "重設為預設值並重新完成註冊流程",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "重設未完成。請重試。",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "網路端點",
@@ -5049,14 +5098,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — 關於此網路",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "代幣沒有實際價值",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "還原",
@@ -5485,5 +5538,51 @@
   "revealRecoveryPhrase": {
     "message": "顯示恢復短語",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "隱藏代幣",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "取消隱藏代幣",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "隱藏於「主錢包」之外。它仍保留在您的錢包中，且其轉帳仍可被領取。",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "隱藏資產",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "隱藏資產（$count$）",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "取消隱藏",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "取消隱藏 $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "無法更新隱藏代幣。請重試。",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "無法載入隱藏代幣。",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

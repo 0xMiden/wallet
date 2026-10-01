@@ -90,15 +90,20 @@ export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
 export const isUnconfirmedGuardianSwitch = (tx: ITransaction | undefined): boolean =>
   tx?.type === 'switch-guardian' && tx.extraInputs?.commitUnconfirmed === true;
 
+/**
+ * `unconfirmed` marks a failure whose outcome is unknown (`isUnconfirmedFailure`): the step it
+ * froze on may still finish, so it reads pending rather than failed.
+ */
 export const getTransactionStepState = (
   index: number,
   activeStepIndex: number,
   transactionComplete: boolean,
-  hasErrors: boolean
+  hasErrors: boolean,
+  unconfirmed = false
 ): TransactionStepState => {
   if (transactionComplete) {
     if (!hasErrors) return 'complete';
-    if (index === activeStepIndex) return 'failed';
+    if (index === activeStepIndex) return unconfirmed ? 'pending' : 'failed';
     return index < activeStepIndex ? 'complete' : 'pending';
   }
   if (index < activeStepIndex) {

@@ -32,10 +32,8 @@ jest.mock('lib/miden/activity', () => ({
   updateBridgeClaimStatus: (...args: unknown[]) => mockUpdateBridgeClaimStatus(...args)
 }));
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({ CollateralType: { Miden: 'Miden' } }));
-jest.mock('viem', () => ({ formatUnits: (value: bigint) => value.toString() }));
-jest.mock('lib/i18n/numbers', () => ({ toAdaptiveFixed: (value: string) => value }));
 
-import { bridgeEpochSend } from './epoch-send';
+import { bridgeEpochSend, quoteEpochSendOutput } from './epoch-send';
 
 const authorization = {
   kind: 'usd' as const,
@@ -100,5 +98,43 @@ describe('bridgeEpochSend spending-limit authorization', () => {
     await expect(bridgeEpochSend(args())).rejects.toBe(error);
     expect(mockMarkBridgedSendFailed).not.toHaveBeenCalled();
     expect(mockUpdateBridgeClaimStatus).not.toHaveBeenCalled();
+  });
+});
+
+// The quote is stored and returned exact (at the mocked token's 6 decimals); screens format it.
+describe('the Epoch quote amount', () => {
+  const destinationAddress: `0x${string}` = '0x1111111111111111111111111111111111111111';
+  const quoteArgs = { amount: 250n, faucetId: 'mtst1faucet', destinationAddress, senderPublicKey: 'mtst1sender' };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetEpochReadOnlySdk.mockResolvedValue({});
+    mockGetCurrentMidenBlock.mockResolvedValue(1000);
+    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '10655599' } });
+    mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      await options.createMidenP2IDENote('0xfaucet', '250', '0xallocator', 5_000, [1n]);
+      return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
+    });
+  });
+
+  it('stores the exact quote on the bridged-send row, not a display string', async () => {
+    await bridgeEpochSend(args());
+
+    expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+      'tx-1',
+      'not-applicable',
+      expect.objectContaining({ outputAmount: '10.655599', outputSymbol: 'USDC' })
+    );
+  });
+
+  it('returns the exact quote for the Review to format', async () => {
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '10.655599', symbol: 'USDC' });
+  });
+
+  it('reads a zero quote as 0, not a padded 0.00', async () => {
+    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '0' } });
+
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '0', symbol: 'USDC' });
   });
 });

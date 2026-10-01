@@ -2,7 +2,7 @@ import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, 
 
 import { animate, motion, useDragControls, useMotionValue, useReducedMotion } from 'framer-motion';
 
-import { useTabShownAgain } from 'app/layouts/page-active';
+import { PageActiveContext, usePageActive, useTabShownAgain } from 'app/layouts/page-active';
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
@@ -131,6 +131,9 @@ const HomeSwipeContainer: FC = () => {
   const lastHomeIdxRef = useRef(0);
   const shownAgain = useTabShownAgain();
   const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
+  // Every page stays mounted in the track, so only the centred one, on a shown and uncovered tab, is
+  // on screen; the others pause their display-only work as a hidden tab's pages do.
+  const parentActive = usePageActive();
 
   // Measure container width — drives both the snap positions and the
   // drag constraints. Set synchronously on mount so the first render
@@ -214,8 +217,10 @@ const HomeSwipeContainer: FC = () => {
     // Any other route change outranks a release still in flight.
     endRelease(true);
     // The pane was hidden until now, so this is a tab change, which swaps rather than slides across
-    // every page in between. Read, not a dependency: the route change that shows the tab runs this
-    // effect, and a later render must not re-run it mid-gesture.
+    // every page in between. Read, not a dependency: TabLayout shows this pane only on Home's own routes
+    // and keeps it mounted, hidden, on every other tab's route, so `onHome` is false exactly while the
+    // pane is hidden and rises in the commit that shows it again, which runs this effect; a later render
+    // must not re-run it mid-gesture.
     if (shownAgain) {
       x.set(-activeIdx * width);
       return;
@@ -471,9 +476,11 @@ const HomeSwipeContainer: FC = () => {
         onDragEnd={handleDragEnd}
         onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
-        {pages.map(page => (
+        {pages.map((page, index) => (
           <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>
-            {page.node}
+            <PageActiveContext.Provider value={parentActive && index === activeIdx}>
+              {page.node}
+            </PageActiveContext.Provider>
           </div>
         ))}
       </motion.div>
