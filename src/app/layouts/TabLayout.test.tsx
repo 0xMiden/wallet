@@ -142,8 +142,8 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange }: any) => (
-    <div data-testid="bottom-nav" data-active={activeId}>
+  BottomNav: ({ items, activeId, onChange, className }: any) => (
+    <div data-testid="bottom-nav" data-active={activeId} className={className}>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -965,6 +965,15 @@ describe('TabLayout — footer scaffolding', () => {
     expect(screen.getByTestId('bottom-nav')).toBe(navbar);
     expect(document.querySelector('[data-tab-pane="home"]')).toHaveStyle({ visibility: 'hidden' });
     expect(document.querySelector('[data-tab-pane="activity"]')).not.toContainElement(screen.getByTestId('action-bar'));
+  });
+
+  // The wrapper spans the footer's width, so a tap beside the pill must reach the content under it.
+  it('lets only the pill take pointer events, not the full-width wrapper around it', () => {
+    renderLayout();
+    const navbar = screen.getByTestId('bottom-nav');
+    expect(navbar.parentElement).toHaveClass('pointer-events-none');
+    expect(navbar.parentElement).not.toHaveClass('pointer-events-auto');
+    expect(navbar).toHaveClass('pointer-events-auto');
   });
 
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {

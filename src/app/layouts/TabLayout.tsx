@@ -168,17 +168,18 @@ const FloatingNavBar = forwardRef<FloatingNavBarHandle, FloatingNavBarProps>(({ 
        lets this flex child shrink to the footer width instead of ballooning to the pill's
        min-content, which otherwise overflowed a 375px-wide viewport. A hidden pill moves down by its
        own height, the safe-area floor below it and 2rem more for its shadow, so nothing of it stays
-       on screen. */
+       on screen. This wrapper spans the footer's width, so only the pill takes pointer events and
+       content beside it stays tappable and scrollable. */
   return (
     <div
       className={classNames(
-        'pointer-events-auto flex-1 min-w-0 flex justify-center px-4',
+        'pointer-events-none flex-1 min-w-0 flex justify-center px-4',
         !isIOS() && 'pb-2',
         isMobile() && 'transition-transform duration-300 ease-out motion-reduce:transition-none',
         scrollHidden && 'translate-y-[calc(100%+2rem+var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom))))]'
       )}
     >
-      <BottomNav items={items} activeId={activeId} onChange={onChange} />
+      <BottomNav items={items} activeId={activeId} onChange={onChange} className="pointer-events-auto" />
     </div>
   );
 });
