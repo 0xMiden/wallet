@@ -139,3 +139,19 @@ describe('DappPeekTray footer clearance', () => {
     expect(mockOverlayProps[mockOverlayProps.length - 1]?.targetRect.y).toBe(800 - 78 - CARD_HEIGHT);
   });
 });
+
+describe('DappPeekTray card overlays', () => {
+  // `black` is ink, white in dark theme, so a card scrim written with it washes the snapshot white.
+  it('darkens the card with pure black, never the theme black', () => {
+    mockBrowser.parkedSessions = [{ session: S1 }];
+    render(<DappPeekTray />);
+
+    const themeBlack = [...document.body.querySelectorAll('[class]')].flatMap(el =>
+      (el.getAttribute('class') ?? '')
+        .split(/\s+/)
+        .filter(cls => ['from-black/', 'via-black/', 'bg-black/'].some(prefix => cls.startsWith(prefix)))
+    );
+    expect(themeBlack).toEqual([]);
+    expect(document.body.querySelector('[class~="from-pure-black/85"]')).not.toBeNull();
+  });
+});
