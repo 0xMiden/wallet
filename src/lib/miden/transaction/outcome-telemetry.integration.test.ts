@@ -82,6 +82,9 @@ const row = (id: string, overrides: Partial<ITransaction> = {}): SendTransaction
     ...overrides
   }) as SendTransaction;
 
+/** Reads a row back through the real Dexie table, not the in-memory object the test wrote. */
+const read = async (id: string) => (await Repo.transactions.where({ id }).first())!;
+
 beforeEach(async () => {
   reported.length = 0;
   jest.clearAllMocks();
@@ -303,6 +306,62 @@ describe('a transaction that succeeded', () => {
         step: 'submitting'
       }
     ]);
+  });
+});
+
+describe('markBridgedSendFailed on an already-Failed row (#1250)', () => {
+  // extraInputs fields `IBridgedSendExtraInputs` requires beyond claimStatus/epochStatus - fixed
+  // across both rows below, since neither test cares about them.
+  const epochExtraInputs = {
+    provider: 'epoch',
+    destinationAddress: '0xdead',
+    destinationNetwork: 1,
+    sourceFaucetId: 'mtst1faucet'
+  };
+
+  it('merges only the reclaim height into an unconfirmed row, persisted through real Dexie', async () => {
+    const tx = row('bridge-unconfirmed', {
+      type: 'bridged-send' as ITransactionType,
+      status: ITransactionStatus.Failed,
+      error: 'allocator unreachable',
+      displayMessage: 'Not confirmed',
+      mayHaveSubmitted: true,
+      extraInputs: { ...epochExtraInputs, claimStatus: 'pending', epochStatus: 'pending' }
+    });
+    await Repo.transactions.add(tx);
+
+    await markBridgedSendFailed(tx.id, 'intent rejected', 1234);
+
+    const persisted = await read(tx.id);
+    expect(persisted.status).toBe(ITransactionStatus.Failed);
+    expect(persisted.error).toBe('allocator unreachable');
+    expect(persisted.displayMessage).toBe('Not confirmed');
+    expect(persisted.extraInputs.claimStatus).toBe('pending');
+    expect(persisted.extraInputs.epochStatus).toBe('pending');
+    expect(persisted.extraInputs.reclaimHeight).toBe(1234);
+    expect(reported).toEqual([]);
+  });
+
+  it('leaves a definite-failure row untouched on real Dexie even with a reclaim height given', async () => {
+    const tx = row('bridge-definite-failed', {
+      type: 'bridged-send' as ITransactionType,
+      status: ITransactionStatus.Failed,
+      error: 'allocator rejected the intent',
+      displayMessage: 'Bridge failed - funds unspent',
+      extraInputs: { ...epochExtraInputs, claimStatus: 'failed', epochStatus: 'failed' }
+    });
+    await Repo.transactions.add(tx);
+
+    await markBridgedSendFailed(tx.id, 'allocator rejected the intent', 1234);
+
+    const persisted = await read(tx.id);
+    expect(persisted.status).toBe(ITransactionStatus.Failed);
+    expect(persisted.error).toBe('allocator rejected the intent');
+    expect(persisted.displayMessage).toBe('Bridge failed - funds unspent');
+    expect(persisted.extraInputs.claimStatus).toBe('failed');
+    expect(persisted.extraInputs.epochStatus).toBe('failed');
+    expect(persisted.extraInputs.reclaimHeight).toBeUndefined();
+    expect(reported).toEqual([]);
   });
 });
 
