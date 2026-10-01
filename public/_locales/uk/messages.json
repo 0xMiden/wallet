@@ -768,15 +768,6 @@
     "message": "Я розумію, що цей ключ не можна змінити або скасувати.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "Імпортовані облікові записи, відсутні в цьому старому файлі гаманця: $importedCount$. Відновіть їх окремо з резервних копій приватних ключів.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Редагувати назву облікового запису",
     "englishSource": "Edit Account Name"
@@ -2049,10 +2040,6 @@
   "enterDecryptionPassword": {
     "message": "Введіть пароль, який ви встановили під час експорту гаманця. Це розшифрує файл і відновить доступ.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
-  },
-  "continueImport": {
-    "message": "Продовжити імпорт",
-    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Виберіть, як саме ви хочете захистити свій гаманець",

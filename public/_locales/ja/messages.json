@@ -768,15 +768,6 @@
     "message": "この鍵は変更も取り消しもできないと理解しています。",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "この古いウォレットファイルに含まれていないインポート済みアカウント: $importedCount$。秘密鍵のバックアップから個別に復元してください。",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "アカウント名の編集",
     "englishSource": "Edit Account Name"
@@ -2049,10 +2040,6 @@
   "enterDecryptionPassword": {
     "message": "ウォレットをエクスポートするときに設定したパスワードを入力します。これにより、ファイルが復号化され、アクセスが復元されます。",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
-  },
-  "continueImport": {
-    "message": "インポートを続行する",
-    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "お財布をどのように保護するかをお選びください",

@@ -2126,6 +2126,22 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(await Vault.hasPasswordProtector()).toBe(false);
   });
 
+  it('rejects a restore request that names backup version 1', async () => {
+    await expect(
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [
+          { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
+        ],
+        1,
+        []
+      )
+    ).rejects.toThrow('Encrypted file uses an unsupported backup version');
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+    expect(await Vault.hasPasswordProtector()).toBe(false);
+  });
+
   it('rejects a version 2 restore with a missing imported-secret entry', async () => {
     const account = importedSdkAccount();
     mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
@@ -2400,7 +2416,8 @@ describe('Vault.spawnFromMidenClient', () => {
         2,
         []
       )
-    ).rejects.toThrow(PublicError);
+    ).rejects.toThrow('Failed to spawn from miden client');
+    expect(mockMidenClient.getAccounts).toHaveBeenCalled();
   });
 
   it('re-derives ECDSA secret keys for accounts whose authScheme is "ecdsa"', async () => {

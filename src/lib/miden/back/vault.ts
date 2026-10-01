@@ -1321,7 +1321,7 @@ export class Vault {
       };
       const importedWalletAccounts = walletAccounts.filter(account => account.hdIndex < 0);
       // A phrase that is present has to be a real one, and no phrase is legal only
-      // when no account needs one. Both restore arms derive HD keys from the seed,
+      // when no account needs one. The restore derives HD keys from the seed,
       // so an empty phrase with an HD account present would derive that key from
       // mnemonicToSeedSync(''), a fixed value, while the wallet presented the
       // account as ordinary. Checked once, before any WASM or keystore work.

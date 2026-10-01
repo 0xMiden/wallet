@@ -768,15 +768,6 @@
     "message": "I understand this key cannot be rotated or revoked.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Edit Account Name",
     "englishSource": "Edit Account Name"
@@ -2049,10 +2040,6 @@
   "enterDecryptionPassword": {
     "message": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
-  },
-  "continueImport": {
-    "message": "Continue import",
-    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Choose how you want to protect your wallet",
