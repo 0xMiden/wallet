@@ -984,6 +984,8 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
   }
 }
 
+type FlagClearOutcome = 'cleared' | 'retry' | 'replaced';
+
 /**
  * The terminal write. Joins the accounts-list write queue: this is a
  * read-modify-write of the whole accounts array landing at a moment the user
@@ -1002,8 +1004,9 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
  * when the history generation moved under the run: the wallet was replaced,
  * so nothing is written and the flag is the new wallet's.
  */
-async function clearPendingFlag(account: WalletAccount, generation: string): Promise<'cleared' | 'retry' | 'replaced'> {
-  let outcome: 'cleared' | 'retry' | 'replaced' = 'retry';
+async function clearPendingFlag(account: WalletAccount, generation: string): Promise<FlagClearOutcome> {
+  // An object, not a `let`: TypeScript narrows a `let` to its initializer and never sees the queued callback's writes.
+  const state: { outcome: FlagClearOutcome } = { outcome: 'retry' };
   try {
     await getAccountsWriteQueue().add(async () => {
       const vault = liveVault();
@@ -1013,13 +1016,13 @@ async function clearPendingFlag(account: WalletAccount, generation: string): Pro
         return;
       }
       if ((await readGuardianHistoryGeneration()) !== generation) {
-        outcome = 'replaced';
+        state.outcome = 'replaced';
         reservations.delete(account.publicKey);
         console.warn(`[GuardianRecovery] The wallet changed before clearing the flag for ${account.publicKey}`);
         return;
       }
       const updated = await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
-      outcome = 'cleared';
+      state.outcome = 'cleared';
       // A lock between the write and the broadcast would merge accounts back
       // into the state `locked` just reset; the flag is already persisted, so
       // dropping the broadcast is the safe half to lose.
@@ -1028,8 +1031,8 @@ async function clearPendingFlag(account: WalletAccount, generation: string): Pro
     });
   } catch (error) {
     // After 'cleared' the flag is no longer set, so the run keeps its reservation in flight until its own end.
-    if (outcome !== 'cleared') reservations.delete(account.publicKey);
+    if (state.outcome !== 'cleared') reservations.delete(account.publicKey);
     console.warn(`[GuardianRecovery] Failed to clear the recovery flag for ${account.publicKey}; will retry:`, error);
   }
-  return outcome;
+  return state.outcome;
 }
