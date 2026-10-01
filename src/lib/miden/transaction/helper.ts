@@ -342,16 +342,21 @@ export const setTransactionStage = async (
 };
 
 const UNDELIVERED_SEPARATOR = ' - ';
+// 1.16.2 and earlier joined the wording with an em dash, and the sweep still delivers those rows.
+const LEGACY_UNDELIVERED_SEPARATOR = ' \u2014 ';
+
+const undeliveredLabel = (base: string, notes: number | undefined, separator: string): string => {
+  const phrase = notes === undefined ? 'the private note' : notes === 1 ? 'a private note' : `${notes} private notes`;
+  return `${base}${separator}${phrase} could not be delivered`;
+};
 
 /**
  * The label of a landed row whose private notes could not be delivered: `base` plus the wording.
  * Omit `notes` for a send, whose single note is "the private note"; pass the count where a row
  * can carry several. {@link recordNoteDelivery} takes the wording off again once they arrive.
  */
-export const undeliveredDisplayMessage = (base: string, notes?: number): string => {
-  const phrase = notes === undefined ? 'the private note' : notes === 1 ? 'a private note' : `${notes} private notes`;
-  return `${base}${UNDELIVERED_SEPARATOR}${phrase} could not be delivered`;
-};
+export const undeliveredDisplayMessage = (base: string, notes?: number): string =>
+  undeliveredLabel(base, notes, UNDELIVERED_SEPARATOR);
 
 /**
  * The private notes a row owes the relay, which its single `noteDelivery` covers. A send's one output
@@ -369,14 +374,17 @@ export const relayRecipientOf = (
   row: Pick<ITransaction, 'relayNoteIds' | 'relayRecipientId' | 'secondaryAccountId'>
 ): string | undefined => (row.relayNoteIds ? row.relayRecipientId : row.secondaryAccountId);
 
-/** `label`'s base when {@link undeliveredDisplayMessage} built it, else `label` unchanged. */
+/** `label`'s base when {@link undeliveredDisplayMessage} built it, now or before 1.16.3, else `label` unchanged. */
 const withoutUndeliveredWording = (label: string): string => {
-  const at = label.lastIndexOf(UNDELIVERED_SEPARATOR);
-  if (at < 0) return label;
-  const base = label.slice(0, at);
-  const count = Number(label.slice(at + UNDELIVERED_SEPARATOR.length).split(' ', 1)[0]);
-  // Rebuilding and comparing makes this the exact inverse, so no near miss loses its text.
-  return [undefined, 1, count].some(notes => undeliveredDisplayMessage(base, notes) === label) ? base : label;
+  for (const separator of [UNDELIVERED_SEPARATOR, LEGACY_UNDELIVERED_SEPARATOR]) {
+    const at = label.lastIndexOf(separator);
+    if (at < 0) continue;
+    const base = label.slice(0, at);
+    const count = Number(label.slice(at + separator.length).split(' ', 1)[0]);
+    // Rebuilding and comparing makes this the exact inverse, so no near miss loses its text.
+    if ([undefined, 1, count].some(notes => undeliveredLabel(base, notes, separator) === label)) return base;
+  }
+  return label;
 };
 
 /**

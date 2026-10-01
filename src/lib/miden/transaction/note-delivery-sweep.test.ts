@@ -541,6 +541,9 @@ describe('the undelivered label', () => {
   const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
   const UNDELIVERED_SEND = 'Sent - the private note could not be delivered';
   const UNDELIVERED_CUSTOM = 'Completed - a private note could not be delivered';
+  // 1.16.2 and earlier joined the wording with an em dash.
+  const EM = ' \u2014 ';
+  const LEGACY_UNDELIVERED_SEND = 'Sent' + EM + 'the private note could not be delivered';
 
   beforeEach(() => {
     mockRecord.mockImplementation(recordNoteDelivery);
@@ -581,10 +584,32 @@ describe('the undelivered label', () => {
     expect(rows[0]!.displayMessage).toBe('Completed');
   });
 
+  it.each<[ITransactionType, string, string]>([
+    ['send', LEGACY_UNDELIVERED_SEND, 'Sent'],
+    ['execute', 'Completed' + EM + 'a private note could not be delivered', 'Completed'],
+    ['execute', 'Completed' + EM + 'the private note could not be delivered', 'Completed']
+  ])('drops the wording 1.16.2 wrote from a %s row labelled %p once relayed (#1233)', async (type, label, base) => {
+    rows.push(row({ type, noteDelivery: 'undelivered', displayMessage: label }));
+
+    await recordNoteDelivery('tx-1', 'relayed');
+
+    expect(rows[0]!.displayMessage).toBe(base);
+  });
+
+  it('drops the legacy wording when the sweep re-pushes an older private send (#1233)', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: LEGACY_UNDELIVERED_SEND }));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+    expect(rows[0]!.displayMessage).toBe('Sent');
+  });
+
   // The row holds one delivery state, and a verdict on one of its notes says nothing of the other.
   it.each([
     ['Completed - a private note could not be delivered'],
-    ['Completed - 2 private notes could not be delivered']
+    ['Completed - 2 private notes could not be delivered'],
+    ['Completed' + EM + '2 private notes could not be delivered']
   ])('stays as %p on a two-note row recorded relayed', async displayMessage => {
     rows.push(
       row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
@@ -737,7 +762,9 @@ describe('the undelivered label', () => {
     ['Completed - 1 private notes could not be delivered'],
     ['Completed - 02 private notes could not be delivered'],
     ['Sent - the private note could not be delivered yet'],
-    ['Sent - a note could not be delivered']
+    ['Sent - a note could not be delivered'],
+    ['Sent' + EM + 'a note could not be delivered'],
+    ['Completed' + EM + '02 private notes could not be delivered']
   ])('leaves %p alone', async displayMessage => {
     rows.push(row({ noteDelivery: 'undelivered', displayMessage }));
 
