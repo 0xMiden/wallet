@@ -32,18 +32,7 @@ export const parseImportedAccountBackupFailure = (message: string): string | nul
     ? message.slice(IMPORTED_ACCOUNT_BACKUP_FAILED_CODE.length + 1)
     : null;
 
-// Absence of a version is the legacy discriminator. Do not rewrite it to
-// version 1: older files were never stamped and must keep parsing unchanged.
-export type LegacyDecryptedWalletFile = {
-  formatVersion?: undefined;
-  seedPhrase: string;
-  midenClientDbContent: string;
-  walletDbContent: string;
-  accounts: WalletAccount[];
-  omittedImportedAccountCount?: number;
-};
-
-export type VersionTwoDecryptedWalletFile = {
+export type DecryptedWalletFile = {
   formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION;
   seedPhrase: string;
   midenClientDbContent: string;
@@ -51,8 +40,6 @@ export type VersionTwoDecryptedWalletFile = {
   accounts: WalletAccount[];
   importedAccounts: ImportedAccountBackup[];
 };
-
-export type DecryptedWalletFile = LegacyDecryptedWalletFile | VersionTwoDecryptedWalletFile;
 
 export class MalformedBackupFileError extends Error {
   constructor() {
@@ -152,18 +139,8 @@ export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
   if (!isRecord(value)) throw new MalformedBackupFileError();
   requireCommonPayload(value);
 
-  if (value.formatVersion === undefined) {
-    // Imported secrets without the v2 discriminator are ambiguous to older
-    // readers, so an unversioned payload can only use the legacy omission form.
-    if (
-      value.importedAccounts !== undefined ||
-      (value.omittedImportedAccountCount !== undefined &&
-        (!Number.isSafeInteger(value.omittedImportedAccountCount) || Number(value.omittedImportedAccountCount) < 0))
-    ) {
-      throw new MalformedBackupFileError();
-    }
-    return value as LegacyDecryptedWalletFile;
-  }
+  // An unversioned file predates version 2; `UnsupportedBackupVersionError` would call it newer.
+  if (value.formatVersion === undefined) throw new MalformedBackupFileError();
 
   if (value.formatVersion !== CURRENT_BACKUP_FORMAT_VERSION) {
     // Unknown versions fail before any database import. Forward compatibility
@@ -189,5 +166,5 @@ export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
     secrets.add(secret);
   }
 
-  return value as VersionTwoDecryptedWalletFile;
+  return value as DecryptedWalletFile;
 }

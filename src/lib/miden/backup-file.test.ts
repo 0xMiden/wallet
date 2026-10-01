@@ -26,12 +26,11 @@ const importedAccount = {
   authScheme: 'falcon' as const
 };
 
-const legacyPayload = {
+const unversionedPayload = {
   seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
   midenClientDbContent: 'miden-db',
   walletDbContent: 'wallet-db',
-  accounts: [hdAccount],
-  omittedImportedAccountCount: 2
+  accounts: [hdAccount]
 };
 
 const importedBackup = {
@@ -51,8 +50,8 @@ const versionTwoPayload = {
 };
 
 describe('parseDecryptedWalletFile', () => {
-  it('accepts a legacy payload and preserves its imported-account omission count', () => {
-    expect(parseDecryptedWalletFile(legacyPayload)).toEqual(legacyPayload);
+  it('rejects an unversioned payload with the malformed-file error', () => {
+    expect(() => parseDecryptedWalletFile(unversionedPayload)).toThrow(MalformedBackupFileError);
   });
 
   it('accepts a version 2 payload with imported-account backup material', () => {
@@ -66,10 +65,10 @@ describe('parseDecryptedWalletFile', () => {
   });
 
   it.each([
-    ['missing accounts', { ...legacyPayload, accounts: undefined }],
-    ['non-array accounts', { ...legacyPayload, accounts: {} }],
-    ['account missing a required field', { ...legacyPayload, accounts: [{ ...hdAccount, name: undefined }] }],
-    ['account with an invalid wallet type', { ...legacyPayload, accounts: [{ ...hdAccount, type: 'invalid' }] }]
+    ['missing accounts', { ...versionTwoPayload, accounts: undefined }],
+    ['non-array accounts', { ...versionTwoPayload, accounts: {} }],
+    ['account missing a required field', { ...versionTwoPayload, accounts: [{ ...hdAccount, name: undefined }] }],
+    ['account with an invalid wallet type', { ...versionTwoPayload, accounts: [{ ...hdAccount, type: 'invalid' }] }]
   ])('rejects %s', (_label, payload) => {
     expect(() => parseDecryptedWalletFile(payload)).toThrow(MalformedBackupFileError);
   });
@@ -157,7 +156,7 @@ describe('parseDecryptedWalletFile', () => {
   it.each([
     ['a primitive', 'not-an-object'],
     ['null', null],
-    ['an array', [legacyPayload]]
+    ['an array', [versionTwoPayload]]
   ])('rejects %s in place of the payload object', (_label, payload) => {
     expect(() => parseDecryptedWalletFile(payload)).toThrow(MalformedBackupFileError);
   });
@@ -167,7 +166,9 @@ describe('parseDecryptedWalletFile', () => {
     ['null', null],
     ['an array', [hdAccount]]
   ])('rejects %s in place of a wallet account', (_label, account) => {
-    expect(() => parseDecryptedWalletFile({ ...legacyPayload, accounts: [account] })).toThrow(MalformedBackupFileError);
+    expect(() => parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [account] })).toThrow(
+      MalformedBackupFileError
+    );
   });
 
   // `isHex` guards the two secret-bearing fields. A non-string reaches it from a
@@ -192,18 +193,6 @@ describe('parseDecryptedWalletFile', () => {
     ['not a list', { 0: importedBackup }]
   ])('rejects a version 2 payload whose importedAccounts is %s', (_label, importedAccounts) => {
     expect(() => parseDecryptedWalletFile({ ...versionTwoPayload, importedAccounts })).toThrow(
-      MalformedBackupFileError
-    );
-  });
-
-  // The legacy form may state how many imported accounts it left out, but that
-  // count is read by the restore screen, so a negative or fractional one is
-  // refused rather than displayed.
-  it.each([
-    ['negative', -1],
-    ['fractional', 1.5]
-  ])('rejects a legacy payload with a %s omitted-account count', (_label, omittedImportedAccountCount) => {
-    expect(() => parseDecryptedWalletFile({ ...legacyPayload, omittedImportedAccountCount })).toThrow(
       MalformedBackupFileError
     );
   });

@@ -1331,45 +1331,42 @@ export class Vault {
       if (mnemonic === '' && walletAccounts.some(account => account.hdIndex >= 0)) {
         failMalformedImport('hd-account-without-seed');
       }
-      if (formatVersion !== undefined && formatVersion !== 2) {
+      if (formatVersion !== 2) {
         throw new PublicError('Encrypted file uses an unsupported backup version');
       }
-      if (formatVersion === undefined && importedAccounts.length > 0) failMalformedImport('legacy-file-with-imports');
-      if (formatVersion === 2) {
-        if (importedAccounts.length < importedWalletAccounts.length) failMissingImport('fewer-imports-than-accounts');
-        if (importedAccounts.length > importedWalletAccounts.length) failMalformedImport('more-imports-than-accounts');
-        for (let index = 0; index < importedAccounts.length; index++) {
-          const backup = importedAccounts[index]!;
-          const commitment = normalizeBackupHex(backup.publicKeyCommitment);
-          const secretKeyHex = normalizeBackupHex(backup.secretKeyHex);
-          if (
-            commitment.length === 0 ||
-            commitment.length > 32_768 ||
-            commitment.length % 2 !== 0 ||
-            !/^[0-9a-f]+$/.test(commitment) ||
-            secretKeyHex.length === 0 ||
-            secretKeyHex.length > 32_768 ||
-            secretKeyHex.length % 2 !== 0 ||
-            !/^[0-9a-f]+$/.test(secretKeyHex) ||
-            (backup.authScheme !== 'falcon' && backup.authScheme !== 'ecdsa')
-          ) {
-            failMalformedImport('import-field-shape');
-          }
-          const matchingWalletAccounts = importedWalletAccounts.filter(account =>
-            sameWalletAccountId(account.publicKey, backup.accountId)
+      if (importedAccounts.length < importedWalletAccounts.length) failMissingImport('fewer-imports-than-accounts');
+      if (importedAccounts.length > importedWalletAccounts.length) failMalformedImport('more-imports-than-accounts');
+      for (let index = 0; index < importedAccounts.length; index++) {
+        const backup = importedAccounts[index]!;
+        const commitment = normalizeBackupHex(backup.publicKeyCommitment);
+        const secretKeyHex = normalizeBackupHex(backup.secretKeyHex);
+        if (
+          commitment.length === 0 ||
+          commitment.length > 32_768 ||
+          commitment.length % 2 !== 0 ||
+          !/^[0-9a-f]+$/.test(commitment) ||
+          secretKeyHex.length === 0 ||
+          secretKeyHex.length > 32_768 ||
+          secretKeyHex.length % 2 !== 0 ||
+          !/^[0-9a-f]+$/.test(secretKeyHex) ||
+          (backup.authScheme !== 'falcon' && backup.authScheme !== 'ecdsa')
+        ) {
+          failMalformedImport('import-field-shape');
+        }
+        const matchingWalletAccounts = importedWalletAccounts.filter(account =>
+          sameWalletAccountId(account.publicKey, backup.accountId)
+        );
+        if (matchingWalletAccounts.length === 0) failMismatchedImport('no-account-for-import');
+        if (matchingWalletAccounts.length > 1) failMalformedImport('several-accounts-for-import');
+        const duplicatesPrevious = importedAccounts.slice(0, index).some(previous => {
+          return (
+            sameWalletAccountId(previous.accountId, backup.accountId) ||
+            normalizeBackupHex(previous.publicKeyCommitment) === commitment ||
+            normalizeBackupHex(previous.secretKeyHex) === secretKeyHex
           );
-          if (matchingWalletAccounts.length === 0) failMismatchedImport('no-account-for-import');
-          if (matchingWalletAccounts.length > 1) failMalformedImport('several-accounts-for-import');
-          const duplicatesPrevious = importedAccounts.slice(0, index).some(previous => {
-            return (
-              sameWalletAccountId(previous.accountId, backup.accountId) ||
-              normalizeBackupHex(previous.publicKeyCommitment) === commitment ||
-              normalizeBackupHex(previous.secretKeyHex) === secretKeyHex
-            );
-          });
-          if (duplicatesPrevious) {
-            failMalformedImport('duplicate-import-entry');
-          }
+        });
+        if (duplicatesPrevious) {
+          failMalformedImport('duplicate-import-entry');
         }
       }
 
@@ -1447,12 +1444,11 @@ export class Vault {
             const walletAccount = walletAccounts.find(wa => sameWalletAccountId(wa.publicKey, accountAddress));
             if (!walletAccount) {
               // Account exists in the restored miden-client DB but has no
-              // matching legacy `WalletAccount` entry. Version 2's complete
-              // imported-account check below rejects any owned omission.
+              // matching `WalletAccount` entry. The complete imported-account
+              // check below rejects any owned omission.
               continue;
             }
             if (walletAccount.hdIndex < 0) {
-              if (formatVersion === undefined) continue;
               if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain)
                 failMismatchedImport('not-public-onchain');
               const backup = importedAccounts.find(item =>
@@ -1505,14 +1501,11 @@ export class Vault {
           }
 
           if (
-            formatVersion === 2 &&
-            (validatedImportedAccountIds.length !== importedWalletAccounts.length ||
-              importedWalletAccounts.some(
-                walletAccount =>
-                  !validatedImportedAccountIds.some(accountId =>
-                    sameWalletAccountId(accountId, walletAccount.publicKey)
-                  )
-              ))
+            validatedImportedAccountIds.length !== importedWalletAccounts.length ||
+            importedWalletAccounts.some(
+              walletAccount =>
+                !validatedImportedAccountIds.some(accountId => sameWalletAccountId(accountId, walletAccount.publicKey))
+            )
           ) {
             failMissingImport('unvalidated-imported-account');
           }

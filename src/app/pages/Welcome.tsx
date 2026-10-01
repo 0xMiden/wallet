@@ -170,10 +170,9 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
 // secret, so it keeps the payload as it is and drops only secretKeyHex; a field
 // added to either record later stays in the key by construction.
 const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
-  formatVersion: payload.formatVersion ?? null,
+  formatVersion: payload.formatVersion,
   accounts: payload.accounts,
-  importedAccounts:
-    payload.formatVersion === 2 ? payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest) : []
+  importedAccounts: payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest)
 });
 
 const Welcome: FC = () => {
@@ -458,7 +457,7 @@ const Welcome: FC = () => {
                 seedPhraseFormatted,
                 walletFilePayload.accounts,
                 walletFilePayload.formatVersion,
-                walletFilePayload.formatVersion === 2 ? walletFilePayload.importedAccounts : undefined
+                walletFilePayload.importedAccounts
               );
             } else {
               await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);

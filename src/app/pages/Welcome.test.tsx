@@ -4,7 +4,7 @@ import { render, act, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { DecryptedWalletFile, VersionTwoDecryptedWalletFile } from 'lib/miden/backup-file';
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { NO_GUARDIAN_ID, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 import Welcome from './Welcome';
@@ -214,7 +214,7 @@ const IMPORTED_ACCOUNT_BACKUP = {
   authScheme: 'falcon' as const,
   secretKeyHex: '0102'
 };
-const VERSION_TWO_PAYLOAD: VersionTwoDecryptedWalletFile = {
+const VERSION_TWO_PAYLOAD: DecryptedWalletFile = {
   formatVersion: 2,
   seedPhrase: 'alpha beta gamma delta',
   midenClientDbContent: 'miden-db',
@@ -1373,29 +1373,6 @@ describe('Welcome — confirmation / register', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('preserves legacy file restore arguments without inventing a format or imported secrets', async () => {
-    const legacyPayload: DecryptedWalletFile = {
-      seedPhrase: 'legacy seed words',
-      midenClientDbContent: 'legacy-miden-db',
-      walletDbContent: 'legacy-wallet-db',
-      accounts: [{ ...VERSION_TWO_PAYLOAD.accounts[0]!, hdIndex: 0 }]
-    };
-    await renderWelcome();
-    await stageFileRestore(legacyPayload);
-    await dispatch({ id: 'create-password-submit', payload: { password: 'new-password' } });
-    await setHash('#confirmation');
-
-    await dispatch({ id: 'confirmation' });
-
-    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
-      'new-password',
-      'legacy seed words',
-      legacyPayload.accounts,
-      undefined,
-      undefined
-    );
-  });
-
   it('retries a failed file restore on Confirmation without routing to Guardian recovery', async () => {
     mockImportWalletFromClient.mockRejectedValueOnce(new Error('file restore failed')).mockResolvedValueOnce(undefined);
     await renderWelcome();
@@ -1455,7 +1432,7 @@ describe('Welcome — confirmation / register', () => {
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
 
-    const reboundPayload: VersionTwoDecryptedWalletFile = {
+    const reboundPayload: DecryptedWalletFile = {
       ...VERSION_TWO_PAYLOAD,
       importedAccounts: [
         {
@@ -1471,7 +1448,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'confirmation' });
     expect(mockImportWalletFromClient).toHaveBeenCalledTimes(2);
 
-    const secretOnlyChange: VersionTwoDecryptedWalletFile = {
+    const secretOnlyChange: DecryptedWalletFile = {
       ...reboundPayload,
       importedAccounts: [{ ...IMPORTED_ACCOUNT_BACKUP, publicKeyCommitment: 'c3d4', secretKeyHex: '0506' }]
     };

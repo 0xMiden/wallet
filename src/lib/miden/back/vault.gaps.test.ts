@@ -383,14 +383,18 @@ describe('Vault.spawnFromMidenClient: error branches', () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     await expect(
-      Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        2,
+        []
+      )
     ).rejects.toThrow('Password is required for password-based vault protection');
   });
 
   it('throws when walletAccounts is empty, before anything is written', async () => {
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [], 2, [])).rejects.toThrow(
       'Encrypted file contains no restorable accounts'
     );
   });
@@ -500,9 +504,13 @@ describe('Vault hardware-backed unlock + reveal', () => {
     const biometric = require('lib/biometric');
     biometric.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-encrypt-fail'));
     await expect(
-      Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        2,
+        []
+      )
     ).rejects.toThrow(PublicError);
   });
 });

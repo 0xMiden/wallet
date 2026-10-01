@@ -2116,6 +2116,16 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
+  it('rejects a restore request that names no backup version', async () => {
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
+      ])
+    ).rejects.toThrow('Encrypted file uses an unsupported backup version');
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+    expect(await Vault.hasPasswordProtector()).toBe(false);
+  });
+
   it('rejects a version 2 restore with a missing imported-secret entry', async () => {
     const account = importedSdkAccount();
     mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
@@ -2314,9 +2324,13 @@ describe('Vault.spawnFromMidenClient', () => {
     // the new code silently `continue`s past the orphan so the restore
     // completes. No keystore insert for the orphan.
     (globalThis as any).__vaultTestRealmInsertKey = null;
-    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-      { publicKey: 'pk-owned', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-    ]);
+    const vault = await Vault.spawnFromMidenClient(
+      'pw',
+      VALID_MNEMONIC,
+      [{ publicKey: 'pk-owned', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+      2,
+      []
+    );
     expect(vault).toBeInstanceOf(Vault);
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
     // The restore installed the new key's sink before it could insert anything (#878).
@@ -2330,26 +2344,16 @@ describe('Vault.spawnFromMidenClient', () => {
     mockKeystoreInsert.mockImplementationOnce(async (_id: any, _secretKey: any) => {
       await (globalThis as any).__vaultTestRealmInsertKey(new Uint8Array([0xab]), new Uint8Array([0x11]));
     });
-    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-      { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-    ]);
+    const vault = await Vault.spawnFromMidenClient(
+      'pw',
+      VALID_MNEMONIC,
+      [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+      2,
+      []
+    );
     expect(vault).toBeInstanceOf(Vault);
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
     expect(vault.insertKeySink).toBe((globalThis as any).__vaultTestRealmInsertKey);
-  });
-
-  it('skips walletAccount entries with hdIndex < 0 (imported accounts) instead of deriving garbage keys', async () => {
-    // Caller passes an imported-account entry matching the miden-client's
-    // `pk-1`. Without the `hdIndex < 0` skip, spawnFromMidenClient would
-    // call `deriveClientSeed` with `hdIndex: -1` (an invalid path, which throws)
-    // and write a mnemonic-derived key over the imported account's
-    // real secret. With the skip, keystore.insert is never called for
-    // that account.
-    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-      { publicKey: 'pk-1', name: 'Imported', isPublic: true, type: WalletType.OnChain, hdIndex: -1 }
-    ]);
-    expect(vault).toBeInstanceOf(Vault);
-    expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
   it('derives + inserts a key for each HD account', async () => {
@@ -2358,10 +2362,16 @@ describe('Vault.spawnFromMidenClient', () => {
     mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
     mockMidenClient.getAccount.mockResolvedValueOnce(acc1).mockResolvedValueOnce(acc2);
 
-    await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-      { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-      { publicKey: 'pk-2', name: 'B', isPublic: false, type: WalletType.OffChain, hdIndex: 0 }
-    ]);
+    await Vault.spawnFromMidenClient(
+      'pw',
+      VALID_MNEMONIC,
+      [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+        { publicKey: 'pk-2', name: 'B', isPublic: false, type: WalletType.OffChain, hdIndex: 0 }
+      ],
+      2,
+      []
+    );
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(2);
   });
 
@@ -2369,16 +2379,28 @@ describe('Vault.spawnFromMidenClient', () => {
     const fakeAcc = { id: () => 'pk-1' as any, isFaucet: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(null);
-    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-      { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-    ]);
+    const vault = await Vault.spawnFromMidenClient(
+      'pw',
+      VALID_MNEMONIC,
+      [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+      2,
+      []
+    );
     expect(vault).toBeInstanceOf(Vault);
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
   it('wraps errors from the WASM client in a PublicError', async () => {
     mockMidenClient.getAccounts.mockRejectedValueOnce(new Error('wasm failed'));
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
+    await expect(
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        2,
+        []
+      )
+    ).rejects.toThrow(PublicError);
   });
 
   it('re-derives ECDSA secret keys for accounts whose authScheme is "ecdsa"', async () => {
@@ -2391,16 +2413,22 @@ describe('Vault.spawnFromMidenClient', () => {
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
 
-    await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-      {
-        publicKey: 'pk-ecdsa',
-        name: 'A',
-        isPublic: true,
-        type: WalletType.OnChain,
-        hdIndex: 0,
-        authScheme: 'ecdsa'
-      }
-    ]);
+    await Vault.spawnFromMidenClient(
+      'pw',
+      VALID_MNEMONIC,
+      [
+        {
+          publicKey: 'pk-ecdsa',
+          name: 'A',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        }
+      ],
+      2,
+      []
+    );
 
     // Last keystore insert receives the secret produced by ecdsaWithRNG —
     // the falcon constructor must not have been called for this account.
@@ -2417,10 +2445,14 @@ describe('Vault.spawnFromMidenClient', () => {
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
 
-    await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+    await Vault.spawnFromMidenClient(
+      'pw',
+      VALID_MNEMONIC,
       // No authScheme field — the legacy shape.
-      { publicKey: 'pk-legacy', name: 'Legacy', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-    ]);
+      [{ publicKey: 'pk-legacy', name: 'Legacy', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+      2,
+      []
+    );
 
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
     const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
@@ -3196,10 +3228,16 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     });
 
     await expect(
-      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-        { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
-      ])
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [
+          { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+          { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
+        ],
+        2,
+        []
+      )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     // Full validation reads both accounts before any write. The post-insert
     // guard stops account 2 before its key can be inserted.
@@ -3220,9 +3258,13 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     });
 
     await expect(
-      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        2,
+        []
+      )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(isFaucet).not.toHaveBeenCalled();
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
@@ -3238,9 +3280,13 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     });
 
     await expect(
-      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        2,
+        []
+      )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(mockMidenClient.getAccounts).not.toHaveBeenCalled();
   });
@@ -3253,9 +3299,13 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     });
 
     await expect(
-      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        2,
+        []
+      )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(id).not.toHaveBeenCalled();
     expect(mockMidenClient.getAccount).not.toHaveBeenCalled();
@@ -3268,9 +3318,13 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     mockKeystoreInsert.mockImplementationOnce(async () => revokeWasmHold());
 
     await expect(
-      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        'pw',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        2,
+        []
+      )
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
   });
