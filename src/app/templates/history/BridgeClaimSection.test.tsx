@@ -192,13 +192,30 @@ describe('BridgeClaimSection', () => {
           isUnconfirmed: true,
           bridgeEpochStatus: undefined,
           outputNoteIds: undefined,
-          bridgeReclaimNoteId: 'note-stamped'
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
         })
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
         expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
       );
+    });
+
+    it('offers no Reclaim for an unconfirmed row whose submit was never claimed (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          isUnconfirmed: true,
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped'
+        })
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
     });
 
     it('offers no Reclaim for a failure before the note was sent, even with the stamped fields (#1250)', () => {

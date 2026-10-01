@@ -98,14 +98,14 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // A failed Epoch (Fast) bridge-out offers "Reclaim funds" once the reclaim height
   // passes, and only while its note may exist: the allocator rejected the intent after
   // the note committed, or the outcome is unknown. A definite failure never sent its
-  // note, so a reclaim would consume nothing (#1250). A route-failed row reclaims its
-  // committed note, or its stamped one when its pipeline claimed the submit before the
-  // committed id could be recorded.
+  // note, so a reclaim would consume nothing (#1250). The stamped note id stands in for
+  // a committed one only when the pipeline claimed its submit, so an unconfirmed or
+  // route-failed row demoted before its claim offers nothing.
   const noteMayExist = entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed';
   const reclaimHeight = entry.bridgeReclaimHeight;
   const reclaimNoteId =
     entry.outputNoteIds?.[0] ??
-    (entry.isUnconfirmed === true || (entry.bridgeEpochStatus === 'failed' && entry.bridgeSubmitClaimed === true)
+    (entry.bridgeSubmitClaimed === true && (entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed')
       ? entry.bridgeReclaimNoteId
       : undefined);
   // On the extension the page submits the intent, not the realm running the note pipeline, so a page closed after the
