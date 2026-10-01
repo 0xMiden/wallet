@@ -286,11 +286,12 @@ const axisValues = ({ value, block }: MappingEntry): string[] | null => {
 /**
  * A job's matrix: none, or `combos: null` for one it cannot enumerate (inline strategy content,
  * an include, an exclude, any `${{ }}`, or an axis axisValues cannot read), which a job's name
- * then takes as any suffix, else every combination of its axes. Only a strategy or matrix block
- * line readMapping cannot read throws.
+ * then takes as any suffix, else every combination of its axes. A strategy value that is only a
+ * comment counts as empty, as YAML reads it. Only a strategy or matrix block line readMapping
+ * cannot read throws.
  */
 const readMatrix = (strategy: MappingEntry): ParsedJob['matrix'] => {
-  if (strategy.value !== '') return { combos: null };
+  if (strategy.value !== '' && !strategy.value.startsWith('#')) return { combos: null };
   const matrix = readMapping(strategy.block, 6).find(entry => entry.key === 'matrix');
   if (!matrix) return null;
   if (matrix.value !== '' || matrix.block.some(line => line.includes('${{'))) return { combos: null };
@@ -1494,7 +1495,8 @@ describe('no workflow can report a required E2E check name except through the co
 
   it.each([
     ['a block matrix', 'strategy:\n  matrix:\n    browser: [chrome]'],
-    ['an inline strategy', 'strategy: { fail-fast: false }']
+    ['an inline strategy', 'strategy: { fail-fast: false }'],
+    ['an inline strategy and a trailing comment', 'strategy: { fail-fast: false } # c']
   ])(
     'the designated Local job with %s is one violation under its own required name, told to drop the matrix',
     (_title, strategy) => {
@@ -1511,6 +1513,34 @@ describe('no workflow can report a required E2E check name except through the co
 
   it('the designated Local job with a block strategy and no matrix has no violations', () => {
     expect(workflowViolations(LOCAL, designatedLocalWith('strategy:\n  fail-fast: false'))).toEqual([]);
+  });
+
+  it('the designated Local job whose strategy: value is only a comment, over no matrix, has no violations', () => {
+    const strategy = 'strategy: # keep the other jobs\n  fail-fast: false';
+    expect(workflowViolations(LOCAL, designatedLocalWith(strategy))).toEqual([]);
+  });
+
+  it.each<[title: string, names: string[], strategy: string]>([
+    [
+      'a strategy: value that is only a comment over a firefox matrix',
+      [],
+      'strategy: # c\n  matrix:\n    browser: [firefox]'
+    ],
+    [
+      'a strategy: value that is only a comment over a chrome matrix',
+      ['local-e2e (chrome)'],
+      'strategy: # c\n  matrix:\n    browser: [chrome]'
+    ],
+    [
+      'an inline strategy and a trailing comment',
+      ['local-e2e (chrome)'],
+      'strategy: { matrix: { browser: [chrome] } } # c'
+    ]
+  ])('a local-e2e job with %s -> job-name violations under %j', (_title, names, strategy) => {
+    const file = '.github/workflows/synthetic-commented-strategy.yml';
+    expect(workflowViolations(file, jobWithStrategy('local-e2e', strategy))).toEqual(
+      names.map(name => ({ file, jobId: 'local-e2e', name, text: `${REMEDY.jobName}: jobs.local-e2e` }))
+    );
   });
 
   it('a four-space-indented workflow is refused with an error naming its file and the plain shape', () => {
