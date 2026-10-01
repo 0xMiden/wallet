@@ -3177,7 +3177,7 @@ describe('HistoryDetails', () => {
       });
     });
 
-    it('hands the bridge section the in-flight demotion mark of a route-failed bridge-out (#1250)', async () => {
+    it('hands the bridge section the submit claim of a route-failed bridge-out (#1250)', async () => {
       setMockRow({
         ...bridgedSendTx,
         status: 3,
@@ -3187,7 +3187,7 @@ describe('HistoryDetails', () => {
           epochStatus: 'failed',
           reclaimHeight: 3016,
           reclaimNoteId: 'note-stamped',
-          stampedNoteMayExist: true
+          submitClaimed: true
         }
       });
       await renderAndLoad({ transactionId: 'bridge-out' });
@@ -3196,7 +3196,7 @@ describe('HistoryDetails', () => {
         isUnconfirmed: false,
         bridgeEpochStatus: 'failed',
         bridgeReclaimNoteId: 'note-stamped',
-        bridgeStampedNoteMayExist: true
+        bridgeSubmitClaimed: true
       });
     });
 

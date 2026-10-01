@@ -20,6 +20,7 @@ import { ITransactionStatus, Transaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
   cancelTransaction,
+  claimBridgeSubmit,
   completeConsumeTransaction,
   forceCaneclAllInProgressTransactions,
   initiateConsumeTransaction,
@@ -1120,7 +1121,9 @@ describe('initiateConsumeTransaction reuse path', () => {
       // Stamped when the note was built; the demotion keeps both (#1250).
       expect(row.extraInputs.reclaimHeight).toBe(3016);
       expect(row.extraInputs.reclaimNoteId).toBe('note-stamped');
-      expect(row.extraInputs.stampedNoteMayExist).toBeUndefined();
+      expect(mockedReportOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'errored', step: 'submitting' })
+      );
     });
 
     it('leaves a row the note pipeline already failed untouched, and reports nothing (#1250)', async () => {
@@ -1146,16 +1149,18 @@ describe('initiateConsumeTransaction reuse path', () => {
       expect(mockedReportOperation).not.toHaveBeenCalled();
     });
 
-    it('still demotes a row that was in flight, marking that its stamped note may exist (#1250)', async () => {
+    it('demotes an in-flight row whose pipeline claimed the submit as reclaimable (#1250)', async () => {
       txStore.push({
         id: 'bs-fail-in-flight',
         type: 'bridged-send',
         status: ITransactionStatus.GeneratingTransaction,
+        stage: 'sending',
         extraInputs: {
           provider: 'epoch',
           claimStatus: 'not-applicable',
           epochStatus: 'pending',
-          reclaimNoteId: 'note-stamped'
+          reclaimNoteId: 'note-stamped',
+          submitClaimed: true
         }
       });
 
@@ -1163,13 +1168,17 @@ describe('initiateConsumeTransaction reuse path', () => {
 
       const row = txStore.find(t => t.id === 'bs-fail-in-flight')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).toContain('funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.stampedNoteMayExist).toBe(true);
+      expect(row.extraInputs.submitClaimed).toBe(true);
       expect(row.extraInputs.reclaimNoteId).toBe('note-stamped');
+      expect(mockedReportOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'errored', step: 'sending' })
+      );
     });
 
-    it('demotes a Queued row without marking a note it never sent (#1250)', async () => {
+    it('demotes a Queued row as a plain failure, reporting where it stood (#1250)', async () => {
       txStore.push({
         id: 'bs-fail-queued',
         type: 'bridged-send',
@@ -1186,30 +1195,46 @@ describe('initiateConsumeTransaction reuse path', () => {
 
       const row = txStore.find(t => t.id === 'bs-fail-queued')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).toBe('Bridge failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.stampedNoteMayExist).toBeUndefined();
+      expect(mockedReportOperation).toHaveBeenCalledTimes(1);
+      expect(mockedReportOperation.mock.lastCall?.[0].step).not.toBe('submitting');
+    });
+  });
+});
+
+describe('claimBridgeSubmit (#1250)', () => {
+  it('claims a row in flight, recording that its note may be submitted', async () => {
+    txStore.push({
+      id: 'bs-claim',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending', reclaimNoteId: 'note-1' }
     });
 
-    it('marks a completed row whose note id was never recorded (#1250)', async () => {
-      txStore.push({
-        id: 'bs-fail-no-id',
-        type: 'bridged-send',
-        status: ITransactionStatus.Completed,
-        outputNoteIds: [],
-        extraInputs: {
-          provider: 'epoch',
-          claimStatus: 'not-applicable',
-          epochStatus: 'pending',
-          reclaimNoteId: 'note-stamped'
-        }
-      });
+    await expect(claimBridgeSubmit('bs-claim')).resolves.toBe(true);
 
-      await markBridgedSendFailed('bs-fail-no-id', 'allocator rejected the intent');
+    const row = txStore.find(t => t.id === 'bs-claim')!;
+    expect(row.extraInputs.submitClaimed).toBe(true);
+    expect(row.extraInputs.reclaimNoteId).toBe('note-1');
+    // Bridge-only: the retry and unconfirmed-outcome readers of this flag see no submit.
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
 
-      const row = txStore.find(t => t.id === 'bs-fail-no-id')!;
-      expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.extraInputs.stampedNoteMayExist).toBe(true);
+  it('refuses a row markBridgedSendFailed already abandoned, writing nothing', async () => {
+    const extraInputs = { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed', reclaimNoteId: 'note-1' };
+    txStore.push({
+      id: 'bs-claim-abandoned',
+      type: 'bridged-send',
+      status: ITransactionStatus.Failed,
+      extraInputs: { ...extraInputs }
     });
+
+    await expect(claimBridgeSubmit('bs-claim-abandoned')).resolves.toBe(false);
+
+    const row = txStore.find(t => t.id === 'bs-claim-abandoned')!;
+    expect(row.extraInputs).toEqual(extraInputs);
+    expect(row.mayHaveSubmitted).toBeUndefined();
   });
 });
 

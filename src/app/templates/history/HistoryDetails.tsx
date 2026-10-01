@@ -424,7 +424,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeEpochStatus: bridge?.epochStatus,
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeReclaimNoteId: bridge?.reclaimNoteId,
-          bridgeStampedNoteMayExist: bridge?.stampedNoteMayExist,
+          bridgeSubmitClaimed: bridge?.submitClaimed,
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,

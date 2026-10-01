@@ -134,8 +134,11 @@ export interface IHistoryEntry {
   bridgeReclaimHeight?: number;
   /** epoch: id of the bridge's P2IDE note, stamped when it was built; read only while the note may exist. */
   bridgeReclaimNoteId?: string;
-  /** epoch: the note may be on chain under bridgeReclaimNoteId although no committed id was recorded (demoted in flight). */
-  bridgeStampedNoteMayExist?: boolean;
+  /**
+   * epoch: the bridge's pipeline claimed its submit, so its note may be on chain under bridgeReclaimNoteId although
+   * no committed id was recorded.
+   */
+  bridgeSubmitClaimed?: boolean;
   /**
    * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
    * detail view can withhold affordances that turn a row back into work —

@@ -99,13 +99,15 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // passes, and only while its note may exist: the allocator rejected the intent after
   // the note committed, or the outcome is unknown. A definite failure never sent its
   // note, so a reclaim would consume nothing (#1250). A route-failed row reclaims its
-  // committed note, or its stamped one when it was demoted before the committed id
-  // could be recorded.
+  // committed note, or its stamped one when its pipeline claimed the submit before the
+  // committed id could be recorded.
   const noteMayExist = entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed';
   const reclaimHeight = entry.bridgeReclaimHeight;
   const reclaimNoteId =
     entry.outputNoteIds?.[0] ??
-    (entry.isUnconfirmed === true || entry.bridgeStampedNoteMayExist === true ? entry.bridgeReclaimNoteId : undefined);
+    (entry.isUnconfirmed === true || (entry.bridgeEpochStatus === 'failed' && entry.bridgeSubmitClaimed === true)
+      ? entry.bridgeReclaimNoteId
+      : undefined);
   // `transactionFailed` is exactly the state import forces every unfinished
   // restored row into, so without the flag check a dump naming any note id gets
   // a "Reclaim funds" button that queues a real consume through the signer.

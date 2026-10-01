@@ -475,6 +475,27 @@ export const markMayHaveSubmitted = async (id: string) => {
 };
 
 /**
+ * Claim the submit point of an Epoch bridged-send, in the same write that checks
+ * the row is not Failed. A `markBridgedSendFailed` that already abandoned the
+ * bridge stops the pipeline here (the claim returns false and writes nothing),
+ * and one that comes later finds the claim recorded, so it knows the collateral
+ * note may exist. Bridge-only: it says nothing to the retry and
+ * unconfirmed-outcome readers of `mayHaveSubmitted`, which a claim made before
+ * execute and prove would turn every definite pre-submit failure into an
+ * unknown outcome.
+ */
+export const claimBridgeSubmit = async (id: string): Promise<boolean> => {
+  let claimed = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status === ITransactionStatus.Failed) return false;
+    tx.extraInputs = { ...(tx.extraInputs ?? {}), submitClaimed: true };
+    claimed = true;
+    return undefined;
+  });
+  return claimed;
+};
+
+/**
  * Record that this row was failed from outside its own pipeline while that
  * pipeline was still running, so the retry guard treats a submit as possible
  * until the pipeline resolves. See `ITransaction.cancelledInFlightAt` for why

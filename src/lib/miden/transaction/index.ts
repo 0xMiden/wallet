@@ -69,6 +69,7 @@ import {
 } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
+  claimBridgeSubmit,
   isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
@@ -1080,9 +1081,10 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
  * `openEarnPosition` gives up on a deposit whose queued row didn't complete within
  * `waitForTransactionCompletion`'s 5 minutes (or whose Epoch intent was aborted)
  * and records that by patching `extraInputs.epochStatus = 'failed'` (earn.ts). That
- * patch does NOT touch `status` — unlike the bridged-send abandonment path
+ * patch does NOT touch `status` - unlike the bridged-send abandonment path
  * (`markBridgedSendFailed`, which writes `Failed` and so removes the row from the
- * Queued scan) — leaving the row Queued and well inside MAX_QUEUED_AGE, so the FIFO
+ * Queued scan, while a bridged-send already picked up is stopped by its submit
+ * claim) - leaving the row Queued and well inside MAX_QUEUED_AGE, so the FIFO
  * loop still picks it up once the queue drains. Submitting it then mints a P2IDE
  * collateral note to the Epoch allocator with no live intent behind it: the funds
  * are stranded until the note's reclaim height (MIDEN_MIN_RECLAIM_BLOCKS +
@@ -1116,6 +1118,19 @@ const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promis
   await assertEarnDepositIntentLive(transaction);
   if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   return transaction.requestBytes;
+};
+
+export const EPOCH_BRIDGE_ABANDONED_ERROR =
+  'This bridge was already abandoned, so its collateral note was not submitted.';
+
+/**
+ * An Epoch bridged-send's precondition for submitting, called by both leaves just before their submit: the row's
+ * submit claim (`claimBridgeSubmit`). A row `markBridgedSendFailed` already failed is refused, so its collateral note
+ * is never minted; every other row returns at once.
+ */
+const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void> => {
+  if (transaction.type !== 'bridged-send' || bridgeProviderOf(transaction) !== 'epoch') return;
+  if (!(await claimBridgeSubmit(transaction.id))) throw new Error(EPOCH_BRIDGE_ABANDONED_ERROR);
 };
 
 export const generateTransaction = async (
@@ -1652,9 +1667,10 @@ const generateTransactionWithProvider = async (
       //
       // The abandoned-intent guard the Guardian leaf has must apply here too: this
       // shared block had none, so a non-Guardian account still minted the orphan
-      // collateral note. `bridged-send` needs no equivalent — its abandonment path
-      // writes `status = Failed`, which takes the row out of the Queued scan.
+      // collateral note. An Epoch `bridged-send` is stopped by `requireBridgeSubmitClaim`
+      // instead: its abandonment writes `status = Failed`, and a Failed row is never claimed.
       if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
+      await requireBridgeSubmitClaim(transaction);
       if (transaction.requestBytes) {
         // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
         // returned at the top of `generateTransaction`), and for a basic wallet miden-client
@@ -3067,6 +3083,7 @@ const generateGuardianTransaction = async (
       });
     }
 
+    await requireBridgeSubmitClaim(transaction);
     await setTransactionStage(transaction.id, 'sending');
     if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
       // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-

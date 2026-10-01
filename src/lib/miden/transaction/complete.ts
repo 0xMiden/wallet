@@ -15,7 +15,7 @@ import { withTimeout } from 'lib/miden/guardian/discover';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
-import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
+import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
   applyVerifiedLanding,
@@ -1514,10 +1514,9 @@ export const updateBridgeClaimStatus = async (
  * the activity view stops claiming success. Modifies the row directly because
  * `updateTransactionStatus` rejects re-finalizing a Completed tx. The row is
  * usually Completed here, but the 5-minute wait in `createBridgeP2IDENote` can
- * give up while the row is still in flight, and that pipeline runs on and cannot
- * record its note on the Failed row, so a row past Queued with no recorded note
- * id is marked `stampedNoteMayExist` and the reclaim reads the id stamped when
- * the note was built; a Queued row is never picked up once Failed.
+ * give up while it is still queued or in flight; that pipeline is then refused
+ * at its submit claim (`claimBridgeSubmit`) unless it already made it, in which
+ * case its `submitClaimed` says the note may exist.
  *
  * A row the note pipeline already failed for its own reason - its own status,
  * error and classification already stored - keeps that failure instead of this
@@ -1525,48 +1524,49 @@ export const updateBridgeClaimStatus = async (
  * that failure was already reported by `cancelTransaction` (#1250).
  */
 export const markBridgedSendFailed = async (id: string, error: string) => {
-  console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
-    id,
-    error
-  });
   let demoted: ITransaction | undefined;
+  let committed = false;
   await Repo.transactions.where({ id }).modify(tx => {
     // A row the note pipeline already failed keeps the pipeline's own Failed
     // write rather than this later one; `demoted` stays undefined, so nothing
     // is reported for a row nothing here actually changed (#1250).
     if (tx.status === ITransactionStatus.Failed) return false;
-    // A row past Queued may hold a committed note its pipeline can no longer record.
-    const noteIdUnrecorded = tx.status !== ITransactionStatus.Queued && !tx.outputNoteIds?.length;
-    tx.status = ITransactionStatus.Failed;
-    tx.displayMessage = 'Bridge failed — funds reclaimable';
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
-    tx.extraInputs = {
-      ...ei,
-      claimStatus: 'failed',
-      epochStatus: 'failed',
-      ...(noteIdUnrecorded ? { stampedNoteMayExist: true } : {})
-    };
+    committed = tx.status === ITransactionStatus.Completed;
+    const noteMayExist = committed || ei.submitClaimed === true;
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = noteMayExist ? 'Bridge failed — funds reclaimable' : 'Bridge failed';
+    tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
     demoted = tx;
     return undefined;
   });
+  if (demoted === undefined) return;
+
+  console.error(
+    committed
+      ? '[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed'
+      : '[epoch] bridged-send abandoned before its P2IDE note was confirmed; demoting row to Failed',
+    { id, error }
+  );
 
   // The mirror of `completeVerifiedLandedTransaction`, and needed for the same
-  // reason. This row already reported `completed` on its way through
+  // reason. A committed row already reported `completed` on its way through
   // `updateTransactionStatus`, because as far as the send pipeline was concerned
   // it succeeded. Without this the only settled event a rejected bridge ever
   // produces says it worked — which is worse than reporting nothing, since it
   // moves a failure into the denominator and makes the bridge look healthier the
   // more often it fails this way.
   //
-  // `step: 'submitting'` rather than a mapped stage: the row is stamped
-  // `complete` by now, and what failed is the intent the note was submitted for.
-  if (demoted !== undefined) {
-    reportOperation({
-      operation: operationOfType(demoted.type),
-      result: 'errored',
-      durationMs: elapsedMsSince(demoted.initiatedAt),
-      errorKind: classifyError(error),
-      step: 'submitting'
-    });
-  }
+  // `step: 'submitting'` rather than a mapped stage for a committed row: it is
+  // stamped `complete` by now, and what failed is the intent the note was
+  // submitted for. A row abandoned before completing reports where it stood,
+  // since nothing else will report it: its own completion and cancel are refused
+  // on the Failed row.
+  reportOperation({
+    operation: operationOfType(demoted.type),
+    result: 'errored',
+    durationMs: elapsedMsSince(demoted.initiatedAt),
+    errorKind: classifyError(error),
+    step: committed ? 'submitting' : stepOfStage(demoted.stage)
+  });
 };

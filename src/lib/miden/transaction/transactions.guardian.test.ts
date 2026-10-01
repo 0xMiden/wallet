@@ -43,7 +43,8 @@ import {
   generateTransactionsLoop,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction,
-  initiateUpdateProcedureThresholdTransaction
+  initiateUpdateProcedureThresholdTransaction,
+  markBridgedSendFailed
 } from './index';
 import {
   ConsumeTransaction,
@@ -1899,6 +1900,57 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
+  });
+
+  it('Guardian Epoch bridged-send abandoned before its submit claim is never dispatched (#1250)', async () => {
+    const txId = 'guardian-bridged-send-abandoned';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'bridged-send',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { provider: 'epoch', recallBlocks: 30, claimStatus: 'not-applicable', epochStatus: 'pending' },
+      delegateTransaction: false
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([4, 5, 6]) });
+
+    const multisigService = {
+      createSendProposal: jest.fn(),
+      createCustomProposal: jest.fn(async () => ({ id: 'bridge-proposal' })),
+      // The bridge's 5-minute wait gives up while the guardian co-signs.
+      signAndCreateTransactionRequest: jest.fn(async () => {
+        await markBridgedSendFailed(txId, 'allocator rejected the intent');
+        return { serialize: () => new Uint8Array([1]), authArg: () => undefined };
+      }),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = Object.assign(makeClientApi(makeResult()), { sync: jest.fn(async () => ({ blockNum: () => 200 })) });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledTimes(1);
+    expect(client.transactions.executeRequest).not.toHaveBeenCalled();
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect((row?.extraInputs as Record<string, unknown> | undefined)?.submitClaimed).toBeUndefined();
   });
 
   it('Guardian earn-deposit proposes its pre-built collateral request via a custom proposal', async () => {

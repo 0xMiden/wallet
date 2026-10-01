@@ -218,8 +218,8 @@ describe('BridgeClaimSection', () => {
     });
 
     it('offers no Reclaim for a route-failed row whose note never committed (#1250)', () => {
-      // A row markBridgedSendFailed demoted while still Queued never sent its note, so without
-      // bridgeStampedNoteMayExist the stamped id is not read.
+      // A row markBridgedSendFailed demoted before its pipeline claimed the submit never sent its
+      // note, so without bridgeSubmitClaimed the stamped id is not read.
       renderSection({
         entry: entry({ bridgeEpochStatus: 'failed', outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
       });
@@ -228,20 +228,36 @@ describe('BridgeClaimSection', () => {
       expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
     });
 
-    it('offers Reclaim for a row demoted in flight, consuming its stamped note (#1250)', async () => {
+    it('offers Reclaim for a row demoted after its pipeline claimed the submit, consuming its stamped note (#1250)', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
       renderSection({
         entry: entry({
           bridgeEpochStatus: 'failed',
           outputNoteIds: undefined,
           bridgeReclaimNoteId: 'note-stamped',
-          bridgeStampedNoteMayExist: true
+          bridgeSubmitClaimed: true
         })
       });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() =>
         expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
       );
+    });
+
+    it('offers no Reclaim for a definite failure whose pipeline had claimed its submit (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
+        })
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
     });
 
     it('still offers Reclaim for an allocator-rejected row, consuming its committed note (#1250)', async () => {

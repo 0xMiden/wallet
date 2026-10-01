@@ -177,11 +177,11 @@ export interface IBridgedSendExtraInputs {
    */
   reclaimNoteId?: string;
   /**
-   * epoch: set by `markBridgedSendFailed` on a row it demoted after its pipeline
-   * started but before the note's id reached `outputNoteIds`, so the note may be
-   * on chain under `reclaimNoteId`.
+   * epoch: written by `claimBridgeSubmit` when the pipeline commits to submitting
+   * the collateral note, so a row `markBridgedSendFailed` demotes afterwards may
+   * hold that note under `reclaimNoteId`.
    */
-  stampedNoteMayExist?: boolean;
+  submitClaimed?: boolean;
   /**
    * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
