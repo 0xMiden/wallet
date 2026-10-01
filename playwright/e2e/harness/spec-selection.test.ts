@@ -114,7 +114,7 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
   it('local-e2e has no fast-blocks matrix and uses 500ms blocks', () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
     expect(src).not.toMatch(/fast blocks/);
-    expect(src).not.toMatch(/strategy:/);
+    expect(matrixJobIds(LOCAL, src)).toEqual([]);
     expect(src).toMatch(/'local-e2e \(chrome\)'/);
     expect(src).toMatch(/runs-on: warp-ubuntu-latest-x64-8x/);
     expect(src).toMatch(/MIDEN_NODE_BLOCK_INTERVAL: 500ms/);
@@ -265,16 +265,22 @@ const readMapping = (lines: string[], indent: number): MappingEntry[] => {
 type ParsedJob = { jobId: string; rawName: string | null; matrix: { combos: string[] | null } | null };
 
 /**
+ * Whether a readMapping value is empty as YAML reads it: nothing, or only a comment, since
+ * readMapping's capture starts after whitespace and so a leading `#` opens one.
+ */
+const isEmptyValue = (value: string): boolean => value === '' || value.startsWith('#');
+
+/**
  * An axis's values when it is a bare one-line `[...]` list or a block sequence of one-line
- * scalars, else null: a trailing comment, anchor, tag or alias on its line, a flow list
- * continued on the next line, no items, or an item that is a mapping, spans lines or is no
- * readable scalar.
+ * scalars under an empty value (a comment alone counts as empty), else null: content and a
+ * trailing comment, an anchor, tag or alias on its line, a flow list continued on the next
+ * line, no items, or an item that is a mapping, spans lines or is no readable scalar.
  */
 const axisValues = ({ value, block }: MappingEntry): string[] | null => {
   const flow = /^\[([^\]]*)\]$/.exec(value);
   let items: Array<string | undefined> = [];
   if (flow && block.length === 0) items = flow[1]!.split(',');
-  else if (value === '') items = block.map(line => /^\s+- (.*)$/.exec(line)?.[1]);
+  else if (isEmptyValue(value)) items = block.map(line => /^\s+- (.*)$/.exec(line)?.[1]);
   if (items.length === 0 || items.includes(undefined)) return null;
   try {
     return items.map(item => readScalar(item!));
@@ -286,15 +292,15 @@ const axisValues = ({ value, block }: MappingEntry): string[] | null => {
 /**
  * A job's matrix: none, or `combos: null` for one it cannot enumerate (inline strategy content,
  * an include, an exclude, any `${{ }}`, or an axis axisValues cannot read), which a job's name
- * then takes as any suffix, else every combination of its axes. A strategy value that is only a
- * comment counts as empty, as YAML reads it. Only a strategy or matrix block line readMapping
- * cannot read throws.
+ * then takes as any suffix, else every combination of its axes. A strategy or matrix value that
+ * is only a comment counts as empty, as YAML reads it. Only a strategy or matrix block line
+ * readMapping cannot read throws.
  */
 const readMatrix = (strategy: MappingEntry): ParsedJob['matrix'] => {
-  if (strategy.value !== '' && !strategy.value.startsWith('#')) return { combos: null };
+  if (!isEmptyValue(strategy.value)) return { combos: null };
   const matrix = readMapping(strategy.block, 6).find(entry => entry.key === 'matrix');
   if (!matrix) return null;
-  if (matrix.value !== '' || matrix.block.some(line => line.includes('${{'))) return { combos: null };
+  if (!isEmptyValue(matrix.value) || matrix.block.some(line => line.includes('${{'))) return { combos: null };
   const axes = readMapping(matrix.block, 8);
   if (axes.some(axis => axis.key === 'include' || axis.key === 'exclude')) return { combos: null };
   const values = axes.map(axisValues);
@@ -438,6 +444,12 @@ const jobsOf = (file: string, text: string): ParsedJob[] => {
     throw new Error(`${file}: ${error instanceof Error ? error.message : String(error)}, ${REMEDY.plainShape}`);
   }
 };
+
+/** The ids of the jobs jobsOf reads with a matrix, whether or not readMatrix can enumerate it. */
+const matrixJobIds = (file: string, text: string): string[] =>
+  jobsOf(file, text)
+    .filter(job => job.matrix !== null)
+    .map(job => job.jobId);
 
 /** Every C-06 violation in one workflow file's text, taking (file, text) so the real tree and synthetic cases share this one code path. */
 const workflowViolations = (file: string, text: string): NameViolation[] =>
@@ -982,8 +994,7 @@ const UNENUMERABLE_MATRICES: Array<[title: string, strategy: string]> = [
   ['an axis whose block item is - { os: a }', 'strategy:\n  matrix:\n    config:\n      - { os: a }'],
   ['an axis of block mappings', 'strategy:\n  matrix:\n    config:\n      - os: a\n        arch: x'],
   ['strategy: { matrix: { os: [a] } }', 'strategy: { matrix: { os: [a] } }'],
-  ['browser: [chrome] # x', 'strategy:\n  matrix:\n    browser: [chrome] # x'],
-  ['browser: # x over a - chrome item', 'strategy:\n  matrix:\n    browser: # x\n      - chrome']
+  ['browser: [chrome] # x', 'strategy:\n  matrix:\n    browser: [chrome] # x']
 ];
 
 /**
@@ -1535,12 +1546,42 @@ describe('no workflow can report a required E2E check name except through the co
       'an inline strategy and a trailing comment',
       ['local-e2e (chrome)'],
       'strategy: { matrix: { browser: [chrome] } } # c'
+    ],
+    [
+      'a matrix: value that is only a comment over a firefox axis',
+      [],
+      'strategy:\n  matrix: # c\n    browser: [firefox]'
+    ],
+    [
+      'a matrix: value that is only a comment over a chrome axis',
+      ['local-e2e (chrome)'],
+      'strategy:\n  matrix: # c\n    browser: [chrome]'
+    ],
+    [
+      'an axis value that is only a comment over a firefox item',
+      [],
+      'strategy:\n  matrix:\n    browser: # x\n      - firefox'
+    ],
+    [
+      'an axis value that is only a comment over a chrome item',
+      ['local-e2e (chrome)'],
+      'strategy:\n  matrix:\n    browser: # x\n      - chrome'
     ]
   ])('a local-e2e job with %s -> job-name violations under %j', (_title, names, strategy) => {
     const file = '.github/workflows/synthetic-commented-strategy.yml';
     expect(workflowViolations(file, jobWithStrategy('local-e2e', strategy))).toEqual(
       names.map(name => ({ file, jobId: 'local-e2e', name, text: `${REMEDY.jobName}: jobs.local-e2e` }))
     );
+  });
+
+  it('matrixJobIds lists a job with a matrix it can list or cannot, and not one whose strategy has none', () => {
+    expect(matrixJobIds(LOCAL, designatedLocalWith('strategy: # c\n  fail-fast: false'))).toEqual([]);
+    expect(matrixJobIds(LOCAL, designatedLocalWith('strategy:\n  matrix:\n    browser: [chrome]'))).toEqual([
+      'chrome-local'
+    ]);
+    expect(
+      matrixJobIds(LOCAL, designatedLocalWith('strategy:\n  matrix:\n    include:\n      - browser: chrome'))
+    ).toEqual(['chrome-local']);
   });
 
   it('a four-space-indented workflow is refused with an error naming its file and the plain shape', () => {
