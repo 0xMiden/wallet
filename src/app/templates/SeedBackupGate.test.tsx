@@ -1,8 +1,10 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
 import type { WalletStore } from 'lib/store/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -17,6 +19,13 @@ let mockState: GateState;
 let mockRequired = false;
 let mockCompleted = false;
 const mockSave = jest.fn().mockResolvedValue(undefined);
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: jest.fn()
+}));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
 jest.mock('lib/store', () => ({
   useWalletStore: <T,>(selector: (state: GateState) => T) => selector(mockState)
 }));
@@ -52,6 +61,7 @@ const token = (balance: number) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
   mockRequired = false;
   mockCompleted = false;
   mockState = {
@@ -80,8 +90,9 @@ it.each([149.99, 0])('allows actions below the threshold: %s USD', value => {
 it.each([150, 150.01])('blocks actions at %s USD and saves the requirement', value => {
   mockState.tokenPrices.ETH = { price: value, change24h: 0, percentageChange24h: 0 };
   render(app());
-  expect(screen.queryByRole('button')).not.toBeInTheDocument();
-  expect(screen.getByTestId('backup')).toHaveAttribute('data-required', 'true');
+  expect(screen.queryByRole('button', { name: 'Wallet action' })).not.toBeInTheDocument();
+  expect(screen.getByRole('alertdialog')).toHaveAccessibleName('seedBackupRequiredTitle');
+  expect(screen.getByRole('alertdialog')).toHaveAccessibleDescription('seedBackupRequiredBody');
   expect(mockSave).toHaveBeenCalledWith(true);
 });
 
@@ -98,12 +109,12 @@ it('keeps the saved requirement when prices or balances are missing', () => {
   mockState.balances = {};
   mockState.tokenPrices = {};
   render(app());
-  expect(screen.getByTestId('backup')).toBeInTheDocument();
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 });
 
 it('unblocks only after the backup check is completed', () => {
   const view = render(app());
-  expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Wallet action' })).not.toBeInTheDocument();
   mockCompleted = true;
   view.rerender(app());
   expect(screen.getByRole('button')).toBeInTheDocument();
@@ -115,7 +126,7 @@ it('blocks an action screen that is already open when the balance increases', ()
   expect(screen.getByRole('button')).toBeInTheDocument();
   mockState.balances.a = [token(1)];
   view.rerender(app());
-  expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Wallet action' })).not.toBeInTheDocument();
 });
 
 it('keeps unlock available', () => {
@@ -158,9 +169,48 @@ it('keeps the gate closed if the requirement write fails and the balance then fa
     await Promise.resolve();
     mockState.balances = {};
     view.rerender(app());
-    expect(screen.getByTestId('backup')).toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Wallet action' })).not.toBeInTheDocument();
   } finally {
     warning.mockRestore();
   }
+});
+
+it('starts the required backup flow only from the drawer action', () => {
+  render(app());
+  const drawer = screen.getByRole('alertdialog');
+  fireEvent.keyDown(drawer, { key: 'Escape' });
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  expect(screen.queryByTestId('backup')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'close' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByTestId('seed-backup-required-action'));
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  expect(screen.getByTestId('backup')).toHaveAttribute('data-required', 'true');
+  expect(screen.queryByRole('button', { name: 'Wallet action' })).not.toBeInTheDocument();
+});
+
+it.each([MIDEN_NETWORK_NAME.TESTNET, MIDEN_NETWORK_NAME.DEVNET, MIDEN_NETWORK_NAME.LOCALNET])(
+  'allows actions on %s even with a saved backup requirement',
+  network => {
+    jest.mocked(getEffectiveNetworkName).mockReturnValue(network);
+    mockRequired = true;
+    mockState.balances.a = [token(1000)];
+    render(app());
+    expect(screen.getByRole('button', { name: 'Wallet action' })).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(mockSave).not.toHaveBeenCalled();
+  }
+);
+
+it('applies the requirement when the active network changes to mainnet', () => {
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  const view = render(app());
+  expect(screen.getByRole('button', { name: 'Wallet action' })).toBeInTheDocument();
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+  view.rerender(app());
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
+  view.rerender(app());
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Wallet action' })).toBeInTheDocument();
 });

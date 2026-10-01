@@ -1,11 +1,15 @@
 import React, { FC, ReactNode, useEffect, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
+import { useTranslation } from 'react-i18next';
 
 import FullScreenPage from 'app/layouts/FullScreenPage';
+import { AlertSheet } from 'components/ui/AlertSheet';
 import { useStorage } from 'lib/miden/front/storage';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import type { WalletStore } from 'lib/store/types';
@@ -39,6 +43,7 @@ export const SeedBackupGate: FC<{ children: ReactNode }> = ({ children }) => {
   const status = useWalletStore(s => s.status);
   const seedStatus = useWalletStore(s => s.seedPhraseStatus);
   const ownMnemonic = useWalletStore(s => s.ownMnemonic);
+  if (getEffectiveNetworkName() !== MIDEN_NETWORK_NAME.MAINNET) return <>{children}</>;
   // A recovered phrase is already held outside this device. A removed phrase cannot be shown again.
   if (status !== WalletStatus.Ready || ownMnemonic || (seedStatus && seedStatus !== 'stored')) return <>{children}</>;
   return <UnverifiedSeedGate>{children}</UnverifiedSeedGate>;
@@ -61,15 +66,32 @@ const UnverifiedSeedGate: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [reachedThisSession, required, verified, setRequired]);
 
+  return <>{!verified && (required || reached || reachedThisSession) ? <RequiredSeedBackup /> : children}</>;
+};
+
+const RequiredSeedBackup: FC = () => {
+  const { t } = useTranslation();
+  const [started, setStarted] = useState(false);
+
+  if (started) {
+    return (
+      <FullScreenPage entrance="fade">
+        <VerifySeedPhraseFlow required />
+      </FullScreenPage>
+    );
+  }
+
   return (
-    <>
-      {!verified && (required || reached || reachedThisSession) ? (
-        <FullScreenPage entrance="fade">
-          <VerifySeedPhraseFlow required />
-        </FullScreenPage>
-      ) : (
-        children
-      )}
-    </>
+    <AlertSheet
+      open
+      dismissible={false}
+      title={t('seedBackupRequiredTitle')}
+      actionLabel={t('seedBackupRequiredAction')}
+      onAction={() => setStarted(true)}
+      screenKey="seed-backup-required"
+      actionTestId="seed-backup-required-action"
+    >
+      {t('seedBackupRequiredBody')}
+    </AlertSheet>
   );
 };
