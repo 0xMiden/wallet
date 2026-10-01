@@ -155,7 +155,7 @@ export async function getOrCreateMultisigService(
     const hotPublicKey = account.hotPublicKey;
     // Per-account guardian endpoint, resolved once and reused for both the cache
     // drift-check and the init binding below.
-    const currentEndpoint = await resolveGuardianEndpoint(account);
+    const currentEndpoint = resolveGuardianEndpoint(account);
 
     // Return cached instance if its endpoint AND bound hot pubkey still match.
     // Two separate drift sources:

@@ -21,7 +21,7 @@ const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args),
   // Mirror the real resolver: the per-account endpoint, else the default.
-  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+  resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>
     acc.guardianEndpoint || 'https://default.guardian.test'
 }));
 

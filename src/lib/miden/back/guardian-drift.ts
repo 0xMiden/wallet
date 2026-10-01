@@ -433,25 +433,7 @@ async function runGuardianDriftPass(
   // only "the default operator is not your guardian", which is exactly what
   // `'absent'` already means, and it must keep `'absent'`'s requirement of a
   // complete built-in round before accusing.
-  //
-  // `resolveChosenGuardianEndpoint` reads the account's field and cannot fail
-  // today; the catch is defence for the loop. If it ever fires, it SKIPS this
-  // window rather than degrading to `''`: `''` means "this account named no
-  // operator", the `'absent'` evidence this function accuses on, and accusing
-  // writes `needs-user-input`, which blocks every send through
-  // `assertGuardianInSync` and does not self-correct. Skipping costs one probe
-  // window. The cooldown is not armed on this path: an unread pointer is not a
-  // completed probe, and a cooldown would stretch it into a multi-minute blind spot.
-  let storedEndpoint: string;
-  try {
-    storedEndpoint = (await resolveChosenGuardianEndpoint(account)) ?? '';
-  } catch (error) {
-    console.warn(
-      `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; skipping this window`,
-      error
-    );
-    return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
-  }
+  const storedEndpoint = resolveChosenGuardianEndpoint(account) ?? '';
   if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
     // Only the COOLDOWN, deliberately. The run is scoped by the endpoint recorded
     // inside it, so a changed endpoint already fails `continues` below and starts
@@ -902,9 +884,9 @@ export async function revertGuardianEndpointAfterDiscard(
   revertTo: string
 ): Promise<RevertDiscardedEndpointOutcome> {
   // ONE REASON PER EXIT, on one channel. Every `'stale'` below is charged against a finite per-row
-  // budget whose fifteenth charge tells the user the account is unrepairable, and until now only
-  // the pointer-read failure said anything at all - so the state that raises that prompt could not
-  // be told apart from the six other states that also produce it.
+  // budget whose fifteenth charge tells the user the account is unrepairable, so each exit names its
+  // state: otherwise the state that raises that prompt could not be told apart from the others that
+  // also produce it.
   const stale = (reason: string): 'stale' => {
     console.warn(`[Guardian Drift] rollback for ${accountPublicKey} stays pending: ${reason}`);
     return 'stale';
@@ -949,20 +931,7 @@ export async function revertGuardianEndpointAfterDiscard(
   // (`resolveChosenGuardianEndpoint`, not `resolveGuardianEndpoint`): this function
   // ends in a WRITE, and an endpoint the wallet merely guessed is not a pointer the
   // account chose.
-  let boundEndpoint: string | undefined;
-  try {
-    boundEndpoint = await resolveChosenGuardianEndpoint(account);
-  } catch (error) {
-    // The resolver reads the account's field and cannot fail today; this catch
-    // is defence for the loop, and it fails closed: "I could not tell" is not
-    // permission, the same rule the unreachable-operator and unread-commitment
-    // arms below follow.
-    console.warn(
-      `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; leaving the rollback pending`,
-      error
-    );
-    return 'stale';
-  }
+  const boundEndpoint = resolveChosenGuardianEndpoint(account);
   // No pointer at all: there is nothing to compare the row against.
   if (!boundEndpoint) return stale('the account names no guardian endpoint to compare against');
   // ALREADY WHERE THE ROLLBACK WOULD PUT IT. `'superseded'`, not `'stale'`: the

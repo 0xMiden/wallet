@@ -16,7 +16,7 @@ import { registerGuardianOrigin } from './native-http';
  * accounts on different operators don't collide, else the effective network's
  * default guardian.
  */
-export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
+export function resolveGuardianEndpoint(account: WalletAccount): string {
   return account.guardianEndpoint || getEffectiveDefaultGuardianEndpoint();
 }
 
@@ -33,9 +33,7 @@ export async function resolveGuardianEndpoint(account: WalletAccount): Promise<s
  * `initialState`, which must never go to an endpoint the wallet guessed rather
  * than one the account named.
  */
-export async function resolveChosenGuardianEndpoint(account: {
-  guardianEndpoint?: string;
-}): Promise<string | undefined> {
+export function resolveChosenGuardianEndpoint(account: { guardianEndpoint?: string }): string | undefined {
   return account.guardianEndpoint || undefined;
 }
 

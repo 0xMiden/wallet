@@ -1318,7 +1318,7 @@ async function getGuardianInfoData(accountId: string): Promise<GuardianInfo> {
       return NOT_GUARDIAN_INFO;
     }
 
-    const guardianEndpoint = await resolveGuardianEndpoint(account);
+    const guardianEndpoint = resolveGuardianEndpoint(account);
     return {
       isGuardianAccount: true,
       guardianEndpoint: guardianEndpoint || null,

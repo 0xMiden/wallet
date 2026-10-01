@@ -175,7 +175,7 @@ async function createGuardianClientContext(account: WalletAccount): Promise<Guar
     return details.commitment;
   });
 
-  const guardianEndpoint = await resolveGuardianEndpoint(account);
+  const guardianEndpoint = resolveGuardianEndpoint(account);
   registerGuardianOrigin(guardianEndpoint);
   const guardian = new GuardianHttpClient(guardianEndpoint);
   guardian.setSigner(

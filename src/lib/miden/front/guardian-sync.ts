@@ -1147,22 +1147,7 @@ async function runPendingRotationRecheck(
  * refuse.
  */
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<boolean> {
-  // `resolveChosenGuardianEndpoint` reads the account's field and cannot fail
-  // today; the catch is defence for the loop. If it ever fires, it gets the same
-  // refusal as no pointer at all: this function POSTs the device's serialized
-  // private account state, so it must never proceed on a guess about which
-  // operator is entitled to it. Returning before the attempt budget is stamped
-  // keeps such a failure from consuming one of the account's few self-heal attempts.
-  let endpoint: string | undefined;
-  try {
-    endpoint = await resolveChosenGuardianEndpoint(account);
-  } catch (error) {
-    console.warn(
-      `[Guardian Sync] could not read the guardian pointer for ${account.publicKey}; skipping self-heal`,
-      error
-    );
-    return false;
-  }
+  const endpoint = resolveChosenGuardianEndpoint(account);
   if (!endpoint) return false;
 
   // Read once and decide everything from that one snapshot: the budget key, both
@@ -1765,25 +1750,10 @@ async function passMayRecord(generation: number, accountPublicKey: string, endpo
   // Resolved for the same reason the detector above resolves: this has to compare
   // the operator the pass actually talked to, not the field that may or may not
   // name it.
-  //
-  // A failed read answers `false`, which is both the safe answer and the true
-  // one: this function's question is "can the pass substantiate that its verdict
-  // is about the CURRENT operator", and a pointer it could not read cannot
-  // substantiate anything. Swallowing it also matters structurally — one of the
-  // two call sites is inside the sync error handler, where a throw would escape
-  // the per-account catch entirely.
-  try {
-    if ((await resolveGuardianEndpoint(current)) !== endpoint) return false;
-  } catch (resolveError) {
-    console.warn(
-      `[Guardian Sync] could not confirm the operator for ${accountPublicKey}; not recording this pass`,
-      resolveError
-    );
-    return false;
-  }
-  // AGAIN, AFTER THE AWAITS. The check at the top of this function is only as fresh
-  // as the moment it ran, and both reads above can yield - so a reset landing
-  // between the last of them and this return handed the caller a `true` earned under
+  if (resolveGuardianEndpoint(current) !== endpoint) return false;
+  // AGAIN, AFTER THE AWAIT. The check at the top of this function is only as fresh
+  // as the moment it ran, and the account read above can yield - so a reset landing
+  // between that read and this return handed the caller a `true` earned under
   // a generation that no longer exists, and the caller's whole purpose in asking is
   // that it is about to write. Re-reading a module-scoped counter is free, and the
   // window it closes is the one this function exists to narrow.
@@ -1844,18 +1814,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // default sees its operator change under a dev-settings endpoint override
     // while the raw field stays `undefined`, and keying on the field no reset
     // fired at all (F-137).
-    // The resolver reads the account's field (or the network default) and cannot
-    // fail today; the per-account catch is defence for the loop. A rejection that
-    // escaped the `for` would reject the whole pass, which its only caller discards
-    // (`syncGuardianAccounts().catch(() => {})` in `useSyncTrigger`), silently
-    // costing EVERY later account its tick.
-    let endpoint: string;
-    try {
-      endpoint = await resolveGuardianEndpoint(account);
-    } catch (resolveError) {
-      console.warn(`[Guardian Sync] could not resolve the guardian endpoint for ${account.publicKey}`, resolveError);
-      continue;
-    }
+    const endpoint = resolveGuardianEndpoint(account);
     // Derived as soon as the endpoint is known, because the arms that report an
     // eviction now START before the gate below: drift and the two self-heals each
     // break out of this loop, and each has to book its evidence itself. The GATE

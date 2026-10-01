@@ -1628,9 +1628,7 @@ export class Vault {
       // binds to the network default.
       const existingGuardianAccount =
         walletType === WalletType.Guardian ? allAccounts.find(a => a.type === WalletType.Guardian) : undefined;
-      const guardianEndpoint = existingGuardianAccount
-        ? await resolveGuardianEndpoint(existingGuardianAccount)
-        : undefined;
+      const guardianEndpoint = existingGuardianAccount ? resolveGuardianEndpoint(existingGuardianAccount) : undefined;
 
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 

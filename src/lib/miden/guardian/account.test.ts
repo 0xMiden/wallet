@@ -479,20 +479,20 @@ describe('createGuardianAccount', () => {
 });
 
 describe('resolveGuardianEndpoint', () => {
-  it('prefers the per-account guardianEndpoint when present', async () => {
-    await expect(resolveGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' } as never)).resolves.toBe(
+  it('prefers the per-account guardianEndpoint when present', () => {
+    expect(resolveGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' } as never)).toBe(
       'https://per-account.guardian'
     );
   });
 
-  it('falls back to the effective network default when the account names none', async () => {
-    await expect(resolveGuardianEndpoint({} as never)).resolves.toBe('https://default.guardian.test');
+  it('falls back to the effective network default when the account names none', () => {
+    expect(resolveGuardianEndpoint({} as never)).toBe('https://default.guardian.test');
   });
 });
 
 describe('resolveChosenGuardianEndpoint', () => {
-  it('returns the per-account guardianEndpoint', async () => {
-    await expect(resolveChosenGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' })).resolves.toBe(
+  it('returns the per-account guardianEndpoint', () => {
+    expect(resolveChosenGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' })).toBe(
       'https://per-account.guardian'
     );
   });
@@ -500,11 +500,11 @@ describe('resolveChosenGuardianEndpoint', () => {
   it.each([
     ['unset', undefined],
     ['an empty string', '']
-  ])('returns undefined rather than the network default when the field is %s', async (_label, guardianEndpoint) => {
+  ])('returns undefined rather than the network default when the field is %s', (_label, guardianEndpoint) => {
     // The distinguishing property against `resolveGuardianEndpoint`: callers that
     // POST private account state, or that accuse an account of naming no
     // operator, must be able to tell "chose nothing" from "was given a guess".
-    await expect(resolveChosenGuardianEndpoint({ guardianEndpoint })).resolves.toBeUndefined();
+    expect(resolveChosenGuardianEndpoint({ guardianEndpoint })).toBeUndefined();
   });
 });
 

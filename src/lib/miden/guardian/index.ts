@@ -233,7 +233,7 @@ export class MultisigService {
       async () => (await getSignerDetailsFromAccount(account, true)).commitment,
       lockOptions
     );
-    const guardianEndpoint = await resolveGuardianEndpoint(walletAccount);
+    const guardianEndpoint = resolveGuardianEndpoint(walletAccount);
     return MultisigService.init(
       account,
       `0x${walletAccount.coldPublicKey}`,

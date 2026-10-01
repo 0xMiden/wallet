@@ -207,7 +207,7 @@ const mockGetSignerDetailsFromAccount = jest.fn();
 // createHDAccount resolves a second Guardian account's endpoint from the sibling
 // account's per-account field via resolveGuardianEndpoint. Default: echo the
 // account's guardianEndpoint, then a stand-in default.
-const mockResolveGuardianEndpoint = jest.fn(async (acc: any) => acc?.guardianEndpoint ?? 'https://default.example');
+const mockResolveGuardianEndpoint = jest.fn((acc: any) => acc?.guardianEndpoint ?? 'https://default.example');
 jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
   resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
@@ -3003,7 +3003,7 @@ describe('Vault hardware branches', () => {
     // Isolate the createHDAccount call and make the resolved endpoint a sentinel
     // that can only have come from resolveGuardianEndpoint(existing account).
     mockMidenClient.createGuardianMidenWallet.mockClear();
-    mockResolveGuardianEndpoint.mockResolvedValueOnce('https://resolved-from-sibling.example');
+    mockResolveGuardianEndpoint.mockReturnValueOnce('https://resolved-from-sibling.example');
     mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
       accountId: 'guardian-acc-2',
       keys: GUARDIAN_KEYS_FIXTURE,
@@ -3020,6 +3020,25 @@ describe('Vault hardware branches', () => {
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.anything(),
       'https://resolved-from-sibling.example'
+    );
+  });
+
+  it('createHDAccount (Guardian) binds a sibling-less-pointer account to the resolved default endpoint, not a Promise', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    // The default create mock returns no guardianEndpoint, so the sibling stores none.
+    const vlt = await Vault.spawn(WalletType.Guardian, 'pw-add-guardian-default');
+    mockMidenClient.createGuardianMidenWallet.mockClear();
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-2',
+      keys: GUARDIAN_KEYS_FIXTURE
+    });
+
+    await vlt.createHDAccount(WalletType.Guardian, 'Guardian 2');
+
+    expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://default.example'
     );
   });
 

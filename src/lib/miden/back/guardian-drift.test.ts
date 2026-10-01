@@ -1,4 +1,4 @@
-import { getGuardianCommitmentFromAccount, resolveChosenGuardianEndpoint } from 'lib/miden/guardian/account';
+import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import {
   checkEndpointCommitment,
   identifyGuardianOperator,
@@ -49,7 +49,7 @@ jest.mock('lib/miden/guardian/account', () => ({
   // The pointer the account CHOSE: its own field, never the network default.
   // Shared with the missing-registration self-heal so there is one definition of it.
   resolveChosenGuardianEndpoint: jest.fn(
-    async (account: { guardianEndpoint?: string }) => account.guardianEndpoint || undefined
+    (account: { guardianEndpoint?: string }) => account.guardianEndpoint || undefined
   )
 }));
 
@@ -1254,18 +1254,6 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
 
-  // `resolveChosenGuardianEndpoint` reads the account's field and cannot fail
-  // today; this pins the defensive catch, which fails closed: a guard over write
-  // authority cannot treat "I could not tell" as permission.
-  it("reports 'stale' when the pointer could not be read", async () => {
-    (resolveChosenGuardianEndpoint as jest.Mock).mockRejectedValueOnce(new Error('storage down'));
-    const vault = boundTo('');
-
-    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
-
-    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
-  });
-
   // `'stale'`, not `'superseded'`, and the difference is the caller's one
   // irreversible demote: a missing record is a statement about the VAULT (a
   // removed account, a frontend snapshot ahead of the backend), not evidence
@@ -1504,56 +1492,6 @@ describe('the endpoint the account is actually bound to', () => {
 
     expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: true });
     expect(checkEndpointCommitment).not.toHaveBeenCalled();
-  });
-
-  // The resolver cannot fail today; this pins the defensive catch. "Named no
-  // operator" is evidence and "we could not read which operator" is not, so a
-  // resolver failure must cost a window, not produce the accusation directly
-  // above, which blocks every send and does not self-correct.
-  it('skips the window instead of accusing when the pointer cannot be read', async () => {
-    (resolveChosenGuardianEndpoint as jest.Mock).mockRejectedValueOnce(new Error('storage unavailable'));
-    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
-    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
-    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC', guardianSyncStatus: 'in-sync' });
-
-    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
-
-    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
-    expect(identifyGuardianOperator).not.toHaveBeenCalled();
-    expect(checkEndpointCommitment).not.toHaveBeenCalled();
-  });
-
-  // Placed here because it is the same class of bug one layer down: a value that
-  // is silently wrong rather than a call that visibly fails.
-  //
-  // Every account's silent-drift run lives in ONE storage object, so an unserialized
-  // read-modify-write lets two overlapping passes each read the object, mutate
-  // their own account's entry, and write the whole thing back — the later write
-  // dropping the earlier account's progress. The drift check is dispatched per
-  // realm onto the single backend and the frontend's coalescing is module-local,
-  // so the overlap is real. A dropped window means a stranded account never
-  // reaches the run length its only prompt is gated on: it stays silently broken.
-  // The skip must not arm the probe cooldown: an unread pointer is not a completed
-  // probe, and charging it one would stretch a transient failure into a
-  // multi-minute blind spot on an account that may genuinely be drifting.
-  it('leaves the next window free to probe after an unreadable pointer', async () => {
-    (resolveChosenGuardianEndpoint as jest.Mock).mockRejectedValueOnce(new Error('storage unavailable'));
-    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
-    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
-    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
-    const vault = makeVault({
-      publicKey: 'pk',
-      guardianEndpoint: 'https://per-account.example',
-      guardianOperatorCommitment: 'oldC',
-      guardianSyncStatus: 'in-sync'
-    });
-
-    await resolveGuardianDrift(vault as never, 'pk');
-    expect(checkEndpointCommitment).not.toHaveBeenCalled();
-
-    // Immediately after — no fake-timer advance — the retry must actually probe.
-    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
-    expect(checkEndpointCommitment).toHaveBeenCalledWith('https://per-account.example', 'newC');
   });
 });
 

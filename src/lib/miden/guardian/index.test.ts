@@ -188,7 +188,7 @@ jest.mock('./account', () => ({
   insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
   // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
-  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+  resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>
     acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
 
