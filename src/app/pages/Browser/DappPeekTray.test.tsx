@@ -110,12 +110,13 @@ describe('DappPeekTray footer clearance', () => {
     });
     expect(trayBottom()).toBe('78px');
 
+    // The resting edge differs from the held 78px, so only a re-read on the flag change passes.
     await act(async () => {
-      footerTop += 300;
+      footerTop = 800 - 90;
       document.body.removeAttribute('data-hide-navbar');
       await flushMutations();
     });
-    expect(trayBottom()).toBe('78px');
+    expect(trayBottom()).toBe('94px');
   });
 
   it('lands the minimize shrink on the front card above the footer', () => {
