@@ -191,19 +191,6 @@ const gateExit = (script: string, values: Record<string, string>): number | null
 };
 
 const REQUIRED_NAMES = ['local-e2e (chrome)', 'guardian-lifecycle-e2e-gate', 'bridge-guardian-e2e-gate'];
-const WORKFLOW_FILES = [
-  '.github/workflows/pr-e2e-local.yml',
-  '.github/workflows/pr-e2e-guardian-lifecycle.yml',
-  '.github/workflows/pr-e2e-bridge-guardian.yml'
-];
-const combinedWorkflowSource = (): string => WORKFLOW_FILES.map(configSource).join('\n');
-
-/** The FULL condition guarding a job's computed `name: ${{ (FULL) && '<required>' || '<required> (stacked)' }}`. */
-const fullFromName = (file: string): string => {
-  const match = /name:\s*\$\{\{\s*\(([\s\S]+?)\)\s*&&/.exec(configSource(file));
-  if (!match) throw new Error(`no computed name found in ${file}`);
-  return match[1]!.trim();
-};
 
 /**
  * The exact condition every stacked-name decision must read. Pinned literally (not just
@@ -707,35 +694,39 @@ const apiWriterViolations = (file: string, text: string): Violation[] => {
 };
 
 describe('a stacked pull request reports its E2E checks under names no branch requires', () => {
-  it.each(REQUIRED_NAMES)('%s is reported as itself or as (stacked), never as a bare literal name', required => {
-    const src = combinedWorkflowSource();
-    const escaped = escapeRegExp(required);
-    expect(src).toMatch(
-      new RegExp(
-        `name:\\s*\\$\\{\\{\\s*\\([\\s\\S]+?\\)\\s*&&\\s*'${escaped}'\\s*\\|\\|\\s*'${escaped} \\(stacked\\)'\\s*\\}\\}`
-      )
-    );
+  it.each(FULL_NAME_JOBS)('the designated $jobId job in $file computes its required name from FULL', entry => {
+    const job = jobsOf(entry.file, configSource(entry.file)).find(({ jobId }) => jobId === entry.jobId);
+    expect(job).toBeDefined();
+    expect(isDesignatedFullName(entry.file, job!)).toBe(true);
   });
 
-  it.each(WORKFLOW_FILES)(
-    'the required-name job in %s computes its name from FULL literally, not just some condition',
-    file => {
-      expect(fullFromName(file)).toBe(FULL);
-    }
-  );
+  it('every required name has a designated job', () => {
+    expect(FULL_NAME_JOBS.map(({ name }) => name)).toEqual(REQUIRED_NAMES);
+  });
+
+  it('a commented-out FULL name above a plain name leaves the Guardian gate undesignated', () => {
+    // The raw text still holds the FULL ternary, in the comment; only the parser reads the live name.
+    const lines = configSource(GUARDIAN).split('\n');
+    const at = lines.indexOf('  guardian-lifecycle-e2e-gate:') + 1;
+    expect(lines[at]).toMatch(/^ {4}name: /);
+    lines.splice(at, 1, `    # ${lines[at]!.trim()}`, '    name: Guardian gate');
+    const gate = jobsOf(GUARDIAN, lines.join('\n')).find(({ jobId }) => jobId === 'guardian-lifecycle-e2e-gate');
+    expect(gate).toBeDefined();
+    expect(isDesignatedFullName(GUARDIAN, gate!)).toBe(false);
+  });
 
   it("chrome-local's if: matches the FULL condition inside its own computed name", () => {
     const src = configSource('.github/workflows/pr-e2e-local.yml');
     const ifMatch = /\n\s+if: \$\{\{ (github\.event_name[\s\S]+?) \}\}\n/.exec(src);
     expect(ifMatch).not.toBeNull();
-    expect(ifMatch![1]!.trim()).toBe(fullFromName('.github/workflows/pr-e2e-local.yml'));
+    expect(ifMatch![1]!.trim()).toBe(FULL);
   });
 
   it("bridge-guardian-e2e's if: matches the FULL condition inside its gate's computed name", () => {
     const src = configSource('.github/workflows/pr-e2e-bridge-guardian.yml');
     const ifMatch = /\n\s+if: (github\.event_name[\s\S]+?)\n/.exec(src);
     expect(ifMatch).not.toBeNull();
-    expect(ifMatch![1]!.trim()).toBe(fullFromName('.github/workflows/pr-e2e-bridge-guardian.yml'));
+    expect(ifMatch![1]!.trim()).toBe(FULL);
   });
 });
 
