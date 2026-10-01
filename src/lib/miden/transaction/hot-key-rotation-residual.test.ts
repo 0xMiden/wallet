@@ -68,6 +68,15 @@ describe('findFailedHotKeyRotations (#1233)', () => {
       { id: 'older', newHotPublicKey: 'key-older' }
     ]);
   });
+
+  it('skips a rotation the node discarded (#1233)', async () => {
+    mockRows.push(
+      rotationRow('row-discarded', 100, { extraInputs: { newHotPublicKey: 'k-discarded', nodeDiscarded: true } }),
+      rotationRow('row-open', 200, { extraInputs: { newHotPublicKey: 'k-open' } })
+    );
+
+    await expect(findFailedHotKeyRotations('acc-1')).resolves.toEqual([{ id: 'row-open', newHotPublicKey: 'k-open' }]);
+  });
 });
 
 describe('markRotationCompleted (#1233)', () => {

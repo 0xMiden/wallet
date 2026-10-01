@@ -1,9 +1,10 @@
 // The rotation rows this device left Failed without a committed verdict (#1233), for the sync loop's
 // cold heal: once the chain-verified signer set names a row's new hot key, the heal swaps to it and
-// completes the row.
+// completes the row. A node discard is a verdict: that row never lands, so it is a record, not work.
 
 import * as Repo from 'lib/miden/repo';
 
+import { isNodeDiscardedRow } from './constants';
 import { ITransactionStatus, type ITransaction } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
@@ -15,12 +16,15 @@ export interface FailedHotKeyRotation {
 const isFailedRotation = (tx: ITransaction): boolean =>
   tx.type === 'replace-hot-key' && tx.status === ITransactionStatus.Failed;
 
-/** This account's Failed rotations that name a new key, newest first. A restored row is a record, never work. */
+/** This account's Failed rotations that name a new key, newest first. A restored or discarded row is a record, never work. */
 export async function findFailedHotKeyRotations(accountPublicKey: string): Promise<FailedHotKeyRotation[]> {
   const rows = await Repo.transactions
     .filter(
       tx =>
-        isFailedRotation(tx) && tx.restoredFromBackup !== true && sameWalletAccountId(tx.accountId, accountPublicKey)
+        isFailedRotation(tx) &&
+        tx.restoredFromBackup !== true &&
+        !isNodeDiscardedRow(tx) &&
+        sameWalletAccountId(tx.accountId, accountPublicKey)
     )
     .toArray();
   const rotations: FailedHotKeyRotation[] = [];
