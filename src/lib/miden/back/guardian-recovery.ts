@@ -720,8 +720,13 @@ const failedRecoveries = new Set<string>();
 /**
  * Accounts whose finished run, or the start gate's terminal clear, kept the
  * reservation, keyed to the history generation that reservation belongs to. A
- * moved generation means the wallet was replaced and admits the account. An
- * entry exists only while that reservation is kept.
+ * moved generation means the wallet was replaced and admits the account.
+ *
+ * An entry here, like one in `failedRecoveries`, exists only while a finished
+ * run keeps that exact reservation: admitting the account, taking a fresh
+ * reservation and releasing one all drop it, so a stale entry can never admit
+ * a second run beside one in flight, and a lock can never free the reservation
+ * of a run started since.
  */
 const reservationGenerations = new Map<string, string>();
 
@@ -784,6 +789,7 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
     // account (popup + full page both mount the provider) would otherwise both
     // pass the check above while the first one's Dexie query is in flight.
     startedRecoveries.add(account.publicKey);
+    reservationGenerations.delete(account.publicKey);
   }
   try {
     // A terminal history checkpoint (a node's "no fee" answer, or an own operator's unsupported answer or a
@@ -834,6 +840,7 @@ async function admitReplacedWallet(publicKey: string): Promise<boolean> {
   }
   if (current === kept || reservationGenerations.get(publicKey) !== kept) return false;
   reservationGenerations.delete(publicKey);
+  failedRecoveries.delete(publicKey);
   return true;
 }
 
@@ -975,6 +982,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       // itself. Nothing is awaited between these tests and the add.
       if (lockEpoch !== epoch || replaced) {
         startedRecoveries.delete(account.publicKey);
+        reservationGenerations.delete(account.publicKey);
       } else {
         failedRecoveries.add(account.publicKey);
         if (generation !== undefined) reservationGenerations.set(account.publicKey, generation);
@@ -1028,6 +1036,7 @@ async function clearPendingFlag(account: WalletAccount, generation: string): Pro
     });
   } catch (error) {
     startedRecoveries.delete(account.publicKey);
+    reservationGenerations.delete(account.publicKey);
     console.warn(`[GuardianRecovery] Failed to clear the recovery flag for ${account.publicKey}; will retry:`, error);
   }
   return outcome;

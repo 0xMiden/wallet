@@ -661,6 +661,42 @@ describe('detached recovery run', () => {
     await drainDetachedRun();
   });
 
+  it('a lock does not free the reservation of a run admitted after a failed pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport unavailable'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+  });
+
+  it('a released reservation leaves no generation entry to admit a second start (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    // A lock lands during the flag write and the record clear then fails, so the run releases its reservation.
+    setPendingFlag.mockImplementationOnce(async () => {
+      releaseGuardianRecoveriesOnLock();
+      return [];
+    });
+    mockClearProgress.mockResolvedValueOnce(undefined as never).mockRejectedValueOnce(new Error('storage down'));
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      await drainDetachedRun();
+    } finally {
+      mockClearProgress.mockReset();
+    }
+  });
+
   it('still re-offers a history pass deferred by a yield (F-118)', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     jest
