@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ListGroup } from 'components/ui/ListGroup';
@@ -11,6 +12,7 @@ import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
+import { setNominalUnquotedPriceSetting, useNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -19,6 +21,9 @@ const AdvancedSettings: FC = () => {
   const walletAccount = useAccount();
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const isGuardianAccount = walletAccount.type === WalletType.Guardian;
+  // A device display preference (lib/settings/nominal-price): it applies on the tap, with no
+  // save, and has no effect on mainnet (lib/prices/unquoted-default).
+  const nominalUnquotedPrice = useNominalUnquotedPrice();
 
   const fetchPublicKey = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
@@ -82,6 +87,17 @@ const AdvancedSettings: FC = () => {
               data-testid="advanced-export-account-file"
             />
           )}
+        </ListGroup>
+      </SubPageSection>
+
+      <SubPageSection title={t('options')} icon={<Icon name={IconName.Settings2} fill="currentColor" />}>
+        <ListGroup surface="plain">
+          <ListRow
+            title={t('devNominalUnquotedPrice')}
+            data-testid="advanced-nominal-unquoted-price"
+            onClick={() => setNominalUnquotedPriceSetting(!nominalUnquotedPrice)}
+            trailing={<CheckboxIndicator checked={nominalUnquotedPrice} />}
+          />
         </ListGroup>
       </SubPageSection>
     </SubPageLayout>

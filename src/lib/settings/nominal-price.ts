@@ -5,11 +5,11 @@ const NOMINAL_UNQUOTED_PRICE_VALUES = ['on', 'off'] as const;
 type NominalUnquotedPriceValue = (typeof NOMINAL_UNQUOTED_PRICE_VALUES)[number];
 
 /**
- * Developer Settings' "value unquoted tokens at $1" switch, persisted as plain text under
- * `nominal_unquoted_price_setting`. Off by default, so a token the feed does not list shows no
- * figure (the dash) until a developer turns it on. A per-device display preference, like the
- * balance card's colour: it applies at once, with no save, and is not part of the endpoint
- * override. It only has an effect off mainnet (`lib/prices/unquoted-default`).
+ * The "value unquoted tokens at $1" switch on Settings > Developer > Advanced Settings, persisted
+ * as plain text under `nominal_unquoted_price_setting`. Off by default, so a token the feed does
+ * not list shows no figure (the dash) until a developer turns it on. A per-device display
+ * preference, like the balance card's colour: it applies at once, with no save. It only has an
+ * effect off mainnet (`lib/prices/unquoted-default`).
  */
 const nominalUnquotedPrice = createPersistedSetting<NominalUnquotedPriceValue>(
   NOMINAL_UNQUOTED_PRICE_STORAGE_KEY,

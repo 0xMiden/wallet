@@ -4,9 +4,13 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { useAccount } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
+import { isNominalUnquotedPriceEnabled, setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
 import { navigate } from 'lib/woozie';
 
 import AdvancedSettings from './AdvancedSettings';
+
+// The nominal-price switch persists in localStorage, which jsdom keeps across tests.
+afterEach(() => setNominalUnquotedPriceSetting(false));
 
 // `t` is never `init()`-ed in the unit env; echo the key back so rendered copy
 // (labels rendered via `t(...)`) is assertable by key.
@@ -82,6 +86,25 @@ describe('AdvancedSettings (page)', () => {
     expect(screen.getByText('accountPublicKey')).toBeInTheDocument();
     expect(screen.getByText('editMidenFaucetId')).toBeInTheDocument();
     expect(screen.getByText('exportAccountFile')).toBeInTheDocument();
+    expect(screen.getByText('devNominalUnquotedPrice')).toBeInTheDocument();
+  });
+
+  // The nominal-price row is a device preference: it persists on the tap, with no save, and the
+  // indicator follows it.
+  it('turns the nominal unquoted price on and off at once', async () => {
+    await renderWithResolvedKey();
+    const row = screen.getByTestId('advanced-nominal-unquoted-price');
+    const indicator = () => row.querySelector('[data-slot="checkbox-indicator"]');
+    expect(indicator()).toHaveAttribute('data-state', 'unchecked');
+    expect(isNominalUnquotedPriceEnabled()).toBe(false);
+
+    fireEvent.click(row);
+    expect(indicator()).toHaveAttribute('data-state', 'checked');
+    expect(isNominalUnquotedPriceEnabled()).toBe(true);
+
+    fireEvent.click(row);
+    expect(indicator()).toHaveAttribute('data-state', 'unchecked');
+    expect(isNominalUnquotedPriceEnabled()).toBe(false);
   });
 
   it('resolves the account public key and displays the truncated chip', async () => {

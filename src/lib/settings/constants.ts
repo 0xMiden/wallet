@@ -22,7 +22,7 @@ export const HAPTIC_FEEDBACK_STORAGE_KEY = 'haptic_feedback_setting';
 export const DEFAULT_HAPTIC_FEEDBACK = true;
 
 /**
- * Developer Settings' "value unquoted tokens at $1" switch (`lib/settings/nominal-price`). Off
+ * Advanced Settings' "value unquoted tokens at $1" switch (`lib/settings/nominal-price`). Off
  * by default: a token the price feed does not list shows the dash until a developer turns it on.
  */
 export const NOMINAL_UNQUOTED_PRICE_STORAGE_KEY = 'nominal_unquoted_price_setting';
