@@ -50,6 +50,9 @@ import {
   withFaucetFundingMarkerLock
 } from './wallet-prompts';
 
+// The totals under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('lib/platform', () => ({
   isMobile: () => false,
   isDesktop: () => true,

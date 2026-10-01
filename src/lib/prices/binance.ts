@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import { KNOWN_SYMBOLS } from './constant';
+import { hasUnquotedDefaultPrice } from './unquoted-default';
 
 const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
 
@@ -71,23 +72,33 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
 }
 
 /**
- * Whether the feed has delivered any quote yet. An empty map is prices still loading, which a
- * figure shows as its placeholder; a loaded map without a symbol is a token with no price.
+ * Whether a figure can be shown yet. On mainnet an empty map is prices still loading, which a
+ * figure shows as its placeholder, and a loaded map without a symbol is a token with no price.
+ * Off mainnet every token has a price from the start (the feed's, or the nominal rate), so a
+ * figure never waits on the feed: a test-network wallet that holds only the native token would
+ * otherwise show its placeholder for as long as the feed is unreachable.
  */
 export function pricesLoaded(prices: TokenPrices): boolean {
-  return Object.keys(prices).length > 0;
+  return hasUnquotedDefaultPrice() || Object.keys(prices).length > 0;
 }
 
 /**
- * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
- * price is not a quote. A held token is priced through `tokenQuote` (lib/miden/swap/tokens),
- * which resolves its price symbol first (IETH at ETH); call this directly only with a symbol
- * already resolved, as the sparkline and chart do.
+ * The quote of a token the feed does not list where `hasUnquotedDefaultPrice` says so (every
+ * network but mainnet): $1 per whole unit, with no movement.
+ */
+const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
+
+/**
+ * The feed's quote for a price symbol, or none: on mainnet an unquoted token has no fiat value,
+ * and a zero price is not a quote; off mainnet an unquoted token (a symbol the feed does not
+ * list, or no price symbol at all) is quoted at the nominal $1 rate. A held token is priced
+ * through `tokenQuote` (lib/miden/swap/tokens), which resolves its price symbol first (IETH at
+ * ETH); call this directly only with a symbol already resolved, as the sparkline and chart do.
  */
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
-  if (symbol === undefined) return undefined;
-  const quote = prices[symbol];
-  return quote && quote.price > 0 ? quote : undefined;
+  const quote = symbol === undefined ? undefined : prices[symbol];
+  if (quote && quote.price > 0) return quote;
+  return hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
 }
 
 /**

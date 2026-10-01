@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+
 import {
   fetchKlineData,
   fetchTokenPrices,
@@ -11,6 +13,10 @@ import {
 } from './binance';
 
 jest.mock('axios');
+// The quote rules under test are mainnet's, no figure without a quote; jest runs as testnet, where
+// an unquoted token prices at $1 (lib/prices/unquoted-default). The off-mainnet cases flip it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -190,6 +196,10 @@ describe('binance', () => {
   });
 });
 
+afterEach(() => {
+  mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+});
+
 describe('pricesLoaded', () => {
   it('is false before the feed has delivered any quote', () => {
     expect(pricesLoaded({})).toBe(false);
@@ -197,6 +207,11 @@ describe('pricesLoaded', () => {
 
   it('is true once any quote exists, whether or not a given symbol is among them', () => {
     expect(pricesLoaded({ BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } })).toBe(true);
+  });
+
+  it('is true before the feed has delivered off mainnet, where every token has a price from the start', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(pricesLoaded({})).toBe(true);
   });
 });
 
@@ -213,6 +228,19 @@ describe('quotedPrice', () => {
 
   it('returns no quote for a zero price', () => {
     expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBeUndefined();
+  });
+
+  it('quotes a symbol the feed does not list, no symbol, or a zero price at $1 with no movement off mainnet', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    const nominal = { price: 1, change24h: 0, percentageChange24h: 0 };
+    expect(quotedPrice({ ETH: eth }, 'MIDEN')).toEqual(nominal);
+    expect(quotedPrice({ ETH: eth }, undefined)).toEqual(nominal);
+    expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toEqual(nominal);
+  });
+
+  it('keeps the feed quote of a listed symbol off mainnet, never the $1 default', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(quotedPrice({ ETH: eth }, 'ETH')).toEqual(eth);
   });
 });
 

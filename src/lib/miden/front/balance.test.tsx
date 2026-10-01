@@ -13,6 +13,9 @@ import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
 
 import { useAllBalances, getAllBalanceSWRKey, type TokenBalanceData } from './balance';
 
+// The placeholder prices under test follow mainnet's rule, no price without a quote; jest runs as
+// testnet, where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 // webextension-polyfill auto-mock causes isExtension() to return true in tests.
 // Override to return false so balance hooks use the WASM polling path.
 jest.mock('lib/platform', () => ({

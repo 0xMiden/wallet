@@ -25,6 +25,9 @@ import { formatAmount } from 'lib/shared/format';
 import { HistoryDetails } from './HistoryDetails';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
+// The estimates under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
   AccountId: {

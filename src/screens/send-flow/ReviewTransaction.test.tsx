@@ -66,6 +66,9 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
+// The fiat lines under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const getBlockHeaderByNumber = jest.fn();

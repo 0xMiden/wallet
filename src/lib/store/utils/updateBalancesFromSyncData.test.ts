@@ -8,6 +8,9 @@ import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
 
 const MOCK_MIDEN_FAUCET_ID = 'miden-faucet-123';
 
+// The stored prices under test follow mainnet's rule, no price without a quote; jest runs as
+// testnet, where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('lib/miden/assets', () => ({
   ...jest.requireActual('lib/miden/assets'),
   getFaucetIdSetting: jest.fn(async () => 'miden-faucet-123')

@@ -33,6 +33,9 @@ const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: 
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
 
+// The totals under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('react-i18next', () => ({
   // Interpolations are appended to the key, so a test can read the count a line was given.
   useTranslation: () => ({

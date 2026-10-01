@@ -54,6 +54,9 @@ const mockUnresolvedRefusal = (address: string, marker: FaucetFundingMarker, rep
 
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+// The totals under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: { amount?: string; count?: number }) => {

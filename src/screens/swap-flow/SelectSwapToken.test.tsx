@@ -9,6 +9,9 @@ import { SelectSwapTokenDrawer } from './SelectSwapToken';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
+// The fiat values under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
 // `lib/mobile/haptics` reaches for the Capacitor Haptics plugin; stub the one
 // helper the row fires so we can assert selection triggers feedback.

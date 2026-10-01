@@ -9,11 +9,17 @@ import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
 
 import Explore from './Explore';
+
+// The figures under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default). The off-mainnet case flips it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 // ---------------------------------------------------------------------------
 // Explore is the wallet "home" page. It composes a lot of leaf UI (Balance,
@@ -461,6 +467,22 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
+    });
+
+    it('shows the total off mainnet before any price has loaded, since every token has a price there', async () => {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
+      mockTokenPrices = {};
+      mockPortfolioTotal = new BigNumber(100);
+
+      try {
+        await renderExplore();
+
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent('100');
+        expect(screen.getByTestId('balance-amount')).not.toHaveTextContent('\u2014');
+      } finally {
+        mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+      }
     });
 
     // The same rule as the "$-" total above, one row down: a change figure the app does not have is

@@ -44,6 +44,9 @@ const mockTryWithWasmClientLock = jest.fn(
 // a mock that silently drops them lets the bound come off without a single test noticing.
 const lockOptionsSeen: unknown[] = [];
 
+// The stored prices under test follow mainnet's rule, no price without a quote; jest runs as
+// testnet, where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   getCurrentWasmLockHold: () => currentHold,

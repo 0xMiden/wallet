@@ -26,6 +26,9 @@ import enMessages from '../../../public/_locales/en/en.json';
 // returned string so the price-change test can assert that the +/- sign and
 // value flowed through `tokenDetailChange24h`'s `{{change}}` (mirrors the
 // sibling ReviewSwap.test.tsx mock).
+// The figures under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
+// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
