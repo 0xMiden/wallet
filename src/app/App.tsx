@@ -20,6 +20,7 @@ import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProv
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
+import { SeedBackupGate } from 'app/templates/SeedBackupGate';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
@@ -72,8 +73,6 @@ const App: FC<AppProps> = ({ env }) => {
         <DialogsProvider>
           <Suspense fallback={<RootSuspenseFallback />}>
             <AppProvider env={env}>
-              <Dialogs />
-
               <DisableOutlinesForClick />
 
               <AwaitI18N />
@@ -85,27 +84,36 @@ const App: FC<AppProps> = ({ env }) => {
                     (transform + transient border-radius/overflow, all managed
                     by vaul). Must wrap the whole app surface. */}
                   <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
-                    {env.confirmWindow ? (
-                      <ConfirmPage />
-                    ) : checkIsMobile() ? (
-                      // The DappBrowserProvider owns the embedded dApp webview lifecycle
-                      // and the bubble host. It must live ABOVE PageRouter so it survives
-                      // tab navigation - a parked dApp's bubble stays interactive even
-                      // when the user moves to a different tab.
-                      <DappBrowserProvider>
+                    <SeedBackupGate>
+                      <Dialogs />
+                      {isExtension() && <PinExtensionPrompt />}
+                      {checkIsDesktop() && (
+                        <Suspense fallback={null}>
+                          <DesktopDappConfirmationModal />
+                        </Suspense>
+                      )}
+                      {env.confirmWindow ? (
+                        <ConfirmPage />
+                      ) : checkIsMobile() ? (
+                        // The DappBrowserProvider owns the embedded dApp webview lifecycle
+                        // and the bubble host. It must live ABOVE PageRouter so it survives
+                        // tab navigation - a parked dApp's bubble stays interactive even
+                        // when the user moves to a different tab.
+                        <DappBrowserProvider>
+                          <UpdateNotificationProvider>
+                            <HotKeyRotationGate />
+                            <GuardianRecoveryProvider />
+                            <PageRouter />
+                          </UpdateNotificationProvider>
+                        </DappBrowserProvider>
+                      ) : (
                         <UpdateNotificationProvider>
                           <HotKeyRotationGate />
                           <GuardianRecoveryProvider />
                           <PageRouter />
                         </UpdateNotificationProvider>
-                      </DappBrowserProvider>
-                    ) : (
-                      <UpdateNotificationProvider>
-                        <HotKeyRotationGate />
-                        <GuardianRecoveryProvider />
-                        <PageRouter />
-                      </UpdateNotificationProvider>
-                    )}
+                      )}
+                    </SeedBackupGate>
                   </div>
                 </BootAnimation>
               </AwaitFonts>
@@ -132,12 +140,10 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
       <Woozie.Provider>
         <ExtensionMessageListener />
         <ScreenKeyPublisher />
-        {isExtension() && <PinExtensionPrompt />}
         {checkIsMobile() && <MobileBackBridge />}
         {checkIsDesktop() && (
           <Suspense fallback={null}>
             <DesktopDappHandler />
-            <DesktopDappConfirmationModal />
           </Suspense>
         )}
         <AppKitProvider>
