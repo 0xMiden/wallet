@@ -25,6 +25,7 @@ import {
   forceCaneclAllInProgressTransactions,
   initiateConsumeTransaction,
   markBridgedSendFailed,
+  recordBridgeNoteLanded,
   requestCustomTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
@@ -1235,6 +1236,104 @@ describe('claimBridgeSubmit (#1250)', () => {
     const row = txStore.find(t => t.id === 'bs-claim-abandoned')!;
     expect(row.extraInputs).toEqual(extraInputs);
     expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+});
+
+describe('recordBridgeNoteLanded (#1250)', () => {
+  it('records the landed note and the failed route on an Epoch row (#1250)', async () => {
+    const extraInputs = { provider: 'epoch', claimStatus: 'not-applicable', reclaimNoteId: 'note-stamped' };
+    txStore.push(
+      {
+        id: 'bs-landed-generating',
+        type: 'bridged-send',
+        status: ITransactionStatus.GeneratingTransaction,
+        displayMessage: 'Generating',
+        extraInputs: { ...extraInputs }
+      },
+      {
+        // Already failed by a demotion that landed first.
+        id: 'bs-landed-failed',
+        type: 'bridged-send',
+        status: ITransactionStatus.Failed,
+        error: 'allocator rejected the intent',
+        displayMessage: 'Bridge failed',
+        extraInputs: { ...extraInputs, submitClaimed: true }
+      }
+    );
+
+    await recordBridgeNoteLanded('bs-landed-generating');
+    await recordBridgeNoteLanded('bs-landed-failed');
+
+    const generating = txStore.find(t => t.id === 'bs-landed-generating')!;
+    expect(generating.outputNoteIds).toEqual(['note-stamped']);
+    expect(generating.extraInputs).toEqual({ ...extraInputs, claimStatus: 'failed', epochStatus: 'failed' });
+    expect(generating.status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(generating.error).toBeUndefined();
+    expect(generating.displayMessage).toBe('Generating');
+    const failed = txStore.find(t => t.id === 'bs-landed-failed')!;
+    expect(failed.outputNoteIds).toEqual(['note-stamped']);
+    expect(failed.extraInputs).toEqual({
+      ...extraInputs,
+      submitClaimed: true,
+      claimStatus: 'failed',
+      epochStatus: 'failed'
+    });
+    expect(failed.status).toBe(ITransactionStatus.Failed);
+    expect(failed.error).toBe('allocator rejected the intent');
+    expect(failed.displayMessage).toBe('Bridge failed');
+    expect(mockedReportOperation).not.toHaveBeenCalled();
+  });
+
+  it('keeps an existing epochStatus and outputNoteIds (#1250)', async () => {
+    const recorded = () => ({
+      id: 'bs-landed-recorded',
+      type: 'bridged-send',
+      status: ITransactionStatus.Completed,
+      outputNoteIds: ['note-1'],
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending',
+        reclaimNoteId: 'note-stamped'
+      }
+    });
+    txStore.push(recorded(), {
+      id: 'bs-landed-pending',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending', reclaimNoteId: 'note-2' }
+    });
+
+    await recordBridgeNoteLanded('bs-landed-recorded');
+    await recordBridgeNoteLanded('bs-landed-pending');
+
+    expect(txStore.find(t => t.id === 'bs-landed-recorded')).toEqual(recorded());
+    const pending = txStore.find(t => t.id === 'bs-landed-pending')!;
+    expect(pending.outputNoteIds).toEqual(['note-2']);
+    expect(pending.extraInputs.epochStatus).toBe('pending');
+    expect(pending.extraInputs.claimStatus).toBe('not-applicable');
+  });
+
+  it('records nothing for an Agglayer row or a row without a stamped id (#1250)', async () => {
+    const agglayer = () => ({
+      id: 'bs-landed-agglayer',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', reclaimNoteId: 'note-stamped' }
+    });
+    const unstamped = () => ({
+      id: 'bs-landed-unstamped',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable' }
+    });
+    txStore.push(agglayer(), unstamped());
+
+    await recordBridgeNoteLanded('bs-landed-agglayer');
+    await recordBridgeNoteLanded('bs-landed-unstamped');
+
+    expect(txStore.find(t => t.id === 'bs-landed-agglayer')).toEqual(agglayer());
+    expect(txStore.find(t => t.id === 'bs-landed-unstamped')).toEqual(unstamped());
   });
 });
 

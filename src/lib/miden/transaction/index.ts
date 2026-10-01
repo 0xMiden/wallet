@@ -74,6 +74,7 @@ import {
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   markMayHaveSubmitted,
+  recordBridgeNoteLanded,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
@@ -225,9 +226,10 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * timeout — the promise then never settles and the Epoch flow hangs forever while the
  * activity row claims success. So these rows must be marked Failed instead: the
  * caller resolves via the error branch, the flow can run its own failure handling
- * (`markBridgedSendFailed`), and the on-chain collateral note reclaims itself at its
- * recall height. Neither is blindly re-queued into a duplicate note — `earn-deposit`
- * and Epoch `bridged-send` are both excluded from `REQUEUEABLE_TYPES`.
+ * (`markBridgedSendFailed`), and the landed collateral note is recorded so the
+ * activity row offers Reclaim funds at its recall height. Neither is blindly
+ * re-queued into a duplicate note - `earn-deposit` and Epoch `bridged-send` are
+ * both excluded from `REQUEUEABLE_TYPES`.
  *
  * The gate is per-ROUTE, not per-type, because only ONE of the two `bridged-send`
  * routes has an awaiting caller. The Agglayer (Slow) route enters via
@@ -1269,6 +1271,7 @@ const generateTransactionWithProvider = async (
           `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
           error
         );
+        await recordBridgeNoteLanded(transaction.id);
         await cancelTransactionAfterPipelineStopped(transaction, error);
         return;
       }
@@ -3533,14 +3536,16 @@ export const generateTransactionsLoop = async (
       // `TransactionResult` to repopulate them from (the apply threw before we could
       // capture it). See the `isResultAwaitingRow` doc comment. Fail the row instead
       // so the caller resolves via the error branch and gives up cleanly; the
-      // on-chain P2IDE collateral note reclaims itself at its recall height, and
-      // neither is blindly re-queued into a duplicate collateral note. An AGGLAYER
-      // `bridged-send` is deliberately NOT in this branch — nothing awaits it, its
-      // note is on chain, and failing it would hide the L1 claim UI.
+      // landed P2IDE collateral note is recorded so the activity row offers Reclaim
+      // funds at its recall height, and neither is blindly re-queued into a
+      // duplicate collateral note. An AGGLAYER `bridged-send` is deliberately NOT in
+      // this branch - nothing awaits it, its note is on chain, and failing it would
+      // hide the L1 claim UI.
       if (tx && isResultAwaitingRow(tx)) {
         logger.warning(
           `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
+        await recordBridgeNoteLanded(tx.id);
         if (tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
         return false;
       }

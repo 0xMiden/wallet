@@ -10,6 +10,7 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 import { type SignCallbackReason } from './sign-callback';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import {
+  IBridgedSendExtraInputs,
   INoteDeliveryState,
   ITransaction,
   ITransactionStage,
@@ -493,6 +494,33 @@ export const claimBridgeSubmit = async (id: string): Promise<boolean> => {
     return undefined;
   });
   return claimed;
+};
+
+/**
+ * Record the collateral note of an Epoch bridged-send whose submit is proven to
+ * have landed: its local apply or canonicalization failed after it. The stamped
+ * `reclaimNoteId` is that note's id, computed from the bytes that were submitted,
+ * and the pipeline failing the row means the intent never went out, so the row
+ * is recorded as a route-failed bridge with a committed note, the shape the
+ * reclaim gate reads.
+ *
+ * The pipeline writes this itself rather than leaving the route to
+ * `markBridgedSendFailed`, which runs only in the realm driving the bridge; on
+ * the extension that is the page, which may be closed by then. Guard-free as to
+ * status, like `markMayHaveSubmitted`: a demotion may already have failed the
+ * row, and the note landed all the same. It never overwrites a recorded note or
+ * route, and never touches the row's status or error.
+ */
+export const recordBridgeNoteLanded = async (id: string): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    const noteId = ei?.reclaimNoteId;
+    if (tx.type !== 'bridged-send' || ei?.provider !== 'epoch' || !noteId) return false;
+    if (tx.outputNoteIds?.length) return false;
+    tx.outputNoteIds = [noteId];
+    if (ei.epochStatus === undefined) tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
+    return undefined;
+  });
 };
 
 /**

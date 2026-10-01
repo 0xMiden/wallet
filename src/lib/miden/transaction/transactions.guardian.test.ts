@@ -2678,6 +2678,71 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row?.displayMessage).not.toBe('Sent');
   });
 
+  it('Guardian Epoch bridged-send: submit lands but local apply fails, and the landed note is recorded (#1250)', async () => {
+    const txId = 'bridge-guardian-landed';
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'bridged-send',
+      amount: 1000n,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: {
+        provider: 'epoch',
+        destinationAddress: '0xevm',
+        destinationNetwork: 8453,
+        sourceFaucetId: 'faucet',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      },
+      delegateTransaction: true
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => new Uint8Array([54, 55, 56]) });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'bridge-landed-proposal', nonce: 11 })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const applyFn = jest.fn(async () => {
+      throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+    });
+    const client = Object.assign(makeClientApi(makeResult(), applyFn), {
+      sync: jest.fn(async () => ({ blockNum: () => 100 }))
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(applyFn).toHaveBeenCalled();
+    const row = txStore.find(r => r.id === txId);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.outputNoteIds).toEqual(['note-stamped']);
+    expect(row?.extraInputs).toEqual(
+      expect.objectContaining({ reclaimNoteId: 'note-stamped', claimStatus: 'failed', epochStatus: 'failed' })
+    );
+  });
+
   it('Guardian earn-deposit: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
     // The other arm of the same guard: a canonicalization nonce-lag error would mark
     // any other guardian tx Completed, but for earn-deposit that Completed-without-

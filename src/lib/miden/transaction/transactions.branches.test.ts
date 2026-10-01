@@ -982,6 +982,55 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  const runEpochBridgeLeafFailing = async (id: string, error: Error) => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw error;
+      return fn();
+    });
+    txStore.push({
+      id,
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      }
+    });
+    try {
+      expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    } finally {
+      sdk.withWasmClientLock = origLock;
+    }
+    return txStore.find(t => t.id === id);
+  };
+
+  it('records the landed note of an Epoch bridged-send whose apply failed after submit (#1250)', async () => {
+    // Nothing else records it: the bridge's own failure handling runs in the realm driving it, which may be gone.
+    const row = await runEpochBridgeLeafFailing('tx-bridge-landed', new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE));
+
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.outputNoteIds).toEqual(['note-stamped']);
+    expect(row.extraInputs.epochStatus).toBe('failed');
+    expect(row.extraInputs.claimStatus).toBe('failed');
+  });
+
+  it('records nothing for an Epoch bridged-send that failed before submit (#1250)', async () => {
+    const row = await runEpochBridgeLeafFailing('tx-bridge-pre-submit', new Error('tx-execution-failed'));
+
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(row.extraInputs.epochStatus).toBeUndefined();
+    expect(row.extraInputs.claimStatus).toBe('not-applicable');
+  });
+
   it('marks an AGGLAYER bridged-send Completed (never Failed) on the apply-after-submit error', async () => {
     // The route matters, not the type. An Agglayer (Slow) bridge-out is queued by
     // `initiateB2AggBridge`, which returns the txId immediately and never awaits the
