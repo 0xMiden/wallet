@@ -24,7 +24,7 @@ import type { WalletAccount } from 'lib/shared/types';
 import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
-import { checkEndpointCommitment } from './operator-map';
+import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
 import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -635,15 +635,29 @@ export const isGuardianWriteDiscardedError = (error: unknown): boolean =>
 export const GUARDIAN_REGISTRATION_PREFLIGHT = 'GuardianRegistrationPreflightError';
 
 export class GuardianRegistrationPreflightError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  /** What the new operator answered to the key-commitment check, on the refusal that check raised. */
+  readonly endpointCheck?: EndpointCommitmentCheck;
+
+  constructor(message: string, options?: ErrorOptions, endpointCheck?: EndpointCommitmentCheck) {
     super(message, options);
     this.name = GUARDIAN_REGISTRATION_PREFLIGHT;
+    this.endpointCheck = endpointCheck;
   }
 }
 
 /** Name-based, so it survives module mocking and structured-clone boundaries. */
 export const isGuardianRegistrationPreflightError = (error: unknown): boolean =>
   error instanceof Error && error.name === GUARDIAN_REGISTRATION_PREFLIGHT;
+
+/**
+ * The refusal of a new operator that answered `/pubkey` with a key other than the one the local state
+ * names. Name-based, like its sibling.
+ */
+export const isGuardianKeyMismatchRefusal = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.name === GUARDIAN_REGISTRATION_PREFLIGHT &&
+  'endpointCheck' in error &&
+  error.endpointCheck === 'mismatch';
 
 /**
  * Tag EVERYTHING raised before the first `/configure` as preflight, rather than
@@ -819,7 +833,9 @@ export const finalizeDirectGuardianSwitch = async (
     throw new GuardianRegistrationPreflightError(
       `Refusing to register on ${newGuardianEndpoint}: it did not confirm the guardian key this account's state ` +
         `names (${endpointHoldsGuardianKey}), so that state may have moved to a different operator since the caller ` +
-        `checked`
+        `checked`,
+      undefined,
+      endpointHoldsGuardianKey
     );
   }
 

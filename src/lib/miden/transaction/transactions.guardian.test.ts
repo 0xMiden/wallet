@@ -15,6 +15,7 @@ import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
@@ -1164,6 +1165,53 @@ describe('completeSwitchGuardianTransaction', () => {
       expect(mockFinalizeDirectSwitch).toHaveBeenCalledTimes(1);
       expect(row().extraInputs).toMatchObject({ registerFailed: true, localStateNotSaved: false });
       expect(row().extraInputs).not.toMatchObject({ localStateUnrecoverable: true });
+    });
+
+    // The text `finalizeDirectGuardianSwitch` builds for an operator that did not confirm the key.
+    const refusalText = (check: string) =>
+      "Refusing to register on https://new.guardian: it did not confirm the guardian key this account's state " +
+      `names (${check}), so that state may have moved to a different operator since the caller checked`;
+    it.each([
+      {
+        label: 'a direct switch whose unknown copy the new operator names another key for is flagged unrecoverable',
+        switchedDirectly: true,
+        rejection: new GuardianRegistrationPreflightError('refused', undefined, 'mismatch'),
+        expected: {
+          localStateUnrecoverable: true,
+          localStateNotSaved: false,
+          registerFailed: true,
+          commitUnconfirmed: true
+        }
+      },
+      {
+        label: 'a direct switch whose unknown copy meets an unreachable operator keeps only registerFailed',
+        switchedDirectly: true,
+        rejection: new GuardianRegistrationPreflightError(refusalText('unreachable'), undefined, 'unreachable'),
+        expected: { localStateUnrecoverable: false, localStateNotSaved: false, registerFailed: true }
+      },
+      {
+        label: 'a direct switch whose refusal names a mismatch only in its text keeps only registerFailed',
+        switchedDirectly: true,
+        rejection: new GuardianRegistrationPreflightError(refusalText('mismatch')),
+        expected: { localStateUnrecoverable: false, localStateNotSaved: false, registerFailed: true }
+      },
+      {
+        label: 'a coordinated switch refused for another key keeps the repairable flag',
+        switchedDirectly: undefined,
+        rejection: new GuardianRegistrationPreflightError('refused', undefined, 'mismatch'),
+        expected: { localStateNotSaved: true, localStateUnrecoverable: false, registerFailed: true }
+      }
+    ])('$label (#1233)', async ({ switchedDirectly, rejection, expected }) => {
+      const { tx, provider, row } = landedSwitch();
+      if (switchedDirectly) tx.extraInputs = { ...tx.extraInputs, switchedDirectly };
+      mockAdoptPostSwitchState.mockResolvedValueOnce('unknown');
+      mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+      mockFinalizeDirectSwitch.mockRejectedValueOnce(rejection);
+
+      await completeSwitchGuardianTransaction(tx, undefined, undefined, provider as never, true, landed);
+
+      expect(mockFinalizeDirectSwitch).toHaveBeenCalledTimes(1);
+      expect(row().extraInputs).toMatchObject(expected);
     });
 
     it('skips a registration the new guardian can only refuse and flags the row, keeping both endpoints', async () => {

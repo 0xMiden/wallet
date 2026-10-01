@@ -143,6 +143,7 @@ export interface ISwitchGuardianExtraInputs {
   // skips it, the previous guardian never received a delta, the new one was never handed a state, the
   // account is private so the chain holds only its commitment, and running the switch again builds on
   // the stale copy. Nothing clears it; the receipt sends the user to support.
+  // It also covers a direct switch whose registration was refused because the copy names another guardian key.
   localStateUnrecoverable?: boolean;
   // `switchProposalId` / `switchDeltaPushed`: a landed coordinated switch's proposal, and whether the
   // outgoing guardian took its executed delta inside the deadline (#1233). The reconcile adopts only

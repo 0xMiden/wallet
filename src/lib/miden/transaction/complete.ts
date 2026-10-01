@@ -14,6 +14,7 @@ import {
   didDirectSwitchLand,
   finalizeDirectGuardianSwitch,
   GuardianSwitchDiscardedError,
+  isGuardianKeyMismatchRefusal,
   isGuardianSwitchDiscardedError
 } from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
@@ -844,7 +845,11 @@ export const completeSwitchGuardianTransaction = async (
       registerFailed = true;
       // Refused, maybe, for a copy nobody could show was post-switch: the self-heal that adopts
       // one has to know.
-      if (localState === 'unknown' && !switchedDirectly) localStateNotSaved = true;
+      // A direct switch has no repair path, and another key is the 'pre-switch' read, found by the registration.
+      if (localState === 'unknown') {
+        if (!switchedDirectly) localStateNotSaved = true;
+        else if (isGuardianKeyMismatchRefusal(registerError)) localStateUnrecoverable = true;
+      }
       console.error(
         'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
           'unknown to the new operator until the guardian-sync self-heal lands a registration:',

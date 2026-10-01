@@ -6,6 +6,7 @@ import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   finalizeDirectGuardianSwitch,
+  isGuardianKeyMismatchRefusal,
   isGuardianRegistrationPreflightError,
   isGuardianUnreachableError
 } from './direct-switch';
@@ -1081,6 +1082,8 @@ describe('finalizeDirectGuardianSwitch', () => {
     ).catch((e: unknown) => e);
 
     expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(isGuardianKeyMismatchRefusal(error)).toBe(true);
+    expect(error).toMatchObject({ endpointCheck: 'mismatch' });
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
     // Checked against the guardian key of the account this function itself read,
     // and against the endpoint it is about to write to.
@@ -1102,10 +1105,19 @@ describe('finalizeDirectGuardianSwitch', () => {
   it('refuses to register when the endpoint will not answer for its own key', async () => {
     mockCheckEndpointCommitment.mockImplementation(async () => 'unreachable');
 
-    await expect(
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
-    ).rejects.toThrow('did not confirm the guardian key');
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining('did not confirm the guardian key'),
+      endpointCheck: 'unreachable'
+    });
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(isGuardianKeyMismatchRefusal(error)).toBe(false);
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 

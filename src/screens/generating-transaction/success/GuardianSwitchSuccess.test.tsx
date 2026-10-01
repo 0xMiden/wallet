@@ -378,6 +378,29 @@ describe('GuardianSwitchSuccess', () => {
       expect(body()).toHaveTextContent('guardianSwitchSuccessInfo4');
     });
 
+    it('keeps the unrecoverable copy over a failed registration (#1233)', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              registerFailed: true,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo4');
+    });
+
     // Every row the wallet writes with a lost-state flag today also carries commitUnconfirmed, which
     // shows the warning on its own; these rows pin the receipt's conditions without it.
     it('warns on a row whose only flag is the unrecoverable state', () => {
