@@ -13,6 +13,7 @@
 
 import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
+import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
@@ -27,6 +28,7 @@ import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   ERR_FEE_CONVERSION_INFO_MISSING_CODE,
   GUARDIAN_UNREACHABLE_ERROR,
+  isUnconfirmedFailure,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
@@ -6277,7 +6279,11 @@ describe('generateTransaction — Guardian routing', () => {
     // that still holds the account.
     expect(setGuardianEndpoint).not.toHaveBeenCalled();
     expect(mockFinalizeDirectSwitch).not.toHaveBeenCalled();
-    expect(txStore.find(r => r.id === txId)!.status).toBe(ITransactionStatus.Failed);
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.extraInputs).toMatchObject({ nodeDiscarded: true });
+    expect(isUnconfirmedFailure(row as never)).toBe(false);
   });
 
   it('Guardian switch-guardian: a commit wait the chain confirms finalizes normally', async () => {
@@ -7417,6 +7423,9 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row().displayMessage).toBe('Failed');
       expect(row().error).toMatch(error);
       expect(row().extraInputs).not.toHaveProperty('localStateNotSaved');
+      expect(row().mayHaveSubmitted).toBe(true);
+      expect(row().extraInputs).toMatchObject({ nodeDiscarded: true });
+      expect(isUnconfirmedFailure(row() as never)).toBe(false);
     }
   );
 
@@ -7797,7 +7806,7 @@ describe('generateTransaction — Guardian routing', () => {
 
   it.each(landedStructuralArrangements)(
     '$type landed: fails without completing when the node has no verdict (#1233)',
-    async ({ arrange }) => {
+    async ({ type, arrange }) => {
       const { run, row, coldService, hotService, swapHotKey } = arrange();
       // Scripted, not left to the default: earlier cases in this describe set a persistent verdict.
       mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
@@ -7810,12 +7819,16 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row()?.displayMessage).not.toBe('Account secured');
       expect(coldService.abandonCandidate).not.toHaveBeenCalled();
       expect(hotService.abandonCandidate).not.toHaveBeenCalled();
+      expect(row()?.mayHaveSubmitted).toBe(true);
+      expect(row()?.extraInputs).not.toHaveProperty('nodeDiscarded');
+      expect(isUnconfirmedFailure(row() as never)).toBe(true);
+      expect(type !== 'replace-hot-key' || describeRotationFailure(row() as never, null).unconfirmed).toBe(true);
     }
   );
 
   it.each(landedStructuralArrangements)(
     '$type landed: abandons its candidate before the row fails when the node discarded it (#1233)',
-    async ({ arrange, nonce }) => {
+    async ({ type, arrange, nonce }) => {
       const { run, row, coldService, swapHotKey } = arrange();
       mockDidDirectSwitchLand.mockResolvedValueOnce(false);
       let statusAtAbandon: unknown;
@@ -7835,6 +7848,10 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row()?.error).toMatch(/did not land: the node discarded it/);
       expect(swapHotKey).not.toHaveBeenCalled();
       expect(row()?.displayMessage).not.toBe('Account secured');
+      expect(row()?.mayHaveSubmitted).toBe(true);
+      expect(row()?.extraInputs).toMatchObject({ nodeDiscarded: true });
+      expect(isUnconfirmedFailure(row() as never)).toBe(false);
+      expect(type === 'replace-hot-key' && describeRotationFailure(row() as never, null).unconfirmed).toBe(false);
     }
   );
 
@@ -9197,6 +9214,9 @@ describe('generateTransaction — direct switch, discarded transaction', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(setGuardianEndpoint).not.toHaveBeenCalled();
     expect(mockFinalizeDirectSwitch).not.toHaveBeenCalled();
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.extraInputs).toMatchObject({ nodeDiscarded: true });
+    expect(isUnconfirmedFailure(row as never)).toBe(false);
   });
 });
 

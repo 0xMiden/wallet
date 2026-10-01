@@ -52,10 +52,11 @@
  *     update-procedure-threshold completes with its finalization (#1233).
  */
 
+import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { WalletType } from 'screens/onboarding/types';
 
-import { TRANSACTION_EXPIRED_ERROR } from './constants';
+import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
@@ -3435,6 +3436,70 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
       expect(complete).not.toHaveBeenCalled();
     }
   );
+
+  // Flag off, so the real inline leaf stamps the submit crossing these rows carry.
+  it.each(
+    structuralCases().flatMap(c => [
+      {
+        ...c,
+        shape: 'at the wait',
+        arrangeWait: () => mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction rejected: exec-tx-hash'))
+      },
+      {
+        ...c,
+        shape: 'by the verdict',
+        arrangeWait: () => {
+          mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction confirmation timed out after 60000ms'));
+          mockProxyGetCommitState.mockResolvedValueOnce('discarded');
+        }
+      }
+    ])
+  )(
+    '$type: a write the node discarded $shape is a definite failure (#1233)',
+    async ({ type, row, shape, arrangeWait }) => {
+      const id = `node-discarded-${type}-${shape}`;
+      const { provider: sp } = arrangeStructural(id, row);
+      arrangeWait();
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+      const finalRow = txStore.find(r => r.id === id)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.mayHaveSubmitted).toBe(true);
+      expect(finalRow.extraInputs).toMatchObject({ nodeDiscarded: true });
+      expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+      expect(type === 'replace-hot-key' && describeRotationFailure(finalRow as never, null).unconfirmed).toBe(false);
+    }
+  );
+
+  it.each(
+    structuralCases().flatMap(c => [
+      {
+        ...c,
+        shape: 'a timeout the node has no verdict for',
+        arrangeWait: () =>
+          mockProxyWaitForCommit.mockRejectedValueOnce(new Error('Transaction confirmation timed out after 60000ms'))
+      },
+      {
+        ...c,
+        shape: 'a watchdog-evicted wait',
+        arrangeWait: () => mockProxyWaitForCommit.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'))
+      }
+    ])
+  )('$type: $shape stays not confirmed (#1233)', async ({ type, row, shape, arrangeWait }) => {
+    const id = `no-verdict-${type}-${shape}`;
+    const { provider: sp } = arrangeStructural(id, row);
+    arrangeWait();
+
+    await generateTransaction(buildTx(id, row) as never, signCallback, false, sp as never);
+
+    const finalRow = txStore.find(r => r.id === id)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBe(true);
+    expect(finalRow.extraInputs).not.toHaveProperty('nodeDiscarded');
+    expect(isUnconfirmedFailure(finalRow as never)).toBe(true);
+    expect(type !== 'replace-hot-key' || describeRotationFailure(finalRow as never, null).unconfirmed).toBe(true);
+  });
 
   it.each([
     { flag: 'off', on: false },

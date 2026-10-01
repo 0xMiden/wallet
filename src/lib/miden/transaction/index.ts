@@ -18,6 +18,7 @@ import { MultisigService } from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  GuardianWriteDiscardedError,
   isGuardianAccountUnusable,
   isGuardianSwitchDiscardedError,
   isGuardianUnreachableError
@@ -2336,7 +2337,7 @@ const requireLandedCommit = async (
       );
     }
   }
-  throw new Error(`Guardian ${tx.type} ${id} did not land: the node discarded it.`);
+  throw new GuardianWriteDiscardedError(`Guardian ${tx.type} ${id} did not land: the node discarded it.`);
 };
 
 /**
@@ -2372,8 +2373,9 @@ const waitForStructuralCommit = async (
     }
     if (landed === undefined) throw waitError;
     await abandonDiscardedCandidate(service, nonce);
-    if (discardedAtWait) throw waitError;
-    throw new Error(`Guardian ${type} ${id} did not land: the node discarded it.`, { cause: waitError });
+    throw new GuardianWriteDiscardedError(`Guardian ${type} ${id} did not land: the node discarded it.`, {
+      cause: waitError
+    });
   }
 };
 
@@ -2529,12 +2531,17 @@ const generateDirectSwitchGuardianTransaction = async (
   // the rotation into the local store, so an account read here would only ever
   // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
   const id = result.executedTransaction().id().toHex();
+  const discardedMessage =
+    `Direct guardian switch ${id} did not land: the node discarded it. ` +
+    'Leaving the stored guardian endpoint untouched.';
   await setTransactionStage(transaction.id, 'confirming');
   let commitConfirmed = true;
   try {
     await midenClientProxy.waitForTransactionCommit(id);
   } catch (waitError) {
-    if (isTransactionDiscardedError(waitError)) throw waitError;
+    if (isTransactionDiscardedError(waitError)) {
+      throw new GuardianWriteDiscardedError(discardedMessage, { cause: waitError });
+    }
     commitConfirmed = false;
     console.warn(
       `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
@@ -2551,12 +2558,7 @@ const generateDirectSwitchGuardianTransaction = async (
   if (!commitConfirmed) {
     // Asked after an evicted wait too: the finalize holds this node anyway, and this is the only discard check.
     const landed = await didDirectSwitchLand(id);
-    if (landed === false) {
-      throw new Error(
-        `Direct guardian switch ${id} did not land: the node discarded it. ` +
-          'Leaving the stored guardian endpoint untouched.'
-      );
-    }
+    if (landed === false) throw new GuardianWriteDiscardedError(discardedMessage);
     commitUnconfirmed = landed === undefined;
     console.warn(
       landed === true

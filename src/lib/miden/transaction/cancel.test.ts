@@ -1,4 +1,6 @@
 // Light mocks so importing cancel.ts doesn't pull in Dexie / the WASM client proxy.
+import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+
 import { cancelTransaction, isTransactionStuck } from './cancel';
 import { TRANSACTION_STUCK_ERROR, USER_CANCELLED_TRANSACTION_REASON } from './constants';
 import {
@@ -133,6 +135,43 @@ describe('cancelTransaction background notification', () => {
 
     expect(notifyBackgroundTransactionFailed).toHaveBeenCalledTimes(1);
     expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'a rotation',
+      fields: { type: 'replace-hot-key', mayHaveSubmitted: true, extraInputs: { newHotPublicKey: 'hot-pub' } },
+      error: new GuardianWriteDiscardedError('Guardian replace-hot-key 0xabc did not land: the node discarded it.')
+    },
+    {
+      label: 'a switch',
+      fields: {
+        type: 'switch-guardian',
+        mayHaveSubmitted: true,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      },
+      error: new GuardianSwitchDiscardedError('0xabc')
+    }
+  ])(
+    'announces $label the node discarded as failed, recording the verdict in the write that fails it (#1233)',
+    async ({ fields, error }) => {
+      await expect(cancelTransaction(inFlight('tx-1', fields), error)).resolves.toBe(true);
+
+      const row = mockRows.get('tx-1');
+      expect(row?.status).toBe(ITransactionStatus.Failed);
+      expect(row?.extraInputs).toEqual({ ...fields.extraInputs, nodeDiscarded: true });
+      expect(notifyBackgroundTransactionFailed).toHaveBeenCalledTimes(1);
+      expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+    }
+  );
+
+  it('never reads a discard from message text (#1233)', async () => {
+    const tx = inFlight('tx-1', { type: 'replace-hot-key', mayHaveSubmitted: true });
+
+    await cancelTransaction(tx, new Error('Guardian replace-hot-key 0xabc did not land: the node discarded it.'));
+
+    expect(mockRows.get('tx-1')?.extraInputs).toBeUndefined();
+    expect(notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
   });
 
   it('announces nothing for a user cancel', async () => {

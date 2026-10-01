@@ -1,5 +1,6 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import * as Repo from 'lib/miden/repo';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
 import { hiddenSecondsSince } from 'lib/mobile/background-time';
@@ -101,6 +102,7 @@ export const cancelTransaction = async (
     typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  const nodeDiscarded = isGuardianWriteDiscardedError(error);
   let applied = false;
   let racedTerminal = false;
   let committed: ITransaction | undefined;
@@ -121,6 +123,8 @@ export const cancelTransaction = async (
     if (displayError !== rawError) dbTx.rawError = rawError;
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
+    // The node's verdict is recorded in the write that fails the row, so no reader sees it unmarked (#1233).
+    if (nodeDiscarded) dbTx.extraInputs = { ...dbTx.extraInputs, nodeDiscarded: true };
     // Copied from the row this write is committing, not from the `existing` read
     // above it, so a submit stamp that lands between that read and this write is
     // seen by the notice below (#1250).

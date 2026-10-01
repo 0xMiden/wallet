@@ -154,6 +154,8 @@ export interface ISwitchGuardianExtraInputs {
   // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233). Its sibling on
   // a rotation or a threshold update is `proposalNonce`.
   switchProposalNonce?: number;
+  // `nodeDiscarded`: the node discarded the switch; `cancelTransaction` writes it, `isNodeDiscardedRow` reads it.
+  nodeDiscarded?: boolean;
 }
 
 /**
@@ -1333,6 +1335,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     reRegisterFailed?: boolean;
     guardianEndpoint?: string;
     proposalNonce?: number;
+    nodeDiscarded?: boolean;
   };
   delegateTransaction?: boolean | undefined;
 
@@ -1370,7 +1373,7 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
-  extraInputs: { procedure: string; threshold: number; proposalNonce?: number };
+  extraInputs: { procedure: string; threshold: number; proposalNonce?: number; nodeDiscarded?: boolean };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, procedure: string, threshold: number, delegateTransaction?: boolean) {

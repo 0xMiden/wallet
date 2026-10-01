@@ -598,6 +598,26 @@ export class GuardianSwitchDiscardedError extends Error {
 export const isGuardianSwitchDiscardedError = (error: unknown): boolean =>
   error instanceof Error && error.name === GUARDIAN_SWITCH_DISCARDED;
 
+export const GUARDIAN_WRITE_DISCARDED = 'GuardianWriteDiscardedError';
+
+/**
+ * The node discarded a rotation, a threshold update or a switch, so it never lands, and
+ * `cancelTransaction` records that on the row (#1233).
+ */
+export class GuardianWriteDiscardedError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = GUARDIAN_WRITE_DISCARDED;
+  }
+}
+
+/**
+ * Name-based, like its sibling, and true for the landed switch reconcile's
+ * {@link GuardianSwitchDiscardedError} too.
+ */
+export const isGuardianWriteDiscardedError = (error: unknown): boolean =>
+  error instanceof Error && (error.name === GUARDIAN_WRITE_DISCARDED || error.name === GUARDIAN_SWITCH_DISCARDED);
+
 /**
  * Marks a failure that happened BEFORE any `/configure` was issued — a local
  * read that came back truncated, an account the client does not have, a signer
