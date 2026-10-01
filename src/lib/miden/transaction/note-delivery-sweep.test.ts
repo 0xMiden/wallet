@@ -290,6 +290,9 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
+    expect(mockRelayById).toHaveBeenCalledTimes(2);
+    expect(mockRecord).toHaveBeenCalledWith('acked', 'relayed');
+    expect(mockRecord).toHaveBeenCalledWith('never-acked', 'relayed');
     expect(error).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
@@ -327,6 +330,8 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(rows[0]!.relayAttempts).toBe(2);
     expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(
       expect.stringContaining('attempts exhausted')
     );
