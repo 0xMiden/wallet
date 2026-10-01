@@ -33,6 +33,8 @@ it('verifies the installed patch and all six inlined copies against the canonica
 });
 
 describe('generate-note-relay-patch --check', () => {
+  const sdkPath = 'node_modules/@miden-sdk/miden-sdk';
+  const relayBundles: string[] = JSON.parse(readFileSync(resolve(repoRoot, 'scripts/note-relay-bundles.json'), 'utf8'));
   let scratch: string;
   beforeEach(() => {
     scratch = mkdtempSync(join(tmpdir(), 'note-relay-check-'));
@@ -40,6 +42,30 @@ describe('generate-note-relay-patch --check', () => {
   afterEach(() => {
     rmSync(scratch, { recursive: true, force: true });
   });
+
+  /**
+   * The script resolves the repository from its own location, so a copy of it runs against
+   * this scratch root: the SDK is linked from node_modules, or copied so a test can edit it.
+   */
+  function scratchRepo(sdk: 'link' | 'copy'): void {
+    const inputs = [generator, 'scripts/note-relay-bundles.json', 'src/lib/miden/sdk/note-relay-fetch.mjs'];
+    for (const path of [...inputs, 'package.json', patchFile]) {
+      mkdirSync(dirname(join(scratch, path)), { recursive: true });
+      copyFileSync(resolve(repoRoot, path), join(scratch, path));
+    }
+    mkdirSync(dirname(join(scratch, sdkPath)), { recursive: true });
+    if (sdk === 'link') {
+      symlinkSync(resolve(repoRoot, sdkPath), join(scratch, sdkPath));
+      return;
+    }
+    for (const path of ['package.json', ...relayBundles]) {
+      mkdirSync(dirname(join(scratch, sdkPath, path)), { recursive: true });
+      copyFileSync(resolve(repoRoot, sdkPath, path), join(scratch, sdkPath, path));
+    }
+  }
+
+  const runScratch = (...args: string[]) =>
+    execFileSync(process.execPath, [join(scratch, generator), ...args], { encoding: 'utf8', stdio: 'pipe' });
 
   it('never runs the host diff, whose output differs between GNU and BSD', () => {
     // A `diff` that always fails: check mode must not need one.
@@ -55,26 +81,45 @@ describe('generate-note-relay-patch --check', () => {
   });
 
   it('rejects a committed patch that touches a file outside the six bundles', () => {
-    // The script resolves the repository from its own location, so a copy of it runs
-    // against a scratch root whose patch carries one extra file.
-    for (const path of [generator, 'scripts/note-relay-bundles.json', 'src/lib/miden/sdk/note-relay-fetch.mjs']) {
-      mkdirSync(dirname(join(scratch, path)), { recursive: true });
-      copyFileSync(resolve(repoRoot, path), join(scratch, path));
-    }
-    mkdirSync(join(scratch, 'node_modules/@miden-sdk'), { recursive: true });
-    symlinkSync(
-      resolve(repoRoot, 'node_modules/@miden-sdk/miden-sdk'),
-      join(scratch, 'node_modules/@miden-sdk/miden-sdk')
-    );
-    const extra = 'node_modules/@miden-sdk/miden-sdk/dist/st/index.js';
-    mkdirSync(join(scratch, 'patches'));
+    scratchRepo('link');
+    const extra = `${sdkPath}/dist/st/index.js`;
     writeFileSync(
       join(scratch, patchFile),
       `${readFileSync(resolve(repoRoot, patchFile), 'utf8')}diff --git a/${extra} b/${extra}\n--- a/${extra}\n+++ b/${extra}\n@@ -1 +1 @@\n-a\n+b\n`
     );
-    expect(() =>
-      execFileSync(process.execPath, [join(scratch, generator), '--check'], { encoding: 'utf8', stdio: 'pipe' })
-    ).toThrow(/unexpected file.*dist\/st\/index\.js/);
+    expect(() => runScratch('--check')).toThrow(/unexpected file.*dist\/st\/index\.js/);
+  });
+
+  it('names both remedies when an installed bundle lacks the patch', () => {
+    scratchRepo('copy');
+    const bundle = join(scratch, sdkPath, relayBundles[0]!);
+    writeFileSync(
+      bundle,
+      readFileSync(bundle, 'utf8').replace(
+        'const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));',
+        'const ret = arg0.fetch(arg1, arg2);'
+      )
+    );
+    expect(() => runScratch('--check')).toThrow(/npx patch-package.*generate-note-relay-patch\.mjs/s);
+  });
+
+  it('runs on every build, after the yarn.lock integrity check', () => {
+    const { scripts }: { scripts: Record<string, string> } = JSON.parse(
+      readFileSync(resolve(repoRoot, 'package.json'), 'utf8')
+    );
+    expect(scripts['check:deps']).toBe(
+      'yarn check --integrity --production=false && node scripts/generate-note-relay-patch.mjs --check'
+    );
+    for (const name of [
+      'prebuild',
+      'prebuild:bg',
+      'prebuild:cs',
+      'prebuild:ext',
+      'prebuild:mobile',
+      'prebuild:desktop'
+    ]) {
+      expect(scripts[name]).toContain('yarn -s check:deps');
+    }
   });
 });
 

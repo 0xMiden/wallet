@@ -37,7 +37,12 @@ try {
     if (check) {
       // Postinstall applied the committed patch, so these bytes are its proof. Its text is
       // never regenerated here: GNU and BSD diff align the same edit differently.
-      if (current !== patched) throw new Error(`Installed SDK relay patch is stale: ${bundle}`);
+      if (current !== patched) {
+        throw new Error(
+          `Installed SDK relay patch is stale: ${bundle}. Run \`npx patch-package\` if node_modules predates ` +
+            'the committed patch, or `node scripts/generate-note-relay-patch.mjs` after editing the helper.'
+        );
+      }
       continue;
     }
     writeFileSync(resolve(root, path), patched);
