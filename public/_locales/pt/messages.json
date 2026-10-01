@@ -4707,6 +4707,10 @@
     "message": "Permitir a opção 'Sem responsável' na integração",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Valorize os tokens não cotados em US$ 1 (apenas em redes de teste)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Verificando…",
     "englishSource": "Checking…"

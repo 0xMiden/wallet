@@ -4707,6 +4707,10 @@
     "message": "Allow 'No guardian' option in onboarding",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Value unquoted tokens at $1 (test networks only)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Checking…",
     "englishSource": "Checking…"

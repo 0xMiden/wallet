@@ -4707,6 +4707,10 @@
     "message": "Autoriser l'option « Aucun tuteur » lors de l'intégration",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Évaluez les jetons non cotés à 1 $ (réseaux de test uniquement)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Vérification en cours…",
     "englishSource": "Checking…"

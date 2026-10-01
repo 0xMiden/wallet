@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "URL del Explorador",
   "devEndpointGuardian": "URL personalizada de guardian",
   "devAllowNoGuardian": "Permitir la opción \"Sin tutor\" en la incorporación",
+  "devNominalUnquotedPrice": "Valor de los tokens sin cotizar: 1 $ (solo redes de prueba)",
   "devEndpointChecking": "Comprobando…",
   "devEndpointReachable": "El servidor está accesible",
   "devEndpointNoResponse": "Sin respuesta",

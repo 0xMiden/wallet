@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "資源管理員網址",
   "devEndpointGuardian": "自訂 guardian 網址",
   "devAllowNoGuardian": "在入职时允许“无监护人”选项",
+  "devNominalUnquotedPrice": "未加引號的代幣價值設為 1 美元（僅限測試網路）",
   "devEndpointChecking": "正在檢查……",
   "devEndpointReachable": "主機可連線",
   "devEndpointNoResponse": "沒有回應",

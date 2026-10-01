@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "资源管理器网址",
   "devEndpointGuardian": "自定义 guardian 网址",
   "devAllowNoGuardian": "在入职时允许“无监护人”选项",
+  "devNominalUnquotedPrice": "未加引号的代币价值设为 1 美元（仅限测试网）",
   "devEndpointChecking": "正在检查……",
   "devEndpointReachable": "主机可达",
   "devEndpointNoResponse": "无响应",

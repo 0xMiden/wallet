@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "Explorer-URL",
   "devEndpointGuardian": "Benutzerdefinierte URL für „guardian“",
   "devAllowNoGuardian": "Erlauben Sie beim Onboarding die Option „Kein Vormund“.",
+  "devNominalUnquotedPrice": "Bewerte nicht in Anführungszeichen gesetzte Token mit 1 $ (nur Testnetzwerke)",
   "devEndpointChecking": "Wird geprüft…",
   "devEndpointReachable": "Host erreichbar",
   "devEndpointNoResponse": "Keine Antwort",

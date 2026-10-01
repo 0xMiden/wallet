@@ -4707,6 +4707,10 @@
     "message": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Wartość tokenów bez cudzysłowów wynosi 1 USD (tylko sieci testowe)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Sprawdzam…",
     "englishSource": "Checking…"

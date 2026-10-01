@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "URL de l'Explorateur",
   "devEndpointGuardian": "URL personnalisée guardian",
   "devAllowNoGuardian": "Autoriser l'option « Aucun tuteur » lors de l'intégration",
+  "devNominalUnquotedPrice": "Évaluez les jetons non cotés à 1 $ (réseaux de test uniquement)",
   "devEndpointChecking": "Vérification en cours…",
   "devEndpointReachable": "Hôte accessible",
   "devEndpointNoResponse": "Pas de réponse",

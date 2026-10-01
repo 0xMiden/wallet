@@ -4707,6 +4707,10 @@
     "message": "オンボーディングで「保護者なし」オプションを許可する",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "引用符で囲まれていないトークンの価値を$1とみなす（テストネットワークのみ）",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "確認中…",
     "englishSource": "Checking…"

@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "URL do Explorer",
   "devEndpointGuardian": "URL personalizada guardian",
   "devAllowNoGuardian": "Permitir a opção 'Sem responsável' na integração",
+  "devNominalUnquotedPrice": "Valorize os tokens não cotados em US$ 1 (apenas em redes de teste)",
   "devEndpointChecking": "Verificando…",
   "devEndpointReachable": "Servidor acessível",
   "devEndpointNoResponse": "Sem resposta",

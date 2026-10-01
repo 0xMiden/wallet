@@ -4707,6 +4707,10 @@
     "message": "Разрешить опцию «Нет опекуна» при регистрации",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Стоимость токенов без кавычек — 1 доллар (только в тестовых сетях)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Проверка…",
     "englishSource": "Checking…"

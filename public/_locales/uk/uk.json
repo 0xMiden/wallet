@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "URL-адреса браузера Explorer",
   "devEndpointGuardian": "Індивідуальна URL-адреса guardian",
   "devAllowNoGuardian": "Дозволити опцію «Без опікуна» під час реєстрації",
+  "devNominalUnquotedPrice": "Вартість токенів без лапок — 1 долар (лише для тестових мереж)",
   "devEndpointChecking": "Перевірка…",
   "devEndpointReachable": "Хост доступний",
   "devEndpointNoResponse": "Відповіді немає",

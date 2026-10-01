@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "탐색기 URL",
   "devEndpointGuardian": "guardian 맞춤 URL",
   "devAllowNoGuardian": "온보딩 시 '보호자 없음' 옵션 허용",
+  "devNominalUnquotedPrice": "따옴표로 묶이지 않은 토큰의 가치를 $1로 설정(테스트 네트워크에만 해당)",
   "devEndpointChecking": "확인 중…",
   "devEndpointReachable": "호스트에 연결 가능",
   "devEndpointNoResponse": "응답 없음",
