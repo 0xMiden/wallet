@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
@@ -265,6 +265,50 @@ describe('BridgeClaimSection', () => {
       renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+    });
+
+    describe('a completed bridge-out', () => {
+      // Its note committed; whether its intent was ever submitted is told by the intent fields alone.
+      const completed = (o: Partial<IHistoryEntry> = {}) =>
+        entry({ status: 2, bridgeEpochStatus: undefined, bridgeIntentNonce: undefined, ...o });
+      const settle = () => act(async () => await new Promise(resolve => setTimeout(resolve, 0)));
+
+      it('offers Reclaim for a completed bridge-out whose intent was never recorded, once its height passes (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed() });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      });
+
+      it('shows no countdown for a completed bridge-out whose intent is not recorded yet (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(900); // below 1000
+        renderSection({ entry: completed() });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out with its intent recorded (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out whose recorded intent carries no nonce (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a restored completed bridge-out without its intent (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed(), restoredFromBackup: true });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      });
     });
 
     it('shows Not confirmed while unconfirmed and pending, then the live fill once it reports confirmed', async () => {

@@ -108,11 +108,22 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     (entry.isUnconfirmed === true || (entry.bridgeEpochStatus === 'failed' && entry.bridgeSubmitClaimed === true)
       ? entry.bridgeReclaimNoteId
       : undefined);
+  // On the extension the page submits the intent, not the realm running the note pipeline, so a page closed after the
+  // note committed leaves a Completed row whose intent never went out (a recorded intent always sets its status).
+  const intentNeverRecorded =
+    isEpoch &&
+    entry.status === ITransactionStatus.Completed &&
+    !entry.bridgeIntentNonce &&
+    entry.bridgeEpochStatus === undefined;
   // `transactionFailed` is exactly the state import forces every unfinished
   // restored row into, so without the flag check a dump naming any note id gets
   // a "Reclaim funds" button that queues a real consume through the signer.
   const canShowReclaim =
-    isEpoch && transactionFailed && noteMayExist && !restoredFromBackup && reclaimHeight != null && !!reclaimNoteId;
+    isEpoch &&
+    !restoredFromBackup &&
+    reclaimHeight != null &&
+    !!reclaimNoteId &&
+    ((transactionFailed && noteMayExist) || intentNeverRecorded);
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 
@@ -299,9 +310,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
         ))}
 
-      {/* Failed Epoch (Fast) bridge: reclaim the recallable P2IDE note once its
-          reclaim window opens (funds return to the sender's Miden account). */}
-      {canShowReclaim && (
+      {/* Failed Epoch (Fast) bridge, or one whose intent never went out: reclaim the
+          recallable P2IDE note once its reclaim window opens (funds return to the
+          sender's Miden account). Only a Failed row counts down to it: a live bridge
+          records its intent seconds after its note commits, so a Completed row shows
+          nothing until the height passes. */}
+      {canShowReclaim && (reclaimReached || transactionFailed) && (
         <div className="mt-3 flex flex-col gap-2">
           {reclaimError && (
             <p className="text-red-500 text-xs" role="alert">
