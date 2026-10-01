@@ -104,7 +104,7 @@ describe('deriveGuardianPresentation - pill precedence', () => {
     });
   });
 
-  it('an absent status (legacy record) passes the guard and can read online', () => {
+  it('an absent status (not written yet) passes the guard and can read online', () => {
     const p = deriveGuardianPresentation(input({ hotPublicKey: HOT, lastSyncAt: 1, lastSyncFresh: true }));
     expect(p.pill).toBe('online');
   });
