@@ -174,6 +174,11 @@ const SpendingLimits: FC = () => {
     () => PRESET_LIMITS.map(preset => ({ id: preset, label: formatLimitUsd(preset) })),
     []
   );
+  // With every item disabled the control still shows its value, read-only.
+  const presetControlItems = useMemo(
+    () => (saving ? presetItems.map(item => ({ ...item, disabled: true })) : presetItems),
+    [presetItems, saving]
+  );
 
   const prepareSave = useCallback(() => {
     if (!dirty || savingRef.current || accountId === undefined) return;
@@ -245,7 +250,8 @@ const SpendingLimits: FC = () => {
             helper={<span className="text-body-sm text-muted">{t('spendingLimitUsdCap')}</span>}
             value={value}
             invalid={!!error}
-            disabled={saving}
+            // Save captured the draft: authentication persists that one, so the field cannot move on.
+            disabled={saving || authenticating}
             onValueChange={next => {
               setValue(next ?? '');
               setError(null);
@@ -268,7 +274,7 @@ const SpendingLimits: FC = () => {
             <SegmentedControl
               aria-label={t('spendingLimitPresets')}
               layout="fill"
-              items={presetItems}
+              items={presetControlItems}
               value={value}
               onChange={preset => {
                 setValue(preset);
