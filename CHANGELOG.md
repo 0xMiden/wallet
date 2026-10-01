@@ -2,7 +2,20 @@
 
 ## 1.16.3 (TBD)
 
+### Features
+
+- [FEATURE][all] Add Buy and Sell buttons under the balance card that open USDCx amount entry with a decimal numpad and a Stripe/Transak provider-selection step. On mobile, Buy with Transak opens a Transak checkout locked to the account's Ethereum address and closes it if the destination does not match; Sell, Buy on the extension and desktop, and Stripe stay a preview.
+- [FEATURE][mobile] A Transak buy is now tracked: closing the checkout opens a Buy status screen with a progress bar and six timed steps (payment, funds on Ethereum, bridge transaction sent with its Etherscan link, bridging, claiming on Miden, completed), and the order shows in Activity with a phase-driven status chip and a "View progress" link.
+
 ### Changes
+
+- [CHORE][docs] Require explicit maintainer approval before any agent changes backend schemas or APIs.
+- [CHANGE][backend] Separate relay records from orders and save relay results and order states in one database transaction. Recreate the backend database for the new schema.
+
+- [CHANGE][backend] Read buy token addresses and decimals from a chain map instead of storing them per order. Recreate the backend database for the new schema.
+
+- [CHANGE][backend] Add Docker Compose with persistent storage, prevent two servers from using the same database, and wait for active work during shutdown.
+- [FIX][backend] Store relays before broadcast for cancellation and restart safety, reconcile Transak settlement amounts, add trusted proxy configuration and request timeouts, and block production purchases while the bridge uses testnet.
 
 - [CHANGE][all] USDCx testnet bridging uses Arc Testnet USDC, deposits to Miden domain 10007 using the connected Miden account with no stand-in recipient override, and withdraws to Arc domain 26, with chain-aware wallet calls and explorer links.
 - [CHANGE][ui] UI polish: two-tone balance card with press feedback and a Nunito label, solid-colour Receive QR (bigger, no title), higher passcode layout, bolder welcome screen, plainer testnet notice, and a Guardian section that leads the account setup step with a link to the Guardian explainer.

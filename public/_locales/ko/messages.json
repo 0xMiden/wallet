@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "이 인출을 위해 유효한 Sepolia 주소를 입력하십시오.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "이 출금을 위해 유효한 Arc 테스트넷 주소를 입력하십시오.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
@@ -100,8 +100,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "지갑이 열리면 정확한 금액을 승인하고 Sepolia에서 서명하게 됩니다.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "지갑이 열리면 정확한 금액을 승인하고 소스 네트워크에서 서명하게 됩니다.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "다음과 같은 내용을 받게 됩니다.",
@@ -116,8 +116,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고 Sepolia에서 입금에 서명하도록 안내할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "지갑에서 $tokenSymbol$를 승인하고 소스 네트워크에서 입금에 서명하도록 요청할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -1467,6 +1467,209 @@
   "amount": {
     "message": "금액",
     "englishSource": "Amount"
+  },
+  "cash": {
+    "message": "현금",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "구매",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "판매",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "매수 또는 매도",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "결제합니다",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "판매합니다",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "제공업체 선택",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "USDCx 구매",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "USDCx 매도",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "카드 또는 은행 송금",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "은행 송금",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "프로바이더 미리보기 — 결제 기능은 아직 연결되지 않았습니다.",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "곧 공개될 예정입니다",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "$provider$로 계속 진행하세요.",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "이 계정에는 이더리움 주소가 없으므로 USDCx를 구매할 수 없습니다. 이 지갑에서 생성된 계정을 사용하십시오.",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "이 빌드에서는 결제 기능이 제공되지 않습니다.",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "결제를 시작할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "결제 세부 정보가 주문 내용과 일치하지 않아 결제가 진행되지 않았습니다. 다시 시도해 주세요.",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "결제 종료",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "수취인 주소가 귀하의 지갑과 일치하지 않아 결제가 중단되었습니다. 이 화면에서는 결제가 이루어지지 않았습니다.",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "구매",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "USDC 구매",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "구매 완료",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "구매 실패",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "이 화면을 닫아도 됩니다. 지갑은 ‘활동’에서 귀하의 주문을 계속 추적합니다.",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "USDC가 Miden 계좌에 입금되었습니다.",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "주문이 완료되지 않았습니다. 결제를 완료한 경우, 주문 번호와 함께 Transak 고객 지원팀에 문의하십시오.",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "주문 진행 상황",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "$total$의 $current$ 단계",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "결제",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "이더리움으로 유입되는 자금",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "브리지 거래 전송됨",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Miden으로의 브리징",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Miden에서 청구하기",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "완료됨",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "진행 상황 보기",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "$symbol$ 구매하기",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ 출처: Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "소수점",
+    "englishSource": "Decimal point"
   },
   "mainAssetBalanceIsZero": {
     "message": "귀하의 미덴 크레딧(주요 자산) 잔액이 0입니다. 수수료를 지불하려면 미덴 크레딧이 필요합니다.",
@@ -4435,8 +4638,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고, Sepolia에서 확인이 완료될 때까지 이 화면을 열어 두세요.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "지갑에서 요청을 승인하고, 소스 네트워크에서 확인이 완료될 때까지 이 화면을 열어 두십시오.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
@@ -4447,8 +4650,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 거래가 확정되었습니다. 브리지 전송이 완료되면 귀하의 자금이 Miden에 표시될 것입니다.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "소스 거래가 확인되었습니다. 브리지 전송이 완료되면 Miden에 자금이 표시될 것입니다.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscan에서 보기",
@@ -4527,8 +4730,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Sepolia 거래가 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "소스 트랜잭션이 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "블록 체인 탐색기에서 보기",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle이 예치금을 인증했습니다. USDCx는 곧 Miden에서 발행될 예정입니다.",
@@ -4959,8 +5166,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "이 브리지는 USDC의 경우 Arc 테스트넷을, ETH의 경우 이더리움 세폴리아(Sepolia)를 사용합니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 테스트 토큰만 입금하십시오.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "월렛 개선에 기여해 주세요",
@@ -5142,8 +5349,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 Miden으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "이 브리지는 Arc 테스트넷의 USDC 또는 이더리움 세폴리아(Sepolia)의 ETH를 Miden으로 이동시킵니다. 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "숨겨진 전송: $count$",

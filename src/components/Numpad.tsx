@@ -12,6 +12,10 @@ import { cn } from 'lib/ui/util';
 export interface NumpadProps {
   onDigit: (digit: string) => void;
   onDelete: () => void;
+  /** Use the otherwise-empty bottom-left key for amount entry. */
+  onDecimal?: () => void;
+  /** Keeps amount entry and its pinned CTA visible on short screens. */
+  size?: 'default' | 'amount';
   /**
    * Draws a biometric (Face ID / Touch ID) key in the bottom-left slot. Pass it only where a
    * biometric unlock is available and enabled; without it the slot stays empty.
@@ -111,6 +115,8 @@ const Key: React.FC<KeyProps> = ({ label, testId, className, disabled, onPress, 
 export const Numpad: React.FC<NumpadProps> = ({
   onDigit,
   onDelete,
+  onDecimal,
+  size = 'default',
   onBiometric,
   biometryType,
   disabled,
@@ -118,14 +124,25 @@ export const Numpad: React.FC<NumpadProps> = ({
   className
 }) => {
   const { t } = useTranslation();
+  const amountKeySize = size === 'amount' ? '[@media(max-height:720px)]:size-14' : undefined;
+  const digitClass = cn(digitKeyClass, amountKeySize);
+  const bareClass = cn(bareKeyClass, amountKeySize);
 
   return (
-    <div className={cn('grid grid-cols-3 w-fit mx-auto', NUMPAD_GAPS, className)} data-testid="numpad">
+    <div
+      className={cn(
+        'grid grid-cols-3 w-fit mx-auto',
+        NUMPAD_GAPS,
+        size === 'amount' && '[@media(max-height:720px)]:gap-y-1',
+        className
+      )}
+      data-testid="numpad"
+    >
       {DIGITS.map(digit => (
         <Key
           key={digit}
           testId={`numpad-${digit}`}
-          className={digitKeyClass}
+          className={digitClass}
           disabled={disabled}
           onPress={() => onDigit(digit)}
         >
@@ -136,19 +153,29 @@ export const Numpad: React.FC<NumpadProps> = ({
         <Key
           label={t('useFaceIdOrBiometric')}
           testId="numpad-biometric"
-          className={bareKeyClass}
+          className={bareClass}
           disabled={biometricDisabled}
           onPress={onBiometric}
         >
           <Icon name={biometryType === 'face' ? IconName.FaceId : IconName.Fingerprint} size="lg" />
         </Key>
+      ) : onDecimal ? (
+        <Key
+          label={t('decimalSeparator')}
+          testId="numpad-decimal"
+          className={digitClass}
+          disabled={disabled}
+          onPress={onDecimal}
+        >
+          .
+        </Key>
       ) : (
-        <div aria-hidden="true" className={NUMPAD_KEY_SIZE} data-testid="numpad-spacer" />
+        <div aria-hidden="true" className={cn(NUMPAD_KEY_SIZE, amountKeySize)} data-testid="numpad-spacer" />
       )}
-      <Key testId="numpad-0" className={digitKeyClass} disabled={disabled} onPress={() => onDigit('0')}>
+      <Key testId="numpad-0" className={digitClass} disabled={disabled} onPress={() => onDigit('0')}>
         0
       </Key>
-      <Key label={t('delete')} testId="numpad-delete" className={bareKeyClass} disabled={disabled} onPress={onDelete}>
+      <Key label={t('delete')} testId="numpad-delete" className={bareClass} disabled={disabled} onPress={onDelete}>
         <Icon name={IconName.Backspace} size="lg" />
       </Key>
     </div>

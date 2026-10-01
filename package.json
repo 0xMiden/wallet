@@ -245,6 +245,7 @@
     "webextension-polyfill": "^0.10.0",
     "yup": "^1.4.0",
     "zlib": "^1.0.5",
+    "zod": "^4.6.5",
     "zustand": "^5.0.9"
   },
   "peerDependencies": {

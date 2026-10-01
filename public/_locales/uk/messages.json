@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "Введіть дійсну адресу Sepolia для цього виведення коштів.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "Введіть дійсну адресу Arc Testnet для цього виведення коштів.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "Виведення коштів у USDCx доступні лише для налаштованої мережі «faucet» у тестовій мережі Miden.",
@@ -100,8 +100,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Ваш гаманець відкриється, щоб підтвердити точну суму та підписати транзакцію в Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Ваш гаманець відкриється для затвердження точної суми та підписання у вихідній мережі.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Ви отримуєте",
@@ -116,8 +116,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Ваш гаманець попросить вас затвердити адресу $tokenSymbol$ та підписати транзакцію на Sepolia. Кошти надійдуть на Miden після підтвердження.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Ваш гаманець попросить підтвердити $tokenSymbol$ та підписати депозит у вихідній мережі. Кошти надходять на Miden після підтвердження.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -1467,6 +1467,209 @@
   "amount": {
     "message": "Сума",
     "englishSource": "Amount"
+  },
+  "cash": {
+    "message": "Готівка",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "Купити",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "Продаж",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "Купити або продати",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "Ви платите",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "Ви продаєте",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "Виберіть провайдера",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "Купити USDCx",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "Продати USDCx",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "Картка або банківський переказ",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "Банківський переказ",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "Попередній перегляд провайдера — функція оформлення замовлення ще не підключена.",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "Скоро",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "Продовжуйте читати «$provider$»",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "Цей обліковий запис не має адреси Ethereum, тому не може купувати USDCx. Використовуйте обліковий запис, створений у цьому гаманці.",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "Функція «Оформлення замовлення» у цій версії недоступна.",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "Не вдалося розпочати оформлення замовлення. Спробуйте ще раз.",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "Деталі оформлення замовлення не збігалися з вашим замовленням, тому процес оформлення не розпочався. Спробуйте ще раз.",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "Каса закрита",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "Оформлення замовлення було закрито, оскільки адреса призначення не відповідала вашому гаманцю. З цього екрана не було здійснено жодного платежу.",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "Купити",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "Купівля USDC",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "Покупка завершена",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "Покупка не вдалася",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "Ви можете закрити це вікно. Гаманець продовжує відстежувати ваше замовлення у розділі «Активність».",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "Ваші USDC надійшли на ваш рахунок у Miden.",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "Замовлення не було виконано. Якщо ви здійснили оплату, зверніться до служби підтримки Transak із інформацією про ваше замовлення.",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "Хід виконання замовлення",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "Крок $current$ з $total$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "Платіж",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "Кошти, що надходять на Ethereum",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "Надіслано транзакцію через міст",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Перехід на Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Отримання коштів на Miden",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "Завершено",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "Переглянути хід роботи",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "Купити «$symbol$»",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ через Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "Десяткова крапка",
+    "englishSource": "Decimal point"
   },
   "mainAssetBalanceIsZero": {
     "message": "Ваш баланс кредитів Miden (основний актив) дорівнює нулю. Для оплати комісії необхідні кредити Miden.",
@@ -4435,8 +4638,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Підтвердьте запит у своєму гаманці та залиште цей екран відкритим, поки Sepolia його підтверджує.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Схвалити запит у своєму гаманці та залишити цей екран відкритим, поки вихідна мережа його підтверджує.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Помилка під час депозиту через міст",
@@ -4447,8 +4650,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Транзакція Sepolia підтверджена. Ваші кошти з’являться на Miden після завершення передачі через міст.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "Транзакція-джерело підтверджена. Ваші кошти з’являться на Miden після завершення передачі через міст.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Переглянути на Etherscan",
@@ -4527,8 +4730,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Транзакція Sepolia підтверджена. Очікуємо, поки Circle засвідчить депозит, перш ніж USDCx буде випущено на Miden.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "Транзакція-джерело підтверджена. Чекаємо, поки Circle засвідчить депозит, перш ніж USDCx буде випущено на Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Переглянути в блок-експлорері",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle підтвердила депозит. USDCx незабаром буде випущено на Miden.",
@@ -4959,8 +5166,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Цей міст використовує Arc Testnet для USDC та Ethereum Sepolia для ETH. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його лише тестовими токенами.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Допоможіть вдосконалити Wallet",
@@ -5142,8 +5349,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Цей міст переміщує тестові токени Ethereum Sepolia до Miden. Ніколи не здійснюйте міст з основної мережі Ethereum або будь-якої іншої реальної мережі.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Цей міст переносить USDC з Arc Testnet або ETH з Ethereum Sepolia до Miden. Ніколи не здійснюйте міст із мейннету або будь-якої іншої реальної мережі.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Приховані перекази: $count$",

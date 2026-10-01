@@ -71,10 +71,13 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   bridgeBadgeStatusOf,
+  buyHistoryFieldsOf,
+  buyStatusOf,
   earnWithdrawAmountFields,
   formatBridgeOutputAmount,
   formatDate,
   isBridgeInEntry,
+  isBuyEntry,
   swapSettlementOf
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
@@ -382,7 +385,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
+        const buyFields = buyHistoryFieldsOf(tx);
         const historyEntry: IHistoryEntry = {
+          ...buyFields,
           address: tx.accountId,
           restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
@@ -715,6 +720,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     }
                     data-testid="history-status-pill"
                   />
+                ) : isBuyEntry(entry) ? (
+                  // A buy row is born Completed: the pill tracks the order phase instead.
+                  <StatusBadge size="md" live status={buyStatusOf(entry)} data-testid="history-status-pill" />
                 ) : isEarnWithdraw && earnWithdraw ? (
                   // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
                   <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />
@@ -1106,6 +1114,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <Button
               title={t('recoverySeedRequiredTitle')}
               onClick={() => navigate(`/generating-transaction/${encodeURIComponent(transaction.id)}`)}
+            />
+          </div>
+        )}
+
+        {entry && isBuyEntry(entry) && transaction && (
+          <div className="shrink-0 pt-3 pb-4">
+            <Button
+              data-testid="history-buy-view-progress"
+              variant={ButtonVariant.Secondary}
+              title={t('buyViewProgress')}
+              onClick={() => navigate(`/buy-status/${encodeURIComponent(transaction.id)}`)}
+              className="max-w-none"
             />
           </div>
         )}

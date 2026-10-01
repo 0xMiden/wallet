@@ -5,6 +5,7 @@ import type { Status } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
+  IBuyPhase,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
@@ -19,6 +20,7 @@ import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
+import { buyInputsOf, formatBuyTokenAmount } from 'screens/buy-status/buy-status-helpers';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
 
@@ -371,6 +373,46 @@ export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochSt
  */
 export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
   entry.earnDepositStatus ?? 'pending';
+
+/** `buy` rows are fiat on-ramp orders that the buy poller tracks. */
+export const isBuyEntry = (entry: IHistoryEntry): boolean => entry.txType === 'buy';
+
+/**
+ * The status chip of a `buy` row. The row is born Completed, so its status tells nothing about the
+ * order. The phase does: `completed` is Confirmed, `failed` is Failed, and every other phase is
+ * Pending. A Failed row status still wins, as in `bridgeStatusOf`.
+ */
+export const buyStatusOf = (entry: IHistoryEntry): BridgeStatus => {
+  if (entry.status === ITransactionStatus.Failed) return 'failed';
+  switch (entry.buyPhase) {
+    case 'completed':
+      return 'confirmed';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'pending';
+  }
+};
+
+/** The `IHistoryEntry` fields of a `buy` row. */
+export interface BuyHistoryFields {
+  buyPhase: IBuyPhase;
+  buyFiatAmount: string;
+  buyTokenAmount?: string;
+  buyTokenSymbol: string;
+}
+
+/** Read the buy fields of a row. Return `undefined` for a row that is not a valid `buy` row. */
+export const buyHistoryFieldsOf = (tx: ITransaction): BuyHistoryFields | undefined => {
+  const inputs = buyInputsOf(tx);
+  if (!inputs) return undefined;
+  return {
+    buyPhase: inputs.phase,
+    buyFiatAmount: inputs.fiatAmount,
+    buyTokenAmount: formatBuyTokenAmount(inputs),
+    buyTokenSymbol: inputs.tokenSymbol
+  };
+};
 
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;

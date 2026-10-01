@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "Saisissez une adresse Sepolia valide pour ce retrait.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "Saisissez une adresse Arc Testnet valide pour ce retrait.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "Les retraits d’USDCx ne sont disponibles que pour l’faucet, sur le testnet Miden.",
@@ -100,8 +100,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Votre portefeuille s'ouvrira pour valider le montant exact et signer sur Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Votre portefeuille s’ouvrira pour approuver le montant exact et signer sur le réseau source.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Vous recevez",
@@ -116,8 +116,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Votre portefeuille vous demandera d'approuver l'$tokenSymbol$ et de valider le dépôt sur Sepolia. Les fonds seront crédités sur Miden une fois la confirmation effectuée.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Votre portefeuille vous demandera d’approuver l’$tokenSymbol$ion et de signer le dépôt sur le réseau source. Les fonds arrivent sur Miden après confirmation.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -1467,6 +1467,209 @@
   "amount": {
     "message": "Montant",
     "englishSource": "Amount"
+  },
+  "cash": {
+    "message": "Espèces",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "Acheter",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "Vendre",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "Acheter ou vendre",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "Vous payez",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "Vous vendez",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "Choisissez un fournisseur",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "Acheter de l’USDCx",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "Vendre des USDCx",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "Carte ou virement bancaire",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "Virement bancaire",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "Aperçu du fournisseur — le paiement n'est pas encore connecté.",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "À venir",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "Continuez sur $provider$",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "Ce compte ne dispose pas d’adresse Ethereum ; il ne peut donc pas acheter d’USDCx. Utilisez un compte créé dans ce portefeuille.",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "La fonctionnalité de paiement n’est pas disponible dans cette version.",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "Impossible de lancer le paiement. Veuillez réessayer.",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "Les informations de paiement ne correspondaient pas à votre commande ; le paiement n’a donc pas pu être effectué. Veuillez réessayer.",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "La caisse est fermée",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "La caisse a été fermée car son adresse de destination ne correspondait pas à celle de votre portefeuille. Aucun paiement n’a été effectué à partir de cet écran.",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "Acheter",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "Acheter des USDC",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "Achat terminé",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "Échec de l’achat",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "Vous pouvez quitter cet écran. Le portefeuille continue de suivre votre commande dans la section « Activité ».",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "Vos USDC sont arrivés sur votre compte Miden.",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "La commande n’a pas été finalisée. Si vous avez effectué le paiement, contactez le service client de Transak en mentionnant votre numéro de commande.",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "Suivi de la commande",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "Étape $current$ de $total$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "Paiement",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "Fonds arrivant sur Ethereum",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "Transaction de pont envoyée",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Connexion à Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Réclamer ses fonds sur Miden",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "Terminé",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "Afficher la progression",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "Acheter « $symbol$ »",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ via Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "Point décimal",
+    "englishSource": "Decimal point"
   },
   "mainAssetBalanceIsZero": {
     "message": "Le solde de vos crédits Miden (actif principal) est nul. Des crédits Miden sont nécessaires pour régler les frais.",
@@ -4435,8 +4638,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Validez la demande dans votre portefeuille et laissez cet écran ouvert pendant que Sepolia la confirme.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Validez la demande dans votre portefeuille et laissez cet écran ouvert pendant que le réseau source la confirme.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Échec du dépôt via le pont",
@@ -4447,8 +4650,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "La transaction Sepolia est confirmée. Vos fonds apparaîtront sur Miden une fois le transfert entre chaînes terminé.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "La transaction source est confirmée. Vos fonds apparaîtront sur Miden une fois le transfert via le pont terminé.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Consulter sur Etherscan",
@@ -4527,8 +4730,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "La transaction Sepolia est confirmée. En attente de la validation du dépôt par Circle avant que l’USDCx ne soit émis sur Miden.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "La transaction source est confirmée. En attente que Circle certifie le dépôt avant que l’USDCx ne soit émis sur Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Afficher sur l'explorateur de blocs",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle a certifié le dépôt. L’USDCx sera prochainement émis sur Miden.",
@@ -4959,8 +5166,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Ce pont fonctionne sur Ethereum Sepolia. Ne connectez pas de portefeuille contenant de véritables fonds. Créez un nouveau portefeuille et approvisionnez-le uniquement en ETH Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Ce pont utilise Arc Testnet pour l’USDC et Ethereum Sepolia pour l’ETH. Ne connectez pas de portefeuille contenant des fonds réels. Créez un nouveau portefeuille et alimentez-le uniquement avec des jetons de test.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Aidez-nous à améliorer Wallet",
@@ -5142,8 +5349,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Ce pont transfère des jetons de test Ethereum Sepolia vers Miden. N’effectuez jamais de pont depuis le réseau principal d’Ethereum ni depuis aucun autre réseau réel.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Ce pont permet de transférer des USDC du réseau de test Arc ou des ETH d’Ethereum Sepolia vers Miden. N’effectuez jamais de transfert depuis le réseau principal (mainnet) ou tout autre réseau réel.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Transferts masqués : $count$",

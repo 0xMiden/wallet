@@ -23,6 +23,10 @@ describe('StatusBadge', () => {
     ['pending', 'pending', 'pending'],
     ['inProgress', 'inProgress', 'pending'],
     ['confirmed', 'confirmed', 'positive'],
+    ['burnPending', 'usdcxBurnPending', 'pending'],
+    ['burnConsuming', 'usdcxBurnConsuming', 'pending'],
+    ['burnConfirmed', 'usdcxBurnConfirmed', 'positive'],
+    ['burnDiscarded', 'usdcxBurnDiscarded', 'negative'],
     ['failed', 'failed', 'negative'],
     ['cancelled', 'cancelled', 'neutral'],
     ['reclaimed', 'reclaimed', 'neutral'],
@@ -51,7 +55,7 @@ describe('StatusBadge', () => {
   });
 
   it('covers every status in the table above', () => {
-    expect(STATUSES).toHaveLength(22);
+    expect(STATUSES).toHaveLength(26);
   });
 
   it.each(STATUSES)('labels %s with a key that exists in the English catalog', status => {

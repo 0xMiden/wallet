@@ -22,6 +22,7 @@ import { ReactComponent as BackArrow } from './back-arrow.svg';
 import { ReactComponent as Backspace } from './backspace.svg';
 import { ReactComponent as Bin } from './bin.svg';
 import { ReactComponent as Calendar } from './calendar.svg';
+import { ReactComponent as Cash } from './cash.svg';
 import { ReactComponent as CheckboxCircleFill } from './checkbox-circle-fill.svg';
 import { ReactComponent as CheckboxCircle } from './checkbox-circle.svg';
 import { ReactComponent as CheckboxFill } from './checkbox-fill.svg';
@@ -122,6 +123,7 @@ export enum IconName {
   BackArrow = 'back-arrow',
   Backspace = 'backspace',
   Calendar = 'calendar',
+  Cash = 'cash',
   Bin = 'bin',
   CheckboxCircleFill = 'checkbox-circle-fill',
   CheckboxCircle = 'checkbox-circle',
@@ -284,6 +286,8 @@ const IconSwitch = (props: IconProps) => {
       return <Code {...props} />;
     case IconName.Coins:
       return <Coins {...props} />;
+    case IconName.Cash:
+      return <Cash {...props} />;
     case IconName.ContactsBook:
       return <ContactsBook {...props} />;
     case IconName.Convert:

@@ -27,8 +27,10 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
+  buyStatusOf,
   earnDepositSettlementOf,
   isBridgeInEntry,
+  isBuyEntry,
   isEarnWithdrawEntry,
   isFaucetRequest,
   isReceiveEntry
@@ -146,6 +148,29 @@ function buildRowProps(
           : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
       // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
       status: phase
+    };
+  }
+
+  // Buy row: "Buy USDC" / "20 USD via Transak", the token amount when the provider has reported
+  // it, and a chip from the order phase. The row is born Completed, so its status tells nothing.
+  if (!entry.isCancelled && isBuyEntry(entry)) {
+    const status = buyStatusOf(entry);
+    const failed = status === 'failed';
+    const symbol = entry.buyTokenSymbol ?? entry.token;
+    return {
+      icon: failed ? (
+        <FailedCrossIcon className="w-3.5 h-3.5" />
+      ) : (
+        <Icon name={IconName.Cash} size="sm" className="text-pure-white" />
+      ),
+      iconBg: failed ? 'bg-status-negative' : 'bg-tx-received',
+      title: t('buyRowTitle', { symbol: symbol ?? '' }),
+      subtitle: t('buyRowSubtitle', { amount: entry.buyFiatAmount ?? '', currency: 'USD' }),
+      amount:
+        failed || entry.buyTokenAmount === undefined
+          ? undefined
+          : { value: `+${entry.buyTokenAmount}`, symbol, direction: 'positive' as const },
+      status
     };
   }
 
