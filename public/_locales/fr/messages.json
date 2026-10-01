@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Sauvegardez votre phrase de récupération",
+    "englishSource": "Back up your seed phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Faites une sauvegarde dès maintenant",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Le solde de votre portefeuille a atteint 150 $ USD. Vous devez sauvegarder votre phrase de récupération avant de pouvoir continuer. Notez-la, conservez-la en lieu sûr, puis effectuez la vérification pour pouvoir utiliser votre portefeuille.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your seed phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Impossible d'enregistrer la vérification de sauvegarde. Veuillez réessayer.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "payload": {
     "message": "Charge utile",
     "englishSource": "Payload"

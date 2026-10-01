@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Back up your seed phrase",
+    "englishSource": "Back up your seed phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Back up now",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Your wallet has reached $150 USD. You must back up your seed phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your seed phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Could not save the backup check. Please try again.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "payload": {
     "message": "Payload",
     "englishSource": "Payload"

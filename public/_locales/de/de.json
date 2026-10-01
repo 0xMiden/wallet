@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Sichern Sie Ihre Seed-Phrase",
+  "seedBackupRequiredAction": "Jetzt sichern",
+  "seedBackupRequiredBody": "Das Guthaben in Ihrer Wallet hat 150 US-Dollar erreicht. Sie müssen Ihre Seed-Phrase sichern, bevor Sie fortfahren können. Notieren Sie sie, bewahren Sie sie an einem sicheren Ort auf und schließen Sie die Überprüfung ab, um Ihre Wallet nutzen zu können.",
+  "seedBackupSaveFailed": "Die Sicherungsprüfung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
   "payload": "Nutzlast",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Bestätigen Sie Ihre Einzahlung",

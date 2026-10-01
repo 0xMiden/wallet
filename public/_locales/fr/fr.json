@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Sauvegardez votre phrase de récupération",
+  "seedBackupRequiredAction": "Faites une sauvegarde dès maintenant",
+  "seedBackupRequiredBody": "Le solde de votre portefeuille a atteint 150 $ USD. Vous devez sauvegarder votre phrase de récupération avant de pouvoir continuer. Notez-la, conservez-la en lieu sûr, puis effectuez la vérification pour pouvoir utiliser votre portefeuille.",
+  "seedBackupSaveFailed": "Impossible d'enregistrer la vérification de sauvegarde. Veuillez réessayer.",
   "payload": "Charge utile",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Confirmez votre versement",

@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "シードフレーズをバックアップしてください",
+    "englishSource": "Back up your seed phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "今すぐバックアップしてください",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "ウォレットの残高が150米ドルに達しました。続行するには、シードフレーズをバックアップする必要があります。シードフレーズを書き留め、安全な場所に保管してから、確認手続きを完了させてウォレットをご利用ください。",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your seed phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "バックアップチェックを保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "payload": {
     "message": "ペイロード",
     "englishSource": "Payload"

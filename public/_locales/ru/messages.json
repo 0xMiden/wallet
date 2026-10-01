@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "Сделайте резервную копию своей семенной фразы",
+    "englishSource": "Back up your seed phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "Сделайте резервную копию сейчас",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "Сумма на вашем кошельке достигла 150 долларов США. Прежде чем продолжить, вам необходимо создать резервную копию семенной фразы. Запишите её, храните в надёжном месте и пройдите проверку, чтобы продолжить использование кошелька.",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your seed phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "Не удалось сохранить контрольную копию резервной копии. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "payload": {
     "message": "Полезная нагрузка",
     "englishSource": "Payload"

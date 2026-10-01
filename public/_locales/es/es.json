@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Haz una copia de seguridad de tu frase semilla",
+  "seedBackupRequiredAction": "Haz una copia de seguridad ahora",
+  "seedBackupRequiredBody": "Tu monedero ha alcanzado los 150 dólares estadounidenses. Debes hacer una copia de seguridad de tu frase semilla antes de poder continuar. Anótala, guárdala en un lugar seguro y completa la verificación para poder utilizar tu monedero.",
+  "seedBackupSaveFailed": "No se ha podido guardar la comprobación de la copia de seguridad. Inténtalo de nuevo.",
   "payload": "Carga útil",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Confirma tu ingreso",

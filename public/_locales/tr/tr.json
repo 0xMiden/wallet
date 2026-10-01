@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Tohum ifadenizi yedekleyin",
+  "seedBackupRequiredAction": "Şimdi yedekleyin",
+  "seedBackupRequiredBody": "Cüzdanınızın bakiyesi 150 ABD dolarına ulaştı. Devam edebilmeniz için önce tohum ifadenizi yedeklemeniz gerekir. Bunu bir yere yazın, güvenli bir yerde saklayın ve cüzdanınızı kullanabilmek için kontrol işlemini tamamlayın.",
+  "seedBackupSaveFailed": "Yedekleme kontrolü kaydedilemedi. Lütfen tekrar deneyin.",
   "payload": "Yük",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Para yatırma işleminizi onaylayın",

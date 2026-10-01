@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Utwórz kopię zapasową frazy seed",
+  "seedBackupRequiredAction": "Utwórz kopię zapasową teraz",
+  "seedBackupRequiredBody": "Saldo Twojego portfela osiągnęło 150 USD. Przed kontynuowaniem musisz wykonać kopię zapasową frazy nasiennej. Zapisz ją, przechowuj w bezpiecznym miejscu i zakończ weryfikację, aby móc korzystać z portfela.",
+  "seedBackupSaveFailed": "Nie udało się zapisać kopii zapasowej. Spróbuj ponownie.",
   "payload": "Ładunek",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Potwierdź wpłatę",

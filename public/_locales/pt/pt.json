@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "Faça backup da sua frase-semente",
+  "seedBackupRequiredAction": "Faça backup agora",
+  "seedBackupRequiredBody": "Sua carteira atingiu US$ 150. Você deve fazer backup da sua frase-semente antes de poder continuar. Anote-a, guarde-a em um local seguro e conclua a verificação para usar sua carteira.",
+  "seedBackupSaveFailed": "Não foi possível salvar a verificação do backup. Tente novamente.",
   "payload": "Carga útil",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "Confirme seu depósito",

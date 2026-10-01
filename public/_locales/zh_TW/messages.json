@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "備份您的種子短語",
+    "englishSource": "Back up your seed phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "立即備份",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "您的錢包餘額已達到 150 美元。您必須先備份種子短語，才能繼續操作。請將其寫下、存放在安全的地方，並完成驗證程序以使用您的錢包。",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your seed phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "無法儲存備份檢查。請重試。",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "payload": {
     "message": "有效載荷",
     "englishSource": "Payload"
