@@ -370,7 +370,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
               </span>
             )}
           </div>
-          <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-pure-white drop-shadow">
+          <span className="min-w-0 truncate text-[11px] font-semibold leading-tight text-pure-white [filter:drop-shadow(0_1px_2px_rgb(0_0_0_/_0.1))_drop-shadow(0_1px_1px_rgb(0_0_0_/_0.06))]">
             {displayName}
           </span>
         </div>

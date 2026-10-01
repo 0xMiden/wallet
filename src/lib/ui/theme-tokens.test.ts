@@ -38,10 +38,13 @@ function scanSource(pattern: RegExp, advise: (cls: string) => string): string[] 
 }
 
 describe('theme-dependent black and white', () => {
-  // `black` is `ink`, which is white in dark theme, so a scrim written with it turns into a white wash.
-  const THEME_BLACK_WITH_OPACITY = /\b(bg|from|via|to)-black\/\d/;
-  // `white` is the surface colour, a grey in dark theme, so this override fights the token it sits on.
-  const DARK_OVERRIDE_TO_SURFACE = /\bdark:(text|border|bg|fill|stroke|from|via|to)-white\b/;
+  // `black` is `ink`, which is white in dark theme, so a scrim written with it turns into a white wash and
+  // a surface that must stay dark, such as a camera frame, turns white.
+  const THEME_BLACK_FILL = /\b(bg|from|via|to)-black\/\d|\bbg-black(?![\w/-])/;
+  // `white` is the surface colour, a grey in dark theme, so this override fights the token it sits on,
+  // with or without further variants after `dark:`.
+  const DARK_OVERRIDE_TO_SURFACE =
+    /\bdark:([^\s'"`]*:)?(text|border|bg|fill|stroke|from|via|to|ring|outline|divide|placeholder|caret|decoration|shadow)-white\b/;
 
   // An empty file list would pass both scans below vacuously.
   it('scans the tracked non-test source', () => {
@@ -52,14 +55,14 @@ describe('theme-dependent black and white', () => {
   });
 
   // Hand-written arms, so narrowing either pattern fails here even while the tree has no offence.
-  it.each(['bg-black/55', 'from-black/85', 'via-black/40', 'to-black/10', 'hover:bg-black/60'])(
+  it.each(['bg-black/55', 'from-black/85', 'via-black/40', 'to-black/10', 'hover:bg-black/60', 'bg-black'])(
     'the black pattern flags %s',
-    cls => expect(THEME_BLACK_WITH_OPACITY.test(cls)).toBe(true)
+    cls => expect(THEME_BLACK_FILL.test(cls)).toBe(true)
   );
 
-  it.each(['bg-pure-black/55', 'from-pure-black/85', 'bg-black', 'border-black', 'text-ink'])(
+  it.each(['bg-pure-black/55', 'from-pure-black/85', 'border-black', 'bg-black-40', 'text-ink'])(
     'the black pattern leaves %s alone',
-    cls => expect(THEME_BLACK_WITH_OPACITY.test(cls)).toBe(false)
+    cls => expect(THEME_BLACK_FILL.test(cls)).toBe(false)
   );
 
   it.each([
@@ -70,7 +73,15 @@ describe('theme-dependent black and white', () => {
     'dark:stroke-white',
     'dark:from-white',
     'dark:via-white',
-    'dark:to-white'
+    'dark:to-white',
+    'dark:hover:bg-white/10',
+    'dark:ring-white',
+    'dark:outline-white',
+    'dark:divide-white',
+    'dark:placeholder-white',
+    'dark:caret-white',
+    'dark:decoration-white',
+    'dark:shadow-white'
   ])('the dark override pattern flags %s', cls => expect(DARK_OVERRIDE_TO_SURFACE.test(cls)).toBe(true));
 
   it.each(['dark:text-pure-white', 'dark:bg-pure-white/10', 'text-white', 'dark:text-ink'])(
@@ -78,11 +89,11 @@ describe('theme-dependent black and white', () => {
     cls => expect(DARK_OVERRIDE_TO_SURFACE.test(cls)).toBe(false)
   );
 
-  it('no overlay uses the theme black with an opacity', () => {
+  it('no overlay or dark surface uses the theme black', () => {
     expect(
       scanSource(
-        THEME_BLACK_WITH_OPACITY,
-        cls => `use ${cls.replace('-black/', '-pure-black/')}: black is ink, white in dark theme`
+        THEME_BLACK_FILL,
+        cls => `use ${cls.replace('-black', '-pure-black')}: black is ink, white in dark theme`
       )
     ).toEqual([]);
   });
@@ -97,28 +108,53 @@ describe('theme-dependent black and white', () => {
   });
 });
 
-describe('backdrop filters', () => {
-  // Tailwind v4 composes these from @property variables read with an empty fallback, which an Android
-  // WebView at Chrome 113 computes to none, and iOS before 18 reads only the -webkit- property. The
-  // mobile minifier keeps that prefix only because vite.mobile.config.ts sets cssTarget.
-  const COMPOSED_BACKDROP_UTILITY =
-    /\bbackdrop-(blur|saturate|brightness|contrast|grayscale|hue-rotate|invert|opacity|sepia)\b/;
-
-  it.each(['backdrop-blur-sm', 'backdrop-blur-[6px]', 'backdrop-saturate-150', 'dark:backdrop-brightness-50'])(
-    'the backdrop pattern flags %s',
-    cls => expect(COMPOSED_BACKDROP_UTILITY.test(cls)).toBe(true)
+describe('composed filters', () => {
+  // Tailwind v4 composes `filter` and `backdrop-filter` from @property variables read with an empty
+  // fallback, which an Android WebView at Chrome 113 computes to none, so a blur that hides a secret hides
+  // nothing; iOS before 18 also reads only the -webkit- backdrop property. The mobile minifier keeps that
+  // prefix only because vite.mobile.config.ts sets cssTarget.
+  const FILTER = /(blur|brightness|contrast|drop-shadow|grayscale|hue-rotate|invert|saturate|sepia)/.source;
+  // Only a theme step, a number or an arbitrary value follows the name in a real class, so code such as
+  // `addEventListener('blur', ...)` or `'grayscale-firefox-fix'` is not flagged.
+  const VALUE = /(xs|sm|md|lg|xl|2xl|3xl|none|\d+|\[[^\s'"`]*\]|\([^\s'"`]*\))(\/\d+)?/.source;
+  const BARE = /((backdrop-)?(grayscale|invert|sepia)|backdrop-blur|drop-shadow)/.source;
+  // One whole class token: its variants, an important or negative prefix, the utility, the end of the token.
+  const COMPOSED_FILTER_UTILITY = new RegExp(
+    `(?<![^\\s'"\`])([^\\s'"\`]*:)?!?-?((backdrop-)?${FILTER}-${VALUE}|backdrop-opacity-${VALUE}|${BARE})!?(?=$|[\\s'"\`])`
   );
 
-  it.each(['[backdrop-filter:blur(8px)]', '[-webkit-backdrop-filter:blur(8px)]', 'blur-sm', 'backdrop:bg-pure-black'])(
-    'the backdrop pattern leaves %s alone',
-    cls => expect(COMPOSED_BACKDROP_UTILITY.test(cls)).toBe(false)
-  );
+  it.each([
+    'blur-sm',
+    'md:blur-sm',
+    'drop-shadow',
+    'grayscale',
+    'backdrop-blur-sm',
+    'backdrop-blur-[6px]',
+    'backdrop-saturate-150',
+    'dark:backdrop-brightness-50',
+    'backdrop-opacity-50',
+    '-hue-rotate-15',
+    'drop-shadow-lg/50',
+    'blur-sm!'
+  ])('the filter pattern flags %s', cls => expect(COMPOSED_FILTER_UTILITY.test(cls)).toBe(true));
 
-  it('no surface composes its backdrop filter from Tailwind utilities', () => {
+  it.each([
+    '[filter:blur(8px)]',
+    '[backdrop-filter:blur(8px)]',
+    '[-webkit-backdrop-filter:blur(8px)]',
+    'backdrop:bg-pure-black',
+    "window.addEventListener('blur', hide);",
+    "process.env.TARGET_BROWSER === 'firefox' && 'grayscale-firefox-fix',",
+    ' * scale, a small turn and a blur crossfade on the `tabSwitch` spring',
+    "filter: 'blur(4px)'"
+  ])('the filter pattern leaves %s alone', cls => expect(COMPOSED_FILTER_UTILITY.test(cls)).toBe(false));
+
+  it('no element composes its filter or backdrop filter from Tailwind utilities', () => {
     expect(
       scanSource(
-        COMPOSED_BACKDROP_UTILITY,
-        cls => `drop ${cls}: write plain backdrop-filter and -webkit-backdrop-filter values as arbitrary properties`
+        COMPOSED_FILTER_UTILITY,
+        cls =>
+          `drop ${cls}: write a plain [filter:...] value, or [backdrop-filter:...] with its [-webkit-backdrop-filter:...] twin`
       )
     ).toEqual([]);
   });
