@@ -203,6 +203,28 @@ describe('the command refuses operator input before any probe or build', () => {
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 
+  // A quoted unset variable arrives as '': `--grep "$UNSET"` would drop the
+  // operator's narrowing and widen a real-money run.
+  it.each([
+    '--suite',
+    '--network',
+    '--epoch-url',
+    '--epoch-positions-url',
+    '--sepolia-rpc',
+    '--sepolia-key',
+    '--min-eth',
+    '--grep'
+  ])(
+    'refuses an empty value for %s',
+    flag => {
+      const res = runCli('--suite', 'swap', flag, '', '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} needs a value`);
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
   // A swallowed option is lost without a word: `--grep --preflight-only` would
   // build and run a real-money suite the operator asked only to preflight. The
   // trailing bad --min-eth keeps each run off the network if the flag does take it.

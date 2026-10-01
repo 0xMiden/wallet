@@ -176,7 +176,9 @@ function parseArgs(argv) {
     if (Object.hasOwn(booleanFlags, arg)) opts[booleanFlags[arg]] = true;
     else if (Object.hasOwn(takesValue, arg)) {
       const value = argv[++i];
-      if (value === undefined || optionNames.has(value)) fail(`${arg} needs a value`);
+      // A quoted unset variable arrives as '': `--grep "$UNSET"` would otherwise
+      // drop the operator's narrowing and widen a real-money run.
+      if (value === undefined || value === '' || optionNames.has(value)) fail(`${arg} needs a value`);
       opts[takesValue[arg]] = value;
     } else fail(`unknown argument: ${arg}`);
   }
