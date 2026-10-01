@@ -3292,7 +3292,7 @@ describe('Welcome — E2E onboarding bypass', () => {
   it('threads the guardianUrl param into registerWallet as the endpoint override (import/recovery)', async () => {
     // Recovery path: with a `seed` param the bypass runs an Import, and the same
     // override must reach registerWallet so Vault.spawn's recovery scan probes
-    // the right operator instead of the retained global-key/default fallback.
+    // the right operator instead of falling back to the network default.
     process.env.MIDEN_E2E_TEST = 'true';
     window.history.replaceState(
       null,

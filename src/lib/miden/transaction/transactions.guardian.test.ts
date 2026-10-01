@@ -84,11 +84,9 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-// Storage reads answer undefined unless a test drives them.
-const mockFetchFromStorage = jest.fn(async (_key: string): Promise<unknown> => undefined);
 jest.mock('lib/miden/front/storage', () => ({
   ...jest.requireActual('lib/miden/front/storage'),
-  fetchFromStorage: (key: string) => mockFetchFromStorage(key)
+  fetchFromStorage: async () => undefined
 }));
 
 jest.mock('lib/settings/constants', () => ({

@@ -9,6 +9,7 @@ import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -2852,6 +2853,17 @@ describe('Vault hardware branches', () => {
     );
     // createGuardianMidenWallet must NOT run on the recovery path.
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn falls back to the network default when the recovery path is given no guardianEndpoint', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    await Vault.spawn(WalletType.Guardian, 'pw-guardian-recover-default', VALID_MNEMONIC, true);
+
+    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
+      expect.any(Function),
+      getEffectiveDefaultGuardianEndpoint()
+    );
   });
 
   it('createHDAccount supports WalletType.Guardian (derivation index 2)', async () => {

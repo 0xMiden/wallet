@@ -226,8 +226,8 @@ it('flags needs-user-input immediately when nothing is stored and no built-in op
 
 // The other half of that rule, and the one a boolean got wrong: an INCOMPLETE
 // round establishes nothing about an account with no stored endpoint either, so
-// it must not be accused on the strength of our own probes failing. A legacy
-// record whose endpoint backfill has not run yet is exactly this shape.
+// it must not be accused on the strength of our own probes failing. An account
+// that simply names no guardian endpoint of its own is exactly this shape.
 it('says nothing when nothing is stored and the built-in round could not complete', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
   (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
@@ -1254,7 +1254,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
 
-  // Fail-closed on a storage read that THREW. `resolveChosenGuardianEndpoint`
+  // Fail-closed on a resolver failure. `resolveChosenGuardianEndpoint`
   // propagates by design, and a guard over write authority cannot treat "I could
   // not tell" as permission.
   it("reports 'stale' when the pointer could not be read", async () => {
@@ -1495,8 +1495,8 @@ describe('post-await liveness guards refuse a hold the mutex has moved on from',
 });
 
 describe('the endpoint the account is actually bound to', () => {
-  // With no pointer anywhere, `'absent'` still means what it says, and the
-  // accuse-on-one-complete-round rule is unchanged.
+  // With no pointer anywhere, `'absent'` means what it says: a complete built-in
+  // round with no match accuses on that one round alone.
   it('still accuses an account with no pointer at all', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
     (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
@@ -1507,9 +1507,9 @@ describe('the endpoint the account is actually bound to', () => {
   });
 
   // "Named no operator" and "we could not read which operator" collapse to the
-  // same `undefined` at the resolver, and only the first is evidence. A read
+  // same `undefined` at the resolver, and only the first is evidence. A resolver
   // failure must therefore cost a window, not produce the accusation directly
-  // above — which blocks every send and does not self-correct.
+  // above, which blocks every send and does not self-correct.
   it('skips the window instead of accusing when the pointer cannot be read', async () => {
     (resolveChosenGuardianEndpoint as jest.Mock).mockRejectedValueOnce(new Error('storage unavailable'));
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');

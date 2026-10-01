@@ -420,8 +420,7 @@ describe('createGuardianAccount', () => {
       coldSecretKeyHex: expect.any(String)
     });
     // Endpoint is returned so vault can persist it per-account. No override was
-    // supplied and the frozen global key is never consulted for a create, so it
-    // resolves to the effective network default.
+    // supplied, so it resolves to the effective network default.
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 

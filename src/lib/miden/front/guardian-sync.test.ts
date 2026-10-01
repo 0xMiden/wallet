@@ -1997,7 +1997,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   });
 
   // ...and the read failure must not escape into the sync loop, which iterates
-  // every account: one account's storage hiccup would otherwise abort the tick
+  // every account: one account's resolver failure would otherwise abort the tick
   // for all of them.
   //
   // Driven through `resolveGuardianEndpoint`, NOT `resolveChosenGuardianEndpoint`.
