@@ -12,7 +12,7 @@ import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift
 } from 'lib/miden/back/guardian-drift';
-import { maybeStartGuardianRecovery } from 'lib/miden/back/guardian-recovery';
+import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from 'lib/miden/back/guardian-recovery';
 import {
   toFront,
   store,
@@ -349,6 +349,7 @@ export function lock() {
     await withWasmClientLock(async () => {
       const { vault } = store.getState();
       clearRecoveryAuthorizations();
+      releaseGuardianRecoveriesOnLock();
       locked();
       // Only the vault being locked gives up its insert-key sink; one an unlock in
       // flight just installed stays (#878).

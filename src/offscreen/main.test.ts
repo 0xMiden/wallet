@@ -21,6 +21,7 @@
  */
 
 import { encodeArg, OFFSCREEN_SIGN_REQUEST } from 'lib/miden/back/offscreen-codec';
+import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
@@ -411,6 +412,11 @@ function resetControl() {
     clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
+    clientDecodeGuardianHistory: jest.fn(async (_encoded: string) => ({
+      accountId: 'account',
+      inputNotes: [],
+      outputNotes: []
+    })),
     clientImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 1, failures: 0 })),
     clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
@@ -428,6 +434,8 @@ function resetControl() {
     // Overridable so a test can choose between a transport-shaped failure (which
     // is what marks a prover outage) and a semantic one (which must not).
     guardianProveFailureMessage: 'remote prover deadline expired',
+    // When set, the failing prove throws this instead of an Error carrying the message above.
+    guardianProveError: undefined as Error | undefined,
     guardianSubmitted: false,
     guardianApplied: false,
     deserializeProof: jest.fn((bytes: Uint8Array) => ({ __proofFromBytes: Array.from(bytes) })),
@@ -451,7 +459,7 @@ function resetControl() {
           if (options?.prover?.__local) throw new Error('in-realm prove reached');
           if (g2.__off.guardianProveShouldFailOnce) {
             g2.__off.guardianProveShouldFailOnce = false;
-            throw new Error(g2.__off.guardianProveFailureMessage);
+            throw g2.__off.guardianProveError ?? new Error(g2.__off.guardianProveFailureMessage);
           }
           return {
             submit: jest.fn(async () => {
@@ -508,6 +516,7 @@ function resetControl() {
         getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
         importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
         drainPrivateNoteTransport: (...a: any[]) => (globalThis as any).__off.clientDrainPrivateNoteTransport(...a),
+        decodeGuardianHistory: (...a: any[]) => (globalThis as any).__off.clientDecodeGuardianHistory(...a),
         importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
         recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
         sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
@@ -1191,6 +1200,27 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("call 'getAccount' failed"), expect.any(Error));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp).toEqual({ ok: false, op_id: 'op-abc', error: 'store read boom' });
+  });
+
+  it('names a history data error on the ok:false reply, so the SW rebuilds its class', async () => {
+    await loadModule();
+    let liveHold: unknown;
+    G.__off.clientDecodeGuardianHistory = jest.fn(async () => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      throw new GuardianHistoryDataError('Guardian summary is too large');
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'decodeGuardianHistory', argsB64: [encodeArg('summary')] }), {}, sendResponse);
+    await flush();
+
+    expect(liveHold).toBeDefined();
+    expect(G.__off.clientDecodeGuardianHistory).toHaveBeenCalledWith('summary', liveHold);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      op_id: 'op-abc',
+      errorName: 'GuardianHistoryDataError',
+      error: 'Guardian summary is too large'
+    });
   });
 
   it('preserves the SDK errorCode on the ok:false reply when a WRITE throws an apply-after-submit error (#260 funds-critical)', async () => {
@@ -2446,6 +2476,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   it('dispatches importNoteBytes → imports into the offscreen store and ships the id back as bytes', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportNoteBytes = jest.fn(async (_bytes: Uint8Array, _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return '0ximportedid';
+    });
     const sendResponse = jest.fn();
     const noteBytes = new Uint8Array([0xab, 0xcd, 0xef]);
     capturedListener!(callReq({ method: 'importNoteBytes', argsB64: [encodeArg(noteBytes)] }), {}, sendResponse);
@@ -2454,6 +2489,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // The raw note bytes crossed intact and were imported into THIS client's store.
     expect(G.__off.clientImportNoteBytes).toHaveBeenCalledTimes(1);
     expect(Array.from(G.__off.clientImportNoteBytes.mock.calls[0][0])).toEqual([0xab, 0xcd, 0xef]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportNoteBytes.mock.calls[0][1]).toBe(liveHold);
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Buffer.from(resp.resultB64, 'base64').toString('utf8')).toBe('0ximportedid');
@@ -2461,6 +2498,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   it('dispatches proposal-note import and restores note bytes', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportRecoveryNoteBytes = jest.fn(async (_notes: Uint8Array[], _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return { imported: 1, failures: 0 };
+    });
     const sendResponse = jest.fn();
     const encodedNotes = [Buffer.from([1, 2]).toString('base64'), Buffer.from([3]).toString('base64')];
     const ret = capturedListener!(
@@ -2476,6 +2518,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       new Uint8Array([1, 2]),
       new Uint8Array([3])
     ]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportRecoveryNoteBytes.mock.calls[0][1]).toBe(liveHold);
     const response = sendResponse.mock.calls[0][0];
     expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
       imported: 1,
@@ -3578,6 +3622,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
+  it('guardianPipeline (delegated): a trap from the delegated prove fails the write without a local re-prove', async () => {
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    G.__off.guardianProveError = new WebAssembly.RuntimeError('unreachable');
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: 'unreachable' });
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('delegated guardian prove failed'),
+      expect.anything()
+    );
+  });
+
   it('guardianPipeline (delegated): a worker failure on the fallback leg fails the write before submit (#945)', async () => {
     await loadModule();
     G.__off.guardianProveShouldFailOnce = true;
@@ -4144,6 +4212,47 @@ describe('offscreen/main — WASM lock recovery hook', () => {
       { txResult: new Uint8Array([9]) }
     ]);
     expect(G.__off.webClientCtorCount).toBe(0);
+  });
+
+  it('a decode that retires its trapped client replies with the data error and the next call rebuilds', async () => {
+    await loadModule();
+    const r1 = jest.fn();
+    capturedListener!(callReq({}), {}, r1);
+    await flush();
+    expect(G.__off.createOptions).toHaveLength(1);
+
+    let passedHold: unknown;
+    let liveHold: unknown;
+    G.__off.clientDecodeGuardianHistory = jest.fn(async (_encoded: string, hold: unknown) => {
+      passedHold = hold;
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      firePoisoned();
+      throw new GuardianHistoryDataError('Guardian summary does not deserialize', {
+        cause: new WebAssembly.RuntimeError('unreachable')
+      });
+    });
+    const r2 = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-2', method: 'decodeGuardianHistory', argsB64: [encodeArg('summary')] }),
+      {},
+      r2
+    );
+    await flush();
+    expect(r2.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorName: 'GuardianHistoryDataError',
+      error: 'Guardian summary does not deserialize'
+    });
+    expect(liveHold).toBeDefined();
+    expect(passedHold).toBe(liveHold);
+    expect(G.__off.clientMarkPoisoned).toHaveBeenCalledTimes(1);
+
+    const r3 = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-3' }), {}, r3);
+    await flush();
+    expect(r3.mock.calls[0][0].ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(2);
+    expect(G.__off.createOptions[1].useWorker).toBe(false);
   });
 
   it('a no-op fire (nothing built yet) neither logs nor breaks the next call', async () => {

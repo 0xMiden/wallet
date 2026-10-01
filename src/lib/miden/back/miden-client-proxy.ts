@@ -23,7 +23,7 @@ import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getMidenClient, withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
 import type {
   AssertLive,
   InputNoteDetails,
@@ -62,6 +62,12 @@ import {
   isOffscreenAvailable
 } from './offscreen-prover';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
+import {
+  GuardianHistoryDataError,
+  GuardianHistoryFeeLookupError,
+  GuardianHistoryFeeUnavailableError
+} from '../guardian/history-errors';
+import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
 
@@ -432,6 +438,18 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       // dropping the classification.
       const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
       op.reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
+      op.reject(new GuardianHistoryFeeUnavailableError());
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryFeeLookupError') {
+      op.reject(new GuardianHistoryFeeLookupError());
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryDataError') {
+      op.reject(new GuardianHistoryDataError(resp.error));
       return;
     }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
@@ -1398,15 +1416,16 @@ export const midenClientProxy = {
    * would be lost to the dormant SW store).
    *
    * Flag off (default): BYTE-IDENTICAL — inline `(await getMidenClient()).
-   * importNoteBytes(bytes)` (caller owns the lock). Flag on: forward to the
+   * importNoteBytes(bytes, hold)` under the caller's lock, whose hold retires a
+   * trap the import catches. Flag on: forward to the
    * offscreen doc so the import hits the realm that owns the synced store. It is a
    * quick store op (no prove / sign — NOT a `criticalOp`); a wedge is reclaimed by
    * the read deadline. Returns the imported note's id / details commitment (the
    * `importAllNotes` caller discards it).
    */
-  async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
+  async importNoteBytes(noteBytes: Uint8Array, hold: WasmLockHold): Promise<string> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).importNoteBytes(noteBytes);
+      return (await getMidenClient()).importNoteBytes(noteBytes, hold);
     }
     const resultB64 = await this.call('importNoteBytes', [noteBytes], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) {
@@ -1426,9 +1445,34 @@ export const midenClientProxy = {
   },
 
   /** Pending-note recovery chunk: import proposal-embedded note bytes. */
+  async decodeGuardianHistory(encoded: string) {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async hold => (await getMidenClient()).decodeGuardianHistory(encoded, hold));
+    }
+    const result = await this.call('decodeGuardianHistory', [encoded], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian summary response');
+    const text = new TextDecoder().decode(b64ToBytes(result));
+    try {
+      return guardianSummarySchema.parse(JSON.parse(text));
+    } catch (cause) {
+      throw new GuardianHistoryDataError('Guardian summary fails its schema', { cause });
+    }
+  },
+
+  async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async hold => (await getMidenClient()).getGuardianResultCommitment(bytes, hold));
+    }
+    const result = await this.call('getGuardianResultCommitment', [bytesToB64(bytes)], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian commitment response');
+    return new TextDecoder().decode(b64ToBytes(result));
+  },
+
   async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes));
+      return withWasmClientLock(async hold =>
+        (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes, hold)
+      );
     }
     const encodedNotes = proposalNoteBytes.map(bytesToB64);
     const resultB64 = await this.call('importRecoveryNoteBytes', [encodedNotes], {

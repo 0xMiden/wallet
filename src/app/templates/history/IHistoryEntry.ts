@@ -31,6 +31,8 @@ export interface IHistoryExtraAmount {
 }
 
 export interface IHistoryEntry {
+  guardianRecovered?: boolean;
+  guardianReclaimed?: boolean;
   key: string;
   address: string;
   timestamp: number;
