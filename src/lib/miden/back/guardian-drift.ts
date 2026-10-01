@@ -434,16 +434,14 @@ async function runGuardianDriftPass(
   // `'absent'` already means, and it must keep `'absent'`'s requirement of a
   // complete built-in round before accusing.
   //
-  // A resolver failure SKIPS this window rather than degrading to `''`. The two
-  // are not interchangeable here: `''` is the value that means "this account
-  // named no operator", which is the `'absent'` evidence this function accuses
-  // on, so swallowing the error would manufacture the accusation instead of
-  // merely failing to check for it. Skipping costs one probe window and
-  // self-corrects on the next tick; accusing writes `needs-user-input`, which
-  // blocks every send through `assertGuardianInSync` and does not self-correct.
-  // Note the cooldown is deliberately NOT armed on this path - an unread pointer
-  // is not a completed probe, and charging it a cooldown would stretch a
-  // transient failure into a multi-minute blind spot.
+  // `resolveChosenGuardianEndpoint` reads the account's field and cannot fail
+  // today; the catch is defence for the loop. If it ever fires, it SKIPS this
+  // window rather than degrading to `''`: `''` means "this account named no
+  // operator", the `'absent'` evidence this function accuses on, and accusing
+  // writes `needs-user-input`, which blocks every send through
+  // `assertGuardianInSync` and does not self-correct. Skipping costs one probe
+  // window. The cooldown is not armed on this path: an unread pointer is not a
+  // completed probe, and a cooldown would stretch it into a multi-minute blind spot.
   let storedEndpoint: string;
   try {
     storedEndpoint = (await resolveChosenGuardianEndpoint(account)) ?? '';
@@ -955,9 +953,10 @@ export async function revertGuardianEndpointAfterDiscard(
   try {
     boundEndpoint = await resolveChosenGuardianEndpoint(account);
   } catch (error) {
-    // A resolver that threw says nothing about the binding, and this guard
-    // cannot treat "I could not tell" as permission - the same fail-closed rule
-    // the unreachable-operator and unread-commitment arms below follow.
+    // The resolver reads the account's field and cannot fail today; this catch
+    // is defence for the loop, and it fails closed: "I could not tell" is not
+    // permission, the same rule the unreachable-operator and unread-commitment
+    // arms below follow.
     console.warn(
       `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; leaving the rollback pending`,
       error

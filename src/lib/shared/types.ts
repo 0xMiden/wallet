@@ -415,7 +415,7 @@ export type KeyDerivation = 'v1';
  * guardian key. 'in-sync': stored endpoint matches on-chain. 'resolving':
  * an out-of-band switch was detected and auto-resolution is in progress.
  * 'needs-user-input': the new operator could not be identified (custom URL) and
- * the user must supply it. Absent on non-Guardian accounts and legacy records.
+ * the user must supply it. Absent until the drift reconciler first writes it.
  */
 export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
 

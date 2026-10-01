@@ -1147,13 +1147,12 @@ async function runPendingRotationRecheck(
  * refuse.
  */
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<boolean> {
-  // A pointer the resolver could not produce gets the same refusal as no pointer
-  // at all, and for the stronger of the two reasons: this function POSTs the
-  // device's serialized private account state, so the one thing it must never do
-  // is proceed on a guess about which operator is entitled to it. Returning
-  // without stamping the attempt budget also keeps a resolver failure from
-  // consuming one of the account's few self-heal attempts: the next tick retries
-  // from where it left off rather than a step further along.
+  // `resolveChosenGuardianEndpoint` reads the account's field and cannot fail
+  // today; the catch is defence for the loop. If it ever fires, it gets the same
+  // refusal as no pointer at all: this function POSTs the device's serialized
+  // private account state, so it must never proceed on a guess about which
+  // operator is entitled to it. Returning before the attempt budget is stamped
+  // keeps such a failure from consuming one of the account's few self-heal attempts.
   let endpoint: string | undefined;
   try {
     endpoint = await resolveChosenGuardianEndpoint(account);
@@ -1845,11 +1844,11 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // default sees its operator change under a dev-settings endpoint override
     // while the raw field stays `undefined`, and keying on the field no reset
     // fired at all (F-137).
-    // Per-account, because a rejection here would otherwise escape the `for` and
-    // reject the whole pass, and the pass's only caller discards it
-    // (`syncGuardianAccounts().catch(() => {})` in `useSyncTrigger`), so one
-    // account's resolver failure would silently cost EVERY later account its tick,
-    // with nothing in the console to say so.
+    // The resolver reads the account's field (or the network default) and cannot
+    // fail today; the per-account catch is defence for the loop. A rejection that
+    // escaped the `for` would reject the whole pass, which its only caller discards
+    // (`syncGuardianAccounts().catch(() => {})` in `useSyncTrigger`), silently
+    // costing EVERY later account its tick.
     let endpoint: string;
     try {
       endpoint = await resolveGuardianEndpoint(account);

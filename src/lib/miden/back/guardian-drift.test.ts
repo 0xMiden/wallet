@@ -1254,9 +1254,9 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
 
-  // Fail-closed on a resolver failure. `resolveChosenGuardianEndpoint`
-  // propagates by design, and a guard over write authority cannot treat "I could
-  // not tell" as permission.
+  // `resolveChosenGuardianEndpoint` reads the account's field and cannot fail
+  // today; this pins the defensive catch, which fails closed: a guard over write
+  // authority cannot treat "I could not tell" as permission.
   it("reports 'stale' when the pointer could not be read", async () => {
     (resolveChosenGuardianEndpoint as jest.Mock).mockRejectedValueOnce(new Error('storage down'));
     const vault = boundTo('');
@@ -1506,9 +1506,9 @@ describe('the endpoint the account is actually bound to', () => {
     expect(checkEndpointCommitment).not.toHaveBeenCalled();
   });
 
-  // "Named no operator" and "we could not read which operator" collapse to the
-  // same `undefined` at the resolver, and only the first is evidence. A resolver
-  // failure must therefore cost a window, not produce the accusation directly
+  // The resolver cannot fail today; this pins the defensive catch. "Named no
+  // operator" is evidence and "we could not read which operator" is not, so a
+  // resolver failure must cost a window, not produce the accusation directly
   // above, which blocks every send and does not self-correct.
   it('skips the window instead of accusing when the pointer cannot be read', async () => {
     (resolveChosenGuardianEndpoint as jest.Mock).mockRejectedValueOnce(new Error('storage unavailable'));

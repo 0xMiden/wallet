@@ -1982,11 +1982,11 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
   });
 
-  // An unreadable pointer gets the SAME refusal as no pointer at all. This call
-  // POSTs the device's serialized private account state, so "we could not read
-  // which operator the account chose" is the one condition under which it must
-  // not guess — and the resolver deliberately propagates that failure rather than
-  // flattening it into the `undefined` that means "chose nothing".
+  // The resolver reads the account's field and cannot fail today; this pins the
+  // defensive catch. An unreadable pointer gets the SAME refusal as no pointer at
+  // all: this call POSTs the device's serialized private account state, so "we
+  // could not read which operator the account chose" is the one condition under
+  // which it must not guess.
   it('does not register when the account\u2019s guardian pointer cannot be read', async () => {
     mockResolveChosenGuardianEndpoint.mockRejectedValue(new Error('storage unavailable'));
 
@@ -1996,15 +1996,14 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
   });
 
-  // ...and the read failure must not escape into the sync loop, which iterates
-  // every account: one account's resolver failure would otherwise abort the tick
-  // for all of them.
+  // ...and the loop's defensive catch keeps a read failure, which the resolvers
+  // cannot produce today, from aborting the tick for every account.
   //
   // Driven through `resolveGuardianEndpoint`, NOT `resolveChosenGuardianEndpoint`.
   // The loop's own resolution at the top of each iteration is the call that
-  // escapes — it sits outside the per-account try — and the two are separate
-  // mocks here, so rejecting only the self-heal's resolver leaves the escaping
-  // path healthy and the test green either way. It also needs a SECOND account:
+  // catch guards (it sits outside the per-account sync try), and the two are
+  // separate mocks here, so rejecting only the self-heal's resolver leaves the
+  // guarded path healthy and the test green either way. It also needs a SECOND account:
   // with one, "the pass resolved" and "the remaining accounts were served" are
   // the same assertion, and any abort is invisible.
   it('keeps syncing the remaining accounts when one account\u2019s pointer read throws', async () => {
