@@ -56,6 +56,7 @@ const GuardianReplaceHotKey: FC = () => {
   return (
     <SubPageSection
       title={t('replaceHotKey')}
+      titleSize="md"
       data-testid="replace-hot-key-section"
       description={
         <>
