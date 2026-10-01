@@ -68,14 +68,17 @@ const attemptsOf = (row: ITransaction): number => {
 /**
  * Rows the sweep should look at: a private send that has a landed note and has not
  * been proven delivered. Ordered oldest-first so a backlog drains in the order the
- * sends happened.
+ * notes were relayed.
  */
 const candidateRows = async (at: number): Promise<ITransaction[]> => {
   const rows = await Repo.transactions.where('noteDelivery').anyOf(SWEEPABLE).toArray();
+  // Aged from the relay (`completedAt`), not the queue stamp, for the reason the arming
+  // below gives: a send that waited queued for hours relays only when it completes.
+  const relayedAt = (row: ITransaction) => row.completedAt ?? row.initiatedAt ?? 0;
   return rows
     .filter(row => attemptsOf(row) < MAX_RELAY_ATTEMPTS)
-    .filter(row => at - (row.initiatedAt ?? 0) <= RELAY_WINDOW_SECONDS)
-    .sort((a, b) => (a.initiatedAt ?? 0) - (b.initiatedAt ?? 0));
+    .filter(row => at - relayedAt(row) <= RELAY_WINDOW_SECONDS)
+    .sort((a, b) => relayedAt(a) - relayedAt(b));
 };
 
 const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string } | undefined => {

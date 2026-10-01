@@ -235,6 +235,25 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).not.toHaveBeenCalled();
   });
 
+  it('measures the window from the relay, so a send that waited in the queue is still swept', async () => {
+    // `initiatedAt` is stamped at queue time; a send that sat queued for hours (the app
+    // was closed) relays when it completes, and its delivery is due from then.
+    rows.push(row({ initiatedAt: NOW - 7 * 60 * 60, completedAt: NOW - 600 }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+  });
+
+  it('still ignores a send relayed before the window', async () => {
+    rows.push(row({ initiatedAt: NOW - 8 * 60 * 60, completedAt: NOW - 7 * 60 * 60 }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
   it('keeps an ACKed row reading relayed when a re-push fails', async () => {
     rows.push(row({ noteDelivery: 'relayed' }));
     mockRelayById.mockRejectedValue(new Error('transport unreachable'));
@@ -409,5 +428,14 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xolder', '0xnewer']);
+  });
+
+  it('orders the backlog by relay time, not queue time', async () => {
+    rows.push(row({ id: 'queued-first', initiatedAt: NOW - 600, completedAt: NOW - 60, outputNoteIds: ['0xlate'] }));
+    rows.push(row({ id: 'relayed-first', initiatedAt: NOW - 300, completedAt: NOW - 200, outputNoteIds: ['0xearly'] }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xearly', '0xlate']);
   });
 });
