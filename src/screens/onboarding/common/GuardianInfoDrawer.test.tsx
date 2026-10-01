@@ -211,6 +211,15 @@ describe('GuardianInfoDrawer', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it('pins Got it in the footer, outside the scrolling body (#1279)', () => {
+    renderDrawer();
+
+    const gotIt = screen.getByTestId('btn-gotIt');
+    expect(screen.getByTestId('drawer-footer')).toContainElement(gotIt);
+    expect(gotIt.closest('.overflow-y-auto')).toBeNull();
+    expect(screen.getByTestId('drawer-footer').getAttribute('data-class') ?? '').toContain('shrink-0');
+  });
+
   it("propagates the drawer's own onOpenChange requests", () => {
     const onOpenChange = jest.fn();
     renderDrawer(makeProps({ onOpenChange }));
