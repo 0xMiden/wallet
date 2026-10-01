@@ -691,11 +691,9 @@ export async function recoverPendingNotes(
  * attempt per unlock: the flag stays set for the next unlock or backend start
  * to retry, without GuardianRecoveryProvider's 5s poll re-running the full
  * drain/backfill in a loop against a persistently failing source. A notes or
- * history pass deferred by a lock eviction keeps its entry too, for its own
- * wallet generation, and resumes from its checkpoint at the next backend start,
- * since a re-offer would re-run an op that can hold the mutex for the whole
- * watchdog on every lap; a wallet replaced since then is admitted on its next
- * offer (`evictedRecoveries`).
+ * history pass deferred by a lock eviction keeps its entry too and resumes
+ * from its checkpoint at the next backend start, since a re-offer would re-run
+ * an op that can hold the mutex for the whole watchdog on every lap.
  *
  * Entries are released again only where the run never really got its turn — a
  * refused start, a rejected eligibility query, or a wallet lock — since those
@@ -704,6 +702,10 @@ export async function recoverPendingNotes(
  * (`releaseGuardianRecoveriesOnLock`). A terminal history failure ends like a
  * clean pass: it clears the flag and keeps the entry, so the cleared flag is
  * the stop, and a flag write that fails releases the entry for the next offer.
+ *
+ * Every kept entry belongs to the wallet generation it was kept for
+ * (`reservationGenerations`): a wallet replaced since then, by a seed or file
+ * restore that sets the flag again, is admitted on its next offer.
  */
 const startedRecoveries = new Set<string>();
 
@@ -716,11 +718,12 @@ const startedRecoveries = new Set<string>();
 const failedRecoveries = new Set<string>();
 
 /**
- * Accounts whose run was ended by a lock eviction, keyed to the history
- * generation that run took. The account stays reserved for that generation,
- * and a replaced wallet's generation admits it.
+ * Accounts whose finished run, or the start gate's terminal clear, kept the
+ * reservation, keyed to the history generation that reservation belongs to. A
+ * moved generation means the wallet was replaced and admits the account. An
+ * entry exists only while that reservation is kept.
  */
-const evictedRecoveries = new Map<string, string>();
+const reservationGenerations = new Map<string, string>();
 
 /** Bumped by every lock, so a run that ends after one knows its entry is already due for release. */
 let lockEpoch = 0;
@@ -738,7 +741,10 @@ let lockEpoch = 0;
  */
 export function releaseGuardianRecoveriesOnLock(): void {
   lockEpoch++;
-  for (const publicKey of failedRecoveries) startedRecoveries.delete(publicKey);
+  for (const publicKey of failedRecoveries) {
+    startedRecoveries.delete(publicKey);
+    reservationGenerations.delete(publicKey);
+  }
   failedRecoveries.clear();
   forgetUnsupportedHistorySources();
 }
@@ -772,7 +778,7 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
   if (account.requiresHotKeyRotation) return false;
   if (startedRecoveries.has(account.publicKey)) {
     // An admitted account keeps its entry, which already reserves the slot for the run that follows.
-    if (!(await admitAfterEviction(account.publicKey))) return false;
+    if (!(await admitReplacedWallet(account.publicKey))) return false;
   } else {
     // Reserve the slot BEFORE awaiting: concurrent requests for the same
     // account (popup + full page both mount the provider) would otherwise both
@@ -812,22 +818,22 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
 }
 
 /**
- * Whether a reserved account was parked by a lock eviction and its wallet has
- * been replaced since. A read that rejects counts as unchanged. The parked
- * entry is consumed only if it is still the one read before the await, so of
- * two racing starts only one is admitted.
+ * Whether a reserved account's kept reservation belongs to a wallet generation
+ * that has been replaced since. A read that rejects counts as unchanged. The
+ * kept entry is consumed only if it is still the one read before the await, so
+ * of two racing starts only one is admitted.
  */
-async function admitAfterEviction(publicKey: string): Promise<boolean> {
-  const parked = evictedRecoveries.get(publicKey);
-  if (parked === undefined) return false;
+async function admitReplacedWallet(publicKey: string): Promise<boolean> {
+  const kept = reservationGenerations.get(publicKey);
+  if (kept === undefined) return false;
   let current: string;
   try {
     current = await readGuardianHistoryGeneration();
   } catch {
     return false;
   }
-  if (current === parked || evictedRecoveries.get(publicKey) !== parked) return false;
-  evictedRecoveries.delete(publicKey);
+  if (current === kept || reservationGenerations.get(publicKey) !== kept) return false;
+  reservationGenerations.delete(publicKey);
   return true;
 }
 
@@ -870,7 +876,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     generation = await readGuardianHistoryGeneration();
     const result = await recoverPendingNotes(account, generation);
     if (result.deferred && result.evicted) {
-      evictedRecoveries.set(account.publicKey, generation);
+      reservationGenerations.set(account.publicKey, generation);
       console.warn(
         `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
       );
@@ -901,7 +907,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       generation
     });
     if (history.deferred && history.evicted) {
-      evictedRecoveries.set(account.publicKey, generation);
+      reservationGenerations.set(account.publicKey, generation);
       console.warn(
         `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
       );
@@ -967,8 +973,12 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       }
       // A lock that landed during the run, or during that read, has already released the set, so this run releases
       // itself. Nothing is awaited between these tests and the add.
-      if (lockEpoch !== epoch || replaced) startedRecoveries.delete(account.publicKey);
-      else failedRecoveries.add(account.publicKey);
+      if (lockEpoch !== epoch || replaced) {
+        startedRecoveries.delete(account.publicKey);
+      } else {
+        failedRecoveries.add(account.publicKey);
+        if (generation !== undefined) reservationGenerations.set(account.publicKey, generation);
+      }
     }
   }
 }
@@ -1009,6 +1019,7 @@ async function clearPendingFlag(account: WalletAccount, generation: string): Pro
       }
       const updated = await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
       outcome = 'cleared';
+      reservationGenerations.set(account.publicKey, generation);
       // A lock between the write and the broadcast would merge accounts back
       // into the state `locked` just reset; the flag is already persisted, so
       // dropping the broadcast is the safe half to lose.

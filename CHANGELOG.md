@@ -115,7 +115,7 @@
 - [FIX][all] A dApp's `disconnect()` always ends its connection: a disconnect the wallet refuses or never answers still clears the account in the mobile in-app browser and the desktop dApp window, and still rejects with that error; a `connect()` still waiting for its answer when `disconnect()` is called rejects instead of coming back; and the extension clears the account when its first check after connect finds no grant (#1227).
 - [FIX][all] A single-choice row no longer shows a disabled option as chosen, and its first arrow key now lands on the first option, a copy of a value that appears while an older copy is still being written is written too and "Copied" shows only for the text on screen, a file restore that already created its wallet keeps its back button hidden after browser Back and Forward, and a long error under a text field wraps instead of running off the screen (#1086).
 - [FIX][mobile][desktop] A desktop dApp listener that re-registers itself runs once per emission instead of hanging the page, and a throwing listener is logged; on the six screens that check the wallet's unlock method, a check that fails or does not answer within 5 s now ends in an error with a working Retry instead of leaving the page waiting (#1241).
-- [FIX][all] A wallet restored for an account whose Guardian recovery was interrupted by a lock eviction starts its own recovery without an app restart (#1302).
+- [FIX][all] A wallet restored for an account whose Guardian recovery already ran or was interrupted starts its own recovery without an app restart (#1302).
 - [FIX][all] A link that opens the hidden Activity tab with a new filter shows the list already in place, with no rows sliding (#1198).
 
 ## 1.16.2 (2026-09-24)

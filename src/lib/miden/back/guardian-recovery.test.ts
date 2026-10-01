@@ -600,6 +600,67 @@ describe('detached recovery run', () => {
     await drainDetachedRun();
   });
 
+  it('admits a replaced wallet after a completed recovery (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('keeps a completed recovery reserved for the same wallet (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('admits a replaced wallet after the gate cleared a terminal checkpoint (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(terminalGuardianHistoryGeneration).mockResolvedValueOnce('gen-1');
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('admits a replaced wallet after a failed pass, before any lock (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport unavailable'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('a lock still releases a failed pass for the same wallet (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport unavailable'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+  });
+
   it('still re-offers a history pass deferred by a yield (F-118)', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     jest
