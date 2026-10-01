@@ -21,7 +21,10 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, options?: { amount?: string }) =>
+      options?.amount === undefined ? key : `${key}:${options.amount}`
+  })
 }));
 
 jest.mock('components/Button', () => ({
@@ -160,7 +163,7 @@ describe('SpendingLimits', () => {
     mockReadSpendingLimit.mockResolvedValue(configuration());
     const { unmount } = renderScreen();
 
-    expect(await screen.findByText('spendingLimitCurrent')).toBeInTheDocument();
+    expect(await screen.findByText('spendingLimitCurrent:$20')).toBeInTheDocument();
     expect(screen.queryByText('spendingLimitNone')).not.toBeInTheDocument();
     unmount();
 
@@ -168,6 +171,13 @@ describe('SpendingLimits', () => {
     renderScreen();
 
     expect(await screen.findByText('spendingLimitNone')).toBeInTheDocument();
+  });
+
+  it('shows a fractional saved limit with its cents (#1279)', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration({ limit: 20_500_000n }));
+    renderScreen();
+
+    expect(await screen.findByText('spendingLimitCurrent:$20.50')).toBeInTheDocument();
   });
 
   it('offers whole-dollar presets that fill the field, and none is selected for a typed amount', async () => {
