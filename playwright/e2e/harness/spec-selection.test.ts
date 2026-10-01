@@ -101,13 +101,12 @@ describe('guardian e2e suite split', () => {
 
 describe('PR workflows skip the heavy swap and earn jobs', () => {
   it('swap-e2e is skipped on pull_request', () => {
-    const src = configSource('.github/workflows/pr-e2e-swap.yml');
-    expect(src).toMatch(/if: github\.event_name != 'pull_request'/);
+    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e')).toBe("github.event_name != 'pull_request'");
   });
 
   it('earn-e2e is skipped on pull_request', () => {
     const src = configSource('.github/workflows/pr-e2e-earn.yml');
-    expect(src).toMatch(/if: github\.event_name != 'pull_request'/);
+    expect(jobIf('.github/workflows/pr-e2e-earn.yml', 'earn-e2e', src)).toBe("github.event_name != 'pull_request'");
     expect(src).not.toMatch(/select-earn-e2e/);
   });
 
@@ -159,17 +158,6 @@ const onBlock = (file: string): string => {
     body.push(line);
   }
   return body.join('\n');
-};
-
-/** The job-level `if:` line's value for the job that starts at `anchor` (a `key:` line). */
-const jobIfAfter = (file: string, anchor: string): string => {
-  const lines = configSource(file).split('\n');
-  const start = lines.findIndex(line => line.trim() === anchor);
-  if (start === -1) throw new Error(`no anchor ${JSON.stringify(anchor)} found in ${file}`);
-  const ifAt = lines.findIndex((line, i) => i > start && /^\s*if:\s/.test(line));
-  const ifLine = lines[ifAt];
-  if (ifLine === undefined) throw new Error(`no if: found after ${anchor} in ${file}`);
-  return ifLine.trim().replace(/^if:\s*/, '');
 };
 
 /**
@@ -249,7 +237,12 @@ const readMapping = (lines: string[], indent: number): MappingEntry[] => {
   return entries;
 };
 
-type ParsedJob = { jobId: string; rawName: string | null; matrix: { combos: string[] | null } | null };
+type ParsedJob = {
+  jobId: string;
+  rawName: string | null;
+  ifEntry: MappingEntry | null;
+  matrix: { combos: string[] | null } | null;
+};
 
 /**
  * Whether a readMapping value is empty as YAML reads it: nothing, or only a comment, since
@@ -304,7 +297,8 @@ const readMatrix = (strategy: MappingEntry): ParsedJob['matrix'] => {
  * Every job under a workflow's `jobs:` key, read from its text. Only the plain shape every
  * workflow here uses is read: one bare `jobs:` line, each job id alone on its indent-2 line,
  * job keys at indent 4, a one-line `name:` scalar, and a `strategy:` whose matrix it reads as
- * any suffix where it cannot enumerate it (readMatrix). Anything else throws, since a shape
+ * any suffix where it cannot enumerate it (readMatrix). The job's own `if:` entry is kept as
+ * read, uninterpreted, for jobIf. Anything else throws, since a shape
  * this cannot read could hide a required name. No YAML parser is a direct dependency, so this
  * reads text.
  */
@@ -324,7 +318,12 @@ const parseJobs = (text: string): ParsedJob[] => {
     const name = entries.find(entry => entry.key === 'name');
     if (name && name.block.length > 0) throw new Error(`job ${jobId}'s name continues past its line`);
     const strategy = entries.find(entry => entry.key === 'strategy');
-    return { jobId, rawName: name ? readScalar(name.value) : null, matrix: strategy ? readMatrix(strategy) : null };
+    return {
+      jobId,
+      rawName: name ? readScalar(name.value) : null,
+      ifEntry: entries.find(entry => entry.key === 'if') ?? null,
+      matrix: strategy ? readMatrix(strategy) : null
+    };
   });
 };
 
@@ -437,6 +436,19 @@ const matrixJobIds = (file: string, text: string): string[] =>
   jobsOf(file, text)
     .filter(job => job.matrix !== null)
     .map(job => job.jobId);
+
+/**
+ * The job-level `if:` of `jobId` as jobsOf parsed it, so no step's or other job's `if:` can
+ * stand in for it, or null when the job has none. A missing job, or an `if:` that does not
+ * end on its line (a block scalar, or a plain value continued onto the next), throws.
+ */
+const jobIf = (file: string, jobId: string, text = configSource(file)): string | null => {
+  const job = jobsOf(file, text).find(parsed => parsed.jobId === jobId);
+  if (!job) throw new Error(`no job ${jobId} in ${file}`);
+  if (!job.ifEntry) return null;
+  if (job.ifEntry.block.length > 0) throw new Error(`job ${jobId}'s if: continues past its line in ${file}`);
+  return readScalar(job.ifEntry.value);
+};
 
 /** Every C-06 violation in one workflow file's text, taking (file, text) so the real tree and synthetic cases share this one code path. */
 const workflowViolations = (file: string, text: string): NameViolation[] =>
@@ -716,17 +728,66 @@ describe('a stacked pull request reports its E2E checks under names no branch re
   });
 
   it("chrome-local's if: matches the FULL condition inside its own computed name", () => {
-    const src = configSource('.github/workflows/pr-e2e-local.yml');
-    const ifMatch = /\n\s+if: \$\{\{ (github\.event_name[\s\S]+?) \}\}\n/.exec(src);
-    expect(ifMatch).not.toBeNull();
-    expect(ifMatch![1]!.trim()).toBe(FULL);
+    expect(jobIf(LOCAL, 'chrome-local')).toBe(`\${{ ${FULL} }}`);
   });
 
   it("bridge-guardian-e2e's if: matches the FULL condition inside its gate's computed name", () => {
-    const src = configSource('.github/workflows/pr-e2e-bridge-guardian.yml');
-    const ifMatch = /\n\s+if: (github\.event_name[\s\S]+?)\n/.exec(src);
-    expect(ifMatch).not.toBeNull();
-    expect(ifMatch![1]!.trim()).toBe(FULL);
+    expect(jobIf(BRIDGE, 'bridge-guardian-e2e')).toBe(FULL);
+  });
+});
+
+describe("jobIf reads a job's own job-level if:, never another if: in the file", () => {
+  const GATE_IF = `\${{ !cancelled() && (${FULL}) }}`;
+  const SWAP = '.github/workflows/pr-e2e-swap.yml';
+
+  it("a step's if: inside the Bridge gate is not the gate's job-level if:", () => {
+    const lines = configSource(BRIDGE).split('\n');
+    const gate = lines.indexOf('  bridge-guardian-e2e-gate:');
+    const at = lines.indexOf(`    if: ${GATE_IF}`, gate);
+    expect(lines[at]).toBe(`    if: ${GATE_IF}`);
+    lines.splice(at, 1);
+    const run = lines.indexOf('        run: |', gate);
+    expect(lines[run]).toBe('        run: |');
+    lines.splice(run, 0, `        if: ${GATE_IF}`);
+    expect(jobIf(BRIDGE, 'bridge-guardian-e2e-gate', lines.join('\n'))).toBeNull();
+  });
+
+  it("a FULL if: on a job above chrome-local does not stand in for chrome-local's own", () => {
+    const lines = configSource(LOCAL).split('\n');
+    const local = lines.indexOf('  chrome-local:');
+    const at = lines.indexOf(`    if: \${{ ${FULL} }}`, local);
+    expect(lines[at]).toBe(`    if: \${{ ${FULL} }}`);
+    const mainOnly = `\${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' }}`;
+    lines.splice(at, 1, `    if: ${mainOnly}`);
+    lines.splice(
+      local,
+      0,
+      '  decoy:',
+      `    if: \${{ ${FULL} }}`,
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - run: echo decoy'
+    );
+    expect(jobIf(LOCAL, 'chrome-local', lines.join('\n'))).toBe(mainOnly);
+  });
+
+  it('a block scalar if: on the Bridge gate throws instead of being read in part', () => {
+    const lines = configSource(BRIDGE).split('\n');
+    const at = lines.indexOf(`    if: ${GATE_IF}`, lines.indexOf('  bridge-guardian-e2e-gate:'));
+    expect(lines[at]).toBe(`    if: ${GATE_IF}`);
+    lines.splice(at, 1, '    if: >-', `      ${GATE_IF}`);
+    expect(() => jobIf(BRIDGE, 'bridge-guardian-e2e-gate', lines.join('\n'))).toThrow(
+      "job bridge-guardian-e2e-gate's if: continues past its line"
+    );
+  });
+
+  it('a swap-e2e if: widened to main-based pull requests no longer reads as skipped on pull_request', () => {
+    const lines = configSource(SWAP).split('\n');
+    const at = lines.indexOf("    if: github.event_name != 'pull_request'", lines.indexOf('  swap-e2e:'));
+    expect(lines[at]).toBe("    if: github.event_name != 'pull_request'");
+    const widened = "github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main'";
+    lines.splice(at, 1, `    if: ${widened}`);
+    expect(jobIf(SWAP, 'swap-e2e', lines.join('\n'))).toBe(widened);
   });
 });
 
@@ -1666,10 +1727,10 @@ describe('no workflow can report a required E2E check name except through the co
 
 describe('a stacked-named gate skips instead of computing a pass on a stacked pull request', () => {
   it.each([
-    ['.github/workflows/pr-e2e-bridge-guardian.yml', 'bridge-guardian-e2e-gate:'],
-    ['.github/workflows/pr-e2e-guardian-lifecycle.yml', 'guardian-lifecycle-e2e-gate:']
-  ])('%s %s runs only under !cancelled() && (FULL)', (file, anchor) => {
-    expect(jobIfAfter(file, anchor)).toBe(`\${{ !cancelled() && (${FULL}) }}`);
+    ['.github/workflows/pr-e2e-bridge-guardian.yml', 'bridge-guardian-e2e-gate'],
+    ['.github/workflows/pr-e2e-guardian-lifecycle.yml', 'guardian-lifecycle-e2e-gate']
+  ])('%s %s runs only under !cancelled() && (FULL)', (file, gateId) => {
+    expect(jobIf(file, gateId)).toBe(`\${{ !cancelled() && (${FULL}) }}`);
   });
 
   it('the Bridge gate step env holds RESULT from needs.bridge-guardian-e2e.result, with no EVENT_NAME or BASE_REF', () => {
@@ -1714,9 +1775,7 @@ describe('guardian-lifecycle-e2e-gate keeps its selector and run logic', () => {
 
 describe('PR workflows run the heavy E2E jobs only on a pull request based on main or next', () => {
   it("select-guardian-e2e's job-level if: pins FULL, so a stacked pull request skips its full-history checkout and pull request read along with it", () => {
-    expect(jobIfAfter('.github/workflows/pr-e2e-guardian-lifecycle.yml', 'select-guardian-e2e:')).toBe(
-      `\${{ ${FULL} }}`
-    );
+    expect(jobIf(GUARDIAN, 'select-guardian-e2e')).toBe(`\${{ ${FULL} }}`);
   });
 
   it('the Guardian selector runs on a linked-PR marker, skips a pull request with no marker and no changed path, and runs on push and dispatch', () => {
