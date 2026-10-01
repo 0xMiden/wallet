@@ -2,6 +2,10 @@
 
 ## 1.17.0 (TBD)
 
+### Changes
+
+- [CHANGE][all] Wallets and backup files created before 0.17 are no longer supported: the legacy key scheme and the unlock-time migrations are removed (#1091).
+
 ## 1.17.0-rc.0 (2026-09-27)
 
 ### Changes

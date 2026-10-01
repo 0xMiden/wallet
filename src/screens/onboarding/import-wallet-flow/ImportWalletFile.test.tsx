@@ -224,7 +224,8 @@ const VALID_ACCOUNT = {
   name: 'Account 1',
   isPublic: true,
   type: WalletType.OnChain,
-  hdIndex: 0
+  hdIndex: 0,
+  authScheme: 'ecdsa' as const
 };
 
 const VERSION_TWO_PAYLOAD: DecryptedWalletFile = {

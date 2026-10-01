@@ -90,7 +90,7 @@ export const isWalletAccount = (value: unknown): value is WalletAccount => {
     typeof value.isPublic === 'boolean' &&
     isWalletType(value.type) &&
     Number.isSafeInteger(value.hdIndex) &&
-    (value.authScheme === undefined || isAuthScheme(value.authScheme)) &&
+    isAuthScheme(value.authScheme) &&
     (value.keyDerivation === undefined || isKeyDerivation(value.keyDerivation))
   );
 };

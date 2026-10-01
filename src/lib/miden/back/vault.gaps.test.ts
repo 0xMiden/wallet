@@ -386,7 +386,7 @@ describe('Vault.spawnFromMidenClient: error branches', () => {
       Vault.spawnFromMidenClient(
         '',
         VALID_MNEMONIC,
-        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
         2,
         []
       )
@@ -507,7 +507,7 @@ describe('Vault hardware-backed unlock + reveal', () => {
       Vault.spawnFromMidenClient(
         '',
         VALID_MNEMONIC,
-        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
         2,
         []
       )

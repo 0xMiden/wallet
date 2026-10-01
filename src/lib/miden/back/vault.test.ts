@@ -1376,6 +1376,7 @@ describe('Vault.revealHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       hotPublicKey: 'hot-pub-hex',
       coldPublicKey: 'cold-pub-hex',
       evmAddress: '0xEvm'
@@ -1406,7 +1407,8 @@ describe('Vault.revealHotKey', () => {
       name: 'OnChain 1',
       isPublic: true,
       type: WalletType.OnChain,
-      hdIndex: 0
+      hdIndex: 0,
+      authScheme: 'ecdsa'
     };
     await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
 
@@ -1422,6 +1424,7 @@ describe('Vault.revealHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       coldPublicKey: 'cold-pub-hex',
       requiresHotKeyRotation: true
     };
@@ -1444,6 +1447,7 @@ describe('Vault.revealHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       hotPublicKey: 'hot-pub-hex',
       coldPublicKey: 'cold-pub-hex'
     };
@@ -1464,6 +1468,7 @@ describe('Vault.revealHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       hotPublicKey: 'hot-pub-hex',
       coldPublicKey: 'cold-pub-hex',
       evmAddress: '0xEvm'
@@ -1492,6 +1497,7 @@ describe('Vault.revealHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       hotPublicKey: 'hot-pub-hex',
       coldPublicKey: 'cold-pub-hex',
       evmAddress: '0xEvm'
@@ -1520,6 +1526,7 @@ describe('Vault.revealHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       hotPublicKey: 'hot-pub-hex',
       coldPublicKey: 'cold-pub-hex',
       evmAddress: '0xEvm'
@@ -1548,6 +1555,7 @@ describe('Vault.setGuardianOperatorCommitment / setGuardianSyncStatus', () => {
         isPublic: false,
         type: WalletType.Guardian,
         hdIndex: 0,
+        authScheme: 'ecdsa',
         guardianSyncStatus: 'in-sync'
       },
       {
@@ -1556,6 +1564,7 @@ describe('Vault.setGuardianOperatorCommitment / setGuardianSyncStatus', () => {
         isPublic: false,
         type: WalletType.Guardian,
         hdIndex: 1,
+        authScheme: 'ecdsa',
         guardianSyncStatus: 'in-sync'
       }
     ];
@@ -2159,7 +2168,8 @@ describe('Vault.spawnFromMidenClient', () => {
       name: 'HD',
       isPublic: true,
       type: WalletType.OnChain,
-      hdIndex: 0
+      hdIndex: 0,
+      authScheme: 'ecdsa'
     };
 
     await expect(restoreVersionTwo([hdAccount], [importedBackup])).rejects.toThrow(PublicError);
@@ -2343,7 +2353,16 @@ describe('Vault.spawnFromMidenClient', () => {
     const vault = await Vault.spawnFromMidenClient(
       'pw',
       VALID_MNEMONIC,
-      [{ publicKey: 'pk-owned', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+      [
+        {
+          publicKey: 'pk-owned',
+          name: 'HD 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        }
+      ],
       2,
       []
     );
@@ -2363,7 +2382,7 @@ describe('Vault.spawnFromMidenClient', () => {
     const vault = await Vault.spawnFromMidenClient(
       'pw',
       VALID_MNEMONIC,
-      [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+      [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
       2,
       []
     );
@@ -2382,8 +2401,8 @@ describe('Vault.spawnFromMidenClient', () => {
       'pw',
       VALID_MNEMONIC,
       [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-        { publicKey: 'pk-2', name: 'B', isPublic: false, type: WalletType.OffChain, hdIndex: 0 }
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' },
+        { publicKey: 'pk-2', name: 'B', isPublic: false, type: WalletType.OffChain, hdIndex: 0, authScheme: 'ecdsa' }
       ],
       2,
       []
@@ -2398,7 +2417,7 @@ describe('Vault.spawnFromMidenClient', () => {
     const vault = await Vault.spawnFromMidenClient(
       'pw',
       VALID_MNEMONIC,
-      [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+      [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
       2,
       []
     );
@@ -2412,7 +2431,9 @@ describe('Vault.spawnFromMidenClient', () => {
       Vault.spawnFromMidenClient(
         'pw',
         VALID_MNEMONIC,
-        [{ publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        [
+          { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }
+        ],
         2,
         []
       )
@@ -2452,28 +2473,6 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
     const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
     expect((insertedSecret as any).__marker).toBe('ecdsa-secret');
-  });
-
-  it('falls back to falcon-derivation for legacy WalletAccount entries with no authScheme', async () => {
-    // Pre-migration WalletAccount records have no `authScheme` field;
-    // the restore path must treat missing as falcon to preserve the
-    // historical behavior. Confirms the LEGACY_AUTH_SCHEME default.
-    const fakeAcc = { id: () => 'pk-legacy' as any, isFaucet: () => false, isNetwork: () => false };
-    mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
-    mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
-
-    await Vault.spawnFromMidenClient(
-      'pw',
-      VALID_MNEMONIC,
-      // No authScheme field — the legacy shape.
-      [{ publicKey: 'pk-legacy', name: 'Legacy', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
-      2,
-      []
-    );
-
-    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
-    const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
-    expect((insertedSecret as any).__marker).toBe('rpo-falcon-secret');
   });
 });
 
@@ -3114,6 +3113,7 @@ describe('Vault hardware branches', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       hotPublicKey: 'hot-pub-hex',
       coldPublicKey: 'cold-pub-hex',
       evmAddress: '0xEvm'
@@ -3123,7 +3123,8 @@ describe('Vault hardware branches', () => {
       name: 'Miden Account 1',
       isPublic: true,
       type: WalletType.OnChain,
-      hdIndex: 0
+      hdIndex: 0,
+      authScheme: 'ecdsa'
     };
     await encryptAndSaveMany(
       [
@@ -3249,8 +3250,8 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
         'pw',
         VALID_MNEMONIC,
         [
-          { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-          { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
+          { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' },
+          { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1, authScheme: 'ecdsa' }
         ],
         2,
         []
@@ -3278,7 +3279,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
       Vault.spawnFromMidenClient(
         'pw',
         VALID_MNEMONIC,
-        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
         2,
         []
       )
@@ -3300,7 +3301,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
       Vault.spawnFromMidenClient(
         'pw',
         VALID_MNEMONIC,
-        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
         2,
         []
       )
@@ -3319,7 +3320,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
       Vault.spawnFromMidenClient(
         'pw',
         VALID_MNEMONIC,
-        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
         2,
         []
       )
@@ -3338,7 +3339,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
       Vault.spawnFromMidenClient(
         'pw',
         VALID_MNEMONIC,
-        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
         2,
         []
       )
@@ -3488,6 +3489,7 @@ describe('recovery seed waiting time', () => {
       name: 'Guardian',
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       isPublic: false,
       coldPublicKey: '020304'
     };
@@ -3546,6 +3548,7 @@ describe('recovery seed waiting time', () => {
       name: 'Imported from hot key',
       type: WalletType.Guardian,
       hdIndex: -1,
+      authScheme: 'ecdsa',
       isPublic: false
       // coldPublicKey deliberately absent: that is the hot-key-only marker.
     };
@@ -3617,6 +3620,7 @@ describe('seed phrase removal', () => {
       name: 'Guardian',
       type: WalletType.Guardian,
       hdIndex: -1,
+      authScheme: 'ecdsa',
       isPublic: false,
       hotPublicKey: 'hot-key',
       coldPublicKey: '02' + 'ab'.repeat(32)
@@ -3666,6 +3670,7 @@ describe('seed phrase removal', () => {
         name: 'Guardian',
         type: WalletType.Guardian,
         hdIndex: -1,
+        authScheme: 'ecdsa',
         isPublic: false,
         hotPublicKey: 'hot-key',
         coldPublicKey: '02' + 'ab'.repeat(32)
@@ -3707,6 +3712,7 @@ describe('seed phrase removal', () => {
       name: 'Guardian',
       type: WalletType.Guardian,
       hdIndex: -1,
+      authScheme: 'ecdsa',
       isPublic: false,
       coldPublicKey: '02' + 'ab'.repeat(32)
     };

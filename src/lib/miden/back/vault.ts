@@ -83,30 +83,13 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // AUTH SCHEME POLICY
 // ============================================================================
 //
-// New accounts created post-migration default to ECDSA. Pre-migration
-// `WalletAccount` records have no `authScheme` field on read; we treat
-// missing as Falcon (the historical wallet default) so existing wallets
-// — including encrypted-file backups produced before this change —
-// keep restoring + signing exactly as before.
-//
-// Miden accounts cannot rotate auth, so a created account's scheme is
-// fixed for life. Restore paths MUST therefore pass the stored scheme
-// (or the legacy default) through to the SDK; mnemonic-only restore
-// (no per-account metadata) probes the chain under the current scheme
-// to find the user's actual on-chain identity.
+// Every account this wallet creates is ECDSA. Miden accounts cannot rotate
+// auth, so a created account's scheme is fixed for life: restore paths pass the
+// stored `authScheme` through to the SDK, and an imported private key keeps the
+// scheme it was made with.
 
 /** Scheme stamped on every NEW account this wallet creates. */
 const NEW_ACCOUNT_AUTH_SCHEME: AuthScheme = 'ecdsa';
-
-/**
- * Falcon was the wallet default before this migration shipped.
- * `WalletAccount` records persisted before this change have no
- * `authScheme` field; on read, treat missing as Falcon.
- */
-const LEGACY_AUTH_SCHEME: AuthScheme = 'falcon';
-
-/** Returns the auth scheme for an account, applying the legacy fallback. */
-const getAccountAuthScheme = (account: WalletAccount): AuthScheme => account.authScheme ?? LEGACY_AUTH_SCHEME;
 
 // KEY DERIVATION POLICY
 // ============================================================================
@@ -137,7 +120,7 @@ const authSecretKeyFromSeed = (scheme: AuthScheme, seed: Uint8Array): AuthSecret
  * The SDK's `AuthSecretKey` doesn't expose a `kind()` accessor, but its
  * `getEcdsaK256KeccakSecretKeyAsFelts` / `getRpoFalcon512SecretKeyAsFelts`
  * methods throw on type mismatch. Try the cheap ECDSA path first; falling
- * back to Falcon is correct for any pre-migration imported key.
+ * back to Falcon is correct because `AuthScheme` has only these two members.
  */
 const detectAuthScheme = (key: AuthSecretKey): AuthScheme => {
   try {
@@ -726,7 +709,7 @@ export class Vault {
                 fail('secret-deserialize', cause);
               }
               if (
-                detectAuthScheme(secretKey!) !== getAccountAuthScheme(walletAccount) ||
+                detectAuthScheme(secretKey!) !== walletAccount.authScheme ||
                 normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
                 !sameWalletAccountId(
                   getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
@@ -739,7 +722,7 @@ export class Vault {
               backups.push({
                 accountId: walletAccount.publicKey,
                 publicKeyCommitment,
-                authScheme: getAccountAuthScheme(walletAccount),
+                authScheme: walletAccount.authScheme,
                 secretKeyHex: secretKeyHex!
               });
             }
@@ -1474,7 +1457,7 @@ export class Vault {
               }
               if (
                 detectAuthScheme(secretKey!) !== restoredBackup.authScheme ||
-                getAccountAuthScheme(walletAccount) !== restoredBackup.authScheme ||
+                walletAccount.authScheme !== restoredBackup.authScheme ||
                 normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
                 !sameWalletAccountId(
                   getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
@@ -1487,16 +1470,15 @@ export class Vault {
               validatedImportedAccountIds.push(walletAccount.publicKey);
               continue;
             }
-            // Each WalletAccount carries the auth scheme it was created under
-            // (legacy entries default to Falcon). Re-derive the matching secret
-            // key so the keystore entry signs correctly.
+            // Each WalletAccount carries the auth scheme it was created under.
+            // Re-derive the matching secret key so the keystore entry signs correctly.
             const walletSeed = deriveClientSeed(mnemonic, {
               keyDerivation: NEW_ACCOUNT_KEY_DERIVATION,
               walletType: walletAccount.type,
-              authScheme: getAccountAuthScheme(walletAccount),
+              authScheme: walletAccount.authScheme,
               hdIndex: walletAccount.hdIndex
             });
-            const secretKey = authSecretKeyFromSeed(getAccountAuthScheme(walletAccount), walletSeed);
+            const secretKey = authSecretKeyFromSeed(walletAccount.authScheme, walletSeed);
             preparedKeys.push({ accountId, imported: false, secretKey });
           }
 

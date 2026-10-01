@@ -95,6 +95,19 @@ describe('parseDecryptedWalletFile', () => {
     expect(() => parseDecryptedWalletFile(payload)).toThrow(MalformedBackupFileError);
   });
 
+  it('rejects a wallet account with no authScheme', () => {
+    const withoutScheme = {
+      publicKey: 'miden-account-no-scheme',
+      name: 'No scheme',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 1
+    };
+    expect(() => parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [hdAccount, withoutScheme] })).toThrow(
+      MalformedBackupFileError
+    );
+  });
+
   it.each(['abc', 'not-hex', ''])('rejects malformed imported secret hex %p', secretKeyHex => {
     expect(() =>
       parseDecryptedWalletFile({

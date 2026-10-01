@@ -355,6 +355,7 @@ const makeGuardianProvider = (isGuardian: boolean) => {
               isPublic: true,
               type: WalletType.Guardian,
               hdIndex: 0,
+              authScheme: 'ecdsa',
               guardianEndpoint: 'https://old.guardian'
             }
           ]
@@ -376,6 +377,7 @@ const makeSuffixGuardianProvider = () => ({
       isPublic: true,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       guardianEndpoint: 'https://old.guardian',
       hotPublicKey: 'old-hot-pub',
       coldPublicKey: 'cold'
@@ -6361,6 +6363,7 @@ describe('initiateReplaceHotKeyTransaction', () => {
           isPublic: true,
           type: WalletType.Guardian,
           hdIndex: 0,
+          authScheme: 'ecdsa',
           guardianEndpoint: 'https://old.guardian'
         }
       ]
@@ -6374,7 +6377,14 @@ describe('initiateReplaceHotKeyTransaction', () => {
     const provider = {
       ...makeGuardianProvider(true),
       getAccounts: async () => [
-        { publicKey: 'acc-1', name: 'Guardian account', isPublic: true, type: WalletType.Guardian, hdIndex: 0 }
+        {
+          publicKey: 'acc-1',
+          name: 'Guardian account',
+          isPublic: true,
+          type: WalletType.Guardian,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        }
       ]
     };
     await initiateReplaceHotKeyTransaction('acc-1', false, provider);
