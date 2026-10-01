@@ -21,7 +21,9 @@ import {
   GuardianWriteDiscardedError,
   isGuardianAccountUnusable,
   isGuardianSwitchDiscardedError,
-  isGuardianUnreachableError
+  isGuardianUnreachableError,
+  readChainAccountCommitment,
+  readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import {
@@ -2298,10 +2300,19 @@ const abandonDiscardedCandidate = async (service: MultisigService, nonce: number
   }
 };
 
+/** How long a landed write with no record verdict waits for the node to show its final commitment. */
+export const LANDED_CONFIRM_BOUND_MS = 60_000;
+/** The wait before each of those reads. */
+export const LANDED_CONFIRM_POLL_MS = 3_000;
+
 /**
  * Hold a landed rotation or threshold update to the node's committed verdict before the reconcile
- * completes it (#1233). One read, not a commit wait: the failed apply usually took the transaction
- * record with it, so a wait inside the FIFO loop's Web Lock would time out without an answer.
+ * completes it (#1233). The record is read first, after one verdict sync, because only the record can
+ * show a discard. The failed apply left no record if it failed at or before writing it and a Pending one
+ * otherwise, so that read rarely answers. When it does not and the landed facts carry the executed final
+ * commitment, the node's commitment for the account confirms a commit without the record: polled for
+ * LANDED_CONFIRM_BOUND_MS from the first read, inside the FIFO loop's processing lock and outside the WASM
+ * client lock.
  * Returns only on committed. No id or no verdict throws with nothing abandoned, since the write may
  * still land. A discard abandons the candidate on a cold service, the kind both writes were proposed
  * on, which needs no hot key; a discarded write never lands, so the guardian still accepts the old one.
@@ -2317,7 +2328,14 @@ const requireLandedCommit = async (
       `Guardian ${tx.type} was submitted, but its transaction id could not be read, so the node cannot confirm it; not completing it.`
     );
   }
-  const verdict = await didDirectSwitchLand(id);
+  const deadline = Date.now() + LANDED_CONFIRM_BOUND_MS;
+  let verdict = await didDirectSwitchLand(id);
+  const finalCommitment = landed.finalAccountCommitment;
+  // The record comes first because only it can show a discard. The node's commitment can confirm a commit
+  // without it: the commitment binds the nonce and all storage, so only the executed post-state equals it.
+  if (verdict === undefined && finalCommitment !== undefined) {
+    verdict = await pollLandedCommit(tx.accountId, id, finalCommitment, deadline);
+  }
   if (verdict === true) return;
   if (verdict === undefined) {
     throw new Error(`Guardian ${tx.type} ${id} was submitted, but the node has not confirmed it; not completing it.`);
@@ -2338,6 +2356,27 @@ const requireLandedCommit = async (
     }
   }
   throw new GuardianWriteDiscardedError(`Guardian ${tx.type} ${id} did not land: the node discarded it.`);
+};
+
+/**
+ * `requireLandedCommit`'s wait for a verdict the first record read did not give: true on committed,
+ * false on discarded, undefined at the deadline. Each round reads the record without a sync, since the
+ * realm's own sync keeps it current, and caps its wait and its node read to the time left as it began.
+ * No round runs after a watchdog eviction of the first read's sync: its ceiling is longer than the bound.
+ */
+const pollLandedCommit = async (
+  accountId: string,
+  id: string,
+  finalCommitment: string,
+  deadline: number
+): Promise<boolean | undefined> => {
+  for (let remaining = deadline - Date.now(); remaining > 0; remaining = deadline - Date.now()) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(LANDED_CONFIRM_POLL_MS, remaining)));
+    if ((await readChainAccountCommitment(accountId, remaining)) === finalCommitment) return true;
+    const verdict = await readLastSyncedVerdict(id);
+    if (verdict !== undefined) return verdict;
+  }
+  return undefined;
 };
 
 /**

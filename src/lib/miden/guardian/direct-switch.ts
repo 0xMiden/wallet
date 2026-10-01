@@ -2,6 +2,7 @@ import {
   AdviceMap,
   FeltArray,
   Poseidon2,
+  RpcClient,
   Signature,
   Word,
   type Felt,
@@ -16,7 +17,9 @@ import {
   isLikelyNetworkError
 } from '@openzeppelin/miden-multisig-client';
 
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -31,7 +34,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
-import { sameWalletAccountId } from '../sdk/helpers';
+import { accountRefToSdk, sameWalletAccountId } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -533,12 +536,14 @@ export const createDirectSwitchGuardianRequest = async (
  * transaction's account delta into the LOCAL store; the rotation's whole effect
  * is one storage slot, so the local account already names the new operator
  * before this function runs. Guardian accounts are private storage mode, so
- * there is no public account state to compare against either — the chain holds a
- * commitment to the account, not its guardian slot. A commitment read would
+ * there is no public account state to compare against either: the chain holds a
+ * commitment to the account, not its guardian slot. A LOCAL account read would
  * therefore be the wallet reading back its own optimistic write and reporting it
- * as chain confirmation. The transaction RECORD is the thing the node has an
- * opinion about, and `getTransactionCommitState` is the same authority
- * `verifySendLanded` uses for the equivalent double-send question.
+ * as chain confirmation. The node's committed commitment is not that read: equal to
+ * the executed transaction's final commitment it confirms a commit
+ * (`readChainAccountCommitment`), but it cannot show a discard. The transaction
+ * RECORD is the thing the node has an opinion about, and `getTransactionCommitState`
+ * is the same authority `verifySendLanded` uses for the equivalent double-send question.
  *
  * The coordinated structural commit wait (`waitForStructuralCommit`) reads it too, and
  * the same reasons hold there: the leaf's apply already wrote the local account, and a
@@ -556,6 +561,16 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
   ) {
     return undefined;
   }
+  return readLastSyncedVerdict(transactionId);
+};
+
+/**
+ * The record read `didDirectSwitchLand` makes after its sync, in a default hold of its own, and the same
+ * verdict (#1233). It never syncs: a landed write's poll reads through it each round, the realm's own
+ * sync keeps the record current, and a sync per round could rebuild a client against a node that just
+ * parked.
+ */
+export const readLastSyncedVerdict = async (transactionId: string): Promise<boolean | undefined> => {
   try {
     const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(transactionId));
     if (state === 'committed') return true;
@@ -569,6 +584,30 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
     // masquerade as "did not land" and fail a rotation that may well have
     // committed.
     console.warn('Could not read the node-side state of the direct switch transaction:', error);
+    return undefined;
+  }
+};
+
+/** The longest one landed commitment read may take, whatever time its caller has left. */
+const LANDED_COMMITMENT_READ_TIMEOUT_MS = 15_000;
+
+/**
+ * The node's commitment to the account's current state, as hex (#1233), or `undefined` when the read
+ * failed, which is no verdict. One attempt, bounded by `timeoutMs` and at most 15 s, so a caller polling
+ * under a deadline passes the time it has left. Takes no WASM client lock: the RpcClient is standalone,
+ * and every SDK object is built inside the attempt.
+ */
+export const readChainAccountCommitment = async (accountId: string, timeoutMs: number): Promise<string | undefined> => {
+  try {
+    await ensureSdkWasmReady();
+    const proof = await withRpcTimeout(
+      () => new RpcClient(getRpcEndpoint()).getAccountProof(accountRefToSdk(accountId)),
+      'landed account commitment',
+      { timeoutMs: Math.min(timeoutMs, LANDED_COMMITMENT_READ_TIMEOUT_MS), retries: 0 }
+    );
+    return proof.accountCommitment().toHex();
+  } catch (error) {
+    console.warn(`Could not read the node-side commitment of account ${accountId}:`, error);
     return undefined;
   }
 };

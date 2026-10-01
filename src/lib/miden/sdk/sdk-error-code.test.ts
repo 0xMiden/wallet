@@ -229,6 +229,18 @@ describe('ApplyAfterSubmitError', () => {
     expect(extractLanded(hostile)).toEqual({});
     expect(extractLanded(hostileFields)).toEqual({});
   });
+
+  it('extractLanded keeps a string final account commitment and drops any other (#1233)', () => {
+    expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment: '0xfinal' } })).toEqual({
+      transactionId: '0xlanded',
+      finalAccountCommitment: '0xfinal'
+    });
+    for (const finalAccountCommitment of [5, null, { toHex: () => '0xfinal' }]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
 });
 
 describe('isTransactionDiscardedError', () => {

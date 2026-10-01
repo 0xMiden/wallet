@@ -29,6 +29,7 @@ const arrange = (overrides: Partial<ApplyAfterSubmitRetry<string>> = {}, local: 
         id: () => ({ toHex: () => '0xtx' }),
         accountId: () => 'acc',
         initialAccountHeader: () => withCommitment(INITIAL),
+        finalAccountHeader: () => withCommitment('final-commit'),
         outputNotes: () => ({ notes: () => [] })
       })
     },
@@ -238,6 +239,43 @@ describe('applyAfterSubmit (#1233)', () => {
     const error = await applyAfterSubmit(arrange({ apply }, FINAL)).catch((caught: unknown) => caught);
 
     expect(extractLanded(error)).toMatchObject({ transactionId: '0xtx' });
+  });
+
+  it("the exhausted retries' wrap carries the executed final account commitment (#1233)", async () => {
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+
+    const error = await applyAfterSubmit(arrange({ apply })).catch((caught: unknown) => caught);
+
+    expect(apply).toHaveBeenCalledTimes(3);
+    expect(extractLanded(error)).toEqual({
+      transactionId: '0xtx',
+      privateOutputNotes: 0,
+      finalAccountCommitment: 'final-commit'
+    });
+  });
+
+  it('an unreadable final account header leaves the commitment unread and still carries the id (#1233)', async () => {
+    const apply = jest.fn(async () => {
+      throw new Error('IndexedDB transaction aborted');
+    });
+    const result = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => '0xtx' }),
+        accountId: () => 'acc',
+        initialAccountHeader: () => withCommitment(INITIAL),
+        finalAccountHeader: (): { to_commitment(): { toHex(): string } } => {
+          throw new Error('recursive use of an object detected');
+        },
+        outputNotes: () => ({ notes: () => [] })
+      })
+    };
+
+    const error = await applyAfterSubmit(arrange({ apply, result }, FINAL)).catch((caught: unknown) => caught);
+
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(extractLanded(error)).toStrictEqual({ transactionId: '0xtx', privateOutputNotes: 0 });
   });
 
   it('the wrap carries how many private user output notes the transaction produced (#1233)', async () => {

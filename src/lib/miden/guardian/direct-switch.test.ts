@@ -1,5 +1,7 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import type { WalletAccount } from 'lib/shared/types';
 
 import {
@@ -8,7 +10,9 @@ import {
   finalizeDirectGuardianSwitch,
   isGuardianKeyMismatchRefusal,
   isGuardianRegistrationPreflightError,
-  isGuardianUnreachableError
+  isGuardianUnreachableError,
+  readChainAccountCommitment,
+  readLastSyncedVerdict
 } from './direct-switch';
 import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 
@@ -169,6 +173,14 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'devnet'
 }));
 
+// The landed commitment read builds its RpcClient on the effective endpoint; a stand-in object, so a
+// test can tell the client was built with exactly what this returned.
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  ensureSdkWasmReady: jest.fn(async () => {}),
+  getRpcEndpoint: jest.fn(() => ({ endpoint: 'https://rpc.test' }))
+}));
+
 // The advice map is the cryptographic payload of a direct switch — by the time
 // the request is submitted it is the ONLY place the hot and cold signatures
 // exist, and nothing downstream re-derives any of it. So `AdviceMap` stands in
@@ -197,8 +209,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   },
   Poseidon2: { hashElements: (felts: { felts: string[] }) => ({ hex: felts.felts.join('|') }) },
   Signature: { deserialize: (bytes: Uint8Array) => ({ toPreparedSignature: () => [...bytes] }) },
-  Word: { fromHex: (hex: string) => ({ hex, toFelts: () => [hex] }) }
+  Word: { fromHex: (hex: string) => ({ hex, toFelts: () => [hex] }) },
+  RpcClient: class {
+    constructor(endpoint: unknown) {
+      mockRpcClientBuiltWith(endpoint);
+    }
+    getAccountProof(...args: unknown[]): unknown {
+      return mockGetAccountProof(...args);
+    }
+  }
 }));
+const mockRpcClientBuiltWith = jest.fn();
+const mockGetAccountProof = jest.fn();
 
 // A real `GET /pubkey` commitment is a 32-byte word. The switch paths validate
 // that before it reaches the transaction script, so the fixture has to be a
@@ -966,6 +988,100 @@ describe('didDirectSwitchLand', () => {
     expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
     expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+});
+
+// What a landed write's poll reads each round (#1233): the record `didDirectSwitchLand` reads after
+// its sync, with no sync of its own.
+describe('readLastSyncedVerdict', () => {
+  it.each([
+    ['committed', true],
+    ['discarded', false],
+    ['pending', undefined],
+    ['not-found', undefined]
+  ])('turns %s into %s', async (state, expected) => {
+    mockProxyGetTransactionCommitState.mockResolvedValue(state);
+
+    await expect(readLastSyncedVerdict('0xtx')).resolves.toBe(expected);
+
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
+  });
+
+  it('returns no verdict when the read fails', async () => {
+    mockProxyGetTransactionCommitState.mockRejectedValue(new Error('offscreen returned no result'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(readLastSyncedVerdict('0xtx')).resolves.toBeUndefined();
+
+    warn.mockRestore();
+  });
+
+  it('reads in one default hold and never syncs', async () => {
+    mockProxyGetTransactionCommitState.mockResolvedValue('pending');
+
+    await readLastSyncedVerdict('0xtx');
+
+    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(mockWithWasmClientLock.mock.calls[0]![1]).toBeUndefined();
+    expect(mockProxySyncState).not.toHaveBeenCalled();
+  });
+});
+
+describe('readChainAccountCommitment', () => {
+  const proofWithCommitment = (hex: string) => ({ accountCommitment: () => ({ toHex: () => hex }) });
+
+  it("asks the node for the account's proof and returns its commitment hex, holding no WASM lock", async () => {
+    mockGetAccountProof.mockResolvedValue(proofWithCommitment('0xchain'));
+
+    await expect(readChainAccountCommitment('acc-1_suffix', 60_000)).resolves.toBe('0xchain');
+
+    expect(mockRpcClientBuiltWith).toHaveBeenCalledTimes(1);
+    expect(mockRpcClientBuiltWith.mock.calls[0]![0]).toBe(jest.mocked(getRpcEndpoint).mock.results[0]!.value);
+    expect(jest.mocked(accountRefToSdk)).toHaveBeenCalledWith('acc-1_suffix');
+    expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
+    expect(mockGetAccountProof.mock.calls[0]).toHaveLength(1);
+    expect(mockGetAccountProof.mock.calls[0]![0]).toBe(jest.mocked(accountRefToSdk).mock.results[0]!.value);
+    expect(mockWithWasmClientLock).not.toHaveBeenCalled();
+  });
+
+  it('returns no commitment when the RPC rejects', async () => {
+    mockGetAccountProof.mockRejectedValue(new Error('node unavailable'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(readChainAccountCommitment('acc-1', 60_000)).resolves.toBeUndefined();
+
+    warn.mockRestore();
+  });
+
+  // A poll under a deadline passes the time it has left, so no read outlives it.
+  it('gives up at the time left, at most 15 s, and does not retry', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockGetAccountProof.mockImplementation(() => new Promise(() => {}));
+      let short: string | undefined = 'unsettled';
+      let long: string | undefined = 'unsettled';
+      void readChainAccountCommitment('acc-1', 5_000).then(value => {
+        short = value;
+      });
+      void readChainAccountCommitment('acc-1', 60_000).then(value => {
+        long = value;
+      });
+
+      await jest.advanceTimersByTimeAsync(4_999);
+      expect(short).toBe('unsettled');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(short).toBeUndefined();
+
+      await jest.advanceTimersByTimeAsync(15_000 - 5_000 - 1);
+      expect(long).toBe('unsettled');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(long).toBeUndefined();
+      expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      jest.useRealTimers();
+    }
   });
 });
 

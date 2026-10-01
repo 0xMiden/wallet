@@ -19,6 +19,7 @@ import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-sw
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -49,7 +50,9 @@ import {
   generateTransactionsLoop,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction,
-  initiateUpdateProcedureThresholdTransaction
+  initiateUpdateProcedureThresholdTransaction,
+  LANDED_CONFIRM_BOUND_MS,
+  LANDED_CONFIRM_POLL_MS
 } from './index';
 import {
   ConsumeTransaction,
@@ -174,10 +177,19 @@ const mockFinalizeDirectSwitch = jest.fn();
 // that preserves the pre-existing finalize-anyway behaviour, so every test that
 // does not care about the commit verdict is unaffected by it.
 const mockDidDirectSwitchLand = jest.fn(async (): Promise<boolean | undefined> => undefined);
+// A landed write's poll (#1233): the node's account commitment and the last-synced record, both no
+// answer by default.
+const mockReadChainAccountCommitment = jest.fn(
+  async (_accountId: string, _timeoutMs: number): Promise<string | undefined> => undefined
+);
+const mockReadLastSyncedVerdict = jest.fn(async (_transactionId: string): Promise<boolean | undefined> => undefined);
 jest.mock('lib/miden/guardian/direct-switch', () => ({
   ...jest.requireActual('lib/miden/guardian/direct-switch'),
   createDirectSwitchGuardianRequest: (...a: unknown[]) => mockCreateDirectSwitchRequest(...a),
   finalizeDirectGuardianSwitch: (...a: unknown[]) => mockFinalizeDirectSwitch(...a),
+  readChainAccountCommitment: (accountId: string, timeoutMs: number) =>
+    mockReadChainAccountCommitment(accountId, timeoutMs),
+  readLastSyncedVerdict: (transactionId: string) => mockReadLastSyncedVerdict(transactionId),
   didDirectSwitchLand: (...a: unknown[]) => mockDidDirectSwitchLand(...(a as []))
 }));
 
@@ -7902,6 +7914,265 @@ describe('generateTransaction — Guardian routing', () => {
       expect(type === 'replace-hot-key' && describeRotationFailure(row() as never, null).unconfirmed).toBe(false);
     }
   );
+
+  // When the record gives no verdict, the node's commitment for the account confirms a landed write
+  // equal to the executed transaction's final one (#1233). The poll runs on timers, so these drive it.
+  describe('confirmed by the node account commitment', () => {
+    beforeEach(() => {
+      mockReadChainAccountCommitment.mockReset();
+      mockReadChainAccountCommitment.mockResolvedValue(undefined);
+      mockReadLastSyncedVerdict.mockReset();
+      mockReadLastSyncedVerdict.mockResolvedValue(undefined);
+    });
+
+    const resultWithFinalCommitment = (finalCommitment: string) => {
+      const result = makeResult();
+      return {
+        ...result,
+        executedTransaction: () => ({
+          ...result.executedTransaction(),
+          finalAccountHeader: () => ({ to_commitment: () => ({ toHex: () => finalCommitment }) })
+        })
+      };
+    };
+
+    /** Points the leaf at a result whose executed transaction ends at `finalCommitment`; its apply fails. */
+    const landWithFinalCommitment = (finalCommitment: string) =>
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(
+          resultWithFinalCommitment(finalCommitment),
+          jest.fn(async () => {
+            throw new Error(STORE_APPLY_ERROR_MESSAGE);
+          })
+        )
+      });
+
+    /**
+     * Starts `run` under fake timers and advances past the apply's retry waits. Returns when the first
+     * record read started, which is where the poll's bound starts, and whether the run has settled.
+     */
+    const startPolling = async (run: () => Promise<unknown>) => {
+      let pollStartedAt: number | undefined;
+      mockDidDirectSwitchLand.mockImplementationOnce(async () => {
+        pollStartedAt = Date.now();
+        return undefined;
+      });
+      let settled = false;
+      run().then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      await jest.advanceTimersByTimeAsync(APPLY_RETRY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0));
+      expect(pollStartedAt).toBeDefined();
+      const startedAt = pollStartedAt ?? 0;
+      return {
+        /** Advances the clock to `ms` after the poll started. */
+        advanceToPollTime: (ms: number) => jest.advanceTimersByTimeAsync(ms - (Date.now() - startedAt)),
+        settled: () => settled
+      };
+    };
+
+    it('completes a landed threshold update the node confirms by its account commitment (#1233)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { tx, row, coldService, provider } = arrangeLandedThreshold(jest.fn(async () => {}));
+        landWithFinalCommitment('final-commit');
+        mockReadChainAccountCommitment.mockResolvedValueOnce('initial').mockResolvedValueOnce('final-commit');
+
+        const { advanceToPollTime, settled } = await startPolling(() =>
+          generateTransaction(
+            tx,
+            jest.fn(async () => new Uint8Array([1])),
+            false,
+            provider
+          )
+        );
+        await advanceToPollTime(2 * LANDED_CONFIRM_POLL_MS);
+
+        expect(settled()).toBe(true);
+        expect(row()?.status).toBe(ITransactionStatus.Completed);
+        expect(row()?.displayMessage).toBe('Account secured');
+        expect(row()?.transactionId).toBe('exec-tx-hash');
+        expect(mockReadChainAccountCommitment).toHaveBeenCalledTimes(2);
+        expect(mockReadChainAccountCommitment).toHaveBeenNthCalledWith(1, 'acc-1', LANDED_CONFIRM_BOUND_MS);
+        expect(mockReadChainAccountCommitment).toHaveBeenNthCalledWith(
+          2,
+          'acc-1',
+          LANDED_CONFIRM_BOUND_MS - LANDED_CONFIRM_POLL_MS
+        );
+        // One completed round read the record; the second ended on the commitment.
+        expect(mockReadLastSyncedVerdict).toHaveBeenCalledTimes(1);
+        expect(mockReadLastSyncedVerdict).toHaveBeenCalledWith('exec-tx-hash');
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+        expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('completes a landed rotation the node confirms by its account commitment (#1233)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { run, row, coldService, swapHotKey } = arrangeLandedRotation();
+        landWithFinalCommitment('final-commit');
+        mockReadChainAccountCommitment.mockResolvedValueOnce('initial').mockResolvedValueOnce('final-commit');
+
+        const { advanceToPollTime, settled } = await startPolling(run);
+        await advanceToPollTime(2 * LANDED_CONFIRM_POLL_MS);
+
+        expect(settled()).toBe(true);
+        expect(row()?.status).toBe(ITransactionStatus.Completed);
+        expect(swapHotKey).toHaveBeenCalledWith('acc-1_suffix', 'new-hot-pub');
+        expect(mockReadChainAccountCommitment).toHaveBeenCalledTimes(2);
+        expect(mockReadLastSyncedVerdict).toHaveBeenCalledTimes(1);
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+        expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps a landed threshold update unconfirmed when the node never shows its commitment (#1233)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { tx, row, coldService, provider } = arrangeLandedThreshold(jest.fn(async () => {}));
+        landWithFinalCommitment('final-commit');
+        mockReadChainAccountCommitment.mockResolvedValue('initial');
+
+        const { advanceToPollTime, settled } = await startPolling(() =>
+          generateTransaction(
+            tx,
+            jest.fn(async () => new Uint8Array([1])),
+            false,
+            provider
+          )
+        );
+        const rounds = LANDED_CONFIRM_BOUND_MS / LANDED_CONFIRM_POLL_MS;
+        await advanceToPollTime(LANDED_CONFIRM_BOUND_MS - 1);
+        expect(settled()).toBe(false);
+        expect(mockReadChainAccountCommitment).toHaveBeenCalledTimes(rounds - 1);
+
+        await advanceToPollTime(LANDED_CONFIRM_BOUND_MS);
+
+        expect(rounds).toBe(20);
+        // A first read whose sync the watchdog evicted has outlasted the bound, so no round reads after one.
+        expect(LANDED_CONFIRM_BOUND_MS).toBeLessThan(WASM_LOCK_SYNC_WATCHDOG_MS);
+        expect(mockReadChainAccountCommitment).toHaveBeenCalledTimes(rounds);
+        expect(settled()).toBe(true);
+        expect(row()?.status).toBe(ITransactionStatus.Failed);
+        expect(row()?.error).toMatch(/has not confirmed it/);
+        expect(row()?.displayMessage).not.toBe('Account secured');
+        expect(row()?.extraInputs).not.toHaveProperty('nodeDiscarded');
+        // Each read is capped to the time left when its round began.
+        expect(mockReadChainAccountCommitment.mock.calls).toEqual(
+          Array.from({ length: rounds }, (_, round) => [
+            'acc-1',
+            LANDED_CONFIRM_BOUND_MS - round * LANDED_CONFIRM_POLL_MS
+          ])
+        );
+        expect(mockReadLastSyncedVerdict).toHaveBeenCalledTimes(rounds);
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+        expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+
+        // Nothing reads past the bound.
+        await advanceToPollTime(LANDED_CONFIRM_BOUND_MS + LANDED_CONFIRM_POLL_MS);
+        expect(mockReadChainAccountCommitment).toHaveBeenCalledTimes(rounds);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('abandons a landed write whose record turns discarded while it waits (#1233)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { tx, row, coldService, provider } = arrangeLandedThreshold(jest.fn(async () => {}));
+        landWithFinalCommitment('final-commit');
+        mockReadChainAccountCommitment.mockResolvedValue('initial');
+        mockReadLastSyncedVerdict.mockResolvedValueOnce(false);
+
+        const { advanceToPollTime, settled } = await startPolling(() =>
+          generateTransaction(
+            tx,
+            jest.fn(async () => new Uint8Array([1])),
+            false,
+            provider
+          )
+        );
+        // Past a second round, which a poll that kept going after the discard would have run.
+        await advanceToPollTime(2 * LANDED_CONFIRM_POLL_MS);
+
+        expect(settled()).toBe(true);
+        expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(coldService.abandonCandidate).toHaveBeenCalledWith(9);
+        expect(row()?.status).toBe(ITransactionStatus.Failed);
+        expect(row()?.error).toMatch(/GuardianWriteDiscardedError: .*did not land: the node discarded it/);
+        expect(row()?.extraInputs).toMatchObject({ nodeDiscarded: true });
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+        expect(mockReadLastSyncedVerdict).toHaveBeenCalledTimes(1);
+        expect(mockReadChainAccountCommitment).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('reads the record without syncing while it waits (#1233)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { tx, row, provider } = arrangeLandedThreshold(jest.fn(async () => {}));
+        landWithFinalCommitment('final-commit');
+        mockReadChainAccountCommitment.mockResolvedValue('initial');
+        mockReadLastSyncedVerdict.mockResolvedValueOnce(undefined).mockResolvedValueOnce(true);
+
+        const { advanceToPollTime, settled } = await startPolling(() =>
+          generateTransaction(
+            tx,
+            jest.fn(async () => new Uint8Array([1])),
+            false,
+            provider
+          )
+        );
+        await advanceToPollTime(2 * LANDED_CONFIRM_POLL_MS);
+
+        expect(settled()).toBe(true);
+        expect(row()?.status).toBe(ITransactionStatus.Completed);
+        expect(row()?.displayMessage).toBe('Account secured');
+        expect(mockReadLastSyncedVerdict).toHaveBeenCalledTimes(2);
+        // Only the first read syncs; a round never asks `didDirectSwitchLand` again.
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('keeps one read when the landed facts carry no final commitment (#1233)', async () => {
+      const { tx, row, provider } = arrangeLandedThreshold(
+        jest.fn(async () => {
+          throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+        })
+      );
+      mockDidDirectSwitchLand.mockResolvedValueOnce(undefined);
+
+      await generateTransaction(
+        tx,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        provider
+      );
+
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(row()?.error).toMatch(/has not confirmed it/);
+      expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+      expect(mockReadChainAccountCommitment).not.toHaveBeenCalled();
+      expect(mockReadLastSyncedVerdict).not.toHaveBeenCalled();
+    });
+  });
 
   it('replace-hot-key landed: abandons on the cold service when the hot build cannot run (#1233)', async () => {
     const { run, row, coldService, swapHotKey } = arrangeLandedRotation();

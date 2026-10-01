@@ -21,13 +21,15 @@ export const APPLY_RETRY_DELAYS_MS: readonly number[] = [250, 1000];
 
 /**
  * The parts of the submitted transaction's result the helper reads: a retry reads the account id and
- * its initial header, and the error carries `id()` and the private output note count.
+ * its initial header, and the error carries `id()`, the private output note count and the final
+ * header's commitment.
  */
 export interface SubmittedResult<Id> {
   executedTransaction(): {
     id(): { toHex(): string };
     accountId(): Id;
     initialAccountHeader(): { to_commitment(): { toHex(): string } };
+    finalAccountHeader?(): { to_commitment(): { toHex(): string } };
     outputNotes(): { notes(): OutputNote[] };
   };
 }
@@ -87,7 +89,8 @@ function readLanded<Id>(options: ApplyAfterSubmitRetry<Id>): LandedTransaction {
   if (!options.holdIsCurrent()) return {};
   return {
     transactionId: readTransactionId(options.result),
-    privateOutputNotes: countPrivateOutputNotes(options.result)
+    privateOutputNotes: countPrivateOutputNotes(options.result),
+    finalAccountCommitment: readFinalAccountCommitment(options.result)
   };
 }
 
@@ -102,6 +105,14 @@ function report<Id>(options: ApplyAfterSubmitRetry<Id>, error: unknown): void {
 function readTransactionId<Id>(result: SubmittedResult<Id>): string | undefined {
   try {
     return result.executedTransaction().id().toHex();
+  } catch {
+    return undefined;
+  }
+}
+
+function readFinalAccountCommitment<Id>(result: SubmittedResult<Id>): string | undefined {
+  try {
+    return result.executedTransaction().finalAccountHeader?.().to_commitment().toHex();
   } catch {
     return undefined;
   }

@@ -176,13 +176,16 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
 }
 
 /**
- * What a landed write's failure knows about its transaction (#1233): the executed transaction's id and
- * how many private user output notes it produced, each only when it could be read. One object from the
- * throw to the row, on both realms, so no layer can carry one fact and drop the other.
+ * What a landed write's failure knows about its transaction (#1233): the executed transaction's id, how
+ * many private user output notes it produced and its final account commitment, each only when it could
+ * be read. One object from the throw to the row, on both realms, so no layer can carry one fact and drop
+ * the other.
  */
 export interface LandedTransaction {
   transactionId?: string;
   privateOutputNotes?: number;
+  /** The executed transaction's final account commitment, which the node's account commitment equals once it commits. */
+  finalAccountCommitment?: string;
 }
 
 /**
@@ -222,17 +225,20 @@ const readGuarded = (value: unknown, key: string): unknown => {
 
 /**
  * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
- * rebuilds from an offscreen reply, keeping only a string id and a non-negative integer count.
+ * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count and a string
+ * final commitment.
  */
 export function extractLanded(err: unknown): LandedTransaction {
   const landed = readGuarded(err, 'landed');
   const transactionId = readGuarded(landed, 'transactionId');
   const privateOutputNotes = readGuarded(landed, 'privateOutputNotes');
+  const finalAccountCommitment = readGuarded(landed, 'finalAccountCommitment');
   return {
     ...(typeof transactionId === 'string' ? { transactionId } : {}),
     ...(typeof privateOutputNotes === 'number' && Number.isInteger(privateOutputNotes) && privateOutputNotes >= 0
       ? { privateOutputNotes }
-      : {})
+      : {}),
+    ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {})
   };
 }
 
