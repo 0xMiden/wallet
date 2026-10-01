@@ -4,13 +4,18 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 import { cn } from 'lib/ui/util';
 
+import { IconCircle } from './FactRow';
+
 const headingVariants = cva('min-w-0 truncate', {
   variants: {
-    /** `sm`: `text-label` `muted` (default, the spec's section label). `lg`: `text-title-section`
-     * `ink`, for a page-level section title such as Settings' coloured group headers. `xl`:
-     * `text-title-page` `ink`, the section title of a tab root, such as Explore's. */
+    /** `sm`: `text-label` `muted` (default, the spec's section label). `md`: the same label at
+     * `text-row-title`, 16px, for a detail page's sections (a transaction's details and notes).
+     * `lg`: `text-title-section` `ink`, for a page-level section title such as Settings' coloured
+     * group headers. `xl`: `text-title-page` `ink`, the section title of a tab root, such as
+     * Explore's. */
     size: {
       sm: 'text-label text-muted',
+      md: 'text-row-title text-muted',
       lg: 'text-title-section text-ink',
       xl: 'text-title-page text-ink'
     },
@@ -31,8 +36,9 @@ export interface SectionHeaderProps extends VariantProps<typeof headingVariants>
   /** Trailing action beside the label (for example a text button). */
   action?: React.ReactNode;
   /**
-   * Leading glyph, drawn `aria-hidden` in a 32px round `bg-fill` circle before the label. The
-   * glyph keeps its own colour (an SVG with its own fills) — the circle is decoration only.
+   * Leading glyph, drawn `aria-hidden` in a 32px round `bg-fill` circle before the label.
+   * `IconCircle` sets `text-ink`, which a glyph drawn in `currentColor` takes. An SVG whose root declares
+   * `fill="none"` must be passed `fill="currentColor"` or it draws nothing; an SVG with its own fills keeps them.
    */
   icon?: React.ReactNode;
   /** Layout only (margins, padding). */
@@ -54,12 +60,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
   <div className={cn('flex items-center justify-between gap-3 px-1 pb-2', className)} data-testid={dataTestId}>
     {icon ? (
       <span className="flex min-w-0 items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fill [&>svg]:h-4 [&>svg]:w-4"
-        >
-          {icon}
-        </span>
+        <IconCircle>{icon}</IconCircle>
         <Heading className={cn(headingVariants({ size, tone }))}>{children}</Heading>
       </span>
     ) : (

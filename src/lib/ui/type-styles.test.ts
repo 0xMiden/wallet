@@ -40,7 +40,8 @@ const EXPECTED: Record<(typeof TYPE_STYLES)[number], [string, string, string, st
   explainer: [SANS, '15px', '22px', '400'],
   'body-sm': [SANS, '14px', '20px', '400'],
   label: [SANS, '13px', '17px', '700'],
-  caption: [SANS, '13px', '17px', '400']
+  caption: [SANS, '13px', '17px', '400'],
+  'caption-heading': [HEADING, '13px', '17px', '600']
 };
 
 describe('type scale utilities', () => {

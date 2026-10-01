@@ -12,8 +12,8 @@ import { cva } from 'class-variance-authority';
 import { tintForAddress } from 'components/contacts/ContactAvatar';
 import { cn } from 'lib/ui/util';
 
-/** `row`: 40px, the design system's list avatar. `tile`: 56px, in a row of tiles. `hero`: 72px, on a featured card. */
-export type AppIconSize = 'row' | 'tile' | 'hero';
+/** `row`: 40px, the design system's list avatar. `hero`: 72px, on a featured card. */
+export type AppIconSize = 'row' | 'hero';
 
 /** The surface the icon sits on. An image tile takes the other one, so it keeps its shape. */
 export type AppIconSurface = 'page' | 'fill';
@@ -22,33 +22,30 @@ const tileVariants = cva('flex shrink-0 items-center justify-center overflow-hid
   variants: {
     size: {
       row: 'h-10 w-10',
-      tile: 'h-14 w-14',
       hero: 'h-18 w-18'
     } satisfies Record<AppIconSize, string>
   },
-  defaultVariants: { size: 'tile' }
+  defaultVariants: { size: 'row' }
 });
 
 const imageVariants = cva('object-contain', {
   variants: {
     size: {
       row: 'h-7 w-7',
-      tile: 'h-9 w-9',
       hero: 'h-12 w-12'
     } satisfies Record<AppIconSize, string>
   },
-  defaultVariants: { size: 'tile' }
+  defaultVariants: { size: 'row' }
 });
 
 const letterVariants = cva('font-heading font-extrabold text-pure-white', {
   variants: {
     size: {
       row: 'text-lg',
-      tile: 'text-2xl',
       hero: 'text-3xl'
     } satisfies Record<AppIconSize, string>
   },
-  defaultVariants: { size: 'tile' }
+  defaultVariants: { size: 'row' }
 });
 
 /**
@@ -80,7 +77,7 @@ export interface AppIconProps {
   className?: string;
 }
 
-export const AppIcon: FC<AppIconProps> = ({ url, name, icon, size = 'tile', surface = 'page', className }) => {
+export const AppIcon: FC<AppIconProps> = ({ url, name, icon, size = 'row', surface = 'page', className }) => {
   const [broken, setBroken] = useState(false);
   const showLetter = !icon || broken;
 

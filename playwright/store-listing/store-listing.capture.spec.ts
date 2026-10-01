@@ -7,6 +7,7 @@ import {
   capturePlan,
   installCaptureShim,
   guardianPubkeyRoute,
+  guardianPubkeyStubCommitment,
   parkCapturePointer,
   settleCaptureMotion,
   type CapturePlanEntry,
@@ -110,7 +111,7 @@ async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEn
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ commitment: 'deterministic-store-listing-guardian' })
+      body: JSON.stringify({ commitment: guardianPubkeyStubCommitment })
     })
   );
   return context;
@@ -305,7 +306,7 @@ async function captureChrome(): Promise<void> {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ commitment: 'deterministic-store-listing-guardian' })
+        body: JSON.stringify({ commitment: guardianPubkeyStubCommitment })
       })
     );
 

@@ -26,6 +26,7 @@ const mockUnlock = jest.fn();
 let mockIsMobile = false;
 let mockHasHardwareProtector = false;
 let mockProbeRejects = false;
+let mockHasPasswordProtector: boolean | 'rejects' = true;
 let mockProbePending = false;
 
 jest.mock('react-i18next', () => ({
@@ -94,7 +95,11 @@ jest.mock('lib/miden/back/vault', () => ({
         ? new Promise(() => {})
         : mockProbeRejects
           ? Promise.reject(new Error('probe failed'))
-          : Promise.resolve(mockHasHardwareProtector)
+          : Promise.resolve(mockHasHardwareProtector),
+    hasPasswordProtector: () =>
+      mockHasPasswordProtector === 'rejects'
+        ? Promise.reject(new Error('probe failed'))
+        : Promise.resolve(mockHasPasswordProtector)
   }
 }));
 
@@ -105,6 +110,12 @@ jest.mock('lib/miden/front', () => {
     useLocalStorage: (_key: string, initial: unknown) => ReactLib.useState(initial)
   };
 });
+
+// The unlock step reads the account list to name what the file does not restore; the real
+// store module would pull the intercom client into a suite about the flow's markup.
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { accounts: never[] }) => unknown) => selector({ accounts: [] })
+}));
 
 jest.mock('screens/onboarding/common/CreatePassword', () => ({
   __esModule: true,
@@ -123,9 +134,10 @@ const FILE_PASSWORD = 'Backup1234!';
 
 const flowRoot = () => screen.getByTestId('encrypted-file-manager-flow');
 
+// Waits for the field rather than the step: the step's frame is up before the protector probe answers.
 const advanceToExportStep = async () => {
   const unlockStep = within(flowRoot()).getByTestId('encrypted-file-wallet-password');
-  fireEvent.change(within(unlockStep).getByTestId('encrypted-file-wallet-password-input'), {
+  fireEvent.change(await within(unlockStep).findByTestId('encrypted-file-wallet-password-input'), {
     target: { value: 'Test1234!' }
   });
   fireEvent.click(within(unlockStep).getByTestId('encrypted-file-wallet-password-consent'));
@@ -145,6 +157,7 @@ beforeEach(() => {
   mockIsMobile = false;
   mockHasHardwareProtector = false;
   mockProbeRejects = false;
+  mockHasPasswordProtector = true;
   mockProbePending = false;
 });
 
@@ -153,7 +166,7 @@ describe('EncryptedFileFlow step containment', () => {
     render(<EncryptedFileFlow />);
 
     const unlockStep = await within(flowRoot()).findByTestId('encrypted-file-wallet-password');
-    expect(within(unlockStep).getByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+    expect(await within(unlockStep).findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
     expect(within(unlockStep).getByTestId('encrypted-file-wallet-password-consent')).toBeInTheDocument();
     // The CTA is pinned in the layout's footer: it must still be inside the step's own page, or a
     // harness scoped to the step cannot reach it.
@@ -285,7 +298,7 @@ describe('EncryptedFileFlow Enter in the export verify field', () => {
 
 // The step is the flow's only header now, so a probe that rejects must not leave it rendering null.
 describe('EncryptedFileFlow when the hardware probe rejects', () => {
-  it('falls back to the password step, with its title, back and field', async () => {
+  it('takes the password step when a password key exists, with its title, back and field', async () => {
     mockProbeRejects = true;
     render(<EncryptedFileFlow />);
 
@@ -294,6 +307,18 @@ describe('EncryptedFileFlow when the hardware probe rejects', () => {
     expect(await within(unlockStep).findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
     expect(within(unlockStep).getByRole('heading', { level: 1, name: 'encryptedWalletFile' })).toBeInTheDocument();
     expect(within(unlockStep).getByRole('button', { name: 'back' })).toBeInTheDocument();
+  });
+
+  it('keeps its title and back over the error when both protector reads fail', async () => {
+    mockProbeRejects = true;
+    mockHasPasswordProtector = 'rejects';
+    render(<EncryptedFileFlow />);
+
+    const unlockStep = await within(flowRoot()).findByTestId('encrypted-file-wallet-password');
+    expect(await within(unlockStep).findByTestId('protector-probe-error')).toBeInTheDocument();
+    expect(within(unlockStep).getByRole('heading', { level: 1, name: 'encryptedWalletFile' })).toBeInTheDocument();
+    expect(within(unlockStep).getByRole('button', { name: 'back' })).toBeInTheDocument();
+    expect(within(unlockStep).queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
   });
 });
 

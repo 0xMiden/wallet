@@ -28,7 +28,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
-import { clearStorage } from 'lib/miden/reset';
+import { clearStorage, dropLegacyGuardianUrl } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -237,6 +237,7 @@ export function registerNewWallet(
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
+        await dropLegacyGuardianUrlAfterSetup('registerNewWallet');
         console.log('[Actions.registerNewWallet] Completed');
       } catch (err: unknown) {
         console.error('[Actions.registerNewWallet] FAILED:', err);
@@ -245,6 +246,14 @@ export function registerNewWallet(
         syncRealmInsertKeySink();
       }
     })
+  );
+}
+
+// The wallet is already set up, so a failed drop only warns: the key then lingers as it did
+// before #1174, read only by an account that has no guardianEndpoint of its own.
+async function dropLegacyGuardianUrlAfterSetup(caller: string) {
+  await dropLegacyGuardianUrl().catch(err =>
+    console.warn(`[Actions.${caller}] could not drop the legacy guardian URL:`, err)
   );
 }
 
@@ -267,6 +276,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
+        await dropLegacyGuardianUrlAfterSetup('registerWalletFromHotKey');
       } finally {
         syncRealmInsertKeySink();
       }
@@ -308,6 +318,7 @@ export function registerImportedWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
+        await dropLegacyGuardianUrlAfterSetup('registerImportedWallet');
       } finally {
         if (!published && vault) {
           // The spawn's own undo cannot fire here: it already RESOLVED, and the
@@ -441,7 +452,10 @@ export function createHDAccount(walletType: WalletType, name?: string) {
       }
 
       const accounts = await vault.createHDAccount(walletType, name);
-      accountsUpdated({ accounts });
+      // A Guardian creation registers outside the WASM lock, so a lock can land meanwhile. The
+      // `locked` state is built fresh on purpose; publishing into it would hand a locked popup
+      // the account list. The vault holds the account, and the next unlock loads it (#1207).
+      if (store.getState().vault === vault) accountsUpdated({ accounts });
     })
   );
 }

@@ -2,7 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { navigate } from 'lib/woozie';
 
 import AllHistory from './AllHistory';
 
@@ -49,8 +51,13 @@ jest.mock('components/ui', () => ({
         />
       );
     }),
-  TabRootHeader:
-    jest.requireActual<typeof import('components/ui/TabRootHeader')>('components/ui/TabRootHeader').TabRootHeader
+  // The real header, wrapped so a test can see the filter row's value on every render.
+  TabRootHeader: (props: import('components/ui/TabRootHeader').TabRootHeaderProps) => {
+    mockFilterRowRenders.push(props.filter?.value);
+    const { TabRootHeader: Real } =
+      jest.requireActual<typeof import('components/ui/TabRootHeader')>('components/ui/TabRootHeader');
+    return <Real {...props} />;
+  }
 }));
 
 // The title row has its own suite; stubbed here so this one is about what the band puts under it,
@@ -84,6 +91,12 @@ jest.mock('components/ui/TabHeader', () => ({
 
 // Counts mounts, so a test can tell a remount from a re-render.
 const mockPendingMounts = { count: 0 };
+// Every render's filter prop, so a test can tell a stale first frame from a correct one.
+const mockPendingFilterRenders: string[] = [];
+// Every render's filter row value (undefined while the row is hidden, in Groups).
+const mockFilterRowRenders: (string | undefined)[] = [];
+// Stands in for a warm SWR cache: the list reports its load from its first commit.
+const mockReportOnMount = { value: false };
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({
   ActivityPendingHistory: (props: {
     programId?: string | null;
@@ -91,7 +104,13 @@ jest.mock('app/templates/history/ActivityPendingHistory', () => ({
     filter: string;
     onInitialLoad?: () => void;
   }) => {
-    const [instance] = jest.requireActual<typeof import('react')>('react').useState(() => ++mockPendingMounts.count);
+    mockPendingFilterRenders.push(props.filter);
+    const R = jest.requireActual<typeof import('react')>('react');
+    const [instance] = R.useState(() => ++mockPendingMounts.count);
+    R.useEffect(() => {
+      if (mockReportOnMount.value) props.onInitialLoad?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     return (
       <div
         data-testid="history"
@@ -188,6 +207,8 @@ describe('AllHistory', () => {
     localStorage.clear();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
+    mockPendingFilterRenders.length = 0;
+    mockFilterRowRenders.length = 0;
     mockReducedMotion.value = false;
     mockLocationSearch.value = '';
     HTMLElement.prototype.scrollIntoView = jest.fn();
@@ -196,6 +217,12 @@ describe('AllHistory', () => {
   afterEach(() => {
     HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   });
+
+  const onScreen = (active: boolean) => (
+    <PageActiveContext.Provider value={active}>
+      <AllHistory />
+    </PageActiveContext.Provider>
+  );
 
   it('renders the activity header, filter chips and search field', () => {
     render(<AllHistory />);
@@ -297,14 +324,14 @@ describe('AllHistory', () => {
   });
 
   it('lands on Pending from a repeat link after the user picked another filter', () => {
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     const { rerender } = render(<AllHistory />);
     expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
 
     fireEvent.click(getFilterButton('all'));
     expect(getFilterButton('all')).toHaveAttribute('aria-checked', 'true');
 
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     rerender(<AllHistory />);
     expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
     expect(getHistory().getAttribute('data-filter')).toBe('pending');
@@ -387,9 +414,39 @@ describe('AllHistory', () => {
 
     beforeEach(() => {
       telemetryHandles.length = 0;
+      mockReportOnMount.value = false;
     });
 
     const reportLoaded = () => fireEvent.click(screen.getByTestId('history-loaded'));
+
+    it('cancels the flow when its page goes off screen before the list loads', () => {
+      const { rerender } = render(onScreen(true));
+      rerender(onScreen(false));
+      expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+
+      // Back on screen, a late load reports nothing: that visit was left.
+      rerender(onScreen(true));
+      reportLoaded();
+      expect(handleAt(0).complete).not.toHaveBeenCalled();
+      expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a loaded view completed when its page goes off screen', () => {
+      const { rerender } = render(onScreen(true));
+      reportLoaded();
+      rerender(onScreen(false));
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    });
+
+    it('completes a view whose list reported its load on its first commit', () => {
+      mockReportOnMount.value = true;
+      const { rerender } = render(onScreen(true));
+      rerender(onScreen(false));
+      expect(beginFlowMock).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    });
 
     it('begins one activity_view flow on entry', () => {
       render(<AllHistory />);
@@ -557,6 +614,21 @@ describe('AllHistory', () => {
       expect(getHistory().getAttribute('data-filter')).toBe('sent');
     });
 
+    it("restores the feed's own filter after a trip to Groups when the page remounts", async () => {
+      const first = render(<AllHistory />);
+      fireEvent.click(getFilterButton('sent'));
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+      await waitFor(() => expect(screen.queryByTestId('activity-view-menu')).toBeNull());
+      openMenu();
+      fireEvent.click(screen.getByTestId('activity-view-list'));
+
+      expect(mockLocationSearch.value).toBe('?filter=sent');
+      first.unmount();
+      render(<AllHistory />);
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+    });
+
     it('ignores a tap on the view that is already chosen', () => {
       render(<AllHistory />);
       openMenu();
@@ -611,6 +683,166 @@ describe('AllHistory', () => {
       });
     });
   });
+
+  // The home prompt and received-transfer notifications link to `/history?filter=pending&view=list`;
+  // only the feed has filters and Accept All, so a link asks for the List (#1110).
+  describe('a link that asks for the List', () => {
+    beforeEach(() => localStorage.setItem('activity_view_setting', 'groups'));
+
+    it('shows the feed with that filter even when Groups was chosen, and keeps Groups saved', async () => {
+      mockLocationSearch.value = '?filter=pending&view=list';
+      render(<AllHistory />);
+
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+      expect(screen.queryByTestId('grouped-history')).toBeNull();
+      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(screen.getByTestId('activity-view-button'));
+      await screen.findByTestId('activity-view-menu');
+      expect(screen.getByTestId('activity-view-list')).toHaveAttribute('aria-checked', 'true');
+      expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+    });
+
+    it('switches a Groups page that is already open to the feed when such a link arrives', () => {
+      const { rerender } = render(<AllHistory />);
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+
+      mockLocationSearch.value = '?filter=pending&view=list';
+      const rowRendersBefore = mockFilterRowRenders.length;
+      rerender(<AllHistory />);
+
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+      expect(mockPendingFilterRenders).toEqual(expect.arrayContaining(['pending']));
+      expect(mockPendingFilterRenders.every(f => f === 'pending')).toBe(true);
+      // The filter row too shows the link's filter from its first frame.
+      const rowRendersAfter = mockFilterRowRenders.slice(rowRendersBefore);
+      expect(rowRendersAfter).toEqual(expect.arrayContaining(['pending']));
+      expect(rowRendersAfter.every(value => value === 'pending')).toBe(true);
+    });
+
+    it('goes back to Groups when the user picks it, dropping the request for the List', async () => {
+      mockLocationSearch.value = '?filter=pending&view=list';
+      render(<AllHistory />);
+
+      fireEvent.click(screen.getByTestId('activity-view-button'));
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
+      expect(mockLocationSearch.value).toBe('?filter=pending');
+      expect(localStorage.getItem('activity_view_setting')).toBe('groups');
+      expect(navigate).toHaveBeenCalledWith(expect.any(Function), 'replacestate');
+      const updater = (navigate as jest.Mock).mock.calls[0][0] as (at: {
+        pathname: string;
+        search: string;
+        hash: string;
+        state: unknown;
+      }) => { pathname: string; search: string; hash: string; state: unknown };
+      const state = { from: 'test' };
+      expect(
+        updater({ pathname: '/history/prog-42', search: '?filter=pending&view=list', hash: '#top', state })
+      ).toEqual({
+        pathname: '/history/prog-42',
+        search: '?filter=pending',
+        hash: '#top',
+        state
+      });
+    });
+
+    it('leaves the location alone when Groups is picked and no filter is named', async () => {
+      localStorage.setItem('activity_view_setting', 'list');
+      render(<AllHistory />);
+
+      fireEvent.click(screen.getByTestId('activity-view-button'));
+      fireEvent.click(screen.getByTestId('activity-view-groups'));
+
+      await waitFor(() => expect(screen.getByTestId('grouped-history')).toBeTruthy());
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the feed a link opened while another tab is on screen', () => {
+      const { rerender } = render(onScreen(true));
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+
+      mockLocationSearch.value = '?filter=pending&view=list';
+      rerender(onScreen(true));
+      expect(getHistory().getAttribute('data-instance')).toBe('1');
+
+      // TabLayout keeps this pane mounted under the tab now showing, whose location names no filter.
+      mockLocationSearch.value = '';
+      rerender(onScreen(false));
+      expect(screen.queryByTestId('grouped-history')).toBeNull();
+      expect(getHistory().getAttribute('data-instance')).toBe('1');
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+
+      // A tap on the Activity tab goes to `/history`, which names none.
+      rerender(onScreen(true));
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+    });
+
+    it('returns to the saved Groups view once the location no longer asks for the List', () => {
+      mockLocationSearch.value = '?filter=pending&view=list';
+      const { rerender } = render(<AllHistory />);
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+
+      mockLocationSearch.value = '';
+      rerender(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+    });
+
+    it('ignores a filter the control does not offer', () => {
+      mockLocationSearch.value = '?filter=nope&view=list';
+      render(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+    });
+
+    it("leaves the saved view in charge of the page's own record of a filter", () => {
+      mockLocationSearch.value = '?filter=sent';
+      render(<AllHistory />);
+
+      expect(screen.getByTestId('grouped-history')).toBeTruthy();
+    });
+
+    it('stays on the feed when the user picks another filter on a List a link asked for', () => {
+      mockLocationSearch.value = '?filter=pending&view=list';
+      render(<AllHistory />);
+      fireEvent.click(getFilterButton('sent'));
+
+      expect(mockLocationSearch.value).toBe('?filter=sent&view=list');
+      expect(screen.queryByTestId('grouped-history')).toBeNull();
+      expect(getHistory().getAttribute('data-filter')).toBe('sent');
+    });
+
+    // The link's filter becomes the kept choice, as a pick does, so it survives a return to Activity
+    // through the tab, whose `/history` names no filter. A link reaches the page two ways: it boots
+    // straight into Activity, or it lands on the pane TabLayout keeps mounted under another tab.
+    it("keeps a link's filter when the user comes back to Activity through the tab", () => {
+      localStorage.setItem('activity_view_setting', 'list');
+      mockLocationSearch.value = '?filter=pending&view=list';
+      const { rerender } = render(onScreen(true));
+
+      mockLocationSearch.value = '';
+      rerender(onScreen(false));
+      rerender(onScreen(true));
+
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('keeps the filter of a link that reached the open page when the user comes back through the tab', () => {
+      localStorage.setItem('activity_view_setting', 'list');
+      const { rerender } = render(onScreen(false));
+
+      mockLocationSearch.value = '?filter=pending&view=list';
+      rerender(onScreen(true));
+      mockLocationSearch.value = '';
+      rerender(onScreen(false));
+      rerender(onScreen(true));
+
+      expect(getHistory().getAttribute('data-filter')).toBe('pending');
+      expect(getFilterButton('pending')).toHaveAttribute('aria-checked', 'true');
+    });
+  });
 });
 
 describe('AllHistory — opened at a filter', () => {
@@ -625,7 +857,7 @@ describe('AllHistory — opened at a filter', () => {
   });
 
   it('opens on the Pending filter when the link asked for it', () => {
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     render(<AllHistory />);
 
     expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
@@ -643,7 +875,7 @@ describe('AllHistory — opened at a filter', () => {
     const { rerender } = render(<AllHistory />);
     expect(screen.getByRole('radio', { name: 'all' })).toBeChecked();
 
-    mockLocationSearch.value = '?filter=pending';
+    mockLocationSearch.value = '?filter=pending&view=list';
     rerender(<AllHistory />);
     expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
   });

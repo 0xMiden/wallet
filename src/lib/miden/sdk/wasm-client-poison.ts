@@ -47,8 +47,9 @@ export const WASM_LOCK_WATCHDOG_MS = 300_000;
  * (issue #777). Passed as `withWasmClientLock`'s `watchdogMs` by the sync-shaped
  * call sites: the mobile/desktop idle loop and the two guardian `syncState` holds
  * directly, and everything behind `syncUnderBoundedLock` (the transaction
- * pipeline's pre-flight sync, the two landed-verification probes, the note-import
- * queue's trailing sync) — plus the note import itself, which is the same shape:
+ * pipeline's pre-flight sync, the two landed-verification probes, the
+ * note-import queue's trailing sync, the rotation's pre-build chain sync) -
+ * plus the note import itself, which is the same shape:
  * an RPC under a hold. Their SDK call carries no transport deadline on wasm32
  * (the wasm `ApiClient` drops its `timeout_ms`), so a parked gRPC-web fetch
  * otherwise wedges the lock until the 5-minute last resort.

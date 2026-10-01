@@ -47,7 +47,10 @@ jest.mock('lib/telemetry/report-operation', () => ({
 }));
 (global as unknown as { __reported: SettledOperation[] }).__reported = reported;
 
-jest.mock('../back/background-notification', () => ({ notifyBackgroundTransactionFailed: jest.fn() }));
+jest.mock('../back/background-notification', () => ({
+  notifyBackgroundTransactionFailed: jest.fn(),
+  notifyBackgroundTransactionNotConfirmed: jest.fn()
+}));
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: { getInputNoteDetails: jest.fn(async () => []), syncState: jest.fn(async () => ({})) },
   dispatchGuardianPipeline: jest.fn()
@@ -153,7 +156,7 @@ describe('what is not a failure', () => {
   ])('reports nothing when %s', async (_why, reason) => {
     // Counting these would put a floor under the error rate that no amount of
     // fixing could lower, and the startup sweep alone would dominate it: it
-    // fails every in-progress row on every cold start.
+    // fails every in-progress row an earlier session left, on every cold start.
     const tx = row(`not-a-failure-${reason}`);
     await Repo.transactions.add(tx);
 

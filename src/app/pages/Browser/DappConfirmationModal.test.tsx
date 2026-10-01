@@ -1,8 +1,9 @@
 import React from 'react';
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
@@ -260,5 +261,60 @@ describe('DappConfirmationModal', () => {
     );
 
     expect(onResolve).toHaveBeenCalledWith({ confirmed: false });
+  });
+});
+
+describe('DappConfirmationModal origin', () => {
+  const LONG_ORIGIN = 'https://login.secure.account-verify.wallet.example.co.uk';
+
+  it('keeps the registrable domain of a long origin out of the truncating part', () => {
+    render(
+      <DappConfirmationModal
+        request={buildRequest({ origin: LONG_ORIGIN })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const shown = within(screen.getByRole('heading', { level: 2 })).getByTestId('dapp-confirmation-origin');
+    expect(shown.textContent).toBe(LONG_ORIGIN);
+    const domain = within(shown).getByTestId('dapp-origin-domain');
+    expect(domain).toHaveTextContent(/^example\.co\.uk$/);
+    expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
+    // The row directly wrapping DappOrigin, not the modal card: the card's own
+    // overflow-hidden is an unrelated rounded-corner clip (no fixed height, so it
+    // never clips text) and would otherwise make this guard fail on every render.
+    expectDomainNeverClipped(domain, shown.parentElement!);
+  });
+
+  it('shows the origin the same way in the title when the dApp sends no name', () => {
+    render(
+      <DappConfirmationModal
+        request={buildRequest({ origin: LONG_ORIGIN, appMeta: undefined })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    const title = screen.getByRole('heading', { level: 2 });
+    expect(title.textContent).toBe(LONG_ORIGIN);
+    expect(title).not.toHaveClass('truncate');
+    expect(within(title).getByTestId('dapp-origin-domain')).toHaveTextContent(/^example\.co\.uk$/);
+  });
+
+  // The injected providers send only the page's hostname as the name, so any other name was forged
+  // by the page and must not become the title or the dialog's accessible name.
+  it('titles the dialog with the origin, never a name the dApp sent', () => {
+    render(
+      <DappConfirmationModal
+        request={buildRequest({ origin: 'https://evil.io', appMeta: { name: 'wallet.example.co.uk' } })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={jest.fn()}
+      />
+    );
+
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('https://evil.io');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName(/evil\.io/);
+    expect(screen.getByRole('dialog')).not.toHaveAccessibleName(/example\.co\.uk/);
   });
 });

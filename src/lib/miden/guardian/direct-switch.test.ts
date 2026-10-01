@@ -10,6 +10,7 @@ import {
   isGuardianUnreachableError,
   readDirectSwitchCommitState
 } from './direct-switch';
+import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 
 // ---------------------------------------------------------------------------
 // Mocks. `direct-switch` reaches the WASM SDK, the offscreen proxy, the vault
@@ -25,19 +26,27 @@ import {
 
 // Mocked by the SAME specifier the source imports them under — a `lib/...`
 // path here would leave the real module in the graph.
-// Models hold OWNERSHIP, not just pass-through: the commit-state read re-checks
-// it after the sync, so a lock mock with no hold would make that guard both
-// unreachable and a TypeError swallowed by the caller's catch.
+// Models hold OWNERSHIP, not just pass-through: every hold re-checks it after its
+// parking awaits, so a lock mock with no hold would make each re-check a TypeError
+// swallowed by the caller's catch, and a no-op assert would make the eviction cases
+// below vacuous. A test evicts by pointing `currentWasmHold` at a successor's hold
+// mid-callback, or by arming `evictDuringSync` for the commit-state read.
 let currentWasmHold: object | null = null;
-// Set by the one test that needs the watchdog to land during the sync.
+// Set by the tests that need the watchdog to land during the sync.
 let evictDuringSync = false;
-const mockWithWasmClientLock = jest.fn(<T>(fn: (hold: object) => Promise<T>) => {
+const holdWasmLock = async <T>(fn: (hold: object) => Promise<T>): Promise<T> => {
   const hold = {};
   currentWasmHold = hold;
-  return Promise.resolve(fn(hold)).finally(() => {
+  try {
+    return await fn(hold);
+  } finally {
     if (currentWasmHold === hold) currentWasmHold = null;
-  });
-});
+  }
+};
+const evictCurrentHold = () => {
+  currentWasmHold = {};
+};
+const mockWithWasmClientLock = jest.fn(holdWasmLock);
 const mockGetMidenClient = jest.fn();
 jest.mock('../sdk/miden-client', () => {
   // The real error class, so the code under test's poison classifiers see the
@@ -83,7 +92,10 @@ jest.mock('./account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args)
 }));
 
-jest.mock('./native-http', () => ({ registerGuardianOrigin: jest.fn() }));
+// The shared native-HTTP double records each probe's verdict.
+jest.mock('./native-http');
+const { mockProbeVerdicts, resetMockProbes } =
+  jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
 // `checkEndpointCommitment` reaches the network through `@openzeppelin/guardian-client`'s
 // own HTTP client — a different class from the `miden-multisig-client` one mocked
@@ -114,9 +126,13 @@ jest.mock('lib/secure-hot-key/commitment', () => ({
 // and the attempt it just spent. A loop that sleeps a fixed interval instead
 // retries a 429 under the cooldown the guardian just asked for and earns
 // another one — while the rotation it is finalizing has already committed.
+// The rest of the module stays real: the loop reads its attempt cap from it.
 const mockRegisterBackoffMs = jest.fn((_error: unknown, _attempt: number) => 0);
+// The pubkey-check deadline gets a value no other deadline here shares, so a test can tell which one bounds a call.
 jest.mock('./serialize', () => ({
-  guardianRegisterBackoffMs: (error: unknown, attempt: number) => mockRegisterBackoffMs(error, attempt)
+  ...jest.requireActual('./serialize'),
+  guardianRegisterBackoffMs: (error: unknown, attempt: number) => mockRegisterBackoffMs(error, attempt),
+  NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000
 }));
 
 // Records its constructor arguments rather than being an inert `class {}`. What
@@ -251,15 +267,10 @@ const sdkAccount = {
 beforeEach(() => {
   jest.clearAllMocks();
   walletSignerArgs.length = 0;
+  resetMockProbes();
   currentWasmHold = null;
   evictDuringSync = false;
-  mockWithWasmClientLock.mockImplementation(<T>(fn: (hold: object) => Promise<T>) => {
-    const hold = {};
-    currentWasmHold = hold;
-    return Promise.resolve(fn(hold)).finally(() => {
-      if (currentWasmHold === hold) currentWasmHold = null;
-    });
-  });
+  mockWithWasmClientLock.mockImplementation(holdWasmLock);
   mockGetMidenClient.mockResolvedValue({
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => sdkAccount),
@@ -690,17 +701,28 @@ describe('createDirectSwitchGuardianRequest', () => {
   // would leave the row in `signing-locally` with no error to fail it on.
   it('bounds a new guardian that never answers the pubkey request', async () => {
     jest.useFakeTimers();
-    mockGuardianGetPubkey.mockImplementation(() => new Promise(() => {}));
+    try {
+      mockGuardianGetPubkey.mockImplementation(() => new Promise(() => {}));
 
-    const settled = createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord).then(
-      () => undefined,
-      (error: unknown) => error
-    );
-    await jest.advanceTimersByTimeAsync(2 * 60_000);
+      let outcome: unknown = 'pending';
+      void createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord).then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error;
+        }
+      );
+      await jest.advanceTimersByTimeAsync(NEW_GUARDIAN_PUBKEY_TIMEOUT_MS - 1);
+      expect(outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(2);
 
-    expect(await settled).toMatchObject({ message: expect.stringContaining('timed out') });
-    expect(signWord).not.toHaveBeenCalled();
-    jest.useRealTimers();
+      expect(outcome).toMatchObject({ message: expect.stringContaining('timed out') });
+      expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
+      expect(signWord).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('accepts an unprefixed uppercase commitment and normalizes it', async () => {
@@ -725,6 +747,150 @@ describe('createDirectSwitchGuardianRequest', () => {
     await expect(createDirectSwitchGuardianRequest(walletAccount(), 'https://g.test', signWord)).rejects.toThrow(
       'not found in local client'
     );
+  });
+
+  // On mobile the new endpoint routes through native HTTP while it is checked, and stays routed
+  // only once its key commitment checks out.
+  it('keeps the new endpoint routed once its key commitment checks out', async () => {
+    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', true]]);
+  });
+
+  it('releases the new endpoint when its pubkey request fails', async () => {
+    mockGuardianGetPubkey.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('Failed to fetch');
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
+  });
+
+  it('releases the new endpoint when its key commitment is malformed', async () => {
+    mockGuardianGetPubkey.mockResolvedValueOnce({ commitment: '0xdeadbeef' });
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('malformed key commitment');
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
+  });
+
+  it('releases the new endpoint when the Guardian client throws before any request goes out', async () => {
+    mockGuardianGetPubkey.mockImplementationOnce(() => {
+      throw new TypeError('Invalid URL');
+    });
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('Invalid URL');
+    expect(mockProbeVerdicts).toEqual([['https://new.guardian.test', false]]);
+  });
+
+  // An eviction abandons a hold rather than cancelling it: the mutex passes to a
+  // successor while the callback runs on. Each row evicts during one await of the
+  // build hold, and the WASM call that follows it must not happen.
+  const lockClient = () => ({
+    syncState: jest.fn(async () => {}),
+    getAccount: jest.fn(async () => sdkAccount),
+    client: { kind: 'web-client' }
+  });
+  it.each<[string, (client: ReturnType<typeof lockClient>) => jest.Mock]>([
+    [
+      'the client build',
+      client => {
+        mockGetMidenClient.mockImplementationOnce(async () => {
+          evictCurrentHold();
+          return client;
+        });
+        return client.syncState;
+      }
+    ],
+    [
+      'the state sync',
+      client => {
+        client.syncState.mockImplementationOnce(async () => evictCurrentHold());
+        return client.getAccount;
+      }
+    ],
+    [
+      'the account read',
+      client => {
+        client.getAccount.mockImplementationOnce(async () => {
+          evictCurrentHold();
+          return sdkAccount;
+        });
+        return mockGetSignerDetails;
+      }
+    ],
+    [
+      'the signer reads',
+      () => {
+        mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => {
+          if (getCold) evictCurrentHold();
+          return { commitment: getCold ? 'coldcommitment' : 'hotcommitment' };
+        });
+        return mockedMultisigClient.buildUpdateGuardianTransactionRequest;
+      }
+    ],
+    [
+      'the request build',
+      () => {
+        mockedMultisigClient.buildUpdateGuardianTransactionRequest.mockImplementationOnce(async () => {
+          evictCurrentHold();
+          return { request: { kind: 'update-guardian-request' }, salt: { toHex: () => '0xsalt' } };
+        });
+        return mockedMultisigClient.executeForSummary;
+      }
+    ],
+    [
+      'the summary execution',
+      () => {
+        mockedMultisigClient.executeForSummary.mockImplementationOnce(async () => {
+          evictCurrentHold();
+          return { summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) }, anchor: { kind: 'anchor' } };
+        });
+        return mockedMultisigClient.chainAnchorToBase64;
+      }
+    ]
+  ])('stops at an eviction during %s, before the next WASM call', async (_label, evictDuring) => {
+    const client = lockClient();
+    mockGetMidenClient.mockResolvedValue(client);
+    const nextCall = evictDuring(client);
+
+    const error = await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(nextCall).not.toHaveBeenCalled();
+    expect(mockedMultisigClient.chainAnchorToBase64).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
+  });
+
+  it('still releases the chain anchor when evicted during the summary execution', async () => {
+    mockedMultisigClient.executeForSummary.mockImplementationOnce(async () => {
+      evictCurrentHold();
+      return { summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) }, anchor: { kind: 'anchor' } };
+    });
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockFreeChainAnchor).toHaveBeenCalledWith({ kind: 'anchor' });
+  });
+
+  it('stops at an eviction during the client build for the signed rebuild', async () => {
+    const client = lockClient();
+    mockGetMidenClient.mockResolvedValueOnce(client).mockImplementationOnce(async () => {
+      evictCurrentHold();
+      return client;
+    });
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
+    // Only the unsigned build ran; the signed rebuild never borrowed the client.
+    expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -797,6 +963,15 @@ describe('didDirectSwitchLand', () => {
 
     expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('throws poison when its hold is evicted during the sync, and reads nothing after it', async () => {
+    mockProxySyncState.mockImplementationOnce(async () => evictCurrentHold());
+    mockProxyGetTransactionCommitState.mockResolvedValue('committed');
+
+    await expect(didDirectSwitchLand('0xtx')).rejects.toThrow(WasmClientPoisonedError);
+
+    expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
   });
 });
 
@@ -1044,6 +1219,48 @@ describe('finalizeDirectGuardianSwitch', () => {
     ).catch((e: unknown) => e);
 
     expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  // An eviction is not preflight. Poison is rethrown unwrapped so the caller
+  // stops instead of refunding and carrying on, and no `/configure` has gone out.
+  it('stops at an eviction during the sync, before the account read', async () => {
+    const serialize = jest.fn(() => new Uint8Array([1, 2, 3]));
+    mockProxyGetAccount.mockResolvedValue({ ...sdkAccount, serialize });
+    mockProxySyncState.mockImplementationOnce(async () => evictCurrentHold());
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(isGuardianRegistrationPreflightError(error)).toBe(false);
+    expect(mockProxyGetAccount).not.toHaveBeenCalled();
+    expect(serialize).not.toHaveBeenCalled();
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('stops at an eviction during the account read, before inspecting or serializing it', async () => {
+    const serialize = jest.fn(() => new Uint8Array([1, 2, 3]));
+    mockProxyGetAccount.mockImplementationOnce(async () => {
+      evictCurrentHold();
+      return { ...sdkAccount, serialize };
+    });
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(isGuardianRegistrationPreflightError(error)).toBe(false);
+    expect(mockedMultisigClient.AccountInspector.fromAccount).not.toHaveBeenCalled();
+    expect(serialize).not.toHaveBeenCalled();
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 

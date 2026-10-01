@@ -104,6 +104,7 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
     yearlyEstimate: `${formatSignedUsd(yearlyUsd)} / yr`,
     withdrawTime: EARN_PLACEHOLDER,
     route: `Miden -> ${protocol} (${network})`,
+    stale: false,
     // No history endpoint yet — a flat, non-empty series keeps the area chart
     // well-defined (it takes min/max over the values).
     chartData: [
@@ -204,6 +205,7 @@ export function placeholderPosition(): EarnPosition {
     yearlyEstimate: EARN_PLACEHOLDER,
     withdrawTime: EARN_PLACEHOLDER,
     route: EARN_PLACEHOLDER,
+    stale: true,
     chartData: [
       { label: EARN_PLACEHOLDER, value: 0 },
       { label: EARN_PLACEHOLDER, value: 0 }

@@ -37,15 +37,30 @@ jest.mock('date-fns', () => ({
 
 jest.mock('lib/i18n', () => ({ getDateFnsLocale: () => undefined }));
 
-// The scroller only matters when a scroll parent is handed in; the list itself is what is tested.
+// The props the list last handed the scroller, so a test can read the scroll parent and ask for a page
+// when the real scroller would: after render, not during it.
+type MockScrollerProps = {
+  children: React.ReactNode;
+  hasMore: boolean;
+  loadMore: (page: number) => void;
+  useWindow?: boolean;
+  getScrollParent?: () => HTMLElement | null;
+};
+const mockScroller: { props?: MockScrollerProps } = {};
 jest.mock('react-infinite-scroller', () => ({
   __esModule: true,
-  default: ({ children, hasMore }: { children: React.ReactNode; hasMore: boolean }) => (
-    <div data-testid="infinite-scroll" data-has-more={String(hasMore)}>
-      {children}
-    </div>
-  )
+  default: (props: MockScrollerProps) => {
+    mockScroller.props = props;
+    return (
+      <div data-testid="infinite-scroll" data-has-more={String(props.hasMore)}>
+        {props.children}
+      </div>
+    );
+  }
 }));
+beforeEach(() => {
+  mockScroller.props = undefined;
+});
 
 // Undefined leaves the real labels in place; a test sets sentinels to prove whose map the rows read.
 const mockLabels: { value?: Record<string, string> } = {};
@@ -364,8 +379,36 @@ describe('ActivityGroupList', () => {
   });
 
   it('pages the list as the user scrolls when it has a scroll parent', () => {
-    renderList([entry({ secondaryAddress: 'mtst1alice' })], { hasMore: true, scrollParentRef: { current: null } });
+    const loadMore = jest.fn();
+    const parent = document.createElement('div');
+    const ref: { current: HTMLDivElement | null } = { current: null };
+    renderList([entry({ secondaryAddress: 'mtst1alice' })], { hasMore: true, loadMore, scrollParentRef: ref });
+    // Attached after render, as the page's ref is, so a scroll parent read during render comes back null.
+    ref.current = parent;
+
     expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-has-more', 'true');
+    const scroller = mockScroller.props;
+    expect(Object.keys(scroller ?? {}).sort()).toEqual([
+      'children',
+      'getScrollParent',
+      'hasMore',
+      'loadMore',
+      'useWindow'
+    ]);
+    expect(scroller?.useWindow).toBe(false);
+    expect(scroller?.getScrollParent?.()).toBe(parent);
+    expect(loadMore).not.toHaveBeenCalled();
+    scroller?.loadMore(2);
+    expect(loadMore.mock.calls).toEqual([[2]]);
+    expect(within(screen.getByTestId('infinite-scroll')).getAllByTestId('activity-group-row')).toHaveLength(1);
+  });
+
+  it('tells the scroller when the history is exhausted', () => {
+    renderList([entry({ secondaryAddress: 'mtst1alice' })], {
+      hasMore: false,
+      scrollParentRef: { current: document.createElement('div') }
+    });
+    expect(mockScroller.props?.hasMore).toBe(false);
   });
 
   it('skips the scroller entirely without one', () => {

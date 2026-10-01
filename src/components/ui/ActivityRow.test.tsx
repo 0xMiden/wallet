@@ -2,10 +2,12 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarSwap } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import ActivityRowDefault, { ActivityRow } from './ActivityRow';
-import { Card } from './Card';
+import { Card, FOCUSABLE_CLASSES } from './Card';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -13,7 +15,10 @@ jest.mock('lib/mobile/haptics', () => ({
 
 // The row's projection must never SCALE: a full `layout` distorts the plain
 // rounded avatar and status dot, whose radius is a class Framer cannot read.
-// Surface the prop so a revert to bare `layout` fails here.
+// Surface the prop on both elements the row can be (a div, or a button when it
+// opens something) so a revert to bare `layout` on either fails here.
+// Surface whileTap too: on a real div, framer's press gesture adds tabIndex=0,
+// which a mock that drops the prop would hide.
 // Spread the real module rather than listing exports: the row reaches
 // `useReducedMotion` indirectly through `useMotion(springs.settle)`, and a
 // hand-listed factory that misses one such export throws on every render.
@@ -28,9 +33,31 @@ jest.mock('framer-motion', () => {
           { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
           ref: React.Ref<HTMLDivElement>
         ) => (
-          <div ref={ref} data-layout={String(layout)} {...rest}>
+          <div
+            ref={ref}
+            data-layout={String(layout)}
+            data-transition={JSON.stringify(transition)}
+            data-while-tap={whileTap ? 'on' : undefined}
+            {...rest}
+          >
             {children}
           </div>
+        )
+      ),
+      button: ReactActual.forwardRef(
+        (
+          { children, layout, whileTap, transition, ...rest }: Record<string, unknown> & { children?: React.ReactNode },
+          ref: React.Ref<HTMLButtonElement>
+        ) => (
+          <button
+            ref={ref}
+            data-layout={String(layout)}
+            data-transition={JSON.stringify(transition)}
+            data-while-tap={whileTap ? 'on' : undefined}
+            {...rest}
+          >
+            {children}
+          </button>
         )
       )
     }
@@ -59,8 +86,11 @@ describe('ActivityRow', () => {
     expect(ActivityRowDefault).toBe(ActivityRow);
   });
 
-  it('animates position only, so a size change cannot scale the round avatar into an oval', () => {
-    const { container } = renderRow();
+  it.each([
+    ['a plain row', {}],
+    ['a row that opens something', { onClick: jest.fn() }]
+  ])('animates position only, so a size change cannot scale the round avatar into an oval: %s', (_, props) => {
+    const { container } = renderRow(props);
 
     // Exact value on purpose, both here and on revert: bare `layout` is
     // `layout={true}` and stringifies to 'true', so a mock reading the wrong
@@ -152,6 +182,17 @@ describe('ActivityRow', () => {
       renderRow({ amount: { value: '0.00012345', symbol: 'MIDEN' } });
 
       expect(screen.getByText('0.00012')).toBeTruthy();
+    });
+
+    // An Earn withdrawal's amount is already formatted by the money helper; the 3-decimal pass
+    // would round its 0.0012 to 0.001.
+    it('shows a preformatted amount as given instead of re-rounding it', () => {
+      const { unmount } = renderRow({ amount: { value: '+0.0012', symbol: 'USDC', preformatted: true } });
+      expect(screen.getByText('+0.0012')).toBeTruthy();
+      unmount();
+
+      renderRow({ amount: { value: '+0.0012', symbol: 'USDC' } });
+      expect(screen.getByText('+0.001')).toBeTruthy();
     });
 
     it('preserves a leading + sign and formats the remainder', () => {
@@ -338,6 +379,47 @@ describe('ActivityRow', () => {
       expect(onClick).toHaveBeenCalledTimes(1);
     });
 
+    it('is a native button when it opens something, so focus, Enter and Space come from the element', () => {
+      renderRow({ onClick: jest.fn() });
+
+      const button = screen.getByRole('button');
+      expect(button.tagName).toBe('BUTTON');
+      expect(button).toHaveAttribute('type', 'button');
+      expect(button).toHaveAttribute('data-while-tap', 'on');
+      expect(button).not.toHaveAttribute('tabindex');
+    });
+
+    it('takes keyboard focus, with the card focus ring, when it opens something', () => {
+      renderRow({ onClick: jest.fn() });
+
+      const button = screen.getByRole('button');
+      // `focus()` also lands on tabindex=-1, which Tab skips: only the absent attribute proves Tab reaches it.
+      expect(button).not.toHaveAttribute('tabindex');
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      for (const classes of FOCUSABLE_CLASSES) {
+        for (const name of classes.split(' ')) expect(button.className.split(/\s+/)).toContain(name);
+      }
+    });
+
+    // HistoryView passes the row through `Card asChild`, whose Slot merges Card's classes onto
+    // the row's own: the button must end up with both Card's press feedback and the focus ring.
+    it('keeps both the card press feedback and the focus ring when a pressable Card wraps it', () => {
+      render(
+        <Card asChild surface="outline" padding="row" pressable>
+          <ActivityRow icon={<svg />} title="Sent MIDEN" status={baseStatus} onClick={jest.fn()} />
+        </Card>
+      );
+
+      expect(screen.getByRole('button')).not.toHaveAttribute('tabindex');
+      const classNames = screen.getByRole('button').className.split(/\s+/);
+      expect(classNames).toContain('hover:bg-fill-pressed');
+      expect(classNames).toContain('active:bg-fill-pressed');
+      for (const classes of FOCUSABLE_CLASSES) {
+        for (const name of classes.split(' ')) expect(classNames).toContain(name);
+      }
+    });
+
     it('has no button role and does not fire haptics when onClick is absent', () => {
       const { container } = renderRow();
 
@@ -345,8 +427,10 @@ describe('ActivityRow', () => {
       // clicking the row is a no-op
       fireEvent.click(container.firstChild as HTMLElement);
       expect(hapticLight).not.toHaveBeenCalled();
-      // the interactive classes are not applied
+      // the interactive classes are not applied, and the row takes no keyboard focus
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
+      expect((container.firstChild as HTMLElement).hasAttribute('tabindex')).toBe(false);
+      expect(container.firstChild as HTMLElement).not.toHaveAttribute('data-while-tap');
     });
   });
 
@@ -374,4 +458,43 @@ it('renders a status it does not know as the neutral badge, and the row survives
   const badge = screen.getByTestId('row-status');
   expect(badge).toHaveClass('bg-fill-pressed', 'text-ink');
   expect(screen.getByText('Sent MIDEN')).toBeInTheDocument();
+});
+
+// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
+// again (#1198): a row that survives it takes its new place at once, whichever element it renders, and
+// its press keeps the settle spring.
+describe('ActivityRow - its tab shown again', () => {
+  const row = (shown: boolean, onClick: (() => void) | undefined, onScreen = true) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <TabActiveContext.Provider value={shown}>
+        <ActivityRow icon={<svg />} title="Sent MIDEN" status={baseStatus} testId="row" onClick={onClick} />
+      </TabActiveContext.Provider>
+    </PageActiveContext.Provider>
+  );
+  const transitionOf = () => JSON.parse(screen.getByTestId('row').getAttribute('data-transition') ?? 'null');
+
+  it.each([
+    ['BUTTON', () => undefined],
+    ['DIV', undefined]
+  ])('as a %s, swaps only its layout in the commit that shows the tab again, then slides', (tag, onClick) => {
+    const { rerender } = render(row(true, onClick));
+    rerender(row(false, onClick));
+    rerender(row(true, onClick));
+    expect(screen.getByTestId('row').tagName).toBe(tag);
+    expect(transitionOf()).toEqual({ ...springs.settle, layout: tabBarSwap });
+
+    rerender(row(true, onClick));
+    expect(transitionOf()).toEqual(springs.settle);
+  });
+
+  it.each([
+    ['BUTTON', () => undefined],
+    ['DIV', undefined]
+  ])('as a %s, slides when a slide page uncovers it', (tag, onClick) => {
+    const { rerender } = render(row(true, onClick));
+    rerender(row(true, onClick, false));
+    rerender(row(true, onClick, true));
+    expect(screen.getByTestId('row').tagName).toBe(tag);
+    expect(transitionOf()).toEqual(springs.settle);
+  });
 });

@@ -2,7 +2,9 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { resetActivityReadState } from 'lib/settings/activity-read';
+import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -15,7 +17,7 @@ const mockConfirm = jest.fn();
 const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => ({
   note: {
     id,
-    faucetId: 'faucet',
+    faucetId: MIDEN_USDC_FAUCET,
     amount: '1000000',
     senderAddress: id,
     isBeingClaimed: false,
@@ -73,9 +75,9 @@ jest.mock('lib/i18n/numbers', () => ({
   getAdaptiveDecimalPlaces: () => 3,
   usdFormatterFor: () => (value: number) => `$${value.toFixed(2)}`
 }));
-// Every fixture note is 1 TOK (1000000 at 6 decimals) and TOK is priced at $2, so the row's
-// total is $2 per LISTED transfer - the arithmetic the assertions below count on.
-const mockTokenPrices = { TOK: { price: 2, priceChange24h: 0 } };
+// Every fixture note is 1 TOK (1000000 at 6 decimals) from the Earn collateral faucet, priced under
+// USDC at $2, so the row's total is $2 per LISTED transfer - the arithmetic the assertions below count on.
+const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 } };
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
@@ -83,19 +85,22 @@ const mockHistoryRenders: Array<{
   pendingItems: PendingActivityItem[];
   drawnPendingItems?: PendingActivityItem[];
   renderPendingItem: unknown;
+  filter?: string;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
   default: ({
     pendingItems,
     drawnPendingItems,
-    renderPendingItem
+    renderPendingItem,
+    filter
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
+    filter?: string;
   }) => {
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem });
+    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -252,6 +257,22 @@ it('shows Accept All on the pending tab and claims every listed note that can be
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
 });
 
+it('marks every transfer Accept All takes as read with one write', () => {
+  localStorage.clear();
+  resetActivityReadState();
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const setItem = jest.spyOn(Storage.prototype, 'setItem');
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+
+    const writes = setItem.mock.calls.filter(([key]) => key === ACTIVITY_READ_STORAGE_KEY);
+    expect(writes).toHaveLength(1);
+    expect(Object.keys(JSON.parse(writes[0]?.[1] ?? '{}').ids)).toEqual(['note:first', 'note:second', 'note:third']);
+  } finally {
+    setItem.mockRestore();
+  }
+});
+
 it('puts Accept All in the actions row above the list, and leaves the navbar alone', () => {
   render(<ActivityPendingHistory search="" filter="pending" />);
   const button = screen.getByTestId('pending-row-accept-all');
@@ -293,6 +314,15 @@ it('leads the row with what Accept All is about to accept, in both states', () =
   expect(screen.getByTestId('pending-row-accept-all')).toBeInTheDocument();
 });
 
+it('shows no total when any waiting transfer has no price, never a $1 figure for it', () => {
+  mockState.items = mockItems.map((item, index) =>
+    index === 2 ? { ...item, note: { ...item.note, faucetId: 'other-faucet' } } : item
+  );
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();
+  expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
+});
+
 it('reports only the hidden count, and no money, once every transfer is declined', () => {
   mockHidden.ids = new Set(['first', 'second', 'third']);
   render(<ActivityPendingHistory search="" filter="pending" />);
@@ -316,6 +346,12 @@ it('offers no Accept All on the other filters, or once every transfer is accepte
   });
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.queryByTestId('pending-row-accept-all')).not.toBeInTheDocument();
+});
+
+it('still hands Pending to the timeline with no notes, so in-flight transactions list', () => {
+  mockState.items = [];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(mockHistoryRenders.at(-1)).toMatchObject({ filter: 'pending', pendingItems: [] });
 });
 
 it('keeps Accept All, and marks it busy, while the batch it started is still in flight', () => {
@@ -418,6 +454,8 @@ it('offers Restore under the Pending filter while declined transfers can still b
   expect(restoreButton.className).not.toMatch(/\btext-xs\b|\bpy-2\b/);
   fireEvent.click(restoreButton);
   expect(mockRestore).toHaveBeenCalledTimes(1);
+  // The declines the row counted, not 'gone', which no loaded transfer stands for.
+  expect(mockRestore).toHaveBeenCalledWith(['first', 'second']);
 });
 
 it('does not offer Restore when every declined transfer is gone or already claimed', () => {

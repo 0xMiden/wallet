@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import React, { FC, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -112,7 +112,15 @@ const VIEWS: Record<BannerCategory, BannerView> = {
   }
 };
 
-export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ className }) => {
+// The banner is optional chrome over Home: its storage reads suspend, and a cold key must defer only the banner, not
+// drop the screen to the app's root fallback.
+export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = props => (
+  <Suspense fallback={null}>
+    <ConnectivityIssueBannerBody {...props} />
+  </Suspense>
+);
+
+const ConnectivityIssueBannerBody: FC<ConnectivityIssueBannerProps> = ({ className }) => {
   const { t } = useTranslation();
   const { state, dismiss } = useConnectivityState();
 

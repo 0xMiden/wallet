@@ -247,9 +247,7 @@ const sharedDefine = {
     process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
   ),
   'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
-  'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
-    process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
-  ),
+  'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
   'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
     process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
   ),

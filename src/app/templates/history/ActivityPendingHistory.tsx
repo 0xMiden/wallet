@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { usdFormatterFor } from 'lib/i18n/numbers';
-import { markActivityRead } from 'lib/settings/activity-read';
+import { markActivitiesRead } from 'lib/settings/activity-read';
 import { useWalletStore } from 'lib/store';
 import { getPendingNotesUsdTotal } from 'lib/wallet-prompts';
 
@@ -24,8 +24,17 @@ interface ActivityPendingHistoryProps {
 
 export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
-  const { representedItems, listItems, renderPendingItem, acceptMany, account, isLoadingNotes, hidden, hiddenCount } =
-    useActivityClaimList(search, filter);
+  const {
+    representedItems,
+    listItems,
+    renderPendingItem,
+    acceptMany,
+    account,
+    isLoadingNotes,
+    hidden,
+    declinedIds,
+    hiddenCount
+  } = useActivityClaimList(search, filter);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -55,7 +64,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   );
   // Pinned to the total's own precision, so a figure travelling towards a dust total does not
   // change width on the way (`AnimatedNumber`).
-  const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd), [waitingTotalUsd]);
+  const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd ?? 0), [waitingTotalUsd]);
   // One line, one lockup, the same one the home banner uses for this money: the count in the
   // caption style, the total as a value on `ink`. When transfers are also hidden that fact joins
   // the SAME sentence as a clause rather than becoming a second line - and it is the clause the
@@ -69,12 +78,12 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
         ? t('activityPendingWaitingHidden', { count: waitingCount, hidden: hiddenCount })
         : t('activityPendingWaiting', { count: waitingCount });
 
-  // Accepting everything listed: reading them all, then the one batch-claim path. The Accept All
-  // button in the row beside Restore is its only caller.
+  // Accepting everything listed: reading them all in one write, then the one batch-claim path.
+  // The Accept All button in the row beside Restore is its only caller.
   const acceptAll = () => {
-    for (const note of claimableNotes) {
-      markActivityRead(pendingNoteUnreadKey(note.id), note.receivedAt ?? Number.NaN);
-    }
+    markActivitiesRead(
+      claimableNotes.map(note => ({ id: pendingNoteUnreadKey(note.id), timestamp: note.receivedAt ?? Number.NaN }))
+    );
     acceptMany(claimableNotes);
   };
 
@@ -103,9 +112,9 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 <AnimatedNumber
                   data-testid="pending-row-total"
                   className="shrink-0 text-value text-ink"
-                  // No price for any of these assets is not a total of zero: say nothing rather
-                  // than put a false $0.00 next to the button that accepts them.
-                  value={waitingTotalUsd > 0 ? waitingTotalUsd : null}
+                  // An asset with no price leaves no total (null), and neither is a total of zero:
+                  // say nothing rather than put a false figure next to the button that accepts them.
+                  value={waitingTotalUsd !== null && waitingTotalUsd > 0 ? waitingTotalUsd : null}
                   format={formatWaitingTotal}
                 />
               )}
@@ -116,7 +125,7 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
                 size="sm"
                 className="w-auto shrink-0"
                 title={t('activityRestoreTransfers')}
-                onClick={() => hidden.restore()}
+                onClick={() => hidden.restore(declinedIds)}
               />
             )}
             {showAcceptAll && (

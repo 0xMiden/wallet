@@ -58,6 +58,9 @@ const whiteIconClass = 'text-pure-white [&_path]:fill-pure-white';
 
 /** Shared accent used by both the transaction glyph and detail-section dividers. */
 export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string => {
+  // Checked first (#1250): a row the wallet cannot rule out as landed is not the grey
+  // cancelled or red failed look, whatever the row's txType.
+  if (entry.isUnconfirmed) return 'var(--status-pending)';
   if (entry.isCancelled) return '#9E9E9E';
   if (entry.transactionIcon === 'FAILED') return '#CC5D5D';
 
@@ -92,6 +95,16 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
   const isPending =
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
+
+  // Checked first (#1250), before cancelled, failed, bridge and earn: the pending tone,
+  // not the grey cancelled or red failed look, whatever the row's txType.
+  if (entry.isUnconfirmed) {
+    return (
+      <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-pending`}>
+        <PendingIcon className={`${config.sendIcon} ${whiteIconClass}`} />
+      </div>
+    );
+  }
 
   if (entry.isCancelled) {
     return (

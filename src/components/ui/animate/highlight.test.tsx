@@ -6,26 +6,37 @@ import type { Transition } from 'framer-motion';
 import { Highlight, HighlightItem, useHighlight } from './highlight';
 
 let mockReduce: boolean | null = false;
+const mockExitTransitions: unknown[] = [];
 
 // motion.* render as plain elements that surface what framer would receive: the shared layoutId
-// the highlight slides between items on, and the transition it slides with.
+// the highlight slides between items on, and the transition it slides with. An exit given as a
+// variant label resolves the way framer resolves it, against AnimatePresence's `custom`; an element
+// rendered as exiting records the transition it would leave on.
 jest.mock('framer-motion', () => {
   const ReactActual = jest.requireActual('react');
+  const { PresenceContext } = jest.requireActual('framer-motion');
   const make = (tag: string) =>
     ReactActual.forwardRef(
-      ({ layoutId, transition, initial, animate, exit, children, ...props }: any, ref: React.Ref<HTMLElement>) =>
-        ReactActual.createElement(
+      (
+        { layoutId, transition, initial, animate, exit, variants, custom, children, ...props }: any,
+        ref: React.Ref<HTMLElement>
+      ) => {
+        const presence = ReactActual.useContext(PresenceContext);
+        const resolvedExit = typeof exit === 'string' ? variants?.[exit]?.(presence?.custom ?? custom) : exit;
+        if (presence && !presence.isPresent) mockExitTransitions.push(resolvedExit?.transition);
+        return ReactActual.createElement(
           tag,
           {
             ref,
             'data-layout-id': layoutId,
             'data-transition': JSON.stringify(transition),
-            'data-exit': JSON.stringify(exit),
+            'data-exit': JSON.stringify(resolvedExit),
             'data-animate': JSON.stringify(animate),
             ...props
           },
           children
-        )
+        );
+      }
     );
   return {
     ...jest.requireActual('framer-motion'),
@@ -52,6 +63,7 @@ const Bar = ({ value, transition = SPRING }: { value: string; transition?: Trans
 
 beforeEach(() => {
   mockReduce = false;
+  mockExitTransitions.length = 0;
 });
 
 describe('Highlight — controlled children mode (the tab bars)', () => {
@@ -120,6 +132,17 @@ describe('Highlight — controlled children mode (the tab bars)', () => {
     const pill = highlightIn(screen.getByRole('button', { name: 'a' }))!;
     expect(JSON.parse(pill.getAttribute('data-transition')!)).toEqual({ duration: 0.001 });
     expect(JSON.parse(pill.getAttribute('data-exit')!).transition).toEqual({ duration: 0.001, delay: 0 });
+  });
+
+  // A bar shown again takes its new item on an instant transition (#1194). The highlight leaving the
+  // old item keeps the props of its last render, when the transition was still the slide, so it
+  // would fade out on the slide while the new one had already landed: a ghost on the old item.
+  it('lets the highlight leave on the transition current when it leaves, not the one it was drawn with', () => {
+    const INSTANT: Transition = { duration: 0.001 };
+    const { rerender } = render(<Bar value="a" />);
+    rerender(<Bar value="c" transition={INSTANT} />);
+
+    expect(mockExitTransitions).toEqual([{ ...INSTANT, delay: 0 }]);
   });
 
   it('keeps the child as the item, holding its own content in the `as` wrapper (asChild)', () => {

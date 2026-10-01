@@ -1,6 +1,7 @@
-import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+import { listPlaywrightTests } from './playwright-list';
 
 /**
  * The dedicated-suite configs spread `playwright.e2e.config`, whose `testIgnore`
@@ -14,9 +15,17 @@ import { resolve } from 'node:path';
  * reading the file keeps @playwright/test out of the jest module graph.
  */
 const repoRoot = resolve(__dirname, '../../..');
-const playwright = resolve(repoRoot, 'node_modules/.bin/playwright');
 
 const configSource = (file: string) => readFileSync(resolve(repoRoot, file), 'utf8');
+
+/** The json reports a real Playwright run leaves; listing tests must not rewrite them. */
+const reportFiles = ['test-results/results.json', 'test-results-stress/results.json'];
+const reportStamp = (file: string) => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.mtimeMs ?? null;
+let reportsBefore: (number | null)[];
+
+beforeAll(() => {
+  reportsBefore = reportFiles.map(reportStamp);
+});
 
 /** Configs whose testDir the base config ignores. */
 const overridingConfigs = ['playwright.resilience.config.ts', 'playwright.swap.config.ts'];
@@ -36,15 +45,7 @@ describe('dedicated e2e configs override the base testIgnore', () => {
 });
 
 function listGuardianTests(suite?: string): string {
-  const env: NodeJS.ProcessEnv = { ...process.env, E2E_NETWORK: 'localhost' };
-  delete env.JEST_WORKER_ID;
-  if (suite === undefined) delete env.GUARDIAN_E2E_SUITE;
-  else env.GUARDIAN_E2E_SUITE = suite;
-  return execFileSync(playwright, ['test', '--list', '--config', 'playwright.guardian.config.ts'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    env
-  });
+  return listPlaywrightTests('playwright.guardian.config.ts', { GUARDIAN_E2E_SUITE: suite });
 }
 
 const MAIN_ONLY = [
@@ -123,5 +124,26 @@ describe('PR workflows skip the heavy swap and earn jobs', () => {
     expect(src).toMatch(/shard: \[1, 2, 3\]/);
     expect(src).toMatch(/name: Coverage Check \(95% minimum\)/);
     expect(src).toMatch(/merge-jest-coverage\.mjs/);
+  });
+});
+
+/** Configs whose testDir also holds Jest suites, which Playwright's default testMatch would load and fail on. */
+const jestSharingConfigs = [
+  { config: 'playwright.stress.config.ts', spec: 'stress.spec.ts' },
+  { config: 'playwright.store-listing.config.ts', spec: 'store-listing.capture.spec.ts' }
+];
+
+describe('configs whose testDir holds Jest suites load only their Playwright specs', () => {
+  it.each(jestSharingConfigs)('$config', ({ config, spec }) => {
+    const list = listPlaywrightTests(config);
+    expect(list).toContain(spec);
+    expect(list).not.toMatch(/\.test\.ts/);
+  });
+});
+
+// Declared last: Jest runs this file's tests in order, so the check sees every list run above.
+describe('list runs write no report files', () => {
+  it('leaves every json report as it was', () => {
+    expect(reportFiles.map(reportStamp)).toEqual(reportsBefore);
   });
 });

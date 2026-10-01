@@ -1,4 +1,12 @@
+import {
+  AllowedPrivateData,
+  PrivateDataPermission,
+  WalletAdapterNetwork,
+  WalletError
+} from '@miden-sdk/miden-wallet-adapter-base';
+
 import * as client from 'lib/adapter/client';
+import { MidenDAppMessageType } from 'lib/adapter/types';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 
 import { MidenWindowObject } from './midenWindowObject';
@@ -14,6 +22,7 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => {
   return {
     __esModule: true,
     EventEmitter: EE.EventEmitter ?? EE,
+    WalletError: class WalletError extends Error {},
     AllowedPrivateData: {},
     PrivateDataPermission: { None: 'None', OnRequest: 'OnRequest' },
     SignKind: { Transaction: 'Transaction', Message: 'Message' },
@@ -273,6 +282,151 @@ describe('MidenWindowObject', () => {
         undefined
       );
     });
+
+    describe('account switch (#174)', () => {
+      async function connectCapturing() {
+        mockClient.requestPermission.mockResolvedValue(permission);
+        let callback: ((perm: any) => void) | undefined;
+        mockClient.onPermissionChange.mockImplementation((cb: any) => {
+          callback = cb;
+          return jest.fn();
+        });
+        const obj = new MidenWindowObject();
+        await obj.connect('None' as any, 'testnet' as any);
+        return { obj, fire: (perm: any) => callback!(perm) };
+      }
+
+      it('takes the new account before listeners hear of it', async () => {
+        const { obj, fire } = await connectCapturing();
+        const seen: unknown[][] = [];
+        obj.on('accountChange', (p: unknown) => seen.push([p, obj.address, obj.publicKey, obj.permission]));
+        const next = {
+          rpc: 'rpc',
+          address: 'mtst1qnext',
+          privateDataPermission: 'None',
+          allowedPrivateData: {},
+          publicKey: btoa('xyz')
+        };
+        fire(next);
+        const key = new Uint8Array([120, 121, 122]);
+        const taken = { ...next, publicKey: key };
+        expect(seen).toEqual([[taken, 'mtst1qnext', key, taken]]);
+        expect(seen[0]![0]).toBe(obj.permission);
+      });
+
+      it('clears the account when the new one has not granted this origin, and emits null', async () => {
+        const { obj, fire } = await connectCapturing();
+        const spy = jest.fn();
+        obj.on('accountChange', spy);
+        fire(null);
+        expect(spy).toHaveBeenCalledWith(null);
+        expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
+      });
+
+      it('keeps the key it holds when a same-address permission carries none', async () => {
+        const { obj, fire } = await connectCapturing();
+        fire({ rpc: 'rpc', address: ADDRESS, privateDataPermission: 'None', allowedPrivateData: {} });
+        expect(obj.publicKey).toBe(permission.publicKey);
+      });
+
+      it('drops the key when a different account carries none', async () => {
+        const { obj, fire } = await connectCapturing();
+        fire({ rpc: 'rpc', address: 'mtst1qother', privateDataPermission: 'None', allowedPrivateData: {} });
+        expect(obj.address).toBe('mtst1qother');
+        expect(obj.publicKey).toBeUndefined();
+      });
+
+      it('ignores a permission for the account it already holds', async () => {
+        const { obj, fire } = await connectCapturing();
+        const spy = jest.fn();
+        obj.on('accountChange', spy);
+        fire({
+          rpc: 'https://rpc.testnet.miden.io',
+          address: ADDRESS,
+          privateDataPermission: 'None',
+          allowedPrivateData: {},
+          publicKey: btoa('abc')
+        });
+        expect(spy).not.toHaveBeenCalled();
+        expect(obj.permission).toBe(permission);
+        expect(obj.publicKey).toBe(permission.publicKey);
+      });
+
+      it('changes nothing and throws on a malformed key, which the poll does not retry', async () => {
+        const { obj, fire } = await connectCapturing();
+        const spy = jest.fn();
+        obj.on('accountChange', spy);
+        expect(() =>
+          fire({
+            rpc: 'rpc',
+            address: 'mtst1qnext',
+            privateDataPermission: 'None',
+            allowedPrivateData: {},
+            publicKey: '%%%'
+          })
+        ).toThrow();
+        expect(spy).not.toHaveBeenCalled();
+        expect(obj.address).toBe(ADDRESS);
+        expect(obj.publicKey).toBe(permission.publicKey);
+      });
+
+      it('every accountChange listener hears the switch and the null, whatever an earlier one throws', async () => {
+        const { obj, fire } = await connectCapturing();
+        const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        const failure = new Error('listener failed');
+        const throwing = jest.fn(() => {
+          throw failure;
+        });
+        const second = jest.fn();
+        const once = jest.fn();
+        const throwingOnce = jest.fn(() => {
+          throw failure;
+        });
+        obj.on('accountChange', throwing);
+        obj.on('accountChange', second);
+        obj.once('accountChange', once);
+        obj.once('accountChange', throwingOnce);
+        const next = {
+          rpc: 'rpc',
+          address: 'mtst1qnext',
+          privateDataPermission: 'None',
+          allowedPrivateData: {},
+          publicKey: btoa('xyz')
+        };
+        expect(() => fire(next)).not.toThrow();
+        const taken = { ...next, publicKey: new Uint8Array([120, 121, 122]) };
+        expect(second.mock.calls).toEqual([[taken]]);
+        expect(second.mock.contexts[0]).toBe(obj);
+        expect(() => fire(null)).not.toThrow();
+        expect(second.mock.calls).toEqual([[taken], [null]]);
+        expect(throwing).toHaveBeenCalledTimes(2);
+        expect(once.mock.calls).toEqual([[taken]]);
+        expect(throwingOnce.mock.calls).toEqual([[taken]]);
+        expect(error).toHaveBeenCalledWith(expect.any(String), failure);
+        error.mockRestore();
+      });
+
+      it('a second connect keeps one poll', async () => {
+        mockClient.requestPermission.mockResolvedValue(permission);
+        const firstStop = jest.fn();
+        const secondStop = jest.fn();
+        mockClient.onPermissionChange.mockReturnValueOnce(firstStop).mockReturnValueOnce(secondStop);
+        const obj = new MidenWindowObject();
+        await obj.connect('None' as any, 'testnet' as any);
+        await obj.connect('None' as any, 'testnet' as any);
+        expect(firstStop).toHaveBeenCalledTimes(1);
+        expect(secondStop).not.toHaveBeenCalled();
+      });
+
+      it('starts the watch from the permission it connected with, on every connect (#1227)', async () => {
+        const { obj } = await connectCapturing();
+        expect(mockClient.onPermissionChange).toHaveBeenLastCalledWith(expect.any(Function), permission);
+        const next = { ...permission, address: 'mtst1qnext' };
+        mockClient.requestPermission.mockResolvedValue(next);
+        await obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+        expect(mockClient.onPermissionChange).toHaveBeenLastCalledWith(expect.any(Function), next);
+      });
+    });
   });
 
   describe('disconnect', () => {
@@ -290,9 +444,106 @@ describe('MidenWindowObject', () => {
       await obj.disconnect();
 
       expect(mockClient.requestDisconnect).toHaveBeenCalledTimes(1);
-      expect(clearFn).toHaveBeenCalledTimes(1);
+      expect(clearFn).toHaveBeenCalledTimes(2);
       expect(obj.address).toBeUndefined();
       expect(obj.permission).toBeUndefined();
+    });
+
+    it('stops the poll and clears the account even when the disconnect request is refused', async () => {
+      mockClient.requestPermission.mockResolvedValue({ address: ADDRESS, publicKey: new Uint8Array([1]) } as any);
+      const clearFn = jest.fn();
+      mockClient.onPermissionChange.mockReturnValue(clearFn);
+      const refused = new Error('NotFound');
+      mockClient.requestDisconnect.mockRejectedValue(refused);
+
+      const obj = new MidenWindowObject();
+      await obj.connect('None' as any, 'testnet' as any);
+
+      await expect(obj.disconnect()).rejects.toBe(refused);
+
+      expect(clearFn).toHaveBeenCalledTimes(2);
+      expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
+    });
+
+    // A connect() waiting for its answer when disconnect() runs is ended by it, in either answer order (#1227).
+    type Granted = Awaited<ReturnType<typeof client.requestPermission>>;
+    type Disconnected = Awaited<ReturnType<typeof client.requestDisconnect>>;
+    function deferred<T>() {
+      let resolve: (value: T) => void = () => undefined;
+      const promise = new Promise<T>(r => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    }
+    const granted: Granted = {
+      rpc: 'testnet',
+      address: ADDRESS,
+      privateDataPermission: PrivateDataPermission.UponRequest,
+      allowedPrivateData: AllowedPrivateData.All,
+      publicKey: new Uint8Array([1])
+    };
+    const disconnectedAnswer: Disconnected = { type: MidenDAppMessageType.DisconnectResponse };
+
+    it('ends a connect answered after the disconnect, which starts no poll', async () => {
+      const permission = deferred<Granted>();
+      mockClient.requestPermission.mockReturnValue(permission.promise);
+      mockClient.requestDisconnect.mockResolvedValue(disconnectedAnswer);
+      const obj = new MidenWindowObject();
+      const connecting = obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      await obj.disconnect();
+      permission.resolve(granted);
+      await expect(connecting).rejects.toThrow('The wallet was disconnected while connecting');
+      await expect(connecting).rejects.toBeInstanceOf(WalletError);
+      expect(mockClient.onPermissionChange).not.toHaveBeenCalled();
+      expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('ends a connect answered while the disconnect is pending, which starts no poll', async () => {
+      const permission = deferred<Granted>();
+      const disconnected = deferred<Disconnected>();
+      mockClient.requestPermission.mockReturnValue(permission.promise);
+      mockClient.requestDisconnect.mockReturnValue(disconnected.promise);
+      const obj = new MidenWindowObject();
+      const connecting = obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      const disconnecting = obj.disconnect();
+      permission.resolve(granted);
+      await expect(connecting).rejects.toThrow('The wallet was disconnected while connecting');
+      disconnected.resolve(disconnectedAnswer);
+      await disconnecting;
+      expect(mockClient.onPermissionChange).not.toHaveBeenCalled();
+      expect([obj.address, obj.publicKey, obj.permission]).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('lets a connect begun after the disconnect connect once the disconnect settles', async () => {
+      const permission = deferred<Granted>();
+      const disconnected = deferred<Disconnected>();
+      mockClient.requestPermission.mockReturnValue(permission.promise);
+      mockClient.requestDisconnect.mockReturnValue(disconnected.promise);
+      mockClient.onPermissionChange.mockReturnValue(jest.fn());
+      const obj = new MidenWindowObject();
+      const disconnecting = obj.disconnect();
+      const connecting = obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      disconnected.resolve(disconnectedAnswer);
+      await disconnecting;
+      permission.resolve(granted);
+      await expect(connecting).resolves.toBeUndefined();
+      expect(obj.address).toBe(ADDRESS);
+      expect(mockClient.onPermissionChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('a disconnect that settles after a later connect leaves no poll running', async () => {
+      const disconnected = deferred<Disconnected>();
+      mockClient.requestPermission.mockResolvedValue(granted);
+      mockClient.requestDisconnect.mockReturnValue(disconnected.promise);
+      const laterStop = jest.fn();
+      mockClient.onPermissionChange.mockReturnValue(laterStop);
+      const obj = new MidenWindowObject();
+      const disconnecting = obj.disconnect();
+      await obj.connect(PrivateDataPermission.UponRequest, WalletAdapterNetwork.Testnet);
+      expect(obj.address).toBe(ADDRESS);
+      disconnected.resolve(disconnectedAnswer);
+      await disconnecting;
+      expect(laterStop).toHaveBeenCalledTimes(1);
     });
 
     it('is a no-op on the interval clearer when never connected', async () => {

@@ -12,6 +12,7 @@ import {
   getIntercom,
   reloadEndpointOverridesInSW
 } from './index';
+import { fetchingAddresses } from './utils/fetchBalances';
 
 // Mock the intercom module
 const mockRequest = jest.fn();
@@ -1329,11 +1330,17 @@ describe('useWalletStore', () => {
   });
 
   describe('fetchBalances', () => {
-    it('skips if already loading for that address', async () => {
-      useWalletStore.setState({ balancesLoading: { 'addr-1': true } });
-      await useWalletStore.getState().fetchBalances('addr-1', {});
-      // Should not have changed anything (no-op)
-      expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(true);
+    it('skips while another reader has that address in flight', async () => {
+      useWalletStore.setState({ balances: {}, balancesLoading: {} });
+      fetchingAddresses.add('addr-1');
+      try {
+        await useWalletStore.getState().fetchBalances('addr-1', {});
+        // No read started, so nothing changed (no-op)
+        expect(useWalletStore.getState().balancesLoading['addr-1']).toBeUndefined();
+        expect(useWalletStore.getState().balances['addr-1']).toBeUndefined();
+      } finally {
+        fetchingAddresses.clear();
+      }
     });
   });
 
@@ -1469,11 +1476,15 @@ describe('useWalletStore', () => {
       });
     });
 
-    it('skips when balancesLoading[accountAddress] is already true', async () => {
-      useWalletStore.setState({ balancesLoading: { 'addr-1': true } });
-      const before = useWalletStore.getState().balances['addr-1'];
-      await useWalletStore.getState().fetchBalances('addr-1', {});
-      expect(useWalletStore.getState().balances['addr-1']).toBe(before);
+    it('skips when the address is already in flight', async () => {
+      fetchingAddresses.add('addr-1');
+      try {
+        const before = useWalletStore.getState().balances['addr-1'];
+        await useWalletStore.getState().fetchBalances('addr-1', {});
+        expect(useWalletStore.getState().balances['addr-1']).toBe(before);
+      } finally {
+        fetchingAddresses.clear();
+      }
     });
   });
 

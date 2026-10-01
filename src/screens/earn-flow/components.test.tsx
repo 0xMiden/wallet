@@ -139,16 +139,14 @@ describe('EarnFlowHeader', () => {
     expect(screen.queryByTestId('token-logo')).toBeNull();
   });
 
-  it('renders the protocol • asset title and the asset mark', () => {
+  it('titles the page with the protocol, the asset and network on the line under it, and the asset mark', () => {
     render(<EarnFlowHeader subject={VAULT} />);
 
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Aave');
-    expect(heading).toHaveTextContent('USDC');
-    // The bullet separator is rendered between protocol and asset.
-    expect(heading.textContent).toContain('•');
-
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    // One line each: together at the title's size they wrapped beside the back and the mark.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+    const subtitle = screen.getAllByText('earnAssetOnNetwork').find(el => !el.classList.contains('sr-only'));
+    expect(subtitle).toHaveClass('text-muted', 'truncate');
+    expect(screen.getByTestId('token-logo')).toBeInTheDocument();
   });
 
   it('wires the back button to goBack with the ArrowLeft icon and Back label', () => {
@@ -180,17 +178,24 @@ describe('EarnFlowHeader', () => {
     render(<EarnFlowHeader subject={VAULT} />);
 
     // The pill was a 32px `bg-fill` capsule wide enough to spell "{asset} on {network}"; the mark
-    // is the token avatar, and the name it used to show is now screen-reader-only.
-    expect(screen.queryByText('earnAssetOnNetwork')).toHaveClass('sr-only');
-    expect(screen.getByRole('banner')).toContainElement(screen.getByTestId('token-logo'));
+    // is the token avatar, and the subtitle under the title now says the name it used to show.
+    const banner = screen.getByRole('banner');
+    expect(banner).toContainElement(screen.getByTestId('token-logo'));
+    expect(screen.getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('names the asset and network once in the banner: the subtitle says it, so the mark does not', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
+
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
+    expect(within(banner).queryByText('earnAssetOnNetwork', { selector: '.sr-only' })).toBeNull();
   });
 
   it('reflects a different vault protocol/asset/network', () => {
     render(<EarnFlowHeader subject={{ ...VAULT, protocol: 'Compound', asset: 'ETH', network: 'Base' }} />);
 
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Compound');
-    expect(heading).toHaveTextContent('ETH');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Compound$/);
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
   });
 });

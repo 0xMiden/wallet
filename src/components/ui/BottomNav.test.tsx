@@ -110,6 +110,22 @@ describe('BottomNav — exports & structure', () => {
     expect(nav.className).not.toContain('shadow-');
   });
 
+  it('pads a docked bar by the whole inset plus 8px with `clearInset`, so the tabs end above the system bar', () => {
+    const { container } = renderNav({ docked: true, clearInset: true });
+
+    const nav = container.querySelector('nav')!;
+    expect(nav).toHaveClass('w-full', 'border-t', 'pt-2', 'pb-[calc(env(safe-area-inset-bottom)+0.5rem)]');
+    expect(nav.className).not.toContain('-16px');
+  });
+
+  it('ignores `clearInset` on the floating pill, which never meets the inset', () => {
+    const { container } = renderNav({ clearInset: true });
+
+    const nav = container.querySelector('nav')!;
+    expect(nav).toHaveClass('rounded-3xl', 'py-2');
+    expect(nav.className).not.toContain('safe-area-inset-bottom');
+  });
+
   it('appends a caller-supplied className to the nav container', () => {
     const { container } = renderNav({ className: 'my-extra-class' });
 
@@ -310,50 +326,6 @@ describe('BottomNav — four destinations', () => {
     const buttons = screen.getAllByRole('button');
     expect(buttons.map(b => b.getAttribute('aria-label'))).toEqual(['Home', 'Explore', 'Activity', 'Settings']);
     expect(buttons.filter(b => b.hasAttribute('aria-current'))).toEqual([getTab('Settings')]);
-  });
-});
-
-describe('BottomNav — corner overlay', () => {
-  it('draws the corner over the bar, clipped to its shape and transparent to taps, taking no layout space', () => {
-    const { container } = renderNav({ corner: <button type="button">Testnet</button> });
-
-    const nav = container.querySelector('nav')!;
-    const ribbon = screen.getByRole('button', { name: 'Testnet' });
-    const box = ribbon.parentElement!;
-    expect(nav).toHaveClass('relative');
-    expect(box).toHaveAttribute('data-slot', 'bottom-nav-corner');
-    expect(box).toHaveClass('pointer-events-none', 'absolute', 'inset-0', 'overflow-hidden', 'rounded-[inherit]');
-    // Out of flow: the nav's only in-flow child is still the tab row, so the tabs keep their widths.
-    const inFlow = Array.from(nav.children).filter(child => !child.classList.contains('absolute'));
-    expect(inFlow).toHaveLength(1);
-    expect(inFlow[0]).toHaveClass('flex', 'gap-2');
-    ['Home', 'Activity', 'Settings'].map(getTab).forEach(tab => {
-      expect(tab).not.toContainElement(ribbon);
-      expect(tab).toHaveClass('w-20');
-    });
-  });
-
-  it('spreads docked tabs across the full width, as without a corner', () => {
-    const { container } = renderNav({ docked: true, corner: <span /> });
-
-    expect(container.querySelector('nav')).toHaveClass('px-4');
-    expect(container.querySelector('nav')!.firstElementChild).toHaveClass('flex-1', 'justify-around');
-  });
-
-  it('keeps every tab tappable with a corner drawn over them', () => {
-    const onChange = jest.fn();
-    renderNav({ onChange, corner: <button type="button">Testnet</button> });
-
-    fireEvent.click(getTab('Settings'));
-
-    expect(onChange).toHaveBeenCalledWith('settings');
-  });
-
-  it('renders no corner box without one', () => {
-    const { container } = renderNav();
-
-    expect(container.querySelector('[data-slot="bottom-nav-corner"]')).toBeNull();
-    expect(container.querySelector('nav')!.children).toHaveLength(1);
   });
 });
 

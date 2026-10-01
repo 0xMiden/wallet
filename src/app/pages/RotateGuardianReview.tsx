@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
+import { useHardwareProtector } from 'app/hooks/useHardwareProtector';
 import { ReactComponent as GuardianRotationIllustration } from 'app/icons/guardian-rotation-illustration.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
@@ -11,6 +12,7 @@ import { Button } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { ProtectorProbeErrorNotice } from 'components/ProtectorProbeErrorNotice';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
@@ -22,13 +24,17 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianRotationInProgress } from 'lib/miden/guardian/rotation-in-progress';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
-import { isDelegateProofEnabled, isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
+import {
+  isDelegateProofEnabled,
+  isValidGuardianUrl,
+  sameGuardianEndpoint,
+  sanitizeGuardianUrl
+} from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { navigate, useLocation } from 'lib/woozie';
@@ -45,17 +51,18 @@ const RotateGuardianReview: FC = () => {
   const popBack = useBackWithFallback('/rotate-guardian');
 
   // Sanitized, because this screen takes its target from the query string rather
-  // than from the picker's validated `onSubmit`, and `sanitizeGuardianUrl`'s
-  // contract is to normalize "before persisting or comparing". Unsanitized, a
-  // trailing slash or stray whitespace made a no-op switch look like a change to
-  // both guards below and then persisted a second spelling of the same endpoint.
+  // than from the picker's validated `onSubmit`, and `sanitizeGuardianUrl` is the
+  // storage form - what gets persisted and sent. Unsanitized, a trailing slash or
+  // stray whitespace would persist a second, needlessly different-looking
+  // spelling of the same endpoint; the guards below compare it as an endpoint via
+  // `sameGuardianEndpoint` either way.
   const newEndpoint = useMemo(() => sanitizeGuardianUrl(new URLSearchParams(search).get('endpoint') ?? ''), [search]);
   // The picker refuses to rotate onto the active guardian, but this screen takes
   // its target from the query string, so backing into it after the rotation landed
-  // would queue a second switch to the endpoint that is now already current.
-  // Both sides sanitized: `currentEndpoint` comes from storage or a built-in
+  // would queue a second switch to the endpoint that is now already current. The two
+  // are compared as endpoints: `currentEndpoint` comes from storage or a built-in
   // default, neither of which is guaranteed to be in the same spelling.
-  const endpointUnchanged = newEndpoint === sanitizeGuardianUrl(currentEndpoint ?? '');
+  const endpointUnchanged = sameGuardianEndpoint(newEndpoint, currentEndpoint ?? '');
   // The picker validates a custom URL before handing it over (ChooseGuardian),
   // but nothing validates the query string, and a stale or hand-edited review URL
   // goes straight to `initiateSwitchGuardianTransaction`, which only checks the
@@ -72,7 +79,7 @@ const RotateGuardianReview: FC = () => {
     setAuthStep(false);
     setPassword('');
   }, [newEndpoint]);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  const { hasHardwareProtector, probeFailed, retrying, retry } = useHardwareProtector();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submissionRef = useRef(false);
@@ -97,20 +104,6 @@ const RotateGuardianReview: FC = () => {
     abandoned.current = true;
     popBack();
   }, [popBack]);
-
-  useEffect(() => {
-    let cancelled = false;
-    Vault.hasHardwareProtector()
-      .then(hasHardware => {
-        if (!cancelled) setHasHardwareProtector(hasHardware);
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('guardianAuthenticationUnavailable'));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
 
   // The hot key co-signs from the unlocked vault; surface how it's protected
   // on this device (biometric flavor or password) like the design's key rows.
@@ -394,6 +387,9 @@ const RotateGuardianReview: FC = () => {
         footerLayout="stack"
         footer={
           <>
+            {/* Both protector reads failed or the probe missed its deadline: no credential step can be chosen,
+                so Continue stays disabled (`hasHardwareProtector` is null) and Retry probes again. */}
+            {probeFailed && <ProtectorProbeErrorNotice onRetry={retry} retrying={retrying} />}
             {/* `role="alert"` because nothing else moves when a switch fails: focus stays on
                 Continue and the reason appears above it. `max-h` + scroll so a long backend error
                 cannot grow the footer and push Continue off-screen. */}

@@ -91,6 +91,11 @@ export interface TransactionRowSnapshot {
   processingStartedAt?: number;
   /** First written by `setTransactionStage(id, 'syncing')`, before the status flip. */
   stage?: string;
+  /**
+   * Unix seconds before which the loop skips a requeued row, rewritten by every requeue. A later sample of the same
+   * row with a larger value proves the loop ran it again and requeued it again.
+   */
+  nextEligibleAt?: number;
   error?: string;
   /**
    * The untouched thrown error, kept only when the display message rewrote it
@@ -109,6 +114,10 @@ export interface TransactionRowSnapshot {
   /** Faucet the fee was paid in. Should be the chain's native fee faucet. */
   feeFaucetId?: string;
   displayMessage?: string;
+  /** Unix seconds the row went terminal; with `processingStartedAt` it bounds when the row ran. */
+  completedAt?: number;
+  /** Set on the everyday-key rotation gate's own funding claim (#805). */
+  rotationFunding?: boolean;
 }
 
 /** Anything with a Playwright page and hash navigation — both wallet page objects qualify. */
@@ -125,41 +134,95 @@ export interface HistoryWallet {
  * IndexedDB (same idiom as helpers/bridge.ts and wallet-page.ts) rather than
  * through the UI, so a row that is deliberately NOT rendered — a queued send,
  * the queue blocker — is still observable.
+ * `[]` when there is no transactions store; rejects on a failed read.
  */
 export async function readTransactionRows(page: Page): Promise<TransactionRowSnapshot[]> {
+  return (await streamTransactionRows(page)) ?? [];
+}
+
+/**
+ * {@link readTransactionRows} for a caller that must not mistake a wrong read for an empty table: `null` on a missing
+ * transactions store or any failed read, a reload destroying the page's context included.
+ */
+export async function readTransactionRowsOrNull(page: Page): Promise<TransactionRowSnapshot[] | null> {
+  try {
+    return await streamTransactionRows(page);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The in-page read behind {@link readTransactionRows} and {@link readTransactionRowsOrNull}: every row, projected, in
+ * key order, or `null` when the database has no transactions store (`open` creates an empty database when none
+ * exists, so a missing store is told apart from an empty one). A cursor, not `getAll`, for the reason
+ * `unlandedSendTotals` gives: rows carry request and result bytes, and a claim drain reads them every lap, on both
+ * wallets at once in the stress drain. Rejects on a failed read.
+ */
+function streamTransactionRows(page: Page): Promise<TransactionRowSnapshot[] | null> {
   return page.evaluate(
     async ({ dbName, storeName }) => {
-      const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
-      const db: IDBDatabase = await new Promise((res, rej) => {
-        const r = idb.open(dbName);
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(dbName);
+        // A blocked open can still succeed later; close that late connection rather than leak it.
+        let settled = false;
+        request.onsuccess = () => {
+          if (settled) {
+            request.result.close();
+            return;
+          }
+          settled = true;
+          resolve(request.result);
+        };
+        request.onerror = () => {
+          settled = true;
+          reject(request.error ?? new Error('readTransactionRows: open failed'));
+        };
+        request.onblocked = () => {
+          settled = true;
+          reject(new Error('readTransactionRows: open blocked'));
+        };
       });
       try {
-        if (!db.objectStoreNames.contains(storeName)) return [];
-        const rows: Record<string, unknown>[] = await new Promise((res, rej) => {
-          const r = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
-          r.onsuccess = () => res(r.result ?? []);
-          r.onerror = () => rej(r.error);
+        if (!db.objectStoreNames.contains(storeName)) return null;
+        return await new Promise<TransactionRowSnapshot[]>((resolve, reject) => {
+          const rows: TransactionRowSnapshot[] = [];
+          const tx = db.transaction(storeName, 'readonly');
+          tx.onabort = () => reject(tx.error ?? new Error('readTransactionRows: transaction aborted'));
+          tx.onerror = () => reject(tx.error ?? new Error('readTransactionRows: transaction failed'));
+          const cursorRequest = tx.objectStore(storeName).openCursor();
+          cursorRequest.onerror = () => reject(cursorRequest.error ?? new Error('readTransactionRows: cursor failed'));
+          cursorRequest.onsuccess = () => {
+            const cursor = cursorRequest.result;
+            if (!cursor) {
+              resolve(rows);
+              return;
+            }
+            const row: Record<string, unknown> = cursor.value;
+            rows.push({
+              id: String(row.id ?? ''),
+              type: row.type === undefined ? undefined : String(row.type),
+              accountId: row.accountId === undefined ? undefined : String(row.accountId),
+              status: row.status === undefined ? undefined : Number(row.status),
+              amount: row.amount === undefined || row.amount === null ? undefined : String(row.amount),
+              faucetId: row.faucetId === undefined ? undefined : String(row.faucetId),
+              secondaryAccountId: row.secondaryAccountId === undefined ? undefined : String(row.secondaryAccountId),
+              transactionId: row.transactionId === undefined ? undefined : String(row.transactionId),
+              processingStartedAt: row.processingStartedAt === undefined ? undefined : Number(row.processingStartedAt),
+              stage: row.stage === undefined ? undefined : String(row.stage),
+              nextEligibleAt: row.nextEligibleAt === undefined ? undefined : Number(row.nextEligibleAt),
+              error: row.error === undefined ? undefined : String(row.error),
+              rawError: row.rawError === undefined ? undefined : String(row.rawError),
+              // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
+              feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
+              feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
+              displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage),
+              completedAt: row.completedAt === undefined ? undefined : Number(row.completedAt),
+              rotationFunding: row.rotationFunding === true ? true : undefined
+            });
+            cursor.continue();
+          };
         });
-        return rows.map(row => ({
-          id: String(row.id ?? ''),
-          type: row.type === undefined ? undefined : String(row.type),
-          accountId: row.accountId === undefined ? undefined : String(row.accountId),
-          status: row.status === undefined ? undefined : Number(row.status),
-          amount: row.amount === undefined || row.amount === null ? undefined : String(row.amount),
-          faucetId: row.faucetId === undefined ? undefined : String(row.faucetId),
-          secondaryAccountId: row.secondaryAccountId === undefined ? undefined : String(row.secondaryAccountId),
-          transactionId: row.transactionId === undefined ? undefined : String(row.transactionId),
-          processingStartedAt: row.processingStartedAt === undefined ? undefined : Number(row.processingStartedAt),
-          stage: row.stage === undefined ? undefined : String(row.stage),
-          error: row.error === undefined ? undefined : String(row.error),
-          rawError: row.rawError === undefined ? undefined : String(row.rawError),
-          // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
-          feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
-          feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
-          displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage)
-        }));
       } finally {
         db.close();
       }

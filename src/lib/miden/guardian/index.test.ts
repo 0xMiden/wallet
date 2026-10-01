@@ -11,8 +11,10 @@
  * All external collaborators are stubbed to keep tests hermetic.
  */
 
+import { Account } from '@miden-sdk/miden-sdk/lazy';
+
 import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
-import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS } from './serialize';
+import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
@@ -168,15 +170,6 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   AccountInspector: { fromAccount: (...a: unknown[]) => mockAccountInspectorFromAccount(...a) }
 }));
 
-const mockGenerateHotKey = jest.fn();
-const mockSignHotDigest = jest.fn();
-const mockDeleteHotKey = jest.fn();
-jest.mock('lib/secure-hot-key', () => ({
-  generateHotKey: (...a: unknown[]) => mockGenerateHotKey(...a),
-  signHotDigest: (...a: unknown[]) => mockSignHotDigest(...a),
-  deleteHotKey: (...a: unknown[]) => mockDeleteHotKey(...a)
-}));
-
 const mockGetSignerDetailsFromAccount = jest.fn();
 // The staleness guard itself is a collaborator here, covered against real
 // nonces in account.test.ts; these tests only assert that the import path
@@ -193,6 +186,13 @@ jest.mock('./account', () => ({
   resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
     acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
+
+// The shared native-HTTP double records each probe's verdict.
+jest.mock('./native-http');
+// A pubkey-check deadline no other deadline shares, so a test can tell which one a call reads.
+jest.mock('./serialize', () => ({ ...jest.requireActual('./serialize'), NEW_GUARDIAN_PUBKEY_TIMEOUT_MS: 45_000 }));
+const { mockProbeVerdicts, resetMockProbes } =
+  jest.requireMock<typeof import('./__mocks__/native-http')>('./native-http');
 
 // atob is globally available on Node 16+ but jsdom stubs can vary — provide
 // a deterministic polyfill for these tests.
@@ -979,7 +979,11 @@ describe('MultisigService', () => {
     // refuses anything else before it reaches the transaction script.
     const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
 
-    it('createSwitchGuardianProposal consults the new guardian for its commitment and builds the proposal', async () => {
+    beforeEach(() => {
+      resetMockProbes();
+    });
+
+    it('createSwitchGuardianProposal builds the proposal from the new guardian commitment and keeps its origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
@@ -991,21 +995,24 @@ describe('MultisigService', () => {
       // `createSwitchGuardianProposal` already creates the proposal — it must NOT
       // be re-created via the generic `createProposal` (that would duplicate it).
       expect(multisig.createProposal).not.toHaveBeenCalled();
+      // On mobile the new endpoint stays routed through native HTTP once its key checks out.
+      expect(mockProbeVerdicts).toEqual([['https://new', true]]);
     });
 
-    it('createSwitchGuardianProposal re-throws when the new guardian fetch fails', async () => {
+    it('createSwitchGuardianProposal re-throws when the new guardian fetch fails and releases its origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       guardianConfig.getPubkey.mockRejectedValueOnce(new Error('unreachable'));
 
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('unreachable');
+      expect(mockProbeVerdicts).toEqual([['https://new', false]]);
     });
 
     // The SDK interpolates this value into MASM source after a `normalizeHexWord`
     // that only lowercases and left-pads to 64, so an over-long response passes
     // through with whatever followed it — including newlines. The coordinated path
     // has the same sink as the direct one and gets the same guard.
-    it('createSwitchGuardianProposal refuses a malformed commitment from the new guardian', async () => {
+    it('createSwitchGuardianProposal refuses a malformed commitment and releases the new origin', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       guardianConfig.getPubkey.mockResolvedValueOnce({
@@ -1015,6 +1022,37 @@ describe('MultisigService', () => {
 
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('malformed key commitment');
       expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
+      expect(mockProbeVerdicts).toEqual([['https://new', false]]);
+    });
+
+    // The probe settles only when its check does, so a new guardian that never answers would hold
+    // its origin routed for the session unless the check carries its own deadline.
+    it('createSwitchGuardianProposal gives up on a new guardian whose pubkey never answers and releases its origin', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
+
+      jest.useFakeTimers();
+      try {
+        let outcome: string | undefined;
+        void service.createSwitchGuardianProposal('https://new').then(
+          () => {
+            outcome = 'resolved';
+          },
+          (err: Error) => {
+            outcome = err.message;
+          }
+        );
+        // The check runs before the commit, so the post-commit deadline must not end it.
+        await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS + 1);
+        expect(outcome).toBeUndefined();
+        await jest.advanceTimersByTimeAsync(NEW_GUARDIAN_PUBKEY_TIMEOUT_MS - POST_COMMIT_GUARDIAN_TIMEOUT_MS);
+        expect(outcome).toMatch(/pubkey fetch timed out/);
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
+      expect(mockProbeVerdicts).toEqual([['https://new', false]]);
     });
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {
@@ -1201,7 +1239,7 @@ describe('MultisigService', () => {
         await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow(
           'Failed to register account on the new guardian after switching'
         );
-        // MAX_GUARDIAN_REGISTER_RETRIES attempts.
+        // GUARDIAN_RETRY_MAX_ATTEMPTS attempts.
         expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
       } finally {
         restoreTimers();
@@ -1256,21 +1294,15 @@ describe('MultisigService', () => {
   });
 
   describe('createReplaceHotKeyProposal', () => {
-    it('mints a fresh hot key and builds a single-proposal swap with target list [newHot, cold]', async () => {
+    it('builds a single-proposal swap with target list [newHot, cold] from the commitment it is given', async () => {
       const multisig = makeMultisig({ threshold: 1 });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
 
-      mockGenerateHotKey.mockResolvedValueOnce({
-        ciphertext: 'new-hot-cipher',
-        publicKeyHex: 'new-hot-pub',
-        commitmentHex: '0xnewhotcommit'
-      });
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommitnoprefix' });
 
-      const result = await service.createReplaceHotKeyProposal(account);
+      const result = await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
 
-      expect(mockGenerateHotKey).toHaveBeenCalled();
       expect(mockGetSignerDetailsFromAccount).toHaveBeenCalledWith(account, true);
       // Order preservation: newHot at index 0, cold at index 1.
       expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
@@ -1307,12 +1339,7 @@ describe('MultisigService', () => {
           chainAnchor: 'anchor-b64'
         })
       );
-      expect(result.newHot).toEqual({
-        ciphertext: 'new-hot-cipher',
-        publicKeyHex: 'new-hot-pub',
-        commitmentHex: '0xnewhotcommit'
-      });
-      expect(result.proposal).toEqual({ kind: 'custom', id: 'proposal-id' });
+      expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
     });
 
     // #784 follow-up: the captured anchor is a WASM object holding a partial
@@ -1359,14 +1386,9 @@ describe('MultisigService', () => {
         summary: { serialize: () => new Uint8Array([0xab]) },
         anchor
       });
-      mockGenerateHotKey.mockResolvedValueOnce({
-        ciphertext: 'cx',
-        publicKeyHex: 'pk',
-        commitmentHex: '0xnewhotcommit'
-      });
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
 
-      await service.createReplaceHotKeyProposal(account);
+      await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
 
       expect(mockChainAnchorToBase64).toHaveBeenCalledWith(anchor);
       expect(anchor.free).toHaveBeenCalledTimes(1);
@@ -1400,15 +1422,12 @@ describe('MultisigService', () => {
         },
         anchor
       });
-      mockGenerateHotKey.mockResolvedValueOnce({
-        ciphertext: 'cx',
-        publicKeyHex: 'pk',
-        commitmentHex: '0xnewhotcommit'
-      });
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
 
       // Releasing the anchor must not replace the reason the proposal failed.
-      await expect(service.createReplaceHotKeyProposal(account)).rejects.toThrow('summary serialize failed');
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toThrow(
+        'summary serialize failed'
+      );
 
       expect(anchor.free).toHaveBeenCalledTimes(1);
       expect(multisig.createProposal).not.toHaveBeenCalled();
@@ -1417,9 +1436,9 @@ describe('MultisigService', () => {
 
     // The expensive direction of the same guard: here there is no in-flight
     // error for the free to replace, so an unswallowed throw would INVENT one
-    // and fail a rotation that had already succeeded — after `generateHotKey()`
-    // burned a Secure Enclave / StrongBox key, which the retry then burns
-    // again. Reclaiming a few hundred kilobytes is not worth that.
+    // and fail a rotation that had already succeeded - after the caller minted
+    // a Secure Enclave / StrongBox key for it. Reclaiming a few hundred
+    // kilobytes is not worth that.
     it('completes the rotation even when releasing the anchor fails', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const multisig = makeMultisig({ threshold: 1 });
@@ -1431,17 +1450,12 @@ describe('MultisigService', () => {
         summary: { serialize: () => new Uint8Array([0xab]) },
         anchor
       });
-      mockGenerateHotKey.mockResolvedValueOnce({
-        ciphertext: 'cx',
-        publicKeyHex: 'pk',
-        commitmentHex: '0xnewhotcommit'
-      });
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
 
-      const result = await service.createReplaceHotKeyProposal(account);
+      const result = await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
 
       expect(anchor.free).toHaveBeenCalledTimes(1);
-      expect(result.proposal).toEqual({ kind: 'custom', id: 'proposal-id' });
+      expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
       expect(multisig.createProposal).toHaveBeenCalledWith(
         expect.any(Number),
         expect.any(String),
@@ -1456,11 +1470,6 @@ describe('MultisigService', () => {
     // somebody else is inside. All three transitions here are pre-sign/pre-submit,
     // so stopping costs a user-visible retry and nothing else.
     const seedReplaceHotKeyCollaborators = () => {
-      mockGenerateHotKey.mockResolvedValueOnce({
-        ciphertext: 'cx',
-        publicKeyHex: 'pk',
-        commitmentHex: '0xnewhotcommit'
-      });
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
     };
 
@@ -1471,7 +1480,7 @@ describe('MultisigService', () => {
       seedReplaceHotKeyCollaborators();
       evictDuringClientBuild = true;
 
-      await expect(service.createReplaceHotKeyProposal(account)).rejects.toMatchObject({
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
       expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
@@ -1481,7 +1490,7 @@ describe('MultisigService', () => {
       // Falsifier: with the hold intact the same rotation goes through.
       evictDuringClientBuild = false;
       seedReplaceHotKeyCollaborators();
-      await service.createReplaceHotKeyProposal(account);
+      await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
       expect(multisig.createProposal).toHaveBeenCalledTimes(1);
     });
 
@@ -1495,7 +1504,7 @@ describe('MultisigService', () => {
         return { request: { kind: 'request' }, salt: { toHex: () => 'salt-hex' } };
       });
 
-      await expect(service.createReplaceHotKeyProposal(account)).rejects.toMatchObject({
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
       expect(mockExecuteForSummary).not.toHaveBeenCalled();
@@ -1514,7 +1523,7 @@ describe('MultisigService', () => {
         return { summary: { serialize: summarySerialize }, anchor };
       });
 
-      await expect(service.createReplaceHotKeyProposal(account)).rejects.toMatchObject({
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
       // The summary, salt, and anchor are borrows of the client a successor now
@@ -1527,20 +1536,15 @@ describe('MultisigService', () => {
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
 
-    it('handles secureHotKey commitments without 0x prefix by adding it', async () => {
+    it('adds the 0x prefix to a commitment given without one', async () => {
       // Defensive: not all commitment producers may prefix. We normalize.
       const multisig = makeMultisig({ threshold: 1 });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       const account = { id: () => 'acc-id' } as never;
 
-      mockGenerateHotKey.mockResolvedValueOnce({
-        ciphertext: 'cx',
-        publicKeyHex: 'pk',
-        commitmentHex: 'newhotnoprefix' // intentionally unprefixed
-      });
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldnoprefix' });
 
-      await service.createReplaceHotKeyProposal(account);
+      await service.createReplaceHotKeyProposal(account, 'newhotnoprefix');
 
       expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
         expect.anything(),
@@ -1554,6 +1558,81 @@ describe('MultisigService', () => {
           midenRpcEndpoint: expect.any(String)
         }
       );
+    });
+
+    // Built through `init` so the #904 cases need no casts: `Account.deserialize` and
+    // `MultisigClient.load` are this file's stubs.
+    const initRotationService = async (multisig: ReturnType<typeof makeMultisig>) => {
+      mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
+      const account = Account.deserialize(new Uint8Array());
+      multisigClientConfig.load.mockResolvedValueOnce(multisig);
+      const service = await MultisigService.init(account, '0xcold-pub', '0xcoldcommit', async () => 'sig', 'https://x');
+      return { service, account };
+    };
+
+    it('syncs the chain and adopts the guardian state before it builds, and reads the threshold after (#904)', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      // The adopt refreshes the loaded config from the adopted account.
+      multisig.syncState.mockImplementationOnce(async () => {
+        multisig.threshold = 2;
+      });
+      const { service, account } = await initRotationService(multisig);
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      wasmLockOptionsSeen.length = 0;
+
+      await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
+
+      expect(mockSyncState).toHaveBeenCalledTimes(1);
+      expect(multisig.syncState).toHaveBeenCalledTimes(1);
+      const chainSyncedAt = mockSyncState.mock.invocationCallOrder[0]!;
+      const adoptedAt = multisig.syncState.mock.invocationCallOrder[0]!;
+      const builtAt = mockBuildUpdateSignersTransactionRequest.mock.invocationCallOrder[0]!;
+      expect(chainSyncedAt).toBeLessThan(adoptedAt);
+      expect(adoptedAt).toBeLessThan(builtAt);
+      // Both refresh holds are pure-sync holds on the sync ceiling (#777); the build
+      // hold that follows names itself but stays on the default watchdog ceiling,
+      // since it continues past the sync into a build and an execute.
+      expect(wasmLockOptionsSeen.slice(0, 3)).toEqual([
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'replace-hot-key-sync' },
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' },
+        { label: 'replace-hot-key-build' }
+      ]);
+      expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
+        expect.anything(),
+        2,
+        ['0xnewhotcommit', '0xcoldcommit'],
+        expect.anything()
+      );
+    });
+
+    it('builds on local state when the guardian refuses to import its state (#904)', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const multisig = makeMultisig({ threshold: 1 });
+      multisig.syncState.mockRejectedValueOnce(
+        new Error(
+          'Refusing to overwrite local state: incoming nonce 4 equals local nonce 4 but commitments differ for account 0xabc'
+        )
+      );
+      const { service, account } = await initRotationService(multisig);
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
+
+      expect(multisig.syncState).toHaveBeenCalledTimes(1);
+      expect(multisig.createProposal).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it('does not build when reading the guardian state fails for another reason (#904)', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const unreachable = Object.assign(new Error('GUARDIAN HTTP error 503: Service Unavailable'), { status: 503 });
+      multisig.syncState.mockRejectedValueOnce(unreachable);
+      const { service, account } = await initRotationService(multisig);
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(unreachable);
+
+      expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
     });
   });
 

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -20,9 +20,15 @@ function coverageFile(path: string, hits: number): Record<string, unknown> {
   };
 }
 
+const dirs: string[] = [];
+afterAll(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
+
 describe('merge-jest-coverage', () => {
   it('sums hits across shards and writes coverage-summary.json', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cov-merge-'));
+    dirs.push(dir);
     const a = join(dir, 'a.json');
     const b = join(dir, 'b.json');
     writeFileSync(a, JSON.stringify(coverageFile('/tmp/one.ts', 1)));

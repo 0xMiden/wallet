@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { DappOrigin } from 'components/ui/DappOrigin';
 import { useSprings } from 'lib/animation';
 import {
   confirmationPromptKey,
@@ -55,7 +56,6 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // Every non-connect request kind (transaction, consume, sign, importPrivateNote,
   // privateData) renders the same detail-list body; only the prompt line differs.
   const isTransaction = isDetailsConfirmation(request.type);
-  const appName = request.appMeta?.name || request.origin;
   const transactionMessages = request.transactionMessages ?? [];
   const transactionAccountMatches =
     request.type !== 'transaction' ||
@@ -240,10 +240,10 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <Icon name={IconName.Globe} className="text-primary-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-ink">
-              {appName}
+            {/* The injected providers send only the page's hostname as appMeta.name, so any other name is forged. */}
+            <h2 id="dapp-confirmation-title" className="text-lg font-semibold text-ink">
+              <DappOrigin origin={request.origin} data-testid="dapp-confirmation-origin" />
             </h2>
-            <p className="truncate text-sm text-text-muted">{request.origin}</p>
           </div>
         </div>
 

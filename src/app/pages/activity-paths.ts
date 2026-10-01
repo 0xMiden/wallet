@@ -4,6 +4,8 @@
  * Android and the extension, and the claim link on a transaction's own page.
  *
  * `AllHistory` reads `filter` off the location, so this works both as a deep link into a cold
- * start and as a navigation onto the tab while it is already mounted.
+ * start and as a navigation onto the tab while it is already mounted. `view=list` asks for the
+ * feed even when Groups was last chosen; a pick on that List keeps it and leaving it for Groups
+ * drops it.
  */
-export const ACTIVITY_PENDING_PATH = '/history?filter=pending';
+export const ACTIVITY_PENDING_PATH = '/history?filter=pending&view=list';

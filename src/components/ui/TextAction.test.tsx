@@ -33,4 +33,11 @@ describe('TextAction', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('action')).toHaveAttribute('aria-expanded', 'false');
   });
+
+  it('draws no chevron inline', () => {
+    render(<TextAction>Learn more</TextAction>);
+    const action = screen.getByRole('button', { name: 'Learn more' });
+    expect(action.querySelector('svg')).toBeNull();
+    expect(action).toHaveClass('min-h-11', 'rounded-full', 'px-1');
+  });
 });

@@ -17,10 +17,11 @@ export const RETIRED_COLOUR_TOKENS: Record<string, string> = {
   'surface-nav-button': 'fill',
   'button-secondary': 'fill',
   'button-secondary-hover': 'fill-pressed',
-  // Retired by the balance-card redesign: the card is one tone now, so its second tone and the
-  // muted ink and divider that sat on it are gone.
+  // Retired by the balance-card redesigns: the muted ink went, and the footer's divider and then its
+  // hairline gave way to the footer's own darker well, the card's second tone.
   'surface-balance-fg-muted': 'surface-balance-fg',
-  'surface-balance-divider': 'surface-balance-rule',
+  'surface-balance-divider': 'surface-balance-footer',
+  'surface-balance-rule': 'surface-balance-footer',
   'card-slate-deep': 'card-slate',
   'card-orange-deep': 'card-orange',
   'card-blue-deep': 'card-blue',
@@ -36,12 +37,13 @@ export const RETIRED_COLOUR_TOKENS: Record<string, string> = {
  * assert the variable is gone from `main.css`. A second map rather than a widened value, so the
  * offence-line interpolation above keeps a string.
  *
- * Three of these are NOT derivable from the token name, which is why they are carried rather than
- * computed. PROVENANCE, stated because it is weaker than it looks: all eight variables are absent
- * from `main.css` today, so the live files can only confirm the ABSENCE, never the pairing. The
- * pairings come from the assertions this map replaces - `design-tokens.test.ts` paired 25/50 with
- * `color-surface-(secondary|tertiary)` and `heading-gray` with `color-text-secondary`. A mistyped
- * entry here would pass forever, since every one is asserted only by absence.
+ * Where the variable's name differs from the token's (heading-gray, the grays, the secondary buttons),
+ * the pairing is carried rather than computed. PROVENANCE, stated because it is weaker than it looks:
+ * the live files can only confirm a variable's ABSENCE, never the pairing. The older pairings come
+ * from the assertions this map replaces - `design-tokens.test.ts` paired 25/50 with
+ * `color-surface-(secondary|tertiary)` and `heading-gray` with `color-text-secondary`; a later entry
+ * can be checked against the tree before its retirement. A mistyped entry here would pass forever,
+ * since every one is asserted only by absence.
  */
 export const RETIRED_TOKEN_CSS_VARS: Record<string, string> = {
   'heading-gray': 'color-text-secondary',
@@ -53,6 +55,7 @@ export const RETIRED_TOKEN_CSS_VARS: Record<string, string> = {
   'button-secondary': 'surface-button-secondary',
   'button-secondary-hover': 'surface-button-secondary-hover',
   'surface-balance-fg-muted': 'surface-balance-fg-muted',
+  'surface-balance-rule': 'surface-balance-rule',
   'card-slate-deep': 'card-slate-deep',
   'card-orange-deep': 'card-orange-deep',
   'card-blue-deep': 'card-blue-deep',

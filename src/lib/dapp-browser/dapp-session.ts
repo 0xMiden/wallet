@@ -67,7 +67,7 @@ export function parseOrigin(url: string): string {
 /**
  * Hostname-only label for a session URL (no scheme, no www. prefix).
  * Used as the secondary line in the capsule and as the bubble / switcher
- * card / tile fallback name.
+ * card fallback name.
  */
 export function getDappHostname(url: string): string {
   try {

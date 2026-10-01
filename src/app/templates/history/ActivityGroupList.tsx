@@ -49,6 +49,7 @@ export function activityGroupSubtitle(group: ActivityGroup, t: Translate): strin
 
 function latestEvent(group: ActivityGroup, t: Translate): string {
   const entry = group.latest;
+  if (entry.isUnconfirmed) return t('notConfirmed');
   if (entry.isCancelled) return t('cancelled');
   if (group.kind === 'faucet') return t('faucetRequestTitle');
   if (group.kind === 'swap' && entry.token && entry.requestedToken) {
