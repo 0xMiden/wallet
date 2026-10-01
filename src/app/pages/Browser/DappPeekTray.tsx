@@ -16,9 +16,10 @@
  *
  * Layout:
  *  - Fixed to the bottom of the viewport, sitting directly above the
- *    floating React BottomNav. Positioning is driven by a live measurement
- *    of the React footer overlay (`[data-tabbar-footer="true"]`) so the
- *    tray adapts if the nav gets taller or shorter.
+ *    floating React BottomNav. It reads the top edge of the React footer
+ *    overlay (`[data-tabbar-footer="true"]`) while the bar is at rest,
+ *    re-reading on resize, on `body[data-hide-navbar]` changing and when
+ *    the footer mounts (see peek-footer).
  *  - Up to `MAX_VISIBLE_CARDS` cards render inline. Each card behind the
  *    front one is offset CARD_STACK_OFFSET pixels to the left and
  *    scaled down slightly; the rightmost (frontmost) card is fully

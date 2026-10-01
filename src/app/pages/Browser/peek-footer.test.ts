@@ -1,4 +1,9 @@
-import { FOOTER_CLEARANCE_FALLBACK, measureFooterClearance, subscribeFooterClearance } from './peek-footer';
+import {
+  announceFooterMounted,
+  FOOTER_CLEARANCE_FALLBACK,
+  measureFooterClearance,
+  subscribeFooterClearance
+} from './peek-footer';
 
 function stubFooter(rect: { top: number; height: number }, offsetHeight = rect.height): HTMLElement {
   const footer = document.createElement('div');
@@ -92,6 +97,48 @@ describe('subscribeFooterClearance', () => {
     document.body.setAttribute('data-hide-navbar', '');
     document.body.removeAttribute('data-hide-navbar');
     await flushMutations();
+    expect(readings).toEqual([92]);
+  });
+
+  it('reads the footer when its mount is announced after the subscription', () => {
+    document.querySelector('[data-tabbar-footer="true"]')?.remove();
+    expect(document.querySelector('[data-tabbar-footer="true"]')).toBeNull();
+    subscribe();
+    expect(readings).toEqual([]);
+
+    document.body.appendChild(stubFooter({ top: 800 - 114, height: 58 }));
+    announceFooterMounted();
+    expect(readings).toEqual([114]);
+  });
+
+  it('keeps the last reading while no footer exists', async () => {
+    footerTop = 800 - 74;
+    subscribe();
+    expect(readings).toEqual([74]);
+
+    document.querySelector('[data-tabbar-footer="true"]')?.remove();
+    window.dispatchEvent(new Event('resize'));
+    document.body.setAttribute('data-hide-navbar', '');
+    document.body.removeAttribute('data-hide-navbar');
+    await flushMutations();
+    expect(readings).toEqual([74]);
+  });
+
+  it('takes no reading on an announced mount while the bar is held hidden', () => {
+    footerTop = 800 - 92;
+    subscribe();
+    document.body.setAttribute('data-hide-navbar', '');
+    announceFooterMounted();
+    expect(readings).toEqual([92]);
+  });
+
+  it('takes no reading on an announced mount once unsubscribed', () => {
+    footerTop = 800 - 92;
+    subscribe();
+    unsubscribe?.();
+    unsubscribe = undefined;
+
+    announceFooterMounted();
     expect(readings).toEqual([92]);
   });
 });

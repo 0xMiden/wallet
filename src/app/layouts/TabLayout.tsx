@@ -24,6 +24,7 @@ import {
   usePageOnScreen,
   usePageRevealedByLayer
 } from 'app/layouts/page-active';
+import { announceFooterMounted } from 'app/pages/Browser/peek-footer';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -286,6 +287,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     document.body.toggleAttribute('data-home-band', showActionBar && onScreen);
     return () => document.body.removeAttribute('data-home-band');
   }, [showActionBar, onScreen]);
+
+  // The dApp peek tray can subscribe to the footer's top edge before this layout mounts, and no
+  // resize marks the footer's arrival, so tell it the footer is now in the DOM.
+  useEffect(() => {
+    announceFooterMounted();
+  }, []);
 
   // Fires for re-taps on the active tab too (BottomNav forwards them), so a
   // Home tap from /send, /receive, etc. returns to Overview; a tap on the

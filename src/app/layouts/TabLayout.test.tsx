@@ -5,6 +5,7 @@ import type { Transition } from 'framer-motion';
 import fs from 'fs';
 import path from 'path';
 
+import { subscribeFooterClearance } from 'app/pages/Browser/peek-footer';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
@@ -969,6 +970,26 @@ describe('TabLayout — footer scaffolding', () => {
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();
+  });
+
+  it('announces the footer once it mounts, so a tray subscribed before it reads its top edge', () => {
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement
+    ) {
+      return this.dataset.tabbarFooter === 'true' ? new DOMRect(0, window.innerHeight - 82, 0, 58) : new DOMRect();
+    });
+    const readings: number[] = [];
+    const unsubscribe = subscribeFooterClearance(clearance => readings.push(clearance));
+    try {
+      expect(document.querySelector('[data-tabbar-footer="true"]')).toBeNull();
+      expect(readings).toEqual([]);
+
+      renderLayout();
+      expect(readings).toEqual([82]);
+    } finally {
+      unsubscribe();
+      rectSpy.mockRestore();
+    }
   });
 });
 
