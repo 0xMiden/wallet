@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import ts from 'typescript';
 
 /**
  * Source scans for class strings that compile cleanly and still draw the wrong colour. Tailwind accepts
@@ -35,6 +36,63 @@ function scanSource(pattern: RegExp, advise: (cls: string) => string): string[] 
       });
   }
   return offences;
+}
+
+const CLASS_FUNCTIONS = new Set(['cn', 'clsx', 'classNames', 'twMerge']);
+
+/**
+ * The text in a source that can become a class, each piece with the line it starts on: every string and
+ * template literal, and every object key inside a cn, clsx, classNames or twMerge call, so `{ invert: dark }`
+ * counts. Comments and identifiers never become a class, so they are not read.
+ */
+function classText(source: string, fileName: string): { line: number; text: string }[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest);
+  const pieces: { line: number; text: string }[] = [];
+  const add = (node: ts.Node, text: string) =>
+    pieces.push({ line: file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1, text });
+  const visit = (node: ts.Node, inClassCall: boolean): void => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node)
+    ) {
+      add(node, node.text);
+    } else if (
+      inClassCall &&
+      (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
+      ts.isIdentifier(node.name)
+    ) {
+      // A string key is a string literal, read above.
+      add(node.name, node.name.text);
+    }
+    const nested =
+      inClassCall ||
+      (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_FUNCTIONS.has(node.expression.text));
+    ts.forEachChild(node, child => visit(child, nested));
+  };
+  visit(file, false);
+  return pieces;
+}
+
+/** Each class in the source's class text that `pattern` matches; a template's classes count on every line. */
+function matchingClasses(source: string, fileName: string, pattern: RegExp): { line: number; cls: string }[] {
+  return classText(source, fileName).flatMap(({ line, text }) =>
+    text
+      .split(/\s+/)
+      .filter(cls => pattern.test(cls))
+      .map(cls => ({ line, cls }))
+  );
+}
+
+/** One `file:line class -> advice` entry for every class in the tracked source's class text that `pattern` matches. */
+function scanClassText(pattern: RegExp, advise: (cls: string) => string): string[] {
+  return trackedSourceFiles().flatMap(file =>
+    matchingClasses(fs.readFileSync(path.join(ROOT, file), 'utf8'), file, pattern).map(
+      ({ line, cls }) => `${file}:${line} ${cls} -> ${advise(cls)}`
+    )
+  );
 }
 
 describe('theme-dependent black and white', () => {
@@ -126,8 +184,6 @@ describe('composed filters', () => {
   it.each([
     'blur-sm',
     'md:blur-sm',
-    'drop-shadow',
-    'grayscale',
     'backdrop-blur-sm',
     'backdrop-blur-[6px]',
     'backdrop-saturate-150',
@@ -142,16 +198,45 @@ describe('composed filters', () => {
     '[filter:blur(8px)]',
     '[backdrop-filter:blur(8px)]',
     '[-webkit-backdrop-filter:blur(8px)]',
-    'backdrop:bg-pure-black',
-    "window.addEventListener('blur', hide);",
-    "process.env.TARGET_BROWSER === 'firefox' && 'grayscale-firefox-fix',",
-    ' * scale, a small turn and a blur crossfade on the `tabSwitch` spring',
-    "filter: 'blur(4px)'"
+    'backdrop:bg-pure-black'
   ])('the filter pattern leaves %s alone', cls => expect(COMPOSED_FILTER_UTILITY.test(cls)).toBe(false));
+
+  // Source snippets run through the scan's own parse. A JSX attribute sits in an element and a doc-comment
+  // line in its comment, so each parses as it does in a component.
+  const inElement = (attribute: string) => `<i ${attribute} />`;
+  const inDocComment = (line: string) => `/**\n${line}\n */`;
+
+  it.each([
+    inElement('className="flex grayscale"'),
+    "const c = 'drop-shadow';",
+    inElement('className={`flex grayscale`}'),
+    // eslint-disable-next-line no-template-curly-in-string -- the snippet's ${ is template source, not a placeholder
+    inElement("className={`flex ${\n  a ? 'x' : ''\n} grayscale`}"),
+    "cn('icon', { invert: dark })",
+    'classNames({ grayscale })',
+    "cn('md:blur-sm')",
+    "'backdrop-blur-[6px]'"
+  ])('the filter scan flags %s', source =>
+    expect(matchingClasses(source, 'snippet.tsx', COMPOSED_FILTER_UTILITY)).not.toEqual([])
+  );
+
+  it.each([
+    inDocComment(' * invert the colours on press'),
+    'const invert = !flag;',
+    '// a grayscale fallback for the drop-shadow',
+    'export const sepia = 1;',
+    "if (mode === 'dark') invert();",
+    "window.addEventListener('blur', invert);",
+    "// don't invert, it's fine",
+    "filter: 'blur(4px)'",
+    "'grayscale-firefox-fix'"
+  ])('the filter scan leaves %s alone', source =>
+    expect(matchingClasses(source, 'snippet.tsx', COMPOSED_FILTER_UTILITY)).toEqual([])
+  );
 
   it('no element composes its filter or backdrop filter from Tailwind utilities', () => {
     expect(
-      scanSource(
+      scanClassText(
         COMPOSED_FILTER_UTILITY,
         cls =>
           `drop ${cls}: write a plain [filter:...] value, or [backdrop-filter:...] with its [-webkit-backdrop-filter:...] twin`
