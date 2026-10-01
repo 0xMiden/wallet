@@ -19,13 +19,17 @@ let sharedEnable: Promise<boolean> | null = null;
 function acquireGuard(): Promise<boolean> {
   holders += 1;
   if (sharedEnable === null) {
-    sharedEnable = ScreenshotGuard.enable().then(
+    const enabling: Promise<boolean> = ScreenshotGuard.enable().then(
       () => true,
       err => {
         console.warn('[screenshot-guard] enable failed:', err);
+        // A failure is not kept as the shared answer, so the next holder retries the native enable;
+        // a newer enable started after a release must not be cleared by this older one.
+        if (sharedEnable === enabling) sharedEnable = null;
         return false;
       }
     );
+    sharedEnable = enabling;
   }
   return sharedEnable;
 }

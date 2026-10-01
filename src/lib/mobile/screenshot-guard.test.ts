@@ -24,6 +24,15 @@ function deferred() {
   return { promise, resolve };
 }
 
+function nativeCallOrder() {
+  return [
+    ...mockEnable.mock.invocationCallOrder.map(order => ({ order, call: 'enable' })),
+    ...mockDisable.mock.invocationCallOrder.map(order => ({ order, call: 'disable' }))
+  ]
+    .sort((a, b) => a.order - b.order)
+    .map(({ call }) => call);
+}
+
 describe('useScreenshotGuard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -85,6 +94,43 @@ describe('useScreenshotGuard', () => {
     expect(first.result.current).toBe(false);
     expect(second.result.current).toBe(false);
     warn.mockRestore();
+  });
+
+  it('retries the native enable for the next holder after a failed one', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockEnable.mockRejectedValue(new Error('enable failed'));
+    const first = renderHook(() => useScreenshotGuard());
+    await settle();
+    expect(first.result.current).toBe(false);
+
+    mockEnable.mockResolvedValue(undefined);
+    const second = renderHook(() => useScreenshotGuard());
+    await settle();
+    expect(mockEnable).toHaveBeenCalledTimes(2);
+    expect(second.result.current).toBe(true);
+    expect(first.result.current).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('starts a fresh enable for a holder that mounts after the last one released', async () => {
+    const firstEnable = deferred();
+    mockEnable.mockReturnValueOnce(firstEnable.promise);
+    const first = renderHook(() => useScreenshotGuard());
+    await settle();
+    expect(first.result.current).toBe(false);
+    first.unmount();
+    expect(mockDisable).toHaveBeenCalledTimes(1);
+
+    const secondEnable = deferred();
+    mockEnable.mockReturnValueOnce(secondEnable.promise);
+    const second = renderHook(() => useScreenshotGuard());
+    await settle();
+    expect(second.result.current).toBe(false);
+
+    secondEnable.resolve();
+    await settle();
+    expect(second.result.current).toBe(true);
+    expect(nativeCallOrder()).toEqual(['enable', 'disable', 'enable']);
   });
 
   it('neither enables nor counts an inactive holder', async () => {
