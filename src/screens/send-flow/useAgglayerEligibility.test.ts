@@ -77,9 +77,3 @@ it('shows loading after the endpoint changes (#1276)', async () => {
   rerender();
   expect(result.current).toBe('loading');
 });
-
-it('does not check Miden registry entries for an EVM deposit', () => {
-  const { result } = renderHook(() => useAgglayerEligibility());
-  expect(result.current).toBe('allowed');
-  expect(isAgglayerFaucetAllowed).not.toHaveBeenCalled();
-});

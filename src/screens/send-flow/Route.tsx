@@ -11,11 +11,9 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { BridgeRoute } from './types';
-import { AgglayerEligibility, useAgglayerEligibility } from './useAgglayerEligibility';
+import { AgglayerEligibility } from './useAgglayerEligibility';
 
 export interface RouteStepProps {
-  /** Set for Miden bridge-out. EVM deposits do not have a source Miden faucet. */
-  faucetId?: string;
   route: BridgeRoute;
   onRouteChange: (route: BridgeRoute) => void;
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
@@ -158,10 +156,10 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
 /**
  * Cross-chain route picker, shown after the destination network is chosen for a
  * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
- * fee = input value − USDC received); Slow = Agglayer (registered tokens only).
+ * fee = input value − USDC received); Slow = Agglayer. The send flow's SendRoute
+ * gates Slow on the bridge registry; an EVM deposit has no Miden faucet to check.
  */
 export const Route: React.FC<RouteStepProps> = ({
-  faucetId,
   route,
   onRouteChange,
   fastFeeUsd,
@@ -171,7 +169,6 @@ export const Route: React.FC<RouteStepProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
-  const slowStatus = useAgglayerEligibility(faucetId);
 
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
@@ -184,7 +181,7 @@ export const Route: React.FC<RouteStepProps> = ({
           fastFeeUsd={fastFeeUsd}
           fastQuoteLoading={fastQuoteLoading}
           notice={notice}
-          slowStatus={slowStatus}
+          slowStatus="allowed"
         />
       </div>
 
@@ -193,7 +190,7 @@ export const Route: React.FC<RouteStepProps> = ({
           title={t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
-          disabled={confirmDisabled || (route === 'agglayer' && slowStatus !== 'allowed')}
+          disabled={confirmDisabled}
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />

@@ -5,12 +5,11 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 export type AgglayerEligibility = 'loading' | 'allowed' | 'unsupported' | 'error';
 
-export function useAgglayerEligibility(faucetId?: string): AgglayerEligibility {
+export function useAgglayerEligibility(faucetId: string): AgglayerEligibility {
   const rpcUrl = getEffectiveRpcUrl();
   const [result, setResult] = useState<{ faucetId: string; rpcUrl: string; status: AgglayerEligibility }>();
 
   useEffect(() => {
-    if (faucetId === undefined) return;
     let active = true;
     isAgglayerFaucetAllowed(faucetId, rpcUrl).then(
       allowed => {
@@ -26,7 +25,6 @@ export function useAgglayerEligibility(faucetId?: string): AgglayerEligibility {
     };
   }, [faucetId, rpcUrl]);
 
-  if (faucetId === undefined) return 'allowed';
   if (result?.faucetId !== faucetId || result.rpcUrl !== rpcUrl) return 'loading';
   return result.status;
 }

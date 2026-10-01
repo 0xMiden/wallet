@@ -3,7 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SendRoute, SendRouteProps } from './SendRoute';
-import { useAgglayerEligibility } from './useAgglayerEligibility';
+import { AgglayerEligibility, useAgglayerEligibility } from './useAgglayerEligibility';
 
 jest.mock('./useAgglayerEligibility', () => ({ useAgglayerEligibility: jest.fn(() => 'allowed') }));
 
@@ -37,6 +37,7 @@ jest.mock('./Route', () => ({
       data-accent={props.accent}
       data-fast-fee={String(props.fastFeeUsd)}
       data-fast-loading={String(props.fastQuoteLoading)}
+      data-slow-status={props.slowStatus}
     />
   )
 }));
@@ -67,13 +68,25 @@ function renderRoute(overrides: Partial<SendRouteProps> = {}) {
 }
 
 describe('SendRoute', () => {
-  it('blocks confirmation while a restored Slow route is being checked', () => {
-    jest.mocked(useAgglayerEligibility).mockReturnValueOnce('loading');
+  it.each<AgglayerEligibility>(['loading', 'unsupported', 'error'])(
+    'blocks confirmation on Slow while %s (#1276)',
+    status => {
+      jest.mocked(useAgglayerEligibility).mockReturnValueOnce(status);
+      const props = renderRoute({ route: 'agglayer' });
+      expect(screen.getByTestId('route-options')).toHaveAttribute('data-slow-status', status);
+      expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+      expect(props.onConfirm).not.toHaveBeenCalled();
+    }
+  );
+
+  it('confirms Slow once the token is allowed (#1276)', () => {
+    jest.mocked(useAgglayerEligibility).mockReturnValueOnce('allowed');
     const props = renderRoute({ route: 'agglayer' });
-    expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
     fireEvent.click(screen.getByTestId('bridge-route-confirm'));
-    expect(props.onConfirm).not.toHaveBeenCalled();
+    expect(props.onConfirm).toHaveBeenCalledTimes(1);
   });
+
   it('shows the route title and forwards the back action', () => {
     const props = renderRoute();
 
