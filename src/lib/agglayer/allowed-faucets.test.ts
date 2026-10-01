@@ -137,3 +137,8 @@ it('retries a failed read with fresh requirements (#1276)', async () => {
   expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
   expect(mockGetAccountProof.mock.calls[1][1]).not.toBe(mockGetAccountProof.mock.calls[0][1]);
 });
+
+it('asks the bridge for the [0, 0, suffix, prefix] key (#1276)', async () => {
+  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).resolves.toBe(true);
+  expect(mockSlotRecords).toEqual([{ slot: 'agglayer::bridge::faucet_registry_map', keys: [[0n, 0n, 2n, 3n]] }]);
+});
