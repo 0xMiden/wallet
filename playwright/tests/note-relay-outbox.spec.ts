@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { resolve, sep } from 'node:path';
@@ -8,6 +9,10 @@ import { resolve, sep } from 'node:path';
 // is replayed from a recording, so nothing leaves the machine.
 const sdkRoot = resolve(__dirname, '../../node_modules/@miden-sdk/miden-sdk');
 const rpcFixture = resolve(__dirname, '../fixtures/note-relay-rpc.json');
+// A linked web-sdk build (`Web SDK PR: #N`) swaps in a `file:` source build that carries no relay patch.
+const linkedSdk = String(
+  JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')).dependencies['@miden-sdk/miden-sdk']
+).startsWith('file:');
 
 // The deployed transport's `grpc-message` header for a SendNote it already stores, verbatim.
 const DUPLICATE =
@@ -151,6 +156,7 @@ async function runOutbox(page: Page, rejection: string): Promise<OutboxRun> {
 }
 
 test.describe('SDK relay outbox, real WASM', () => {
+  test.skip(linkedSdk, 'A linked web-sdk build carries no relay patch');
   test.setTimeout(120_000);
 
   test("the transport's duplicate response retires the entry, so the next sync sends nothing", async ({ page }) => {

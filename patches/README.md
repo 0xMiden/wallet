@@ -23,6 +23,12 @@ patch lists only the six bundles; it never compares the patch text, because GNU 
 BSD `diff` print the same edit differently. Updating the SDK requires checking these
 seams again.
 
+A linked web-sdk build (`Web SDK PR: #N`, `scripts/dev-with-web-sdk-pr.sh`) installs a
+`file:` source build the patch cannot apply to, so that build runs without the relay
+fix. The CI action removes the patch before installing, since patch-package fails the
+install under CI; locally patch-package only warns. `--check` and the tests that read
+the installed bundles skip on a `file:` SDK dependency.
+
 ## inspect-cli-cdp-fix.patch
 
 Fixes the "single-use" CDP bug in `@inspectdotdev/cli@2.1.1` where WebSocket

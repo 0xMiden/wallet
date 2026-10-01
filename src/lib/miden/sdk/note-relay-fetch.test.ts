@@ -26,13 +26,20 @@ const duplicateMessage =
 const repoRoot = resolve(__dirname, '../../../..');
 const generator = 'scripts/generate-note-relay-patch.mjs';
 const patchFile = 'patches/@miden-sdk+miden-sdk+0.16.1.patch';
+// A linked web-sdk build (`Web SDK PR: #N`) swaps in a `file:` source build that carries no relay patch.
+const linkedSdk = String(
+  JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).dependencies['@miden-sdk/miden-sdk']
+).startsWith('file:');
+const withInstalledPatch = linkedSdk ? describe.skip : describe;
 
-it('verifies the installed patch and all six inlined copies against the canonical helper', () => {
-  const script = resolve(repoRoot, generator);
-  expect(execFileSync(process.execPath, [script, '--check'], { encoding: 'utf8' })).toContain('verified for 6 bundles');
-});
+withInstalledPatch('generate-note-relay-patch --check', () => {
+  it('verifies the installed patch and all six inlined copies against the canonical helper', () => {
+    const script = resolve(repoRoot, generator);
+    expect(execFileSync(process.execPath, [script, '--check'], { encoding: 'utf8' })).toContain(
+      'verified for 6 bundles'
+    );
+  });
 
-describe('generate-note-relay-patch --check', () => {
   const sdkPath = 'node_modules/@miden-sdk/miden-sdk';
   const relayBundles: string[] = JSON.parse(readFileSync(resolve(repoRoot, 'scripts/note-relay-bundles.json'), 'utf8'));
   let scratch: string;
@@ -66,6 +73,25 @@ describe('generate-note-relay-patch --check', () => {
 
   const runScratch = (...args: string[]) =>
     execFileSync(process.execPath, [join(scratch, generator), ...args], { encoding: 'utf8', stdio: 'pipe' });
+
+  function editJson(path: string, edit: (json: Record<string, Record<string, string>>) => void): void {
+    const json = JSON.parse(readFileSync(join(scratch, path), 'utf8'));
+    edit(json);
+    writeFileSync(join(scratch, path), JSON.stringify(json, null, 2));
+  }
+  // What the linked-SDK action leaves behind: a `file:` dependency on a source build.
+  const linkScratchSdk = () =>
+    editJson('package.json', json => {
+      json.dependencies!['@miden-sdk/miden-sdk'] = 'file:../web-sdk/crates/web-client';
+    });
+  const setScratchSdkVersion = (version: string) =>
+    editJson(`${sdkPath}/package.json`, json => {
+      Object.assign(json, { version });
+    });
+  const scratchBytes = () =>
+    [patchFile, ...relayBundles.map(bundle => `${sdkPath}/${bundle}`)].map(path =>
+      readFileSync(join(scratch, path), 'utf8')
+    );
 
   it('never runs the host diff, whose output differs between GNU and BSD', () => {
     // A `diff` that always fails: check mode must not need one.
@@ -101,6 +127,33 @@ describe('generate-note-relay-patch --check', () => {
       )
     );
     expect(() => runScratch('--check')).toThrow(/npx patch-package.*generate-note-relay-patch\.mjs/s);
+  });
+
+  it('skips a linked SDK build, which carries no relay patch', () => {
+    scratchRepo('copy');
+    linkScratchSdk();
+    setScratchSdkVersion('0.17.0-rc.1');
+    expect(runScratch('--check')).toContain('Linked SDK build');
+  });
+
+  it('refuses to generate the patch against a linked SDK build, and writes nothing', () => {
+    scratchRepo('copy');
+    linkScratchSdk();
+    const before = scratchBytes();
+    expect(() => runScratch()).toThrow(/linked SDK build/);
+    expect(scratchBytes()).toEqual(before);
+  });
+
+  it('still refuses a published SDK at another version', () => {
+    scratchRepo('copy');
+    setScratchSdkVersion('0.17.0-rc.1');
+    expect(() => runScratch('--check')).toThrow(/requires SDK 0\.16\.1, found 0\.17\.0-rc\.1/);
+  });
+
+  it('still refuses a published SDK whose patch file is missing', () => {
+    scratchRepo('link');
+    rmSync(join(scratch, patchFile));
+    expect(() => runScratch('--check')).toThrow(/miden-sdk\+0\.16\.1\.patch/);
   });
 
   it('runs on every build, after the yarn.lock integrity check', () => {
@@ -174,7 +227,7 @@ function sdkFetch(bundle: string, fetchImpl: typeof fetch, receiver: boolean) {
     receiver ? invoke({ fetch: fetchImpl }, request, init) : invoke(request, init);
 }
 
-describe('SDK SendNote fetch boundary', () => {
+withInstalledPatch('SDK SendNote fetch boundary', () => {
   it.each([false, true])('turns the stored-note duplicate into a unary ACK (receiver fetch: %s)', async receiver => {
     const original = headersOnly('13', duplicateMessage);
     const request = new Request(sendUrl, { method: 'POST', body: new Uint8Array([0, 0, 0, 0, 0]) });

@@ -15,6 +15,16 @@ const seams = [
   ['const ret = fetch(arg0, arg1);', 'const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));']
 ];
 const check = process.argv.includes('--check');
+// A linked web-sdk build (`Web SDK PR: #N`) installs a `file:` source build this patch cannot apply to.
+const linked = String(
+  JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).dependencies['@miden-sdk/miden-sdk']
+).startsWith('file:');
+if (linked && !check)
+  throw new Error('Cannot generate the relay patch against a linked SDK build (`file:` dependency)');
+if (linked) {
+  console.log('Linked SDK build (`file:` dependency): the relay patch does not apply here; skipped');
+  process.exit(0);
+}
 const version = JSON.parse(readFileSync(resolve(root, packagePath, 'package.json'), 'utf8')).version;
 if (version !== '0.16.1') throw new Error(`Relay patch requires SDK 0.16.1, found ${version}`);
 
