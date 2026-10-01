@@ -122,7 +122,7 @@ const BRIDGE_SERVICE_URL = AGGLAYER_BRIDGE_API.replace(/\/bridges$/, '');
 
 // Origin and claim hashes come back from the indexer with inconsistent `0x`
 // prefixing and casing, so compare them normalized.
-function sameTxHash(left: string, right: string): boolean {
+export function sameTxHash(left: string, right: string): boolean {
   const normalize = (hash: string) => hash.trim().toLowerCase().replace(/^0x/, '');
   return normalize(left) === normalize(right);
 }

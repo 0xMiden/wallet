@@ -589,6 +589,14 @@
     "message": "已取消",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "未確認",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "錢包無法確認此筆交易是否已成功完成。交易仍有可能送達，因此請在錢包同步完成後檢查餘額，再決定是否重新發送。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "顯示完整錯誤訊息",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "在輪替您的日常金鑰時發生了錯誤。",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "在輪替您的日常金鑰時發生了錯誤。您的資金是安全的，現在可以重試。",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "每日金鑰輪替尚未確認",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "錢包無法確認輪替是否成功。您的資金是安全的，但可能已支付網路手續費。請等待錢包同步一分鐘後再重新嘗試。",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "重試",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "您收到的 MIDEN 無法被領取。",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "錢包無法確認您收到的 MIDEN 是否已被領取。請讓錢包同步一分鐘後再試一次。",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "請重新嘗試",
@@ -3922,6 +3942,14 @@
   "transactionFailedNotificationBody": {
     "message": "交易無法完成。請開啟錢包進行檢視。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "交易尚未確認",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "錢包無法確認交易是否已成功完成。請在再次發送前開啟錢包。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
   },
   "noteReceivedTapToClaim": {
     "message": "點擊此處接受",
@@ -5437,5 +5465,51 @@
   "revealRecoveryPhrase": {
     "message": "顯示恢復短語",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "隱藏代幣",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "取消隱藏代幣",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "隱藏於「主錢包」之外。它仍保留在您的錢包中，且其轉帳仍可被領取。",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "隱藏資產",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "隱藏資產（$count$）",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "取消隱藏",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "取消隱藏 $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "無法更新隱藏代幣。請重試。",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "無法載入隱藏代幣。",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

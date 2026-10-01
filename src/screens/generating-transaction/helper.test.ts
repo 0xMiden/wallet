@@ -170,6 +170,15 @@ describe('getTransactionStepState', () => {
     expect(getTransactionStepState(3, 2, true, true)).toBe('pending');
   });
 
+  // A not-confirmed failure (#1250) may still land, so its frozen step waits rather than failing.
+  it('leaves the frozen step pending when the failure is not confirmed', () => {
+    expect(getTransactionStepState(2, 2, true, true, true)).toBe('pending');
+    expect(getTransactionStepState(1, 2, true, true, true)).toBe('complete');
+    expect(getTransactionStepState(0, 2, true, true, true)).toBe('complete');
+    expect(getTransactionStepState(3, 2, true, true, true)).toBe('pending');
+    expect(getTransactionStepState(2, 2, true, true)).toBe('failed');
+  });
+
   it('tracks progress while the transaction is still running', () => {
     expect(getTransactionStepState(0, 1, false, false)).toBe('complete');
     expect(getTransactionStepState(1, 1, false, false)).toBe('active');

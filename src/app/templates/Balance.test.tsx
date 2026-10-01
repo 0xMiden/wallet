@@ -39,6 +39,13 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
 
+// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
+const mockHiddenIds = new Set<string>();
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
+}));
+
 // Capture the props `Balance` builds the transition with, and render the single
 // cloned child element straight through so the real DOM output is preserved.
 let capturedTransitionProps: Record<string, unknown> | null = null;
@@ -82,6 +89,7 @@ beforeEach(() => {
   mockUseAllBalances.mockReturnValue(balancesReturn([]));
   mockStoreState = { tokenPrices: { ETH: quote(100), BTC: quote(50) } };
   capturedTransitionProps = null;
+  mockHiddenIds.clear();
 });
 
 describe('Balance', () => {
@@ -195,6 +203,31 @@ describe('Balance', () => {
     render(<Balance>{renderChild()}</Balance>);
 
     expect(total().textContent).toBe('200');
+  });
+
+  it('leaves a hidden token out of the total, as Home leaves it out of the list', () => {
+    const tokens: TokenBalance[] = [
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
+    ];
+    mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
+    mockHiddenIds.add(TOKEN_IBTC.faucetId);
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('200');
+    expect(mockUseHiddenTokens).toHaveBeenCalledWith('pk-abc');
+  });
+
+  it('totals zero, not "no figure", when the only unpriced holding is hidden', () => {
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: 'spam-faucet', balance: 1000, metadata: { symbol: 'SPAM' } }])
+    );
+    mockHiddenIds.add('spam-faucet');
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('0');
   });
 
   it('forwards the account public key and metadata map into useAllBalances', () => {

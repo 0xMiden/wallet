@@ -7,6 +7,7 @@ import {
   getCompletedTransactions,
   getUncompletedTransactions,
   isCancellableTransaction,
+  isUnconfirmedFailure,
   isUserCancelledTransaction,
   supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
@@ -456,6 +457,7 @@ async function fetchTransactionsAsHistoryEntries(
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
+    const isUnconfirmed = isUnconfirmedFailure(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
@@ -534,6 +536,7 @@ async function fetchTransactionsAsHistoryEntries(
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       errorMessage: tx.error,
       isCancelled,
+      isUnconfirmed,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,

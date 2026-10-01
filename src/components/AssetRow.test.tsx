@@ -266,6 +266,21 @@ describe('AssetRow', () => {
     fireEvent.click(item);
   });
 
+  it('draws the sparkline by default, fetched for the price symbol', () => {
+    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+
+    expect(screen.getByTestId('sparkline')).toBeInTheDocument();
+    expect(mockUseTokenSparkline).toHaveBeenCalledWith('BTC', '1D');
+  });
+
+  it('draws no sparkline, and fetches none, when drawn without one', () => {
+    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} sparkline={false} />);
+
+    expect(screen.queryByTestId('sparkline')).toBeNull();
+    expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
+    expect(mockUseTokenSparkline).not.toHaveBeenCalledWith('BTC', '1D');
+  });
+
   it('forwards the data-testid prop to AssetListItem', () => {
     render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} data-testid="my-row" />);
 

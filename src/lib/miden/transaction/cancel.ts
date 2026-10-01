@@ -11,6 +11,9 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 import {
   formatRawTransactionError,
   INVALID_NOTE_ERROR,
+  isUnconfirmedFailure,
+  isUnconfirmedFailureReason,
+  isWalletFailureReason,
   resolveTransactionErrorMessage,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
@@ -21,10 +24,13 @@ import {
 } from './constants';
 import { getTransactionsInProgress } from './get';
 import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, updateTransactionStatus } from './helper';
-import { notifyBackgroundTransactionFailed } from '../back/background-notification';
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
+import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -87,12 +93,17 @@ export const cancelTransaction = async (
   // falsehood that costs the user the retry.
   const abandonedPreWrite =
     PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
+  // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
+  // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
+  // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
+  // claim read as a completed failure instead of not confirmed.
   const displayError =
-    error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
+    typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
   let applied = false;
   let racedTerminal = false;
+  let committed: ITransaction | undefined;
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     // `false`, not a bare return: Dexie treats `undefined` as "modified" and
     // issues a put of the unchanged clone, which is a pointless write and a
@@ -110,6 +121,10 @@ export const cancelTransaction = async (
     if (displayError !== rawError) dbTx.rawError = rawError;
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
+    // Copied from the row this write is committing, not from the `existing` read
+    // above it, so a submit stamp that lands between that read and this write is
+    // seen by the notice below (#1250).
+    committed = { ...dbTx };
     return undefined;
   });
   if (racedTerminal) {
@@ -137,16 +152,30 @@ export const cancelTransaction = async (
   }
 
   // Gap 6: a transaction that terminally failed while the user wasn't watching
-  // used to be silent — the row went to Failed and nothing told them. Notify,
-  // but NEVER for a user-initiated cancel or a startup/teardown interruption
-  // (those aren't failures the user needs alerting to). The notifier itself
+  // used to be silent - the row went to Failed and nothing told them. Notify the
+  // row the modify above committed, worded by the same rule every reader of a
+  // Failed row shares (#1250): failed for certain, or outcome unknown (see
+  // isUnconfirmedFailure). NEVER for a user-initiated cancel or the cold-start
+  // sweep (TRANSACTION_INTERRUPTED_ON_STARTUP) - those aren't failures the user
+  // needs alerting to - nor for the node check's not-landed consume
+  // (TRANSACTION_INTERRUPTED_ERROR), excluded because the user cannot act on it,
+  // not because it is a startup or teardown interruption. The notifier itself
   // no-ops off the extension and when a wallet popup is already open, so this is
   // a safe unconditional call for a genuine failure.
   const isGenuineFailure =
     error !== USER_CANCELLED_TRANSACTION_REASON &&
     error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
     error !== TRANSACTION_INTERRUPTED_ERROR;
-  if (isGenuineFailure) notifyBackgroundTransactionFailed();
+  if (isGenuineFailure) {
+    // Decided on the row the modify above committed, in the same Dexie write that
+    // failed it, never from the `existing` read before it - so a submit stamp
+    // committed between that read and this write is seen. `applied` guarantees
+    // `committed` is set here; TypeScript cannot see that, hence the runtime
+    // check. A stamp that commits AFTER this write cannot change a notice already
+    // shown.
+    if (committed !== undefined && isUnconfirmedFailure(committed)) notifyBackgroundTransactionNotConfirmed();
+    else notifyBackgroundTransactionFailed();
+  }
 
   // A NARROWER gate than the notification's, and the difference is the point.
   // A user-initiated cancel and the cold-start sweep genuinely are not failures,
@@ -154,18 +183,21 @@ export const cancelTransaction = async (
   // fixing could lower.
   //
   // `TRANSACTION_INTERRUPTED_ERROR` is on the notification's list and must not be
-  // on this one, because it is not an interruption — the name is a leftover from
+  // on this one, because it is not an interruption - the name is a leftover from
   // the user-facing copy. Its single caller is `verifyStuckTransactionsFromNode`
   // below, which reaches it only after asking the node and being told the input
   // note is still unconsumed on a consume that has been processing past the grace
-  // window. That is a node-verified terminal failure, and suppressing it
-  // undercounts `tx_receive` failures by exactly the share the reaper resolves —
-  // the ones nothing else reports either, since by definition no pipeline catch
-  // ran for them. Staying quiet in the notification tray is a UX judgement about
-  // an outcome the user cannot act on; it says nothing about whether the failure
-  // happened.
+  // window. It is still reported as errored, because the node saw the input note
+  // unconsumed when it checked - suppressing it would undercount `tx_receive`
+  // failures by exactly the share the reaper resolves, the ones nothing else
+  // reports either, since by definition no pipeline catch ran for them. The row's
+  // outcome stays unknown rather than failed, because its caller fails a consume
+  // without stopping it; that is why it is in UNCONFIRMED_FAILURE_REASONS and
+  // readers show the row as not confirmed. Staying quiet in the notification tray
+  // is a UX judgement about an outcome the user cannot act on; it says nothing
+  // about whether the failure happened.
   //
-  // The stage is why this is the right place to report from — by here the row has
+  // The stage is why this is the right place to report from - by here the row has
   // recorded where it died, which is the difference between "the prover is down"
   // and "the node rejected it". `existing` also gates it: if the row was gone,
   // the `.modify` above matched nothing and no transaction was failed, so there

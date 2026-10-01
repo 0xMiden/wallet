@@ -1,7 +1,9 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { PageActiveContext, TabActiveContext } from 'app/layouts/page-active';
+import { springs, tabBarSwap } from 'lib/animation';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -59,7 +61,7 @@ jest.mock('framer-motion', () => {
         ) => {
           if (rest['data-pending-note-id'] !== undefined) mockPendingWrapper.props = { layout, transition, ...rest };
           return (
-            <div ref={ref} data-layout={String(layout)} {...rest}>
+            <div ref={ref} data-layout={String(layout)} data-transition={JSON.stringify(transition)} {...rest}>
               {children}
             </div>
           );
@@ -755,6 +757,72 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       expect(row).toHaveAttribute('data-status', 'cancelled');
       expect(row.querySelector('svg')).not.toBeNull();
     }
+  });
+
+  it('renders a not-confirmed row in the pending tone, even for a bridge, leaving cancelled and failed rows alone', () => {
+    render(
+      <HistoryView
+        entries={[
+          makeEntry({
+            key: 'unconfirmed-send',
+            transactionIcon: 'FAILED',
+            isUnconfirmed: true,
+            message: 'Transaction failed',
+            txId: 'tx-unconfirmed',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'unconfirmed-bridge',
+            txType: 'bridged-send',
+            transactionIcon: 'FAILED',
+            isUnconfirmed: true,
+            message: 'Transaction failed',
+            txId: 'tx-unconfirmed-bridge',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'still-cancelled',
+            transactionIcon: 'FAILED',
+            isCancelled: true,
+            message: 'Cancelled',
+            txId: 'tx-still-cancelled',
+            timestamp: DAY_A
+          }),
+          makeEntry({
+            key: 'still-failed',
+            transactionIcon: 'FAILED',
+            message: 'Transaction failed',
+            txId: 'tx-still-failed',
+            timestamp: DAY_A
+          })
+        ]}
+        initialLoading={false}
+        loadMore={jest.fn()}
+        hasMore={false}
+        fullHistory
+      />
+    );
+
+    const unconfirmedRows = screen
+      .getAllByTestId('activity-row')
+      .filter(el => el.getAttribute('data-title') === 'notConfirmed');
+    expect(unconfirmedRows).toHaveLength(2);
+    for (const row of unconfirmedRows) {
+      // Not the grey cancelled or red failed look (#1250): the pending tone, on both the
+      // plain row and the bridge, which drops its own layout entirely.
+      expect(row).toHaveAttribute('data-iconbg', 'bg-status-pending');
+      expect(row).toHaveAttribute('data-status', 'unconfirmed');
+      expect(row.querySelector('svg')).not.toBeNull();
+    }
+    // The bridge layout (bridgeRowDisplay) never ran for the unconfirmed bridge row.
+    expect(mockBridgeRowDisplay).not.toHaveBeenCalled();
+
+    expect(rowByTitle('cancelled')).toHaveAttribute('data-status', 'cancelled');
+    const failedRow = screen
+      .getAllByTestId('activity-row')
+      .find(el => el.getAttribute('data-title') === 'Transaction failed')!;
+    expect(failedRow).toHaveAttribute('data-status', 'failed');
+    expect(failedRow).toHaveAttribute('data-iconbg', 'bg-[#CC5D5D]');
   });
 
   // A cancelled bridge-out falls through to the plain row, whose generic pass would round the typed amount again.
@@ -1521,4 +1589,95 @@ it('keeps an undated note visible without assigning a false date', () => {
   );
   expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
   expect(screen.getByText('Pending note')).toBeInTheDocument();
+});
+
+// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
+// again (#1198): the date groups and pending cards that survive take their new places at once there,
+// and slide on the settle spring on any other change.
+describe('HistoryView - its tab shown again', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'swap-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  // A stable ref so InfiniteScroll mounts (mirrors how the real page passes one down); the mock
+  // never reads `.current`, so a bare DOM node is enough.
+  const scrollParentRef = { current: document.createElement('div') };
+  const noMore = async () => {};
+  const view = (
+    shown: boolean,
+    onScreen = true,
+    hasMore = false,
+    loadMore: (page: number) => Promise<void> = noMore
+  ) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <TabActiveContext.Provider value={shown}>
+        <HistoryView
+          fullHistory
+          initialLoading={false}
+          hasMore={hasMore}
+          loadMore={loadMore}
+          entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+          pendingItems={[pending]}
+          renderPendingItem={() => <span>Pending note</span>}
+          scrollParentRef={scrollParentRef}
+        />
+      </TabActiveContext.Provider>
+    </PageActiveContext.Provider>
+  );
+  const groupMoves = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[data-layout]'))
+      .filter(node => !node.hasAttribute('data-pending-note-id'))
+      .map(node => JSON.parse(node.getAttribute('data-transition') ?? 'null'));
+
+  it('swaps only the layout of its date groups and pending cards in the commit that shows the tab again', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+
+    const groups = groupMoves(container);
+    expect(groups.length).toBeGreaterThan(0);
+    groups.forEach(transition => expect(transition).toEqual({ ...springs.settle, layout: tabBarSwap }));
+    expect(mockPendingWrapper.props?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
+  });
+
+  it('slides them on the next change, and when a slide page uncovers the list', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+    rerender(view(true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
+    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+
+    rerender(view(true, false));
+    rerender(view(true, true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
+    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+  });
+
+  it("defers the scroller's page request in the commit that shows the tab again, and passes the parent's loadMore through otherwise", async () => {
+    const loadMore = jest.fn((_page: number) => Promise.resolve());
+    const { rerender } = render(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
+    rerender(view(false, true, true, loadMore));
+    rerender(view(true, true, true, loadMore));
+
+    mockScroller.props?.loadMore(3);
+    expect(loadMore).not.toHaveBeenCalled();
+    await act(async () => {});
+    expect(loadMore.mock.calls).toEqual([[3]]);
+
+    rerender(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
+  });
 });
