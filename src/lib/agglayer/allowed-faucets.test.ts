@@ -1,5 +1,3 @@
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-
 import { isAgglayerFaucetAllowed } from './allowed-faucets';
 
 interface MockSlot {
@@ -47,20 +45,16 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   };
 });
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn() }));
-jest.mock('lib/miden/front/storage', () => ({
-  fetchFromStorage: jest.fn(),
-  putToStorage: jest.fn(),
-  inStorageTurn: (_key: string, operation: () => Promise<void>) => operation()
-}));
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountRefToSdk: () => ({
-    toString: () => '0xfaucet',
+  accountRefToSdk: (ref: string) => ({
+    toString: () => ref,
     suffix: () => ({ asInt: () => 2n }),
     prefix: () => ({ asInt: () => 3n })
   })
 }));
 
-const rpcUrl = 'https://rpc.testnet.miden.io';
+const rpcUrl = 'https://rpc.one.example';
+const otherRpcUrl = 'https://rpc.two.example';
 let registryFlag = 1n;
 
 function registryProof(keys: bigint[][]) {
@@ -84,35 +78,26 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockSlotRecords.length = 0;
   registryFlag = 1n;
-  jest.mocked(fetchFromStorage).mockResolvedValue([]);
   mockGetAccountProof.mockReset().mockImplementation(answerRequestedKeys);
 });
 
-it('reads one key and appends the canonical approved ID through putToStorage', async () => {
-  jest.mocked(fetchFromStorage).mockResolvedValue(['0xexisting']);
-  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).resolves.toBe(true);
+it('reuses an approval in this realm without another RPC (#1276)', async () => {
+  await expect(isAgglayerFaucetAllowed('reused-token', rpcUrl)).resolves.toBe(true);
+  await expect(isAgglayerFaucetAllowed('reused-token', rpcUrl)).resolves.toBe(true);
   expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
-  expect(putToStorage).toHaveBeenCalledWith('allowed_agglayer_ids', ['0xexisting', '0xfaucet']);
 });
 
-it('uses a cached approval without RPC', async () => {
-  jest.mocked(fetchFromStorage).mockResolvedValue(['0xfaucet']);
-  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).resolves.toBe(true);
-  expect(mockGetAccountProof).not.toHaveBeenCalled();
+it('asks again on another endpoint (#1276)', async () => {
+  await expect(isAgglayerFaucetAllowed('endpoint-token', rpcUrl)).resolves.toBe(true);
+  await expect(isAgglayerFaucetAllowed('endpoint-token', otherRpcUrl)).resolves.toBe(true);
+  expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
 });
 
-it('does not cache an unregistered faucet', async () => {
+it('does not remember an unregistered faucet (#1276)', async () => {
   registryFlag = 0n;
-  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).resolves.toBe(false);
-  expect(putToStorage).not.toHaveBeenCalled();
-});
-
-it('does not reuse testnet approvals on another endpoint', async () => {
-  jest.mocked(fetchFromStorage).mockResolvedValue(['0xfaucet']);
-  registryFlag = 0n;
-  await expect(isAgglayerFaucetAllowed('bech32-token', 'http://localhost:57291')).resolves.toBe(false);
-  expect(mockGetAccountProof).toHaveBeenCalledTimes(1);
-  expect(putToStorage).not.toHaveBeenCalled();
+  await expect(isAgglayerFaucetAllowed('unregistered-token', rpcUrl)).resolves.toBe(false);
+  await expect(isAgglayerFaucetAllowed('unregistered-token', rpcUrl)).resolves.toBe(false);
+  expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
 });
 
 it('does not treat missing proof entries as approval', async () => {
@@ -120,12 +105,11 @@ it('does not treat missing proof entries as approval', async () => {
     getStorageMapEntries: () => [],
     hasStorageMapTooManyEntries: () => false
   });
-  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).rejects.toThrow('requested key');
-  expect(putToStorage).not.toHaveBeenCalled();
+  await expect(isAgglayerFaucetAllowed('missing-entry-token', rpcUrl)).rejects.toThrow('requested key');
 });
 
 it('reads the key it asked for after the SDK took it (#1276)', async () => {
-  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).resolves.toBe(true);
+  await expect(isAgglayerFaucetAllowed('consumed-key-token', rpcUrl)).resolves.toBe(true);
 });
 
 it('retries a failed read with fresh requirements (#1276)', async () => {
@@ -133,12 +117,12 @@ it('retries a failed read with fresh requirements (#1276)', async () => {
     requirements.consumed = true;
     throw new Error('timeout');
   });
-  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).resolves.toBe(true);
+  await expect(isAgglayerFaucetAllowed('retry-token', rpcUrl)).resolves.toBe(true);
   expect(mockGetAccountProof).toHaveBeenCalledTimes(2);
   expect(mockGetAccountProof.mock.calls[1][1]).not.toBe(mockGetAccountProof.mock.calls[0][1]);
 });
 
 it('asks the bridge for the [0, 0, suffix, prefix] key (#1276)', async () => {
-  await expect(isAgglayerFaucetAllowed('bech32-token', rpcUrl)).resolves.toBe(true);
+  await expect(isAgglayerFaucetAllowed('layout-token', rpcUrl)).resolves.toBe(true);
   expect(mockSlotRecords).toEqual([{ slot: 'agglayer::bridge::faucet_registry_map', keys: [[0n, 0n, 2n, 3n]] }]);
 });
