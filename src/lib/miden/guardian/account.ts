@@ -131,12 +131,9 @@ const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slic
 const isEmptyWordHex = (unprefixed: string): boolean => /^0*$/.test(unprefixed);
 
 /**
- * Read a signer's commitment from a Guardian account.
- *
- * 3-key accounts store `[hot@0, cold@1]`; legacy single-key Guardian accounts
- * (feature #153) keep the cold/HD key alone at index 0. So for the cold lookup
- * we read index 1 and fall back to index 0 — otherwise activating a migrated
- * legacy account would read a non-existent index 1 and brick it.
+ * Read a signer's commitment from a Guardian account: the hot signer at index 0,
+ * or with `getCold` the cold signer at index 1 (`[hot, cold]`, the order
+ * `createGuardianAccount` registers them in).
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
   const noSigner = new Error('No signer commitment found in account storage');
@@ -150,7 +147,7 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
     throw noSigner;
   }
 
-  const raw = getCold ? (commitments[1] ?? commitments[0]) : commitments[0];
+  const raw = getCold ? commitments[1] : commitments[0];
   if (raw === undefined) throw noSigner;
 
   const commitment = stripHexPrefix(raw);

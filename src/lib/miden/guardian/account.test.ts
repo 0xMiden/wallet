@@ -174,14 +174,12 @@ describe('getSignerDetailsFromAccount', () => {
     expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-cold' });
   });
 
-  it('reads the cold signer commitment from index 0 on a legacy single-signer account', async () => {
-    // Legacy Guardian accounts (feature #153) have a single on-chain signer —
-    // the cold/HD key — at index 0. The cold lookup falls back to it (index 1 is
-    // absent) rather than throwing, which would brick activation of a migrated
-    // account.
-    withSigners(['0xcommit-legacy-cold']);
+  it('throws for the cold signer when the account has only one signer', async () => {
+    withSigners(['0xcommit-hot']);
 
-    expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
+    await expect(getSignerDetailsFromAccount({} as never, true)).rejects.toThrow(
+      'No signer commitment found in account storage'
+    );
   });
 
   it('resolves signers through AccountInspector rather than a hard-coded slot name', async () => {
