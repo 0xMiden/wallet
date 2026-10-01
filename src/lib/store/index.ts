@@ -942,8 +942,16 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       }
     }
   );
-  // The Slow bridge-out E2E bridges a runtime faucet the bridge registry never lists. The send flow
-  // checks the registry in this (page) realm, so the allowlist entry has to land here.
+  // The Slow bridge-out E2E reads the real registry for the bridge's own faucet, then bridges a runtime
+  // faucet the registry never lists. The send flow checks the registry in this (page) realm, so both
+  // the check and the allowlist entry run here.
+  Reflect.set(globalThis, '__TEST_CHECK_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ isAgglayerFaucetAllowed }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    return isAgglayerFaucetAllowed(faucetRef, getEffectiveRpcUrl());
+  });
   Reflect.set(globalThis, '__TEST_ALLOW_AGGLAYER_FAUCET__', async (faucetRef: string) => {
     const [{ allowAgglayerFaucetForE2E }, { getEffectiveRpcUrl }] = await Promise.all([
       import('lib/agglayer/allowed-faucets'),

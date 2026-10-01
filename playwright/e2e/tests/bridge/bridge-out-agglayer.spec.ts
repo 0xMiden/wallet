@@ -1,8 +1,10 @@
+import { MIDEN_AGGLAYER_FAUCET_ID } from '../../../../src/lib/agglayer/b2agg/constant';
 import { expect, test } from '../../fixtures/two-wallets';
 import {
   allowAgglayerFaucetForE2E,
   backToAmountStep,
   confirmAmountStep,
+  expectRegistryApproves,
   expectSlowRouteUnsupported,
   fundBridgeToken,
   openRouteStep,
@@ -34,6 +36,8 @@ import { newEvmDestination } from '../../helpers/sepolia';
  * allowlist lives in the page's memory, so the spec steps back to the amount
  * step and confirms again (a fresh route step checks again) instead of reloading,
  * which would drop it; a same-hash goto would not reset the flow's steps either.
+ * Before any of that, the bridge's own faucet must read as approved, so the
+ * registry's approving answer is checked against a real node as well as its refusal.
  * Requires public Miden testnet + the delegated prover, so this is
  * testnet/nightly, not a per-PR gate.
  */
@@ -63,6 +67,7 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     timeline
   }) => {
     await walletA.createNewWallet();
+    await expectRegistryApproves(walletA.page, MIDEN_AGGLAYER_FAUCET_ID);
     const { faucetHex } = await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
 
     const destination = newEvmDestination();

@@ -213,6 +213,21 @@ export async function backToAmountStep(wallet: Wallet): Promise<void> {
   await expect(flow.getByTestId('send-amount-confirm')).toBeVisible({ timeout: STEP_TIMEOUT_MS });
 }
 
+/** The real registry approves the bridge's own faucet: the one check of the approving branch against a node. */
+export async function expectRegistryApproves(page: Page, faucetHex: string): Promise<void> {
+  const approved = await page.evaluate(async faucetRef => {
+    const hook: unknown = Reflect.get(globalThis, '__TEST_CHECK_AGGLAYER_FAUCET__');
+    if (typeof hook !== 'function') {
+      throw new Error('__TEST_CHECK_AGGLAYER_FAUCET__ is missing: the wallet was not built with MIDEN_E2E_TEST=true');
+    }
+    return hook(faucetRef);
+  }, faucetHex);
+  expect(
+    approved,
+    'the bridge registry must approve its own faucet; false means the registry key layout or flag index is wrong'
+  ).toBe(true);
+}
+
 /**
  * Allowlist a runtime-created faucet for the Slow route through the E2E-only
  * page hook. The entry lives in the page's memory: a reload drops it.
