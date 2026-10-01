@@ -265,7 +265,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - [x] Implement a bounded, durable fix that preserves private-note recovery.
 - [x] Run affected tests, TypeScript, coverage and build checks.
 - [x] Apply every actionable finding from the independent advisory check.
-- [ ] Complete the required four-seat review after provider availability recovers.
+- [x] Complete the required four-seat review.
 
 ## Review for #1294
 
@@ -273,9 +273,12 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Scope: private-note relay retries; preserve the nullifier as the only delivery confirmation.
 - Do not attribute the stress-run claim timeout solely to relay retries without a controlled run.
 - Regression: 12 real SDK fetch-boundary assertions and 3 sweep assertions failed before their fixes.
-- Actual browser WASM: a genuine failed relay persists a 232-byte outbox entry. The old SDK retains
-  it after a duplicate sync and sends it again; the patch deletes it on that sync and sends nothing
-  on the next. Relay responses are mocked, with one public testnet genesis read for initialization.
+- Deployed transport (0.5.0-rc.2, probed 2026-10-01): a duplicate SendNote is a headers-only
+  `grpc-status: 13` with `Failed to store note: ConstraintViolation("Unique constraint violation:
+  UNIQUE constraint failed: notes.id")`. The helper recognises it from the headers alone.
+- Real browser WASM, committed as `playwright/tests/note-relay-outbox.spec.ts` (hermetic, one recorded
+  RPC): that duplicate retires the 232-byte outbox entry and the next sync sends nothing; a genuine
+  storage failure stays in the outbox and is sent again.
 - 607 affected tests pass, including 93 transport tests. The canonical helper has 100% statements,
   branches, functions and lines. Types, scoped lint, formatting, generated-patch verification,
   dependency integrity, changelog and Chrome/mobile builds pass.
@@ -283,7 +286,6 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
   the 95% gate: statements and lines 98.13%, branches 96.01%, functions 97.26%.
 - The local unsharded attempt exhausted the parent process's default heap. The successful shards
   used two workers, a 768 MB worker recycle limit and an 8 GB Node heap; source gates are unchanged.
-- Advisory findings fixed: malformed trailer controls, the 64-field limit, binary status details
-  and UTF-8 BOM handling. All six installed bundles match the canonical helper.
-- The required panel is unavailable because a configured provider has exhausted its weekly quota;
-  its reported reset is 18:00 Europe/Zurich. The advisory check does not replace that panel.
+- Four-seat review: 22 findings fixed across 12 commits, 2 rejected with evidence, 1 deferred by
+  decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
+  earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
