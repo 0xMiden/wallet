@@ -837,13 +837,13 @@ describe('safeGenerateTransactionsLoop', () => {
     });
   };
 
-  it('returns false (catch path) when navigator.locks.request rejects', async () => {
+  it('returns failed (catch path) when navigator.locks.request rejects', async () => {
     installNavigatorLocksMock(() => Promise.reject(new Error('lock-blew-up')));
     const result = await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
-    expect(result).toBe(false);
+    expect(result).toBe('failed');
   });
 
-  it('returns false when generateTransactionsLoop returns false (forwards through `if (result === false)`)', async () => {
+  it('returns failed when generateTransactionsLoop returns false (forwards through `if (result === false)`)', async () => {
     // To make generateTransactionsLoop hit its catch branch and return false,
     // we patch the Repo.transactions.where().modify path so the very first
     // setTransactionStage call (inside generateTransaction) throws. Closure-
@@ -886,7 +886,7 @@ describe('safeGenerateTransactionsLoop', () => {
     installNavigatorLocksMock((_n: string, _o: any, cb: any) => Promise.resolve(cb({})));
     try {
       const result = await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
-      expect(result).toBe(false);
+      expect(result).toBe('failed');
     } finally {
       Repo.transactions.where = origWhere;
     }

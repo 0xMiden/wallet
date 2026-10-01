@@ -45,6 +45,9 @@ export async function settleCaptureMotion(page: MotionPage): Promise<void> {
 // liveness verdict into otherwise deterministic operator captures.
 export const guardianPubkeyRoute = /\/pubkey(?:\?.*)?$/;
 
+// What the stubbed operators serve: it must have a Guardian key's shape, or the picker shows them offline.
+export const guardianPubkeyStubCommitment = `0x${'5b'.repeat(32)}`;
+
 const runtimes = {
   appStore: {
     platformFlag: 'ios',

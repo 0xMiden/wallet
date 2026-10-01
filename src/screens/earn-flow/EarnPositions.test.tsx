@@ -316,12 +316,12 @@ describe('EarnPositions', () => {
       expect(mockRefetch).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps the failure said while a retry is loading (SWR keeps the error until a load succeeds)', () => {
+    it('keeps the failure said while a retry is out (SWR keeps the error until a load succeeds)', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
         positions: [],
         vaults: [],
-        isLoading: true,
+        isLoading: false,
         error: 'positions request failed (503)',
         refetch: mockRefetch
       });

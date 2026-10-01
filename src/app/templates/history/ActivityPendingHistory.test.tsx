@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { resetActivityReadState } from 'lib/settings/activity-read';
+import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -256,6 +257,22 @@ it('shows Accept All on the pending tab and claims every listed note that can be
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
 });
 
+it('marks every transfer Accept All takes as read with one write', () => {
+  localStorage.clear();
+  resetActivityReadState();
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const setItem = jest.spyOn(Storage.prototype, 'setItem');
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+
+    const writes = setItem.mock.calls.filter(([key]) => key === ACTIVITY_READ_STORAGE_KEY);
+    expect(writes).toHaveLength(1);
+    expect(Object.keys(JSON.parse(writes[0]?.[1] ?? '{}').ids)).toEqual(['note:first', 'note:second', 'note:third']);
+  } finally {
+    setItem.mockRestore();
+  }
+});
+
 it('puts Accept All in the actions row above the list, and leaves the navbar alone', () => {
   render(<ActivityPendingHistory search="" filter="pending" />);
   const button = screen.getByTestId('pending-row-accept-all');
@@ -437,6 +454,8 @@ it('offers Restore under the Pending filter while declined transfers can still b
   expect(restoreButton.className).not.toMatch(/\btext-xs\b|\bpy-2\b/);
   fireEvent.click(restoreButton);
   expect(mockRestore).toHaveBeenCalledTimes(1);
+  // The declines the row counted, not 'gone', which no loaded transfer stands for.
+  expect(mockRestore).toHaveBeenCalledWith(['first', 'second']);
 });
 
 it('does not offer Restore when every declined transfer is gone or already claimed', () => {

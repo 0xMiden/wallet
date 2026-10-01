@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { listPlaywrightTests } from './playwright-list';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
 import { guardianAxis, runMultiAccountJourney, type AccountAxis } from '../helpers/money-path';
 
@@ -32,7 +32,6 @@ jest.mock('../helpers/balance-truth', () => ({
 }));
 
 const repoRoot = resolve(__dirname, '../../..');
-const playwright = resolve(repoRoot, 'node_modules/.bin/playwright');
 const guardianUrl = 'http://guardian.test:3000';
 
 type GuardianAxisOptions = { endpointTimeoutMs: number };
@@ -72,15 +71,7 @@ const replaceStep = (source: string, name: string, replacement: (step: string) =
   return source.replace(step, replacement(step));
 };
 
-const listTests = (config: string): string => {
-  const env: NodeJS.ProcessEnv = { ...process.env, E2E_NETWORK: 'localhost' };
-  delete env.JEST_WORKER_ID;
-  return execFileSync(playwright, ['test', '--list', '--config', config], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    env
-  });
-};
+const listTests = (config: string): string => listPlaywrightTests(config);
 
 describe('production Guardian account E2E coverage', () => {
   let coreTests: string;

@@ -1,6 +1,10 @@
 import { isExtension } from 'lib/platform';
 
-import { notifyBackgroundTransactionFailed, showBackgroundNotification } from './background-notification';
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed,
+  showBackgroundNotification
+} from './background-notification';
 import { getIntercom } from './defaults';
 
 jest.mock('lib/platform', () => ({ isExtension: jest.fn() }));
@@ -76,6 +80,55 @@ describe('notifyBackgroundTransactionFailed (gap 6)', () => {
     });
 
     expect(() => notifyBackgroundTransactionFailed()).not.toThrow();
+    expect(notificationsCreate).not.toHaveBeenCalled();
+  });
+});
+
+// Same gating as the failure notice, with copy that does not claim the transaction failed (#1250).
+describe('notifyBackgroundTransactionNotConfirmed', () => {
+  it('does NOT notify off the extension', () => {
+    mockIsExtension.mockReturnValue(false);
+    mockGetIntercom.mockReturnValue({ hasClients: () => false });
+
+    notifyBackgroundTransactionNotConfirmed();
+
+    expect(notificationsCreate).not.toHaveBeenCalled();
+  });
+
+  it('does NOT notify when a wallet popup is open', () => {
+    mockIsExtension.mockReturnValue(true);
+    mockGetIntercom.mockReturnValue({ hasClients: () => true });
+
+    notifyBackgroundTransactionNotConfirmed();
+
+    expect(notificationsCreate).not.toHaveBeenCalled();
+  });
+
+  it('notifies with the not-confirmed title and body when no wallet UI is open', () => {
+    mockIsExtension.mockReturnValue(true);
+    mockGetIntercom.mockReturnValue({ hasClients: () => false });
+
+    notifyBackgroundTransactionNotConfirmed();
+
+    expect(notificationsCreate).toHaveBeenCalledTimes(1);
+    expect(notificationsCreate).toHaveBeenCalledWith(
+      'miden-transaction-not-confirmed',
+      expect.objectContaining({
+        title: 'Transaction not confirmed',
+        message:
+          'The wallet could not confirm whether a transaction went through. Open the wallet before you send it again.'
+      }),
+      expect.any(Function)
+    );
+  });
+
+  it('swallows an intercom error rather than disturbing the caller', () => {
+    mockIsExtension.mockReturnValue(true);
+    mockGetIntercom.mockImplementation(() => {
+      throw new Error('no intercom');
+    });
+
+    expect(() => notifyBackgroundTransactionNotConfirmed()).not.toThrow();
     expect(notificationsCreate).not.toHaveBeenCalled();
   });
 });

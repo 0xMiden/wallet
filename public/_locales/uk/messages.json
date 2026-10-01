@@ -589,6 +589,14 @@
     "message": "Скасовано",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "Не підтверджено",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Гаманець не зміг підтвердити, чи пройшла ця операція. Можливо, вона ще надійде, тому перевірте свій баланс після синхронізації гаманця, перш ніж надсилати її знову.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "Показати повний текст помилки",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Під час ротації вашого повсякденного ключа сталася помилка.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Під час ротації вашого повсякденного ключа сталася помилка. Ваші кошти в безпеці, і ви можете спробувати ще раз.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Щоденна ротація ключів не підтверджена",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Гаманець не зміг підтвердити, чи відбулася ротація. Ваші кошти в безпеці, хоча, можливо, була сплачена мережева комісія. Дайте гаманцю хвилину на синхронізацію, перш ніж спробувати ще раз.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Спробувати ще раз",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "MIDEN, який ви отримали, не вдалося активувати.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Гаманець не зміг підтвердити, чи було заявлено право на отриманий вами MIDEN. Дайте гаманцю хвилину на синхронізацію, перш ніж спробувати ще раз.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Спробуйте ще раз",
@@ -3927,6 +3947,14 @@
     "message": "Операцію не вдалося завершити. Відкрийте гаманець, щоб перевірити.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Транзакція не підтверджена",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Гаманець не зміг підтвердити, чи пройшла транзакція. Відкрийте гаманець, перш ніж надіслати її знову.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "Натисніть тут, щоб прийняти",
     "englishSource": "Tap here to accept it"
@@ -4699,6 +4727,10 @@
     "message": "Зберегти та продовжити",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Ці кінцеві точки не вдалося зберегти. Спробуйте ще раз.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Скинути до заводських налаштувань",
     "englishSource": "Reset to defaults"
@@ -4706,6 +4738,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Скинути налаштування до заводських та пройти реєстрацію заново",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Скидання не завершилося. Спробуйте ще раз.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Кінцеві точки мережі",
@@ -5498,5 +5534,51 @@
   "revealRecoveryPhrase": {
     "message": "Розкрити фразу відновлення",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Приховати токен",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Показати токен",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Приховано від Home. Воно залишається у вашому гаманці, і його перекази все ще можна отримати.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Приховані активи",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Приховані активи ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Показати",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Відкрити $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Не вдалося оновити приховані токени. Спробуйте ще раз.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Приховані токени не вдалося завантажити.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

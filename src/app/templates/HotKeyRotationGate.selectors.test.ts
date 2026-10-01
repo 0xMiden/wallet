@@ -1,20 +1,49 @@
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
-import { TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import {
+  GUARDIAN_UNREACHABLE_ERROR,
+  INVALID_NOTE_ERROR,
+  isUnconfirmedFailureReason,
+  isWalletFailureReason,
+  LOCAL_PROVER_FAILED_ERROR,
+  REMOTE_PROVER_FAILED_ERROR,
+  REMOTE_PROVER_TIMEOUT_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from 'lib/miden/transaction/constants';
 
 import {
   claimNoteIds,
+  describeRotationFailure,
   GateRow,
   isBelowBaseFee,
   newestRow,
   resolveRotationGateView,
+  RotationFailureRow,
   RotationGateViewInput,
   rotationFundingMinimum
 } from './HotKeyRotationGate.selectors';
 
 // The root manual mock of this module has no `formatBigInt`; the minimum line needs the real one.
 jest.mock('lib/i18n/numbers', () => jest.requireActual('lib/i18n/numbers'));
+
+// Listed here rather than read from the set, so a member dropped from it fails its own row.
+const WALLET_REASONS = [USER_CANCELLED_TRANSACTION_REASON, TRANSACTION_EXPIRED_ERROR, INVALID_NOTE_ERROR];
+
+// Same reasoning as WALLET_REASONS: listed literally, not read from the set.
+const UNCONFIRMED_REASONS = [
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR
+];
 
 const row = (id: string, extra: Partial<GateRow> = {}): GateRow => ({
   id,
@@ -214,5 +243,171 @@ describe('rotationFundingMinimum', () => {
     expect(rotationFundingMinimum(0, nativeRow(0))).toBeNull();
     expect(rotationFundingMinimum(10000, undefined)).toBeNull();
     expect(rotationFundingMinimum(10000, nativeRow(0, { ...MIDEN_METADATA, scaleIsUnknown: true }))).toBeNull();
+  });
+});
+
+describe('describeRotationFailure', () => {
+  const failed = (extra: Partial<RotationFailureRow> = {}): RotationFailureRow => ({
+    type: 'replace-hot-key',
+    status: ITransactionStatus.Failed,
+    ...extra
+  });
+  const rawTimeout = 'Error: Error during Guardian transaction submission or execution: request timeout';
+
+  it('puts an init error behind the generic message, even while a failed row is tracked', () => {
+    expect(describeRotationFailure(failed({ error: rawTimeout, mayHaveSubmitted: true }), 'enqueue failed')).toEqual({
+      unconfirmed: false,
+      message: null,
+      details: 'enqueue failed'
+    });
+  });
+
+  it('shows nothing but the generic message with no row and no init error', () => {
+    expect(describeRotationFailure(undefined, null)).toEqual({ unconfirmed: false, message: null });
+  });
+
+  it('names an old-format shortfall and keeps its kernel line as the details', () => {
+    const kernel = 'assertion failed with error code: 644413868907058392';
+    expect(describeRotationFailure(failed({ error: kernel }), null)).toEqual({
+      unconfirmed: false,
+      message: TRANSACTION_VAULT_SHORTFALL_ERROR,
+      details: kernel
+    });
+  });
+
+  it('gives a classified shortfall no details when there is no raw text beyond its message', () => {
+    expect(describeRotationFailure(failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR }), null)).toEqual({
+      unconfirmed: false,
+      message: TRANSACTION_VAULT_SHORTFALL_ERROR,
+      details: undefined
+    });
+  });
+
+  it('names a shortfall even on a row that may have submitted', () => {
+    expect(
+      describeRotationFailure(failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true }), null)
+    ).toMatchObject({ unconfirmed: false, message: TRANSACTION_VAULT_SHORTFALL_ERROR });
+  });
+
+  it('shows classified copy with its raw error behind it', () => {
+    expect(
+      describeRotationFailure(failed({ error: GUARDIAN_UNREACHABLE_ERROR, rawError: 'Error: 503' }), null)
+    ).toEqual({ unconfirmed: false, message: GUARDIAN_UNREACHABLE_ERROR, details: 'Error: 503' });
+  });
+
+  it('reads a row that may have submitted as unconfirmed, even when its error was classified', () => {
+    // The extension's shape: a submit timeout under the 'sending' stage is classified as a prover timeout.
+    expect(
+      describeRotationFailure(
+        failed({ error: REMOTE_PROVER_TIMEOUT_ERROR, rawError: rawTimeout, mayHaveSubmitted: true }),
+        null
+      )
+    ).toEqual({ unconfirmed: true, message: null, details: rawTimeout });
+    expect(describeRotationFailure(failed({ error: '', mayHaveSubmitted: true }), null)).toEqual({
+      unconfirmed: true,
+      message: null,
+      details: undefined
+    });
+  });
+
+  it('reads the engine-recovered unknown-state copy as unconfirmed without the stamp', () => {
+    const raw = 'WasmClientPoisonedError: the WASM client was poisoned';
+    expect(describeRotationFailure(failed({ error: TRANSACTION_ENGINE_RECOVERED_ERROR, rawError: raw }), null)).toEqual(
+      { unconfirmed: true, message: null, details: raw }
+    );
+  });
+
+  it('reads an unclassified failure past the submit crossing as unconfirmed', () => {
+    expect(describeRotationFailure(failed({ error: rawTimeout, mayHaveSubmitted: true }), null)).toEqual({
+      unconfirmed: true,
+      message: null,
+      details: rawTimeout
+    });
+  });
+
+  it('puts an unclassified failure before the submit crossing behind the generic message', () => {
+    expect(describeRotationFailure(failed({ error: rawTimeout }), null)).toEqual({
+      unconfirmed: false,
+      message: null,
+      details: rawTimeout
+    });
+  });
+
+  it('gives a failed row with an empty error the generic message and no details', () => {
+    expect(describeRotationFailure(failed({ error: '' }), null)).toEqual({
+      unconfirmed: false,
+      message: null,
+      details: undefined
+    });
+  });
+
+  it.each(WALLET_REASONS)('shows the wallet reason %p as the message, with no details', reason => {
+    expect(describeRotationFailure(failed({ error: reason }), null)).toEqual({ unconfirmed: false, message: reason });
+  });
+
+  it('reads a user cancel as not confirmed on a row the pipeline had already stamped', () => {
+    expect(
+      describeRotationFailure(
+        failed({ error: USER_CANCELLED_TRANSACTION_REASON, processingStartedAt: 1_700_000_000 }),
+        null
+      )
+    ).toEqual({ unconfirmed: true, message: null, details: USER_CANCELLED_TRANSACTION_REASON });
+  });
+
+  it('keeps an unclassified copy that is not a wallet reason behind the generic message', () => {
+    expect(describeRotationFailure(failed({ error: GUARDIAN_UNREACHABLE_ERROR }), null)).toEqual({
+      unconfirmed: false,
+      message: null,
+      details: GUARDIAN_UNREACHABLE_ERROR
+    });
+  });
+
+  it.each(UNCONFIRMED_REASONS)(
+    'reads a row failed with the unconfirmed reason %p as unconfirmed, since its pipeline may still run',
+    reason => {
+      expect(describeRotationFailure(failed({ error: reason }), null)).toEqual({
+        unconfirmed: true,
+        message: null,
+        details: reason
+      });
+    }
+  );
+
+  it('reads a row the classifier rewrote from an unconfirmed reason as unconfirmed, with the reason behind it', () => {
+    // The proving-stage shape: cancelTransaction stored TRANSACTION_STUCK_ERROR as rawError and the classifier's
+    // prover copy as error. The gate must judge the row by the reason the wallet wrote, not the rewritten copy.
+    expect(
+      describeRotationFailure(failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_STUCK_ERROR }), null)
+    ).toEqual({ unconfirmed: true, message: null, details: TRANSACTION_STUCK_ERROR });
+  });
+
+  it('reads a row the classifier rewrote from a final wallet reason as that reason, with no details', () => {
+    expect(
+      describeRotationFailure(failed({ error: REMOTE_PROVER_FAILED_ERROR, rawError: INVALID_NOTE_ERROR }), null)
+    ).toEqual({ unconfirmed: false, message: INVALID_NOTE_ERROR });
+  });
+});
+
+describe('isWalletFailureReason', () => {
+  it.each(WALLET_REASONS)('accepts %p', reason => {
+    expect(isWalletFailureReason(reason)).toBe(true);
+  });
+
+  it('refuses every unconfirmed reason and any other text', () => {
+    UNCONFIRMED_REASONS.forEach(reason => expect(isWalletFailureReason(reason)).toBe(false));
+    expect(isWalletFailureReason(GUARDIAN_UNREACHABLE_ERROR)).toBe(false);
+    expect(isWalletFailureReason('')).toBe(false);
+  });
+});
+
+describe('isUnconfirmedFailureReason', () => {
+  it.each(UNCONFIRMED_REASONS)('accepts %p', reason => {
+    expect(isUnconfirmedFailureReason(reason)).toBe(true);
+  });
+
+  it('refuses every final wallet reason and any other text', () => {
+    WALLET_REASONS.forEach(reason => expect(isUnconfirmedFailureReason(reason)).toBe(false));
+    expect(isUnconfirmedFailureReason(GUARDIAN_UNREACHABLE_ERROR)).toBe(false);
+    expect(isUnconfirmedFailureReason('')).toBe(false);
   });
 });

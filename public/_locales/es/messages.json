@@ -589,6 +589,14 @@
     "message": "Cancelado",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "Sin confirmar",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "El monedero no ha podido confirmar si se ha procesado correctamente. Es posible que aún llegue, así que comprueba tu saldo una vez que el monedero se haya sincronizado antes de volver a enviarlo.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "Mostrar el error completo",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Ha surgido un problema al rotar tu clave de uso diario.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Ha surgido un problema al rotar tu clave diaria. Tus fondos están a salvo y puedes volver a intentarlo ahora.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "No se ha confirmado la rotación diaria de claves",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "El monedero no ha podido confirmar si la rotación se ha llevado a cabo. Tus fondos están a salvo, aunque es posible que se haya pagado la comisión de red. Espera un minuto a que el monedero se sincronice antes de volver a intentarlo.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Volver a intentarlo",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "El MIDEN que has recibido no se ha podido reclamar.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "El monedero no ha podido confirmar si el MIDEN que has recibido ya ha sido reclamado. Espera un minuto a que el monedero se sincronice antes de volver a intentarlo.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Inténtalo de nuevo",
@@ -3927,6 +3947,14 @@
     "message": "No se ha podido completar una transacción. Abre el monedero para comprobarlo.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Transacción no confirmada",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "El monedero no ha podido confirmar si la transacción se ha realizado. Abre el monedero antes de volver a enviarla.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "Toca aquí para aceptarla",
     "englishSource": "Tap here to accept it"
@@ -4699,6 +4727,10 @@
     "message": "Guardar y continuar",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "No se han podido guardar estos puntos finales. Inténtalo de nuevo.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Restablecer los valores predeterminados",
     "englishSource": "Reset to defaults"
@@ -4706,6 +4738,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Restablecer la configuración predeterminada y volver a dar de alta",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "El restablecimiento no se ha completado. Inténtalo de nuevo.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Terminales de red",
@@ -5498,5 +5534,51 @@
   "revealRecoveryPhrase": {
     "message": "Revelar la frase de recuperación",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Ocultar token",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Mostrar token",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Oculto desde «Inicio». Permanece en tu monedero y sus transferencias aún pueden reclamarse.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Activos ocultos",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Activos ocultos ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Mostrar",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Mostrar $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "No se han podido actualizar los tokens ocultos. Inténtalo de nuevo.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "No se han podido cargar los tokens ocultos.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

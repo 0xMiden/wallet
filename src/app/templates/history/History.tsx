@@ -7,6 +7,7 @@ import {
   getCompletedTransactions,
   getUncompletedTransactions,
   isCancellableTransaction,
+  isUnconfirmedFailure,
   isUserCancelledTransaction,
   supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
@@ -27,6 +28,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
+import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
 import { isPendingActivityEntry } from './activityGroups';
@@ -440,18 +442,6 @@ const History = memo<HistoryProps>(
 
 export default History;
 
-/**
- * The data a read shows: its live data while it runs, and the last data it received for this same key while it does
- * not (a retained page off screen stays visible behind the page above it). Never data from another key.
- */
-function useLastData<T>(key: unknown[], running: boolean, live: T | undefined): T | undefined {
-  const last = useRef<{ id: string; data: T } | null>(null);
-  const id = JSON.stringify(key);
-  if (running && live !== undefined) last.current = { id, data: live };
-  const kept = last.current?.id === id ? last.current.data : undefined;
-  return running ? (live ?? kept) : kept;
-}
-
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {
   return txType === 'send' || txType === 'bridged-send';
@@ -467,6 +457,7 @@ async function fetchTransactionsAsHistoryEntries(
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
+    const isUnconfirmed = isUnconfirmedFailure(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
@@ -545,6 +536,7 @@ async function fetchTransactionsAsHistoryEntries(
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       errorMessage: tx.error,
       isCancelled,
+      isUnconfirmed,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,

@@ -1,5 +1,6 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
+import { sameTxHash } from 'lib/agglayer/status';
 import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
   matchesEarnDepositIntent,
@@ -16,7 +17,13 @@ import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
-import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
+import {
+  applyVerifiedLanding,
+  recordNoteDelivery,
+  reportVerifiedLanding,
+  setTransactionStage,
+  updateTransactionStatus
+} from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
@@ -47,7 +54,8 @@ import {
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -452,8 +460,10 @@ export const completeReplaceHotKeyTransaction = async (
     // immediately transacts stays broken for the whole of that window.
     let reRegisterFailed = false;
     let reRegisterError: unknown;
+    let reRegisterAttempts = 0;
     let storedAccountId = tx.accountId;
     for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+      reRegisterAttempts = attempt;
       try {
         const accounts = await guardianProvider.getAccounts();
         const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
@@ -461,8 +471,9 @@ export const completeReplaceHotKeyTransaction = async (
           throw new Error(`Guardian account ${tx.accountId} not found in provider`);
         }
         storedAccountId = walletAccount.publicKey;
-        const sdkAccount = await withWasmClientLock(async () => {
+        const sdkAccount = await withWasmClientLock(async hold => {
           await midenClientProxy.syncState();
+          assertWasmHoldCurrent(hold, 'post-rotation re-register: after the state sync');
           return midenClientProxy.getAccount(walletAccount.publicKey);
         });
         if (!sdkAccount) {
@@ -478,6 +489,8 @@ export const completeReplaceHotKeyTransaction = async (
         break;
       } catch (e) {
         reRegisterError = e;
+        // After an eviction the next attempt's sync would join the abandoned one and park again.
+        if (isWasmClientPoisonedError(e)) break;
         if (attempt < POST_ROTATION_REREGISTER_ATTEMPTS) {
           console.warn(
             `Post-rotation guardian re-register attempt ${attempt}/${POST_ROTATION_REREGISTER_ATTEMPTS} failed; retrying:`,
@@ -490,10 +503,11 @@ export const completeReplaceHotKeyTransaction = async (
         }
       }
     }
+    const reRegisterEvicted = isWasmClientPoisonedError(reRegisterError);
     if (reRegisterError) {
       reRegisterFailed = true;
       console.error(
-        `Failed to re-register post-rotation signer set on guardian after ${POST_ROTATION_REREGISTER_ATTEMPTS} attempts — ` +
+        `Failed to re-register post-rotation signer set on guardian after ${reRegisterAttempts} attempt(s) - ` +
           'the new hot key stays unauthorized (401) until a re-register lands:',
         reRegisterError
       );
@@ -525,8 +539,13 @@ export const completeReplaceHotKeyTransaction = async (
     // The account now has both signers on-chain, so bring it up to the same
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    // idempotent; never affects the rotation's success. After an eviction it is
+    // skipped rather than rebuilding the service against the node that just
+    // parked: the next guardian sync lap re-runs the check, because the swap
+    // above changed the hot key that sync's once-per-session gate is keyed on.
+    if (!reRegisterEvicted) {
+      await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    }
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
@@ -1415,10 +1434,32 @@ const BRIDGED_RECEIVE_SETTLED_PHASES: ReadonlySet<IBridgedReceivePhase> = new Se
 ]);
 
 /**
+ * The display fields a bridged-send row takes on the moment its landing is
+ * proven - whether that proof arrives from a claim or fill write already in
+ * progress (`updateBridgeClaimStatus`) or from evidence already stored on a
+ * row nobody is actively polling (`reconcileBridgedSends`, #1250). One
+ * function so the two sites can never drift on what "landed" looks like.
+ */
+export const bridgedSendLandedValues = (): Partial<ITransaction> => ({
+  displayMessage: 'Bridged to EVM',
+  displayIcon: 'SEND',
+  completedAt: Math.floor(Date.now() / 1000)
+});
+
+/**
  * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
- * long after the Miden-side send has reached `Completed`, so this mutates ONLY
- * `extraInputs` and never touches `status` (which `updateTransactionStatus`
- * would reject as "already finalized"). Used by the activity-detail claim flow.
+ * long after the Miden-side send has reached `Completed`, so this mutates
+ * `extraInputs` directly rather than through `updateTransactionStatus` (which
+ * would reject a Completed row as "already finalized"). Used by the
+ * activity-detail claim flow.
+ *
+ * `boundDepositTxHash` is the Agglayer deposit's own `tx_hash`, passed by a caller that just
+ * looked one up bound to THIS row's `transactionId` (`findClaimableMidenToEvmDeposit`). When the
+ * merged write proves this row's own Miden transaction landed - that hash matches
+ * (`sameTxHash`), or the Epoch fill poll reports `epochStatus: 'confirmed'` - a row that is
+ * Failed in the store is promoted to Completed in that same write, via `applyVerifiedLanding`
+ * (#1250), so the evidence and the status can never be stored apart. A write whose merged route
+ * status is itself 'failed' never promotes.
  */
 export const updateBridgeClaimStatus = async (
   id: string,
@@ -1436,12 +1477,32 @@ export const updateBridgeClaimStatus = async (
       | 'fillChainId'
       | 'epochStatus'
     >
-  >
+  >,
+  boundDepositTxHash?: string
 ) => {
+  let landed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
-    tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+    const merged: IBridgedSendExtraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+    tx.extraInputs = merged;
+
+    const routeFailed = merged.claimStatus === 'failed' || merged.epochStatus === 'failed';
+    const agglayerLanded =
+      !routeFailed &&
+      (claimStatus === 'ready' || claimStatus === 'claiming' || claimStatus === 'claimed') &&
+      boundDepositTxHash !== undefined &&
+      tx.transactionId !== undefined &&
+      sameTxHash(boundDepositTxHash, tx.transactionId);
+    const epochLanded = !routeFailed && merged.epochStatus === 'confirmed';
+    if (tx.status === ITransactionStatus.Failed && (agglayerLanded || epochLanded)) {
+      applyVerifiedLanding(tx, bridgedSendLandedValues());
+      landed = tx;
+    }
   });
+
+  if (landed !== undefined) {
+    reportVerifiedLanding(landed);
+  }
 };
 
 /**
@@ -1453,6 +1514,11 @@ export const updateBridgeClaimStatus = async (
  * the activity view stops claiming success. Modifies the row directly because
  * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
  * pipeline is already done with this row, so there is no race.
+ *
+ * A row the note pipeline already failed for its own reason - its own status,
+ * error and classification already stored - keeps that failure instead of this
+ * one: the early return below leaves an already-Failed row untouched, since
+ * that failure was already reported by `cancelTransaction` (#1250).
  */
 export const markBridgedSendFailed = async (id: string, error: string, reclaimHeight?: number) => {
   console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
@@ -1461,6 +1527,10 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
   });
   let demoted: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    // A row the note pipeline already failed keeps the pipeline's own Failed
+    // write rather than this later one; `demoted` stays undefined, so nothing
+    // is reported for a row nothing here actually changed (#1250).
+    if (tx.status === ITransactionStatus.Failed) return false;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Bridge failed — funds reclaimable';
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
@@ -1471,6 +1541,7 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
       ...(reclaimHeight != null ? { reclaimHeight } : {})
     };
     demoted = tx;
+    return undefined;
   });
 
   // The mirror of `completeVerifiedLandedTransaction`, and needed for the same

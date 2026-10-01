@@ -589,6 +589,14 @@
     "message": "İptal edildi",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "Onaylanmadı",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Cüzdan, işlemin başarılı olup olmadığını doğrulayamadı. Hala ulaşmış olabilir, bu yüzden tekrar göndermeden önce cüzdan senkronize olduktan sonra bakiyenizi kontrol edin.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "Hatanın tamamını göster",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Günlük anahtarınızı değiştirirken bir sorun oluştu.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Günlük anahtarınızı değiştirirken bir sorun oluştu. Paranız güvende; şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Günlük anahtar rotasyonu doğrulanmadı",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Cüzdan, değiştirme işleminin gerçekleşip gerçekleşmediğini doğrulayamadı. Ağ ücreti ödenmiş olsa da paranız güvende. Yeniden denemeden önce cüzdanın senkronize olması için bir dakika bekleyin.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Tekrar dene",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "Aldığınız MIDEN talep edilememiştir.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Cüzdan, aldığınız MIDEN'in talep edilip edilmediğini doğrulayamadı. Tekrar denemeden önce cüzdanın senkronize olması için bir dakika bekleyin.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Tekrar deneyin",
@@ -3927,6 +3947,14 @@
     "message": "Bir işlem tamamlanamadı. İncelemek için cüzdanı açın.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "İşlem onaylanmadı",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Cüzdan, bir işlemin gerçekleşip gerçekleşmediğini doğrulayamadı. Tekrar göndermeden önce cüzdanı açın.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "Kabul etmek için buraya dokunun",
     "englishSource": "Tap here to accept it"
@@ -4699,6 +4727,10 @@
     "message": "Kaydet ve devam et",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Bu uç noktalar kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Varsayılan ayarlara sıfırla",
     "englishSource": "Reset to defaults"
@@ -4706,6 +4738,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Sıfırlama işlemi tamamlanmadı. Lütfen tekrar deneyin.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Ağ uç noktaları",
@@ -5498,5 +5534,51 @@
   "revealRecoveryPhrase": {
     "message": "Kurtarma ifadesini göster",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Token'ı gizle",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Token'ı görünür hale getir",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Ana Sayfadan Gizlenmiş. Cüzdanınızda kalır ve transferleri hâlâ talep edilebilir.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Gizli varlıklar",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Gizli varlıklar ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Gizlemeyi kaldır",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$'i görünür hale getirin",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Gizli token'lar güncellenemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Gizli token'lar yüklenemedi.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

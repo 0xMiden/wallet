@@ -16,8 +16,10 @@ import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
+import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import { isUserCancelledTransaction } from 'lib/miden/activity';
+import { isUnconfirmedFailure, isUserCancelledTransaction } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -68,8 +70,9 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   earnWithdrawAmountFields,
-  formatBridgeOutputAmount,
+  earnWithdrawShowsSource,
   formatDate,
+  formatMoneyAmount,
   isBridgeInEntry,
   swapSettlementOf
 } from './transactionUtils';
@@ -107,8 +110,8 @@ interface RequestedTokenInfo {
  *  - `earn-deposit` - `secondaryAccountId` is the Epoch allocator the P2IDE
  *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
  *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
- *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
- *    bridge falls through to this rule and is still outbound.
+ *    Miden "to" row in favour of the BridgeClaimSection), but an UNSTAMPED
+ *    user-cancelled bridge falls through to this rule and is still outbound.
  */
 const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
 
@@ -126,18 +129,14 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  const rawInAmount = bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString();
-  // Only a genuine Epoch quote (unbounded precision) is rounded for display here. A
-  // Slow-route bridge-in's amounts, and a bridge-out's Miden-side send amount on EITHER
-  // route (always what was typed, capped by AmountInput at 6 decimals, never a quote), are
-  // shown as stored. `bridgeRowDisplay` already applies this same rule to a bridge-out's OUT
-  // side (it formats `bridgeOutputAmount` only, an Epoch-only field, and passes the
-  // Agglayer/no-quote fallback to `entry.amount` through unformatted), so this component
-  // reformats nothing further for bridge-out. `break-all` + `min-w-0` keep an unexpectedly
-  // long value from widening the page (#752).
-  const isEpochBridgeIn = bridgeIn && entry.bridgeInProvider === 'epoch';
-  const inAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(rawInAmount) : rawInAmount) ?? '-';
-  const displayedOutAmount = (isEpochBridgeIn ? formatBridgeOutputAmount(outAmount) : outAmount) ?? inAmount;
+  // A bridge-in's source side is what an Earn withdrawal redeemed (rounded down), what a Fast
+  // deposit cost (rounded up) or what was typed on the Slow route. A bridge-out's is the typed
+  // Miden-side amount, already exact. The row helpers above format the out side, as the list row
+  // shows it, so it is not formatted again, and a missing one is never filled from the in side.
+  // `break-all` + `min-w-0` keep an unexpectedly long value from widening the page (#752).
+  const inKind = entry.bridgeInFromEarnWithdraw ? 'receives' : entry.bridgeInProvider === 'epoch' ? 'pays' : 'typed';
+  const inAmount = (bridgeIn ? formatMoneyAmount(entry.bridgeInSourceAmount, inKind, inSymbol) : entry.amount) ?? '-';
+  const displayedOutAmount = outAmount ?? '-';
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
@@ -177,7 +176,9 @@ function formatFiatDisplayAmount(
   // No estimate for a token the feed does not quote, rather than its amount at $1 a unit.
   const quote = tokenQuote(tokenPrices, faucetId, tokenSymbol);
 
-  if (!displayAmount.isFinite() || !quote) {
+  // Nor for an amount outside the display window, which the money helper passes through as written: expanding it
+  // here writes out every digit.
+  if (!isDisplayable(displayAmount) || !quote) {
     return undefined;
   }
 
@@ -409,6 +410,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
+          isUnconfirmed: isUnconfirmedFailure(tx),
           noteDelivery: tx.noteDelivery,
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
@@ -431,7 +433,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
           bridgeInMidenNoteId:
             bridgeReceive?.midenNoteId ??
-            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined)
+            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined),
+          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined
         };
 
         if (tx.type === 'swap') {
@@ -513,8 +516,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
-  // "to" row is omitted here.
-  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
+  // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
+  // may have landed, so it reads through the section's own unconfirmed rule like any
+  // other unconfirmed bridge-out (#1250).
+  const isBridgeOut = entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true);
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -539,10 +544,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // moves collateral OUT of the account and into the Epoch allocator
   // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
   // 'Depositing' / 'Deposited to lending' - never 'Sent' - so keying only on `send`
-  // rendered it exactly backwards in every state. A USER-CANCELLED `bridged-send`
-  // falls out of `isBridgeOut` (which excludes cancelled rows so the bridge claim UI
-  // stays hidden) and lands here too, still outbound. The message check is kept as a
-  // fallback for rows persisted before `txType` existed.
+  // rendered it exactly backwards in every state. An UNSTAMPED user-cancelled
+  // `bridged-send` falls out of `isBridgeOut` (which excludes only that case, so the
+  // bridge claim UI stays hidden for a cancel that never reached the pipeline) and
+  // lands here too, still outbound. The message check is kept as a fallback for rows
+  // persisted before `txType` existed.
   const isOutboundTransfer =
     (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
@@ -588,10 +594,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // and vanish between renders as metadata lands, which is worse than absent.
   // The breakdown says what was claimed; it does not guess what it was worth.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
-  const approximateUsdAmount =
-    entry?.amount !== undefined && entry.token && !spansMultipleAssets
-      ? formatFiatDisplayAmount(t, entry.amount, entry.faucetId, entry.token, tokenPrices)
-      : undefined;
   // One entry per faucet the claim swept up, each with the asset and quantity
   // that faucet contributed. Resolved through the SAME helper as the hero badge
   // over it, so the two cannot disagree about what a faucet is called - and
@@ -600,19 +602,45 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     spansMultipleAssets && transaction
       ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
       : [];
+  // The hero and the badge print one amount. An Earn withdrawal's is already formatted, and an
+  // Earn deposit's and a (cancelled) bridge-out's are the amount typed, each as its Activity row shows it.
+  const historyAmount =
+    entry?.amount === undefined
+      ? undefined
+      : entry.txType === 'earn-withdraw'
+        ? entry.amount
+        : entry.txType === 'earn-deposit' || entry.txType === 'bridged-send'
+          ? formatMoneyAmount(entry.amount, 'typed')
+          : formatDisplayAmount(entry.amount);
   // The shared badge resolves its own amounts from the raw tx; for the types
   // whose hero already reads as "amount token → recipient" we override the left
   // side with the formatted history amount so both views agree.
+  const badgeShowsHistoryAmount =
+    entry?.txType === 'send' || entry?.txType === 'bridged-send' || entry?.txType === 'earn-deposit';
   const historySummaryBadgeContent =
-    transactionSummaryBadgeContent &&
-    entry?.amount !== undefined &&
-    entry.token &&
-    (entry.txType === 'send' || entry.txType === 'bridged-send' || entry.txType === 'earn-deposit')
+    transactionSummaryBadgeContent && historyAmount !== undefined && entry?.token && badgeShowsHistoryAmount
       ? {
           ...transactionSummaryBadgeContent,
-          lhs: `${formatDisplayAmount(entry.amount)} ${entry.token}`
+          lhs: `${historyAmount} ${entry.token}`
         }
       : transactionSummaryBadgeContent;
+  // The estimate prices the figure the hero prints: a bridge-in's out side, the row's own amount on
+  // SwapDetail and on a badge that prints it (a claim's, at full precision), and historyAmount otherwise.
+  const heroPrintsRowAmount =
+    (entry?.txType === 'swap' && requestedToken !== null) ||
+    (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);
+  const pricedAmount =
+    entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : heroPrintsRowAmount ? entry?.amount : historyAmount;
+  // An Earn withdrawal's row names the native asset it credits, so while its hero prints the redeemed USDC that
+  // side is priced through the Earn collateral faucet.
+  const pricedFaucetId =
+    earnWithdraw !== null && transaction !== undefined && earnWithdrawShowsSource(earnWithdraw, transaction.amount)
+      ? getEarnCollateralFaucet()
+      : entry?.faucetId;
+  const approximateUsdAmount =
+    pricedAmount !== undefined && entry?.token && !spansMultipleAssets
+      ? formatFiatDisplayAmount(t, pricedAmount, pricedFaucetId, entry.token, tokenPrices)
+      : undefined;
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
@@ -680,9 +708,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                      {entry.amount !== undefined && (
-                        <span className="text-ink">{formatDisplayAmount(entry.amount)}</span>
-                      )}
+                      {historyAmount !== undefined && <span className="text-ink">{historyAmount}</span>}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
                     </div>
                   )}
@@ -691,11 +717,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
               <div className="mt-2">
                 {isBridge ? (
-                  // Pending/Confirmed/Failed, derived from the route's own lifecycle.
-                  <StatusBadge size="md" live status={bridgeStatusOf(entry)} data-testid="history-status-pill" />
+                  // Not-confirmed wins over the route's own lifecycle (#1250 F-024): the row's
+                  // outcome is unknown, not the confirmed failure `bridgeStatusOf` would report.
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeStatusOf(entry)}
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnWithdraw && earnWithdraw ? (
-                  // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
-                  <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />
+                  // Not-confirmed wins over the withdraw phase for the same reason (#1250 F-024).
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={entry.isUnconfirmed ? 'unconfirmed' : earnWithdraw.phase}
+                    data-testid="history-status-pill"
+                  />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
                   // Miden note landed - the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
@@ -706,7 +743,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     data-testid="history-status-pill"
                   />
                 ) : (
-                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
+                  <StatusPill
+                    status={entry.status}
+                    isCancelled={entry.isCancelled}
+                    isUnconfirmed={entry.isUnconfirmed}
+                    testId="history-status-pill"
+                  />
                 )}
               </div>
             </div>
@@ -837,11 +879,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailSection title={t('earnWithdrawDetailsTitle')}>
-                    <DetailRow label={t('earnMarketLabel')}>
-                      <span className="select-text">
-                        {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
-                      </span>
-                    </DetailRow>
+                    {typeof earnWithdraw.marketUid === 'string' && earnWithdraw.marketUid !== '' && (
+                      <DetailRow label={t('earnMarketLabel')}>
+                        <span className="select-text">
+                          {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
+                        </span>
+                      </DetailRow>
+                    )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnWithdraw.evmOwner} trimHash className="ml-2" />}
@@ -886,11 +930,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailSection title={t('earnDepositDetailsTitle')}>
-                    <DetailRow label={t('earnMarketLabel')}>
-                      <span className="select-text">
-                        {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
-                      </span>
-                    </DetailRow>
+                    {typeof earnDeposit.marketUid === 'string' && earnDeposit.marketUid !== '' && (
+                      <DetailRow label={t('earnMarketLabel')}>
+                        <span className="select-text">
+                          {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
+                        </span>
+                      </DetailRow>
+                    )}
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={earnDeposit.evmRecipient} trimHash className="ml-2" />}
@@ -998,6 +1044,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       errorMessage={entry.errorMessage}
                       rawErrorMessage={entry.rawErrorMessage}
                       isCancelled={entry.isCancelled}
+                      isUnconfirmed={entry.isUnconfirmed}
                     />
                   </div>
                 </div>

@@ -589,6 +589,14 @@
     "message": "已取消",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "未确认",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "钱包无法确认此笔交易是否已成功。该笔交易仍有可能到账，因此请在钱包同步完成后查看余额，再决定是否再次发送。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "显示完整错误信息",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "在轮换您的日常密钥时出现了问题。",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "在轮换您的日常密钥时出现了一些问题。您的资金是安全的，现在可以重试。",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "每日密钥轮换尚未得到证实",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "钱包无法确认轮换是否成功。您的资金是安全的，尽管可能已支付了网络手续费。请等待一分钟让钱包同步完毕，然后再试一次。",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "重试",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "您收到的 MIDEN 无法被领取。",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "钱包无法确认您收到的 MIDEN 是否已被领取。请等待钱包同步一分钟后再重试。",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "请重试",
@@ -3927,6 +3947,14 @@
     "message": "交易无法完成。请打开钱包进行查看。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "交易未确认",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "钱包无法确认交易是否成功。请在再次发送前打开钱包。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "点击此处接受",
     "englishSource": "Tap here to accept it"
@@ -4699,6 +4727,10 @@
     "message": "保存并继续",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "无法保存这些端点。请重试。",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "恢复默认设置",
     "englishSource": "Reset to defaults"
@@ -4706,6 +4738,10 @@
   "devEndpointResetAndReonboard": {
     "message": "恢复默认设置并重新注册",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "重置未完成。请重试。",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "网络端点",
@@ -5498,5 +5534,51 @@
   "revealRecoveryPhrase": {
     "message": "显示恢复短语",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "隐藏令牌",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "取消隐藏代币",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "隐藏于“主钱包”之外。它仍保存在您的钱包中，其转账仍可被领取。",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "隐藏资产",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "隐藏资产（$count$）",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "取消隐藏",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "取消隐藏 $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "无法更新隐藏代币。请重试。",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "无法加载隐藏代币。",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

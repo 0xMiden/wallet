@@ -32,7 +32,12 @@ import {
   REMOTE_PROVER_TIMEOUT_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   RETRY_COOLDOWN_SEC,
-  MAX_RETRY_BACKOFF_SEC
+  MAX_RETRY_BACKOFF_SEC,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  INVALID_NOTE_ERROR
 } from './index';
 
 jest.mock('../spending-limits/queue', () => ({
@@ -304,6 +309,38 @@ describe('transactions utilities', () => {
       // else can catch that: the clone equals the row, so every field assertion
       // above passes either way.
       expect(mockModify.mock.results[0]?.value).toBe(false);
+    });
+
+    // At stage 'proving' the classifier rewrites any string error into prover copy
+    // ("Local/Remote proving failed") and moves the real reason to rawError. A
+    // reason the wallet wrote itself must be stored exactly as written instead,
+    // whether it is a final reason (invalid note) or an unconfirmed one (stuck,
+    // interrupted, force-cancelled), since the row's stage says nothing about why
+    // the wallet itself gave up on it.
+    it.each([
+      TRANSACTION_STUCK_ERROR,
+      INVALID_NOTE_ERROR,
+      TRANSACTION_INTERRUPTED_ERROR,
+      TRANSACTION_EXPIRED_ERROR,
+      TRANSACTION_FORCE_CANCELLED_ERROR
+    ])('stores %p on a consume row at stage proving exactly as written, with no rawError', async reason => {
+      const dbTx: Record<string, unknown> = {};
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn(dbTx));
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          first: jest.fn().mockResolvedValueOnce({
+            id: 'tx-1',
+            type: 'consume',
+            status: ITransactionStatus.GeneratingTransaction,
+            stage: 'proving'
+          })
+        })
+        .mockReturnValueOnce({ modify: mockModify });
+
+      await cancelTransaction({ id: 'tx-1', type: 'consume' } as Transaction, reason);
+
+      expect(dbTx.error).toBe(reason);
+      expect(dbTx.rawError).toBeUndefined();
     });
   });
 

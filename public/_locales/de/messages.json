@@ -589,6 +589,14 @@
     "message": "Abgesagt",
     "englishSource": "Cancelled"
   },
+  "notConfirmed": {
+    "message": "Nicht bestätigt",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Die Wallet konnte nicht bestätigen, ob die Überweisung erfolgreich war. Möglicherweise geht sie noch ein; überprüfen Sie daher Ihren Kontostand nach der Synchronisierung der Wallet, bevor Sie die Überweisung erneut senden.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+  },
   "showFullError": {
     "message": "Vollständigen Fehler anzeigen",
     "englishSource": "Show full error"
@@ -2752,8 +2760,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Beim Rotieren Ihres Alltagsschlüssels ist ein Fehler aufgetreten.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Beim Rotieren Ihres Alltagsschlüssels ist ein Fehler aufgetreten. Ihr Guthaben ist sicher, und Sie können es jetzt erneut versuchen.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Tägliche Schlüsselrotation nicht bestätigt",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Die Wallet konnte nicht bestätigen, ob die Rotation erfolgreich war. Ihr Guthaben ist sicher, auch wenn möglicherweise die Netzwerkgebühr bezahlt wurde. Warten Sie eine Minute, bis die Wallet synchronisiert ist, bevor Sie es erneut versuchen.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Erneut versuchen",
@@ -2799,6 +2815,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "Das MIDEN, das Sie erhalten haben, konnte nicht beansprucht werden.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Die Wallet konnte nicht bestätigen, ob das von Ihnen erhaltene MIDEN bereits beansprucht wurde. Warten Sie eine Minute, bis die Wallet synchronisiert ist, bevor Sie es erneut versuchen.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Versuchen Sie es erneut",
@@ -3927,6 +3947,14 @@
     "message": "Eine Transaktion konnte nicht abgeschlossen werden. Öffnen Sie die Wallet, um dies zu überprüfen.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
   },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Transaktion nicht bestätigt",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Die Wallet konnte nicht bestätigen, ob eine Transaktion erfolgreich durchgeführt wurde. Öffnen Sie die Wallet, bevor Sie die Transaktion erneut senden.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+  },
   "noteReceivedTapToClaim": {
     "message": "Tippen Sie hier, um sie zu akzeptieren",
     "englishSource": "Tap here to accept it"
@@ -4699,6 +4727,10 @@
     "message": "Speichern und fortfahren",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Diese Endpunkte konnten nicht gespeichert werden. Versuchen Sie es erneut.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Auf Standardwerte zurücksetzen",
     "englishSource": "Reset to defaults"
@@ -4706,6 +4738,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Auf Standardwerte zurücksetzen und erneut einrichten",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Das Zurücksetzen wurde nicht abgeschlossen. Versuchen Sie es erneut.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Netzwerkendpunkte",
@@ -5498,5 +5534,51 @@
   "revealRecoveryPhrase": {
     "message": "Wiederherstellungsphrase anzeigen",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Token ausblenden",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Token einblenden",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Vor dem Home verborgen. Es verbleibt in Ihrer Wallet, und die damit getätigten Überweisungen können weiterhin beansprucht werden.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Versteckte Vermögenswerte",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Versteckte Vermögenswerte ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Einblenden",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$ wieder einblenden",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Versteckte Token konnten nicht aktualisiert werden. Bitte versuche es erneut.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Versteckte Token konnten nicht geladen werden.",
+    "englishSource": "Hidden tokens could not be loaded."
   }
 }

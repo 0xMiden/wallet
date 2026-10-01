@@ -164,11 +164,11 @@ describe('Earn page', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
   });
 
-  it('keeps the failure said, and the summary gone, while a retry is loading', () => {
-    // SWR keeps the error until a load succeeds and reports the retry as isLoading: the failed state
-    // must not lift and flash "$0" back.
+  it('keeps the failure said, and the summary gone, while a retry is out', () => {
+    // The hook keeps the error through a retry and reports it as not loading: the failed state must not
+    // lift and flash "$0" back.
     const refetch = jest.fn();
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch });
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch });
     render(<Earn />);
     expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');

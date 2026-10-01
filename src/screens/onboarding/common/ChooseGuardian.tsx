@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianAvailability } from 'app/hooks/useGuardianAvailability';
+import { usePageActive } from 'app/layouts/page-active';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
@@ -13,6 +14,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { pingGuardianEndpointLatency } from 'lib/miden/guardian/availability';
+import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
@@ -86,20 +88,25 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
   const [checkingCustom, setCheckingCustom] = useState(false);
-  // Numbers the custom-URL checks. Editing the URL, leaving custom mode or unmounting
-  // advances it, so a verdict that lands later belongs to a URL no longer on screen
-  // and is dropped instead of submitting it.
+  // Numbers the custom-URL checks. Editing the URL, leaving custom mode, leaving the
+  // page or unmounting advances it, so a verdict that lands later belongs to a URL no
+  // longer on screen and is dropped instead of submitting it.
   const customCheck = useRef(0);
-  const abandonCustomCheck = () => {
+  const abandonCustomCheck = useCallback(() => {
     customCheck.current++;
     setCheckingCustom(false);
-  };
+  }, []);
   useEffect(
     () => () => {
       customCheck.current++;
     },
     []
   );
+  // A page being left stays mounted through its exit animation, so leaving is not an unmount.
+  const pageActive = usePageActive();
+  useEffect(() => {
+    if (!pageActive) abandonCustomCheck();
+  }, [pageActive, abandonCustomCheck]);
 
   // Providers that run a Guardian on the active network, resolved to their
   // endpoint on it.
@@ -211,12 +218,12 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         return;
       }
       setCustomError(null);
-      // Held to the bar a built-in card is (#1084): the same GET /pubkey ping, which
-      // only a live Guardian answers with a key commitment, before the URL can bind
-      // an account's recovery to it.
+      // Refused here, before review and signing, unless a live Guardian answers the
+      // GET /pubkey ping the cards use (#1084). Checked once, so on the user-endpoint
+      // deadline rather than the repeating card probe's 5 s.
       const check = ++customCheck.current;
       setCheckingCustom(true);
-      void pingGuardianEndpointLatency(sanitized).then(latency => {
+      const settle = (latency: number | null) => {
         if (check !== customCheck.current) return;
         setCheckingCustom(false);
         if (latency === null) {
@@ -224,7 +231,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
           return;
         }
         onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized }, { explicit: true });
-      });
+      };
+      // Defensive, as in useGuardianAvailability: the ping cannot reject, but should it ever,
+      // the rejection reads as no Guardian answering rather than leaving Continue busy.
+      void pingGuardianEndpointLatency(sanitized, USER_ENDPOINT_CHECK_TIMEOUT_MS).then(settle, () => settle(null));
       return;
     }
     if (effectiveSelectedId === NO_GUARDIAN_ID) {
