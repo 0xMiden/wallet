@@ -9,6 +9,7 @@
 
 ### Changes
 
+- [CHORE][docs] Require explicit maintainer approval before any agent changes backend schemas or APIs.
 - [CHANGE][backend] Separate relay records from orders and save relay results and order states in one database transaction. Recreate the backend database for the new schema.
 
 - [CHANGE][backend] Read buy token addresses and decimals from a chain map instead of storing them per order. Recreate the backend database for the new schema.
