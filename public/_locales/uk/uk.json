@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "~30 секунд",
   "earnNoEvmAddress": "Для цього рахунку немає доступної адреси EVM.",
   "earnFailedToOpenPosition": "Не вдалося відкрити позицію",
+  "earnTotalEarnedRewards": "Загальна сума заробленого",
   "earnEarningBlendedApy": "Отримання комбінованої річної процентної ставки (APY) від «$apy$»",
   "earnTotalDeposited": "Загальна сума внесків",
   "earnEstimatedRewards": "Орієнтовні винагороди",

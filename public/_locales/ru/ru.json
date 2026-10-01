@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "~30 секунд",
   "earnNoEvmAddress": "Для этого счета отсутствует адрес EVM.",
   "earnFailedToOpenPosition": "Не удалось открыть позицию",
+  "earnTotalEarnedRewards": "Общая сумма заработка",
   "earnEarningBlendedApy": "Получайте совокупную годовую доходность (APY) по программе «$apy$»",
   "earnTotalDeposited": "Общая сумма вкладов",
   "earnEstimatedRewards": "Предполагаемые вознаграждения",

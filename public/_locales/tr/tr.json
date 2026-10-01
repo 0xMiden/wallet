@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "~30 saniye",
   "earnNoEvmAddress": "Bu hesap için EVM adresi mevcut değil.",
   "earnFailedToOpenPosition": "Pozisyon açılamadı",
+  "earnTotalEarnedRewards": "Toplam kazanç",
   "earnEarningBlendedApy": "$apy$'lık karma APY elde etmek",
   "earnTotalDeposited": "Toplam Yatırılan Tutar",
   "earnEstimatedRewards": "Tahmini Ödüller",

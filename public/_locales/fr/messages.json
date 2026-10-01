@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Total des récompenses accumulées",
-    "englishSource": "Total Earned Rewards"
+    "message": "Total gagné",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "Bénéficier d'un taux de rendement annuel (APY) combiné de l'$apy$",

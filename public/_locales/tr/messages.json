@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Toplam Kazanılan Ödüller",
-    "englishSource": "Total Earned Rewards"
+    "message": "Toplam kazanç",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "$apy$'lık karma APY elde etmek",

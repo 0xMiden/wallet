@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "~30 sekund",
   "earnNoEvmAddress": "Dla tego konta nie jest dostępny żaden adres EVM.",
   "earnFailedToOpenPosition": "Nie udało się otworzyć pozycji",
+  "earnTotalEarnedRewards": "Łączna kwota zarobków",
   "earnEarningBlendedApy": "Zyskaj mieszaną roczną stopę zwrotu (APY) w wysokości $apy$",
   "earnTotalDeposited": "Łączna kwota wpłat",
   "earnEstimatedRewards": "Szacowane nagrody",

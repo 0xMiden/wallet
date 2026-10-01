@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "約30秒",
   "earnNoEvmAddress": "このアカウントにはEVMアドレスがありません。",
   "earnFailedToOpenPosition": "ポジションを開くことに失敗しました",
+  "earnTotalEarnedRewards": "獲得総額",
   "earnEarningBlendedApy": "$apy$の複合年利（APY）を獲得",
   "earnTotalDeposited": "預入総額",
   "earnEstimatedRewards": "予想報酬",

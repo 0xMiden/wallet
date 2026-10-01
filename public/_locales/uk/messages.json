@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Загальна сума зароблених винагород",
-    "englishSource": "Total Earned Rewards"
+    "message": "Загальна сума заробленого",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "Отримання комбінованої річної процентної ставки (APY) від «$apy$»",

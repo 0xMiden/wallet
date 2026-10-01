@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "約 30 秒",
   "earnNoEvmAddress": "此帳戶沒有可用的 EVM 位址。",
   "earnFailedToOpenPosition": "無法建立倉位",
+  "earnTotalEarnedRewards": "總收益",
   "earnEarningBlendedApy": "賺取$apy$的綜合年化收益率（APY）",
   "earnTotalDeposited": "總存款額",
   "earnEstimatedRewards": "預估獎勵",

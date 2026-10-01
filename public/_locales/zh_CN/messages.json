@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "累计获得的奖励",
-    "englishSource": "Total Earned Rewards"
+    "message": "总收益",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "赚取$apy$的综合年化收益率（APY）",

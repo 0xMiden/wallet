@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "獲得したリワードの合計",
-    "englishSource": "Total Earned Rewards"
+    "message": "獲得総額",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "$apy$の複合年利（APY）を獲得",

@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "약 30초",
   "earnNoEvmAddress": "이 계정에는 사용 가능한 EVM 주소가 없습니다.",
   "earnFailedToOpenPosition": "포지션을 개설하지 못했습니다",
+  "earnTotalEarnedRewards": "총 수익",
   "earnEarningBlendedApy": "$apy$의 복합 연이율(APY) 획득",
   "earnTotalDeposited": "예치금 총액",
   "earnEstimatedRewards": "예상 보상",

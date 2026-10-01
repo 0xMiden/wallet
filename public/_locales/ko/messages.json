@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "총 적립 포인트",
-    "englishSource": "Total Earned Rewards"
+    "message": "총 수익",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "$apy$의 복합 연이율(APY) 획득",

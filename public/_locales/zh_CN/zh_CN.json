@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "约30秒",
   "earnNoEvmAddress": "该账户没有可用的EVM地址。",
   "earnFailedToOpenPosition": "无法开仓",
+  "earnTotalEarnedRewards": "总收益",
   "earnEarningBlendedApy": "赚取$apy$的综合年化收益率（APY）",
   "earnTotalDeposited": "存款总额",
   "earnEstimatedRewards": "预计奖励",

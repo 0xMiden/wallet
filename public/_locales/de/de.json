@@ -65,6 +65,7 @@
   "earnEstimatedTimeValue": "~30 Sekunden",
   "earnNoEvmAddress": "Für dieses Konto ist keine EVM-Adresse verfügbar.",
   "earnFailedToOpenPosition": "Das Eröffnen der Position ist fehlgeschlagen",
+  "earnTotalEarnedRewards": "Gesamtverdienst",
   "earnEarningBlendedApy": "$apy$-gemischter APY erzielen",
   "earnTotalDeposited": "Gesamteinlage",
   "earnEstimatedRewards": "Geschätzte Prämien",

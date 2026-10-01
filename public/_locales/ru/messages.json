@@ -362,8 +362,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Общая сумма начисленных бонусов",
-    "englishSource": "Total Earned Rewards"
+    "message": "Общая сумма заработка",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "Получайте совокупную годовую доходность (APY) по программе «$apy$»",
