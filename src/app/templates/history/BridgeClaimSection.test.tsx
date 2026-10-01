@@ -218,14 +218,30 @@ describe('BridgeClaimSection', () => {
     });
 
     it('offers no Reclaim for a route-failed row whose note never committed (#1250)', () => {
-      // markBridgedSendFailed also demotes a row still Queued or in flight, so 'failed' alone
-      // does not prove a note exists; only a committed outputNoteIds[0] does.
+      // A row markBridgedSendFailed demoted while still Queued never sent its note, so without
+      // bridgeStampedNoteMayExist the stamped id is not read.
       renderSection({
         entry: entry({ bridgeEpochStatus: 'failed', outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
       });
       expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
       expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers Reclaim for a row demoted in flight, consuming its stamped note (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          bridgeEpochStatus: 'failed',
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeStampedNoteMayExist: true
+        })
+      });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() =>
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+      );
     });
 
     it('still offers Reclaim for an allocator-rejected row, consuming its committed note (#1250)', async () => {

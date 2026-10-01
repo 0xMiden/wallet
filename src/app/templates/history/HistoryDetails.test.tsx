@@ -3177,6 +3177,29 @@ describe('HistoryDetails', () => {
       });
     });
 
+    it('hands the bridge section the in-flight demotion mark of a route-failed bridge-out (#1250)', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        status: 3,
+        outputNoteIds: undefined,
+        extraInputs: {
+          ...(bridgedSendTx.extraInputs as Record<string, unknown>),
+          epochStatus: 'failed',
+          reclaimHeight: 3016,
+          reclaimNoteId: 'note-stamped',
+          stampedNoteMayExist: true
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        isUnconfirmed: false,
+        bridgeEpochStatus: 'failed',
+        bridgeReclaimNoteId: 'note-stamped',
+        bridgeStampedNoteMayExist: true
+      });
+    });
+
     // A stamped user cancel may have landed, so it keeps the bridge section like any other
     // unconfirmed bridge-out; an unstamped one never reached the pipeline and falls out of it (#1250).
     it('keeps the bridge section for a stamped user cancel on an Agglayer bridged-send', async () => {

@@ -1512,8 +1512,12 @@ export const updateBridgeClaimStatus = async (
  * drift, allocator downtime) means the bridge did NOT succeed and the funds sit
  * in a recallable P2IDE note. Demote the false success to Failed and record it so
  * the activity view stops claiming success. Modifies the row directly because
- * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
- * pipeline is already done with this row, so there is no race.
+ * `updateTransactionStatus` rejects re-finalizing a Completed tx. The row is
+ * usually Completed here, but the 5-minute wait in `createBridgeP2IDENote` can
+ * give up while the row is still in flight, and that pipeline runs on and cannot
+ * record its note on the Failed row, so a row past Queued with no recorded note
+ * id is marked `stampedNoteMayExist` and the reclaim reads the id stamped when
+ * the note was built; a Queued row is never picked up once Failed.
  *
  * A row the note pipeline already failed for its own reason - its own status,
  * error and classification already stored - keeps that failure instead of this
@@ -1531,10 +1535,17 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
     // write rather than this later one; `demoted` stays undefined, so nothing
     // is reported for a row nothing here actually changed (#1250).
     if (tx.status === ITransactionStatus.Failed) return false;
+    // A row past Queued may hold a committed note its pipeline can no longer record.
+    const noteIdUnrecorded = tx.status !== ITransactionStatus.Queued && !tx.outputNoteIds?.length;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Bridge failed — funds reclaimable';
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
-    tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
+    tx.extraInputs = {
+      ...ei,
+      claimStatus: 'failed',
+      epochStatus: 'failed',
+      ...(noteIdUnrecorded ? { stampedNoteMayExist: true } : {})
+    };
     demoted = tx;
     return undefined;
   });
