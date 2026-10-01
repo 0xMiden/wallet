@@ -178,7 +178,7 @@ function guardianOffersProposalCount(count: number) {
   );
 }
 
-// `startedRecoveries` and the queue are module state, so each test gets a fresh
+// `reservations` and the queue are module state, so each test gets a fresh
 // account id rather than a fresh module.
 let accountSeq = 0;
 
@@ -694,6 +694,99 @@ describe('detached recovery run', () => {
       await drainDetachedRun();
     } finally {
       mockClearProgress.mockReset();
+    }
+  });
+
+  it('does not admit a replaced wallet while the clean pass still clears its progress record (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const progressClear: { finish: () => void } = { finish: () => undefined };
+    mockClearProgress.mockResolvedValueOnce(undefined).mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          progressClear.finish = () => resolve();
+        })
+    );
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      expect(mockClearProgress).toHaveBeenCalledTimes(2);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+
+      progressClear.finish();
+      await drainDetachedRun();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      progressClear.finish();
+      await drainDetachedRun();
+      mockClearProgress.mockReset();
+    }
+  });
+
+  it('a progress clear that fails after the flag cleared keeps the account reserved for a failed pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const progressClear: { fail: () => void } = { fail: () => undefined };
+    mockClearProgress.mockResolvedValueOnce(undefined).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          progressClear.fail = () => reject(new Error('storage down'));
+        })
+    );
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      expect(mockClearProgress).toHaveBeenCalledTimes(2);
+      progressClear.fail();
+      await drainDetachedRun();
+
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      releaseGuardianRecoveriesOnLock();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      progressClear.fail();
+      await drainDetachedRun();
+      mockClearProgress.mockReset();
+    }
+  });
+
+  it('a flag clear whose tail fails keeps the reservation in flight until its run ends (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const progressClear: { finish: () => void } = { finish: () => undefined };
+    // The flag write lands and its broadcast throws, so clearPendingFlag returns 'cleared' through its catch.
+    mockAccountsUpdated.mockImplementationOnce(() => {
+      throw new Error('broadcast failed');
+    });
+    mockClearProgress.mockResolvedValueOnce(undefined).mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          progressClear.finish = () => resolve();
+        })
+    );
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      expect(mockClearProgress).toHaveBeenCalledTimes(2);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+
+      progressClear.finish();
+      await drainDetachedRun();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      progressClear.finish();
+      await drainDetachedRun();
+      mockClearProgress.mockReset();
+      mockAccountsUpdated.mockReset();
+      mockProxy.drainPrivateNoteTransport.mockReset();
     }
   });
 
