@@ -238,6 +238,47 @@ describe('the command refuses operator input before any probe or build', () => {
     35_000
   );
 
+  // Playwright keeps only the last --grep, so a second one would silently replace
+  // the operator's narrowing. The prefix's bad --min-eth keeps a taken repeat off
+  // the network.
+  it.each([
+    ['--suite', 'swap', 'swap'],
+    ['--network', 'testnet', 'devnet'],
+    ['--epoch-url', 'https://a.example', 'https://b.example'],
+    ['--epoch-positions-url', 'https://a.example', 'https://b.example'],
+    ['--sepolia-rpc', 'https://a.example', 'https://b.example'],
+    ['--sepolia-key', `0x${'1'.repeat(64)}`, `0x${'2'.repeat(64)}`],
+    ['--grep', 'aaa', 'bbb']
+  ])(
+    'refuses %s given twice',
+    (flag, first, second) => {
+      const res = runCli('--suite', 'swap', '--min-eth', 'abc', flag, first, flag, second);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} given more than once`);
+      expect(res.stderr).not.toContain(first);
+      expect(res.stderr).not.toContain(second);
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('refuses --min-eth given twice', () => {
+    const res = runCli('--suite', 'swap', '--min-eth', '1', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth given more than once');
+    expect(res.stderr).not.toContain('1');
+    expect(res.stderr).not.toContain('abc');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('accepts a boolean flag given twice', () => {
+    const res = runCli('--suite', 'swap', '--headed', '--headed', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+    expect(res.stderr).not.toContain('given more than once');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
   // A swallowed option is lost without a word: `--grep --preflight-only` would
   // build and run a real-money suite the operator asked only to preflight. The
   // trailing bad --min-eth keeps each run off the network if the flag does take it.

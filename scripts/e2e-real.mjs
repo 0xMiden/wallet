@@ -173,6 +173,7 @@ function parseArgs(argv) {
   // `--sepolia-key=<key>` names an option too, so it is never a value either:
   // whatever later refused or ran that value would print the key.
   const namesAnOption = token => optionNames.has(token.split('=', 1)[0]);
+  const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (helpNames.includes(arg)) return { help: true };
@@ -182,6 +183,10 @@ function parseArgs(argv) {
       // A quoted unset variable arrives as '': `--grep "$UNSET"` would otherwise
       // drop the operator's narrowing and widen a real-money run.
       if (value === undefined || value === '' || namesAnOption(value)) fail(`${arg} needs a value`);
+      // A later --grep or --suite would silently replace the operator's narrowing
+      // and widen a real-money run. Neither refusal prints a value.
+      if (seen.has(arg)) fail(`${arg} given more than once`);
+      seen.add(arg);
       opts[takesValue[arg]] = value;
     } else if (arg.includes('=')) {
       fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
