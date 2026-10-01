@@ -563,10 +563,10 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(mockFreeChainAnchor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anchor' }));
   });
 
-  // Cold resolves as `commitments[1] ?? commitments[0]`, so a single-signer
-  // account hands back the hot commitment twice. Both advice entries would then
-  // collide on one Poseidon2 key and the map would hold ONE signature, failing
-  // the threshold-2 `update_guardian` on-chain instead of here.
+  // Hot and cold must be DISTINCT on-chain signers (index 0 and index 1). If they
+  // ever resolve to the same commitment, the two advice entries would collide on
+  // one Poseidon2 key and the map would hold ONE signature, failing the
+  // threshold-2 `update_guardian` on-chain instead of here.
   it('refuses to build when hot and cold resolve to the same signer commitment', async () => {
     mockGetSignerDetails.mockResolvedValue({ commitment: 'the-only-signer' });
 

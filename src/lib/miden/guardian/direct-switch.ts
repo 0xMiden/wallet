@@ -410,13 +410,11 @@ export const createDirectSwitchGuardianRequest = async (
     }
   });
 
-  // Hot and cold must be DISTINCT on-chain signers. `getSignerDetailsFromAccount`
-  // resolves cold as `commitments[1] ?? commitments[0]`, so an account carrying a
-  // single signer commitment yields the hot one twice — the two advice entries
-  // would then collide on one Poseidon2 key (it is derived from the signer
-  // commitment), the map would hold ONE signature, and the threshold-2
-  // `update_guardian` would fail on-chain as unauthorized. Say so here instead,
-  // where the reason is still available.
+  // Hot and cold must be DISTINCT on-chain signers: if index 0 and index 1 ever
+  // resolve to the same commitment, the two advice entries would collide on one
+  // Poseidon2 key (it is derived from the signer commitment), the map would hold
+  // ONE signature, and the threshold-2 `update_guardian` would fail on-chain as
+  // unauthorized. Say so here instead, where the reason is still available.
   if (built.hotCommitment === built.coldCommitment) {
     throw new Error(
       `Guardian account ${walletAccount.publicKey} resolves the same on-chain signer commitment for hot and cold; ` +
