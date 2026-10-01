@@ -19,10 +19,11 @@ jobs:
   # the spec's beforeAll) and the local guardian co-signer (--profile guardian).
   bridge-guardian-e2e:
     name: bridge-guardian-e2e (chrome)
-    # 2 vCPUs: the referenced pr-e2e-earn.yml figures are per-consume LATENCY, not a
-    # suite wall clock, so they do not establish a core count. Kept at 2x because this
-    # suite measured green here; the cold-build ceiling below is NOT derived from it.
-    runs-on: warp-ubuntu-latest-arm64-2x
+    # x64-8x. The suite was green on arm64-2x when it installed the published SDK.
+    # A linked web-sdk build compiles miden-client-web on the runner, and the 2x ARM
+    # runner was cancelled three times in that crate at about 30 min. The same build
+    # finishes in about 10 min on the 8x runner guardian lifecycle uses.
+    runs-on: warp-ubuntu-latest-x64-8x
     # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
     # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
