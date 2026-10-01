@@ -19,6 +19,18 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ pathname: mockLocation.pathname, hash: mockLocation.hash })
 }));
 
+// The real useMobileBackHandler over a recorded registry, so a back press can be driven.
+const mockRegistrations: { handler: () => boolean | void; options: unknown; unregister: jest.Mock }[] = [];
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void, options: unknown) => {
+    const unregister = jest.fn();
+    mockRegistrations.push({ handler, options, unregister });
+    return unregister;
+  }
+}));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => true }));
+const liveBackHandlers = () => mockRegistrations.filter(r => r.unregister.mock.calls.length === 0);
+
 const ANCHOR_RECT = { top: 10, bottom: 54, left: 300, right: 344, width: 44, height: 44, x: 300, y: 10 };
 
 /** A header-like anchor with a real rect, and a panel holding two focusable rows. */
@@ -138,6 +150,33 @@ describe('Popover', () => {
     fireEvent.pointerDown(document.body);
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByTestId('menu')).toBeNull());
+  });
+
+  it('closes on mobile back ahead of any page, hands focus back, and passes the press while closed', async () => {
+    mockRegistrations.length = 0;
+    const onClose = jest.fn();
+    const view = render(<Harness onClose={onClose} />);
+    const anchor = screen.getByRole('button', { name: 'options' });
+    expect(liveBackHandlers()).toHaveLength(1);
+    expect(liveBackHandlers()[0]!.handler()).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+
+    openMenu();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'first' })));
+    // A new onClose identity on every render does not register again.
+    const registered = mockRegistrations.length;
+    view.rerender(<Harness onClose={onClose} />);
+    expect(mockRegistrations).toHaveLength(registered);
+
+    expect(liveBackHandlers()).toHaveLength(1);
+    expect(liveBackHandlers()[0]!.options).toEqual({ overlay: true });
+    let consumed: boolean | void = false;
+    act(() => {
+      consumed = liveBackHandlers()[0]!.handler();
+    });
+    expect(consumed).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(document.activeElement).toBe(anchor));
   });
 
   it('moves focus to the first choice and back to the anchor on close', async () => {

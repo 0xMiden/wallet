@@ -489,6 +489,27 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.id).toBe('n1');
   });
 
+  it('keeps whether a synced note is a standard payment, which the rotation gate claims by (#805)', () => {
+    const synced = (id: string, standardPayment?: boolean) => ({
+      id,
+      faucetId: 'f1',
+      amountBaseUnits: '100',
+      senderAddress: 's1',
+      noteType: 'public',
+      metadata: { decimals: 6, symbol: 'TOK', name: 'Token' },
+      standardPayment
+    });
+    _g.__cnTest.walletState.extensionClaimableNotes = [synced('a', true), synced('b', false), synced('c')];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    expect(result.current.data?.map(note => [note.id, note.standardPayment])).toEqual([
+      ['a', true],
+      ['b', false],
+      ['c', undefined]
+    ]);
+  });
+
   it('publishes the extension list in the fixed order, however the service worker stored it', () => {
     const metadata = { decimals: 6, symbol: 'TOK', name: 'Token' };
     const note = (id: string, receivedAt?: number) => ({
@@ -1130,6 +1151,21 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     rerender();
     expect(result.current.data?.map((n: any) => n.id)).toEqual(['live-1']);
     expect(result.current.isFallback).toBe(false);
+  });
+
+  it('keeps whether a note is a standard payment in the list and in the cache (#805)', async () => {
+    _g.__cnTest.consumableNotes = [
+      { ...makeMockNote({ id: 'standard' }), standardPayment: true },
+      { ...makeMockNote({ id: 'custom' }), standardPayment: false }
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+
+    const flags = (notes: Array<{ id: string; standardPayment?: boolean }> | undefined) =>
+      Object.fromEntries((notes ?? []).map(note => [note.id, note.standardPayment]));
+    expect(flags(result.current.data)).toEqual({ standard: true, custom: false });
+    await waitFor(() => expect(flags(_g.__cnTest.kv[CACHE_KEY])).toEqual({ standard: true, custom: false }));
   });
 
   it('replaces the cached list with the live result and rewrites the cache', async () => {

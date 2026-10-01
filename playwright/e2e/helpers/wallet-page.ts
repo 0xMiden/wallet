@@ -1,12 +1,20 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page, type TestInfo } from '@playwright/test';
 
+import {
+  drainFailureReason,
+  extendTestTimeoutForDrain,
+  readDrainSnapshot,
+  startDrainDeadline,
+  type DrainVerdict
+} from './drain-progress';
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
 import { acknowledgeNetworkNotice } from './network-notice';
+import { dismissTelemetryConsent } from './telemetry-consent';
+import { ACTIVITY_PENDING_PATH } from '../../../src/app/pages/activity-paths';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 import { IS_LOCALNET } from '../config/environments';
-import { dismissTelemetryConsent } from './telemetry-consent';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -16,7 +24,7 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
 // specialChar, strongLength}). The recovery journey drives that real UI, so a
 // weak all-digit password (the old '123456') leaves the submit button disabled
 // forever. This value passes all five checks. The bypass paths accept any value.
-const PASSWORD = 'Test1234!';
+export const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
 
 /**
@@ -70,9 +78,9 @@ const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested
  * Drain laps a busy Accept All may spend before the drain treats its batch as wedged and reloads.
  *
  * The "nothing rendered" fuse next to it is 3 laps (~20s), which is right for a list that failed
- * to render and far too short for a consume that is merely slow — proving one on the local stack
- * takes minutes. A reload mid-batch resets the claiming gate and enqueues a duplicate consume, so
- * this fuse is long enough that only a genuinely stalled batch reaches it.
+ * to render and far too short for a consume that is merely slow: proving one on the local stack
+ * takes minutes. A reload mid-batch enqueues nothing twice, since the notes stay claiming across it
+ * (see `reloadAndPreparePending`), but it costs the drain its reload time, so only a batch this stuck gets one.
  */
 const DRAINING_STALL_ITERS = 12;
 
@@ -328,10 +336,18 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `viaUI: true` — drives the real recovery journey: Welcome → "Recover your
    * account" → 12-word seed grid → submit → (extension: full password step,
    * unavoidable off-mobile) → ImportRecoveryMethod (probe-detected or manual)
-   * → Continue → Confirmation → submit → `completeHotKeyRotation()`, which this
-   * branch awaits itself.
+   * → Continue → Confirmation → submit, and then, by `rotation`:
+   *   - `'complete'` (default): awaits `completeHotKeyRotation()`, so it ends on a
+   *     rotated wallet past its consent prompt;
+   *   - `'await-funding'`: ends as soon as the gate shows its funding panel
+   *     (`waitForHotKeyRotationFunding()`), with the rotation still waiting for the
+   *     MIDEN to pay its fee (#805). The caller funds the address and finishes with
+   *     `completeHotKeyRotation({ fundingExpected: true })`.
    */
-  recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
+  recoverGuardianFromSeed(
+    seed: string,
+    opts: { viaUI: boolean; guardianUrl?: string; rotation?: 'complete' | 'await-funding' }
+  ): Promise<void>;
   /**
    * Import a Guardian account with its hot and EVM private key pair — the
    * seed-less import path. Drives the real screens: Welcome → "Recover your
@@ -373,8 +389,20 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * of it, so the gate detaching is the first moment it can be answered. Callers
    * get a wallet that is rotated AND on its post-onboarding surface; none of them
    * need to dismiss the prompt themselves.
+   *
+   * By default it also throws when the gate asks for network-fee funding after a
+   * rotation fell short of its fee (#805): a spec that forgot `ensureFeeFunded`
+   * fails there, naming the cause, instead of timing out on a gate that never
+   * detaches. With `fundingExpected` the funding panel is the path to the cleared
+   * gate, and a failed funding claim throws instead. `timeoutMs` bounds the wait
+   * for the gate to clear (default 120 s).
    */
-  completeHotKeyRotation(): Promise<void>;
+  completeHotKeyRotation(opts?: { fundingExpected?: boolean; timeoutMs?: number }): Promise<void>;
+  /**
+   * Wait for the rotation gate's funding panel (#805) and return the address it
+   * shows and why it is up (`data-funding-reason`).
+   */
+  waitForHotKeyRotationFunding(): Promise<{ address: string; reason: string }>;
   /**
    * Assert a Guardian account's on-chain auth shape via `getGuardianAuthInfo`:
    * the active signer count and the `update_guardian` procedure threshold
@@ -639,8 +667,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // The bypass skips the ChooseGuardian / ImportRecoveryMethod screens that
     // would normally set the onboarding guardian endpoint, so thread it in via
     // the `guardianUrl` query param instead. Welcome.tsx reads it into its
-    // guardianEndpoint state and register() forwards it as the OVERRIDE — the
-    // same path production uses — so createGuardianAccount (create) and
+    // guardianEndpoint state and register() forwards it as the OVERRIDE, the
+    // same path production uses, so fetchGuardianCreateKey (create) and
     // Vault.spawn's recovery scan (import) both bind to it.
     // `createGuardianWallet` / `createNewWallet` always pass a URL (required by
     // their signatures); `recoverGuardianFromSeed(..., { viaUI: false })` passes
@@ -1109,7 +1137,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * Recover a Guardian account from its seed phrase. See the interface doc
    * comment (ChromeWalletPageApi) for the `viaUI` split.
    */
-  async recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void> {
+  async recoverGuardianFromSeed(
+    seed: string,
+    opts: { viaUI: boolean; guardianUrl?: string; rotation?: 'complete' | 'await-funding' }
+  ): Promise<void> {
     const words = seed.trim().split(/\s+/);
 
     if (!opts.viaUI) {
@@ -1158,6 +1189,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovered account always carries requiresHotKeyRotation — see
     // HotKeyRotationGate.tsx. This also clears the consent prompt the gate was
     // covering, which is why neither recovery branch dismisses it itself.
+    if (opts.rotation === 'await-funding') {
+      await this.waitForHotKeyRotationFunding();
+      return;
+    }
     await this.completeHotKeyRotation();
   }
 
@@ -1247,34 +1282,58 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * covering. Throws if it instead reaches its terminal-failure surface within
    * the timeout.
    */
-  async completeHotKeyRotation(): Promise<void> {
+  async completeHotKeyRotation(opts: { fundingExpected?: boolean; timeoutMs?: number } = {}): Promise<void> {
+    const timeout = opts.timeoutMs ?? 120_000;
     const gate = this.page.getByTestId('hot-key-rotation-gate');
     await gate.waitFor({ state: 'visible', timeout: 30_000 });
 
-    await Promise.race([
-      gate.waitFor({ state: 'detached', timeout: 120_000 }),
+    // The gate only says "it failed". The reason is on the row -- and on a
+    // fee-charging chain the reasons differ sharply (an unpayable fee vs a
+    // guardian/register fault), so the bare surface message sends the reader
+    // to the wrong place.
+    const failedRows = async (): Promise<string> => {
+      const rows = await readTransactionRows(this.page).catch(() => []);
+      const failed = rows
+        .filter(r => r.status === 3)
+        .map(
+          r =>
+            `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+            (r.rawError ? `\n      raw: ${r.rawError}` : '')
+        )
+        .join('');
+      return failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)';
+    };
+    // A surface that ends the wait with an error. Its own timeout never settles, so only
+    // the gate's detach wait can time the race out.
+    const failsOn = (selector: string, describe: () => Promise<string>): Promise<void> =>
       this.page
-        .getByTestId('hot-key-rotation-failed')
-        .waitFor({ state: 'visible', timeout: 120_000 })
-        .then(async () => {
-          // The gate only says "it failed". The reason is on the row -- and on a
-          // fee-charging chain the reasons differ sharply (an unpayable fee vs a
-          // guardian/register fault), so the bare surface message sends the reader
-          // to the wrong place.
-          const rows = await readTransactionRows(this.page).catch(() => []);
-          const failed = rows
-            .filter(r => r.status === 3)
-            .map(
-              r =>
-                `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
-                (r.rawError ? `\n      raw: ${r.rawError}` : '')
-            )
-            .join('');
-          throw new Error(
-            'completeHotKeyRotation: rotation reached its terminal-failure surface' +
-              (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
-          );
-        })
+        .locator(selector)
+        .waitFor({ state: 'visible', timeout })
+        .then(
+          async () => {
+            throw new Error(`completeHotKeyRotation: ${await describe()}`);
+          },
+          () => new Promise<void>(() => undefined)
+        );
+
+    await Promise.race([
+      gate.waitFor({ state: 'detached', timeout }),
+      failsOn(
+        '[data-testid="hot-key-rotation-failed"]',
+        async () => `rotation reached its terminal-failure surface${await failedRows()}`
+      ),
+      opts.fundingExpected
+        ? failsOn(
+            '[data-testid="hot-key-rotation-funding-status"][data-state="claim-failed"]',
+            async () => `the funding claim failed${await failedRows()}`
+          )
+        : failsOn('[data-testid="hot-key-rotation-funding"][data-funding-reason="rotation-shortfall"]', async () => {
+            const address = await this.page.getByTestId('hot-key-rotation-funding-address').textContent();
+            return (
+              'rotation needs network-fee funding; pre-fund with ensureFeeFunded before recovery, or pass ' +
+              `fundingExpected (address ${address?.trim() ?? '?'})`
+            );
+          })
     ]);
 
     // Every wallet that raises this gate got here by being RECOVERED, and a
@@ -1291,6 +1350,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovery) has no prompt behind it, and neither does a profile that
     // already carries a stored telemetry choice.
     await dismissTelemetryConsent(this.page);
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async waitForHotKeyRotationFunding(): Promise<{ address: string; reason: string }> {
+    const panel = this.page.getByTestId('hot-key-rotation-funding');
+    await panel.waitFor({ state: 'visible', timeout: 120_000 });
+    const address = (await this.page.getByTestId('hot-key-rotation-funding-address').textContent())?.trim() ?? '';
+    return { address, reason: (await panel.getAttribute('data-funding-reason')) ?? '' };
   }
 
   /**
@@ -2115,7 +2184,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Drain every claimable note until the wallet's consumable-notes cache is
-   * empty for two consecutive syncs (or until `timeoutMs` elapses).
+   * empty for two consecutive syncs, or until the transaction queue stops moving
+   * or the drain reaches twice its budget (see `startDrainDeadline` in drain-progress.ts).
    *
    * Reads pending notes from `chrome.storage.local.miden_sync_data.notes`, which
    * is the same source `getBalance()` sums over — so "drained" here means the
@@ -2169,17 +2239,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Full page reload, re-inject faucet metadata, then land on /receive.
+   * Full page reload, re-inject faucet metadata, then land on the Activity tab's Pending list.
    *
-   * A full reload (not a client-side navigate) is load-bearing: it gives a
-   * fresh Dexie connection AND re-initializes the wallet's in-memory Zustand
-   * store — critically resetting `extensionClaimingNoteIds`. A note whose
-   * consume has stalled stays flagged "being claimed" (no Claim button) until
-   * its consume commits; on slow networks (testnet) that can outlast a whole
-   * claim cycle. Client-side navigation does NOT reset the store, so only a
-   * reload un-gates such notes. Used both at the start of a claim drain and as
-   * the recovery step when the loop gets stuck with pending notes but no
-   * visible buttons.
+   * The reload gives a fresh Dexie connection and restarts the page: the claim attempts
+   * `useActivityClaims` keeps in module memory are dropped, and every card's claiming state is
+   * re-read from the transaction rows (`claimable-notes.ts`). A note whose consume row is still
+   * Queued or Generating therefore stays claiming across it, and `queueConsumeRows` would refuse a
+   * second consume of it anyway. Used at the start of a claim drain and as the rescue step when
+   * the loop sees pending notes but no usable button.
    */
   private async reloadAndPreparePending(): Promise<void> {
     await this.page.reload({ waitUntil: 'domcontentloaded' });
@@ -2193,7 +2260,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // dedicated /pending-notes page it replaced is gone. navigateTo() is a full goto, so the app
     // re-boots; wait for the rehydrated store (the route is `onlyReady`-gated on it) instead of
     // another fixed 3s.
-    await this.navigateTo('/history?filter=pending');
+    await this.navigateTo(ACTIVITY_PENDING_PATH);
     await this.waitForStoreReady(3_000);
   }
 
@@ -2201,16 +2268,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const STABLE_ZERO_THRESHOLD = 2;
     const timeoutMs = effectiveClaimBudgetMs(requestedTimeoutMs);
 
-    // Fresh reload + metadata injection + land on /receive. The reload (NOT a
-    // client-side navigate) gives a fresh Dexie connection AND resets the
-    // wallet's in-memory store — clearing the `extensionClaimingNoteIds` gate.
-    // See reloadAndPreparePending.
+    // Fresh reload + metadata injection + land on the Pending list. See reloadAndPreparePending.
     await this.reloadAndPreparePending();
+
+    // Outside a running test, test.info() throws.
+    let testInfo: TestInfo | undefined;
+    try {
+      testInfo = test.info();
+    } catch {
+      testInfo = undefined;
+    }
 
     // Start the clock AFTER reload/prepare. That step costs ~8-12s of fixed
     // sleeps, and billing it against the caller's budget silently turned a 120s
-    // budget into ~110s of actual draining (#615).
-    const deadline = Date.now() + timeoutMs;
+    // budget into ~110s of actual draining (#615). The first read is the base the
+    // first lap's progress is measured against. A drain that runs past its budget while still
+    // moving must outlast the test's own timeout, or its verdict line and dumpTransactions dump
+    // never print, so the extension only fires once the drain actually needs the room.
+    const drain = startDrainDeadline(timeoutMs, undefined, () => extendTestTimeoutForDrain(timeoutMs, testInfo));
+    drain.observe(await readDrainSnapshot(this.page));
 
     const readPendingCount = (): Promise<number> =>
       this.page.evaluate(async () => {
@@ -2226,8 +2302,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     let lastPending = -1;
     let stuckSameCountIters = 0;
     let drainingIters = 0;
+    let verdict: DrainVerdict = 'continue';
 
-    while (Date.now() < deadline && stableZero < STABLE_ZERO_THRESHOLD) {
+    while (
+      stableZero < STABLE_ZERO_THRESHOLD &&
+      (verdict = drain.check(await readDrainSnapshot(this.page))) === 'continue'
+    ) {
       iteration++;
       await this.triggerSync();
 
@@ -2295,29 +2375,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       drainingIters = draining ? drainingIters + 1 : 0;
 
       // Cache says transfers are pending but the list hasn't rendered the
-      // action. Two causes: (a) React hasn't rehydrated from the updated store
-      // yet — resolves on its own; (b) the notes are gated by
-      // `extensionClaimingNoteIds` because a prior claim's consume stalled and
-      // never committed (common on slow networks like testnet). A client-side
-      // navigate clears (a) but NOT (b), since the store survives navigation —
-      // only a full reload resets the claiming gate. So after a few stuck
-      // iterations, reload to break out of both.
+      // action. Two causes a reload clears: (a) React hasn't rehydrated from the
+      // updated store yet; (b) a note from a faucet the store has no metadata for
+      // is filtered out of the list until `injectClaimableMetadata` runs again,
+      // which the reload does. So after a few stuck iterations, reload.
       //
       // A batch in flight gets a fuse of its OWN, an order of magnitude longer. It is progress,
       // not a stall: a healthy consume routinely outlives the 3 laps (~20s) that mean "nothing
-      // rendered", and reloading under it resets the claiming gate and enqueues a SECOND consume
-      // of notes already being consumed. A consume that really is wedged still gets rescued, just
-      // on the longer fuse.
+      // rendered". Reloading under it enqueues nothing twice, since its notes stay claiming across
+      // the reload, but costs the drain the reload's time. A consume that really is wedged still
+      // gets rescued, just on the longer fuse.
       const needsRescue = draining ? drainingIters >= DRAINING_STALL_ITERS : stuckSameCountIters >= 3;
       console.log(
         draining
           ? `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} Accept All is draining its batch (lap ${drainingIters})`
           : `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
-      // The gate above is (b) — a consume that never committed — often enough that
-      // it is worth asking the offscreen document what that consume is doing before
-      // reloading and enqueuing another one. Streams to stdout so a stalled claim is
-      // diagnosable from the live job log instead of from artifacts after the run.
+      // Before the reload, ask the offscreen document what any in-flight consume is doing. Streams
+      // to stdout so a stalled claim is diagnosable from the live job log instead of from artifacts
+      // after the run.
       if (needsRescue) {
         await dumpProveTelemetry(this.page, `claimAllNotes stuck at iter=${iteration}`);
         await this.reloadAndPreparePending();
@@ -2328,17 +2404,22 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.page.waitForTimeout(3_000);
     }
 
-    if (Date.now() >= deadline && stableZero < STABLE_ZERO_THRESHOLD) {
+    // The loop leaves short of two zero reads only on a final verdict, taken on the read at its head; judging again
+    // here would read nothing new, and past the budget could fire onOverrun on a drained exit.
+    if (stableZero >= STABLE_ZERO_THRESHOLD || verdict === 'continue') {
+      console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
+    } else {
       await this.confirmDrainedOrThrow('claimAllNotes', {
         readPendingCount,
         timeoutMs,
+        verdict,
+        elapsedMs: drain.elapsedMs(),
+        sinceProgressMs: drain.sinceProgressMs(),
         iteration,
         lastPending,
         stableZero,
         stableZeroThreshold: STABLE_ZERO_THRESHOLD
       });
-    } else {
-      console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
 
     await this.navigateHome();
@@ -2366,6 +2447,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     ctx: {
       readPendingCount: () => Promise<number>;
       timeoutMs: number;
+      verdict: Exclude<DrainVerdict, 'continue'>;
+      elapsedMs: number;
+      sinceProgressMs: number | null;
       iteration: number;
       lastPending: number;
       stableZero: number;
@@ -2386,9 +2470,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // and its stage) lands in the test log instead of staying hidden in the SW.
     const txDump = await this.dumpTransactions().catch(() => 'unavailable');
     console.log(`[WalletPage.${label}] transactions at timeout: ${txDump}`);
+    const reason = drainFailureReason(ctx.verdict, ctx.sinceProgressMs, ctx.elapsedMs, ctx.timeoutMs);
     throw new Error(
-      `[WalletPage.${label}] timed out after ${ctx.timeoutMs}ms with ${first} pending note(s) ` +
-        `after ${ctx.iteration} iteration(s) (lastPending=${ctx.lastPending}, ` +
+      `[WalletPage.${label}] timed out (${reason}) after ${Math.round(ctx.elapsedMs)}ms with ${first} pending ` +
+        `note(s) after ${ctx.iteration} iteration(s) (lastPending=${ctx.lastPending}, ` +
         `stableZero=${ctx.stableZero}/${ctx.stableZeroThreshold}). Transactions: ${txDump}`
     );
   }
@@ -2578,8 +2663,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * Diagnostic: read every row of `TridentMain.transactions` and return a
-   * compact one-line summary (`id·type·status·stage·error`) for each. Used to
-   * surface a stalled/failed consume's real reason in the test log rather than
+   * compact one-line summary (`id·type·status·stage·stageTimestamps·nextEligibleAt·error`) for
+   * each. Used to surface a stalled/failed consume's real reason in the test log rather than
    * leaving it buried in the service worker. status: 0=Queued 1=Generating
    * 2=Completed 3=Failed.
    */
@@ -2615,6 +2700,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
               // terminal — a successful replace-hot-key freezes at 'confirming'.
               // Read it only together with `status`.
               stage: row.stage,
+              stageTimestamps: row.stageTimestamps,
+              nextEligibleAt: row.nextEligibleAt,
               error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
               // `error` is the user-facing copy, which deliberately drops the technical
               // detail -- "the prover does not recognize part of this transaction" without

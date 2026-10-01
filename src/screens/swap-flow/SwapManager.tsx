@@ -607,6 +607,8 @@ const SwapManager: React.FC = () => {
           spends={spendingLimitChallenge.spends}
           unpriced={spendingLimitChallenge.unpriced}
           onResult={handleSpendingLimitResult}
+          // This flow's back handler closes the challenge (and holds everything while a swap submits).
+          closeOnBack={false}
         />
       )}
     </HomeGroupPaneRoot>

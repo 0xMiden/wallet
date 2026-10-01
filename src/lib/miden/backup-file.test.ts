@@ -4,6 +4,7 @@ import {
   MalformedBackupFileError,
   UnsupportedBackupVersionError,
   importedAccountBackupFailure,
+  isExcludedFromWalletFile,
   parseDecryptedWalletFile,
   parseImportedAccountBackupFailure
 } from './backup-file';
@@ -264,5 +265,16 @@ describe('seed phrase contract', () => {
     // still back up its imported secrets, and this is that file.
     const importedOnly = { ...versionTwoPayload, seedPhrase: '', accounts: [importedAccount] };
     expect(parseDecryptedWalletFile(importedOnly).seedPhrase).toBe('');
+  });
+});
+
+describe('isExcludedFromWalletFile (#1114)', () => {
+  it.each([
+    { label: 'a Guardian account imported from its keys', type: WalletType.Guardian, hdIndex: -1, excluded: true },
+    { label: 'a seed-derived Guardian account', type: WalletType.Guardian, hdIndex: 0, excluded: false },
+    { label: 'an imported private-key account', type: WalletType.OnChain, hdIndex: -1, excluded: false },
+    { label: 'a seed-derived on-chain account', type: WalletType.OnChain, hdIndex: 0, excluded: false }
+  ])('$label is excluded: $excluded (#1114)', ({ type, hdIndex, excluded }) => {
+    expect(isExcludedFromWalletFile({ type, hdIndex })).toBe(excluded);
   });
 });

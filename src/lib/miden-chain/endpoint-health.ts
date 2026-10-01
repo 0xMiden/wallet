@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { withRequestTimeout } from 'lib/remote-json';
+
 export type EndpointHealthStatus = 'idle' | 'pending' | 'reachable' | 'error';
 export type EndpointHealthKind = 'faucet-api' | 'reachability';
 
@@ -24,17 +26,17 @@ export async function probeEndpointHealth(url: string, kind: EndpointHealthKind)
   if (!url) return 'idle';
   try {
     if (kind === 'faucet-api') {
-      const res = await fetch(`${url.replace(/\/$/, '')}/get_metadata`, {
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
+      return await withRequestTimeout(PROBE_TIMEOUT_MS, async signal => {
+        const res = await fetch(`${url.replace(/\/$/, '')}/get_metadata`, { signal });
+        if (!res.ok) return 'error';
+        await res.json();
+        return 'reachable';
       });
-      if (!res.ok) return 'error';
-      await res.json();
-      return 'reachable';
     }
     try {
-      await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+      await withRequestTimeout(PROBE_TIMEOUT_MS, signal => fetch(url, { signal }));
     } catch {
-      await fetch(url, { mode: 'no-cors', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+      await withRequestTimeout(PROBE_TIMEOUT_MS, signal => fetch(url, { mode: 'no-cors', signal }));
     }
     return 'reachable';
   } catch {

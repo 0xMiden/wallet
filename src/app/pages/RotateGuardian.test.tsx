@@ -67,6 +67,12 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
       >
         same
       </button>
+      <button
+        data-testid="pick-same-other-case"
+        onClick={() => onSubmit({ guardianId: 'g1', guardianEndpoint: mockCurrentEndpoint.toUpperCase() })}
+      >
+        same-other-case
+      </button>
     </div>
   )
 }));
@@ -138,6 +144,15 @@ it('refuses to queue a switch onto the Guardian the account already uses', () =>
   render(<RotateGuardian />);
 
   fireEvent.click(screen.getByTestId('pick-same'));
+
+  expect(screen.getByRole('alert')).toHaveTextContent('guardianEndpointUnchanged');
+  expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+it('refuses a host-case spelling of the Guardian the account already uses', () => {
+  render(<RotateGuardian />);
+
+  fireEvent.click(screen.getByTestId('pick-same-other-case'));
 
   expect(screen.getByRole('alert')).toHaveTextContent('guardianEndpointUnchanged');
   expect(mockNavigate).not.toHaveBeenCalled();

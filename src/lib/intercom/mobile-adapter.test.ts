@@ -6,6 +6,9 @@ import { WalletMessageType } from 'lib/shared/types';
 import { MobileIntercomAdapter } from './mobile-adapter';
 
 // Mock the dependencies
+jest.mock('lib/miden/back/transaction-processor', () => ({
+  startTransactionProcessing: jest.fn().mockResolvedValue(undefined)
+}));
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn().mockResolvedValue(undefined),
   getFrontState: jest.fn().mockResolvedValue({ accounts: [], settings: {} }),

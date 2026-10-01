@@ -26,6 +26,9 @@ import { Vault } from './vault';
 jest.setTimeout(30_000);
 
 const memoryStore: Record<string, any> = {};
+const mockStorageSet = jest.fn(async (items: Record<string, unknown>) => {
+  Object.assign(memoryStore, items);
+});
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
@@ -33,9 +36,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
       for (const k of keys) if (k in memoryStore) out[k] = memoryStore[k];
       return out;
     },
-    set: async (items: Record<string, any>) => {
-      Object.assign(memoryStore, items);
-    },
+    set: (items: Record<string, unknown>) => mockStorageSet(items),
     remove: async (keys: string[]) => {
       for (const k of keys) delete memoryStore[k];
     }
@@ -93,11 +94,16 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
-jest.mock('lib/miden/reset', () => ({
-  clearStorage: jest.fn(async () => {
-    for (const k of Object.keys(memoryStore)) delete memoryStore[k];
-  })
-}));
+jest.mock('lib/miden/reset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
+  return {
+    PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
+    // Mirrors the real reset: every key but the kept list goes.
+    clearStorage: jest.fn(async (_clearDb: boolean = true, keep: readonly string[] = actual.PRESERVED_STORAGE_KEYS) => {
+      for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
+    })
+  };
+});
 
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => true),

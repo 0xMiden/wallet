@@ -22,9 +22,6 @@ export interface RouteStepProps {
   notice?: React.ReactNode;
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
-  /** Padding classes for the confirm-button footer. The `pb-24` default clears
-   *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
-  footerClassName?: string;
   onConfirm: () => void;
 }
 
@@ -127,7 +124,6 @@ export const Route: React.FC<RouteStepProps> = ({
   fastQuoteLoading,
   notice,
   confirmDisabled,
-  footerClassName = 'pt-4 pb-24',
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -146,7 +142,7 @@ export const Route: React.FC<RouteStepProps> = ({
         />
       </div>
 
-      <FlowFooter className={footerClassName}>
+      <FlowFooter className="pt-4">
         <Button
           title={t('confirm')}
           variant={ButtonVariant.Primary}

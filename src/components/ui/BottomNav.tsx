@@ -31,25 +31,35 @@ export interface BottomNavProps {
    *  reaches the body's safe-area floor into the device's bottom inset, with an 8px
    *  floor of its own, so the bar's background runs under the home indicator. */
   docked?: boolean;
-  /** Drawn over the bar's lower-right corner, taking no layout space (the test-network ribbon). It
-   *  sits in a box clipped to the bar's own shape that lets taps through; whatever it renders
-   *  decides which of its parts take taps (`pointer-events-auto`). */
-  corner?: ReactNode;
+  /** Docked only: end the tabs 8px above the device's bottom inset instead of letting them reach
+   *  into it. Android's inset is the system navigation bar (three buttons, or the gesture handle),
+   *  which a tab must not sit on; iOS's is the home indicator, which the tabs may overlap. */
+  clearInset?: boolean;
   className?: string;
 }
 
 // The bar's own geometry, unchanged from before the design system: 80 x 56 tabs (a 72 x 48 pill
 // plus 4px), 8px above them, and docked, a bottom padding that reaches the body's safe-area floor
 // (--app-safe-bottom, declared in mobile.html) minus 16px, with an 8px floor of its own. On an
-// iPhone 17 Pro that is 1 + 8 + 56 + 18 = 83px. Anything drawn over it (the corner ribbon) adapts to
-// this, never the other way around.
+// iPhone 17 Pro that is 1 + 8 + 56 + 18 = 83px. With `clearInset` the padding is the whole inset
+// plus 8px instead, so on Android the tabs end 8px above the system navigation bar (1 + 8 + 56 + 8,
+// plus the inset).
 const bar = cva('relative flex items-center bg-page', {
   variants: {
     docked: {
-      true: 'w-full px-4 pt-2 pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))] border-t border-hairline',
+      true: 'w-full px-4 pt-2 border-t border-hairline',
       false: 'justify-center rounded-3xl px-4 py-2 shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.15)]'
-    }
-  }
+    },
+    clearInset: { true: '', false: '' }
+  },
+  compoundVariants: [
+    {
+      docked: true,
+      clearInset: false,
+      class: 'pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))]'
+    },
+    { docked: true, clearInset: true, class: 'pb-[calc(env(safe-area-inset-bottom)+0.5rem)]' }
+  ]
 });
 
 // Docked, the tabs share the full width; floating, they sit side by side.
@@ -127,11 +137,18 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
   );
 };
 
-export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docked = false, corner, className }) => {
+export const BottomNav: FC<BottomNavProps> = ({
+  items,
+  activeId,
+  onChange,
+  docked = false,
+  clearInset = false,
+  className
+}) => {
   const motionTokens = useTabBarMotion();
 
   return (
-    <nav className={cn(bar({ docked }), className)}>
+    <nav className={cn(bar({ docked, clearInset }), className)}>
       <div className={tabRow({ docked })}>
         {/* One highlight shared by every tab slides to the active one. Controlled and click-free:
             the owner decides whether a tap navigates (and buzzes), and `activeId` follows. */}
@@ -150,16 +167,6 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
           ))}
         </Highlight>
       </div>
-      {/* Over the tabs, in the bar's own shape (`rounded-[inherit]` clips it to the floating pill's
-          radius), and transparent to taps outside whatever the corner content opts in. */}
-      {corner && (
-        <div
-          data-slot="bottom-nav-corner"
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
-        >
-          {corner}
-        </div>
-      )}
     </nav>
   );
 };

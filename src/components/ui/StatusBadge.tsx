@@ -15,6 +15,7 @@ export type Status =
   | 'confirmed'
   | 'failed'
   | 'cancelled'
+  | 'unconfirmed'
   | 'reclaimed'
   // A pending transfer the wallet has claimed
   | 'claimed'
@@ -67,6 +68,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   confirmed: { labelKey: 'confirmed', tone: 'positive' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
+  unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },
   claimed: { labelKey: 'accepted', tone: 'positive' },
   redeeming: { labelKey: 'earnWithdrawStatusRedeeming', tone: 'pending' },

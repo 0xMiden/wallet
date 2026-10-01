@@ -420,6 +420,19 @@ button:disabled,
   line-height: var(--tw-leading, 17px);
   font-weight: var(--tw-font-weight, 400);
 }
+@utility text-caption-heading {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  line-height: var(--tw-leading, 17px);
+  font-weight: var(--tw-font-weight, 600);
+}
+/* A subtree set wholly in Nunito: the roles below it that read `--font-sans`, shared components'
+ * row labels and captions included, resolve to the heading face, and text that sets no face of
+ * its own inherits it. */
+@utility face-heading {
+  --font-sans: var(--font-heading);
+  font-family: var(--font-heading);
+}
 
 /* Force Inter as the inherited default. Tailwind v4's preflight should set this
  * via --default-font-family, but the @config + JS-theme path doesn't reliably
@@ -642,20 +655,35 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     visibility 0s linear 250ms;
 }
 
-/* Bottom-CTA footers that reserve space for the floating BottomNav (pb-24)
- * tag themselves with data-navbar-cushion. While the navbar is hidden —
- * notably when the soft keyboard is up (lib/mobile/keyboard-inset hides it) — collapse the
- * cushion so the CTA sits snug above the keyboard instead of leaving a dead
- * gap. Timed to match the navbar fade above. */
+/* Bottom-CTA footers that reserve the tab bar's room (--navbar-cushion, declared below)
+ * tag themselves with data-navbar-cushion. While the navbar is hidden - notably when the
+ * soft keyboard is up (lib/mobile/keyboard-inset hides it) - collapse the cushion so the
+ * CTA sits snug above the keyboard instead of leaving a dead gap. Timed to match the
+ * navbar fade above. */
 [data-navbar-cushion='true'] {
   transition: padding-bottom 250ms cubic-bezier(0.38, 0.7, 0.125, 1);
 }
 body[data-hide-navbar] [data-navbar-cushion='true'] {
   padding-bottom: 1rem;
 }
-/* A route with no TabLayout has no bar to clear, so its cushion takes the same flat margin. */
-body:not([data-navbar-mounted]) [data-navbar-cushion='true'] {
-  padding-bottom: 1rem;
+/* The room a flow CTA's cushion reserves for the tab bar (footer-cushion.ts reads it, 1rem when unset).
+ * Declared on TabLayout's root, so only a page inside the layout that draws the bar inherits it: a slide
+ * page is a sibling of the covered tab layer, has no bar over it, and keeps 1rem while it slides (#1109).
+ * Docked over an iPhone's home indicator the bar reaches 49px into the page, so 4rem keeps the CTA 15px
+ * above it (57px and 7px on a home-button iPhone). On Android the tabs stay 8px above the system navigation
+ * bar: the bar is 73px plus the inset and sinks by the body's safe-area floor, so it reaches 73px + inset -
+ * floor into the page, and the cushion keeps 15px more at any inset. Off-mobile the bar is a floating pill
+ * that needs 6rem. */
+[data-tab-layout='docked'] {
+  --navbar-cushion: 4rem;
+}
+[data-tab-layout='docked'][data-navbar-clears-inset] {
+  --navbar-cushion: calc(
+    5.5rem + env(safe-area-inset-bottom) - var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom)))
+  );
+}
+[data-tab-layout='floating'] {
+  --navbar-cushion: 6rem;
 }
 /* A flow footer's cushion snaps: it slides with useSlideOnReflow, and a padding transition under
  * that slide would reflow every frame and leave the slide's start position stale. */
@@ -811,17 +839,18 @@ body[data-home-band]::before {
     /* Balance card surface — neutral graphite grey. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-rule: rgba(255, 255, 255, 0.18);
     /* The balance card's change pill: a darker well of the card's own color, so it suits every
      * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
     --surface-balance-pill: rgba(0, 0, 0, 0.24);
+    /* The balance card's footer: its second tone, a darker well of the card's own color. */
+    --surface-balance-footer: rgba(0, 0, 0, 0.2);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 
     /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
      * get lighter variants in dark mode; slate/orange stay fixed. These five are BRAND colors:
      * never shift them for contrast. The card solves readability with type size and weight
-     * (amount, currency) and a darker well (change pill), see BalanceCard and the contrast
+     * (amount, currency) and darker wells (change pill, footer), see BalanceCard and the contrast
      * test in design-tokens.test.ts. */
     --card-slate: #777386;
     --card-orange: #e77537;
@@ -952,10 +981,11 @@ body[data-home-band]::before {
     /* Balance card surface — keep same graphite grey in dark mode. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-rule: rgba(255, 255, 255, 0.18);
     /* The balance card's change pill: a darker well of the card's own color, so it suits every
      * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
     --surface-balance-pill: rgba(0, 0, 0, 0.24);
+    /* The balance card's footer: its second tone, a darker well of the card's own color. */
+    --surface-balance-footer: rgba(0, 0, 0, 0.2);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 

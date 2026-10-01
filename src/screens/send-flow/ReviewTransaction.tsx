@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
@@ -515,10 +516,14 @@ export const ReviewTransaction: React.FC = () => {
     return rel.charAt(0).toUpperCase() + rel.slice(1);
   })();
 
-  // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
-  // USDC output. Show a skeleton only while the Fast quote is still loading.
+  // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
+  // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
+  // skeleton only while the Fast quote is still loading.
   const youReceiveLoading = isBridge && route !== 'agglayer' && epochQuote.loading;
-  const youReceiveAmount = route === 'agglayer' ? amount : epochQuote.amount;
+  const youReceiveAmount =
+    route === 'agglayer'
+      ? formatMoneyAmount(amount, 'typed')
+      : formatMoneyAmount(epochQuote.amount, 'receives', BRIDGE_OUTPUT_TOKEN_SYMBOL);
   const youReceiveLabel =
     youReceiveAmount != null
       ? `≈ ${youReceiveAmount} ${BRIDGE_OUTPUT_TOKEN_SYMBOL}`.trim()

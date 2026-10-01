@@ -449,6 +449,9 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     // unauthorized failure, so a row that had exhausted its budget would behave
     // worse under Retry than an identical send the user initiated from scratch.
     dbTx.unauthorizedRetryUntil = undefined;
+    // And a fresh guardian backoff: the retry's first requeue waits its arm's base cooldown, not one the failed
+    // attempts had doubled (#1223).
+    dbTx.requeueStreak = undefined;
     dbTx.error = undefined;
     dbTx.rawError = undefined;
     dbTx.displayMessage = undefined;

@@ -94,10 +94,10 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
 
     try {
       await steps.step('connect_evm', async () => {
-        // The public relay rate-limits connection bursts on the shared free-tier
-        // projectId and its subscribe can time out mid-handshake, so retry the
-        // WHOLE handshake (URI fetch + pair + approve) with backoff — the
-        // CI-reliability guard for the relay dependency.
+        // The public relay rate-limits connection bursts and its subscribe can
+        // time out mid-handshake, so retry the WHOLE handshake (URI fetch +
+        // pair + approve) with backoff - the CI-reliability guard for the
+        // relay dependency.
         await cp.connectWithRetry(
           () => walletA.reownConnectUri(),
           async () => (await walletA.reownState()).connected

@@ -6,7 +6,7 @@ import { BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL, quoteEpochSendOutput } from 'lib/ep
 
 export interface EpochQuoteState {
   loading: boolean;
-  /** Estimated EVM output, human-formatted (18 decimals). */
+  /** Estimated EVM output as an exact human decimal; the Review rounds it down for display. */
   amount?: string;
   /** Output token symbol (USDC). */
   symbol: string;

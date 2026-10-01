@@ -44,13 +44,14 @@ export interface CopyButtonProps {
 /**
  * The app's copy action. Writes `text` to the clipboard and confirms it in place: the label rolls
  * to "Copied" and, with `icon`, the copy glyph morphs into a check (`AnimatedCopyIcon`,
- * `CopyLabel`, `lib/animation/copy`), both for `COPY_FEEDBACK_MS`. One light haptic per tap. A
- * failed write shows nothing: the value stays on screen to copy by hand.
+ * `CopyLabel`, `lib/animation/copy`), both for `COPY_FEEDBACK_MS`. One light haptic per tap, even
+ * a tap ignored because the previous write is still in flight. A failed write is logged and shows no
+ * error: the value stays on screen to copy by hand, and a failure landing inside an earlier
+ * success's window takes that "Copied" down at once.
  *
  * Colour comes from the caller: the default is the `accent-tint-ink` text action of a detail row,
  * and a caller's own text colour in `className` replaces it (glyph and label paint in
- * `currentColor`). Built on `@capacitor/clipboard`, which has its own web implementation, so the
- * same call works on desktop, the extension and mobile.
+ * `currentColor`). Built on `useClipboardCopy`.
  */
 export const CopyButton: React.FC<CopyButtonProps> = ({
   text,

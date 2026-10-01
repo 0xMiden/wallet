@@ -6,6 +6,7 @@ import { type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { SelectionCheck } from './SelectionCheck';
+import { Skeleton } from './Skeleton';
 
 export type AssetDeltaDirection = 'positive' | 'negative' | 'neutral';
 
@@ -36,6 +37,8 @@ export interface AssetListItemProps {
    * share a symbol, so a caller that has to address one exactly passes its faucet id here.
    */
   'data-token-id'?: string;
+  /** A short mark after the name, such as a token's verification. It never shrinks; the name truncates first. */
+  badge?: ReactNode;
 }
 
 export const AssetListItem: FC<AssetListItemProps> = ({
@@ -50,7 +53,8 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   onClick,
   className,
   'data-testid': dataTestId,
-  'data-token-id': dataTokenId
+  'data-token-id': dataTokenId,
+  badge
 }) => {
   const handleClick = () => {
     if (!onClick) return;
@@ -85,7 +89,10 @@ export const AssetListItem: FC<AssetListItemProps> = ({
         <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
         <div className="flex flex-col min-w-0">
-          <div className="text-row-title text-ink truncate">{name}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="text-row-title text-ink truncate">{name}</div>
+            {badge && <div className="shrink-0">{badge}</div>}
+          </div>
           <div className="text-caption text-muted truncate">{amount}</div>
         </div>
       </div>
@@ -124,5 +131,22 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     </div>
   );
 };
+
+/** A list's stand-in for rows it has not read yet: the row's geometry, pulsing, with no figure a user could take for a balance. */
+export const AssetListItemSkeleton: FC<{ 'data-testid'?: string }> = ({ 'data-testid': dataTestId }) => (
+  <div aria-hidden="true" data-testid={dataTestId} className="w-full h-18 flex items-center justify-between">
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <Skeleton className="shrink-0 w-9 h-9 rounded-full" />
+      <div className="flex flex-col gap-1.5">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-3 w-16" />
+      </div>
+    </div>
+    <div className="flex flex-col items-end gap-1.5">
+      <Skeleton className="h-4 w-16" />
+      <Skeleton className="h-3 w-10" />
+    </div>
+  </div>
+);
 
 export default AssetListItem;

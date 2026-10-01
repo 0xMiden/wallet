@@ -1,4 +1,4 @@
-import Dexie from 'dexie';
+import Dexie, { DBCore, Middleware } from 'dexie';
 
 import { ITransaction, ITransactionStatus } from './db/types';
 import {
@@ -534,6 +534,47 @@ describe('miden repo export/import', () => {
     expect(restored.get('done')!.restoredFromBackup).toBe(true);
     expect(isRequeueableTransaction(restored.get('bad')!)).toBe(false);
   });
+
+  // A dump is free to carry anything under `initiatedAt`, and the insert check
+  // accepts only a non-negative safe integer (the spending-limit policy's rule),
+  // so anything else falls back to the row's completedAt, else the current time.
+  it.each([
+    ['missing', undefined, 1_700_000_100, 1_700_000_100],
+    ['NaN (null after JSON)', Number.NaN, 1_700_000_100, 1_700_000_100],
+    ['negative', -5, 1_700_000_100, 1_700_000_100],
+    ['fractional', 1_700_000_000.5, 1_700_000_100, 1_700_000_100]
+  ])(
+    'gives an imported row with a %s initiatedAt its completedAt instead',
+    async (_label, initiatedAt, completedAt, expected) => {
+      const row: Record<string, unknown> = { id: 'imported-1', status: 2, completedAt };
+      if (initiatedAt !== undefined) row.initiatedAt = initiatedAt;
+      await importDb(JSON.stringify({ [Table.Transactions]: [row] }));
+
+      await expect(transactions.get('imported-1')).resolves.toMatchObject({ initiatedAt: expected });
+    }
+  );
+
+  it('gives an imported row with neither timestamp usable the current time', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    await importDb(JSON.stringify({ [Table.Transactions]: [{ id: 'imported-2', status: 2 }] }));
+
+    const after = Math.floor(Date.now() / 1000);
+
+    const row = await transactions.get('imported-2');
+    expect(Number.isSafeInteger(row?.initiatedAt)).toBe(true);
+    expect(row!.initiatedAt).toBeGreaterThanOrEqual(before);
+    expect(row!.initiatedAt).toBeLessThanOrEqual(after);
+  });
+
+  it('keeps a usable imported initiatedAt as it is', async () => {
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [{ id: 'imported-3', status: 2, initiatedAt: 1_600_000_000, completedAt: 1_700_000_100 }]
+      })
+    );
+
+    await expect(transactions.get('imported-3')).resolves.toMatchObject({ initiatedAt: 1_600_000_000 });
+  });
 });
 
 describe('spending limits schema', () => {
@@ -788,5 +829,85 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     upgraded.close();
     await Dexie.delete(name);
+  });
+});
+
+describe('writing a transaction row', () => {
+  it.each([
+    ['missing', undefined],
+    ['NaN', Number.NaN],
+    ['negative', -1],
+    ['fractional', 1_700_000_000.5]
+  ])('refuses a row with a %s initiatedAt, and writes nothing', async (_label, value) => {
+    const row: Record<string, unknown> = { id: 'hook-1', accountId: 'a', status: 0 };
+    if (value !== undefined) row.initiatedAt = value;
+
+    await expect(transactions.add(row as never)).rejects.toThrow(/initiatedAt/);
+    await expect(transactions.get('hook-1')).resolves.toBeUndefined();
+  });
+
+  it('refuses a bulkAdd that carries one unplaceable row, and writes none of them', async () => {
+    await expect(
+      transactions.bulkAdd([
+        { id: 'hook-2', accountId: 'a', status: 0, initiatedAt: 1_700_000_000 },
+        { id: 'hook-3', accountId: 'a', status: 0 }
+      ] as never)
+    ).rejects.toThrow();
+    await expect(transactions.get('hook-3')).resolves.toBeUndefined();
+    await expect(transactions.get('hook-2')).resolves.toBeUndefined();
+  });
+
+  it('writes a row with a non-negative safe-integer initiatedAt', async () => {
+    await transactions.add({ id: 'hook-4', accountId: 'a', status: 0, initiatedAt: 1_700_000_000 } as never);
+    await expect(transactions.get('hook-4')).resolves.toMatchObject({ initiatedAt: 1_700_000_000 });
+  });
+
+  it('refuses the same row in a database built by createSchemaFor', async () => {
+    const name = `insert-check-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const isolated = createSchemaFor(name);
+
+    await expect(isolated.table(Table.Transactions).add({ id: 'hook-5', accountId: 'a', status: 0 })).rejects.toThrow(
+      /initiatedAt/
+    );
+    isolated.close();
+    await Dexie.delete(name);
+  });
+
+  it('issues one getMany for the row a modify replaces, and none for the insert check', async () => {
+    await transactions.add({ id: 'hook-6', accountId: 'a', status: 0, initiatedAt: 1_700_000_000 } as never);
+    let reads = 0;
+    // Level 1 sits below Dexie's hooks middleware (level 2), which issues a hook's read of the rows a
+    // put replaces, and above the transaction cache (level -1) that would answer that read.
+    const counter: Middleware<DBCore> = {
+      stack: 'dbcore',
+      name: 'get-many-counter',
+      level: 1,
+      create: down => ({
+        ...down,
+        table: name => {
+          const table = down.table(name);
+          if (name !== Table.Transactions) return table;
+          return {
+            ...table,
+            getMany: req => {
+              reads += 1;
+              return table.getMany(req);
+            }
+          };
+        }
+      })
+    };
+    db.close();
+    db.use(counter);
+    await db.open();
+    try {
+      await transactions.where({ id: 'hook-6' }).modify({ status: ITransactionStatus.Completed });
+      expect(reads).toBe(1);
+    } finally {
+      db.unuse({ stack: 'dbcore', name: 'get-many-counter' });
+      db.close();
+      await db.open();
+    }
+    await expect(transactions.get('hook-6')).resolves.toMatchObject({ status: ITransactionStatus.Completed });
   });
 });

@@ -547,6 +547,20 @@ describe('processRequest', () => {
     expect(Actions.lock).toHaveBeenCalled();
   });
 
+  // #924: claims requeued while the vault was locked have nothing else to restart them.
+  it('UnlockRequest kicks transaction processing once the vault has unlocked', async () => {
+    await dispatch({ type: WalletMessageType.UnlockRequest, password: 'p' });
+    expect(mockStartTransactionProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed unlock does not kick transaction processing', async () => {
+    (Actions.unlock as jest.Mock).mockRejectedValueOnce(new Error('Invalid password'));
+    await expect(dispatch({ type: WalletMessageType.UnlockRequest, password: 'wrong' })).rejects.toThrow(
+      'Invalid password'
+    );
+    expect(mockStartTransactionProcessing).not.toHaveBeenCalled();
+  });
+
   it('CreateAccountRequest forwards walletType + name', async () => {
     const res = await dispatch({
       type: WalletMessageType.CreateAccountRequest,

@@ -41,13 +41,22 @@ export function publicFaucetApiUrl(network: string): string | undefined {
   return FAUCET_API_BY_NETWORK[network];
 }
 
-async function faucetFetch(url: string): Promise<Response> {
+/**
+ * Fetches `url` and runs `read` on the response inside one bound, as the app's faucetFetch does: the timer runs
+ * through the body read and aborts with a TimeoutError naming the bound, and the request is aborted once `read`
+ * settles, which ends any body it left unread.
+ */
+async function faucetFetch<T>(url: string, read: (response: Response) => Promise<T>): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(new DOMException(`Request timed out after ${FETCH_TIMEOUT_MS} ms`, 'TimeoutError')),
+    FETCH_TIMEOUT_MS
+  );
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await read(await fetch(url, { signal: controller.signal }));
   } finally {
     clearTimeout(timer);
+    controller.abort();
   }
 }
 
@@ -125,7 +134,8 @@ class FaucetRateLimitedError extends Error {
 }
 
 async function failedResponse(label: string, response: Response): Promise<Error> {
-  const message = `${label} (${response.status}): ${await response.text()}`;
+  // The status decides whether a retry can help; a body that fails or stalls only loses the explanation.
+  const message = `${label} (${response.status}): ${await response.text().catch(() => '')}`;
   if (response.status === 429) {
     // "Account is rate limited for 25 more seconds." A second over, so the retry lands after it.
     const seconds = message.match(/(\d+)\s+more\s+seconds?/i)?.[1];
@@ -139,13 +149,16 @@ async function requestGrant(
   accountId: string,
   amount: bigint
 ): Promise<{ txId: string; noteId: string }> {
-  const powResponse = await faucetFetch(
-    `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`
+  const { challenge, target } = await faucetFetch(
+    `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`,
+    async response => {
+      if (!response.ok) {
+        throw await failedResponse('Public faucet PoW request failed', response);
+      }
+      const json: { challenge: string; target: number } = await response.json();
+      return json;
+    }
   );
-  if (!powResponse.ok) {
-    throw await failedResponse('Public faucet PoW request failed', powResponse);
-  }
-  const { challenge, target } = (await powResponse.json()) as { challenge: string; target: number };
   const nonce = await solvePow(challenge, BigInt(target));
 
   const params = new URLSearchParams({
@@ -155,12 +168,13 @@ async function requestGrant(
     challenge,
     nonce: nonce.toString()
   });
-  const response = await faucetFetch(`${baseUrl}/get_tokens?${params}`);
-  if (!response.ok) {
-    throw await failedResponse('Public faucet mint failed', response);
-  }
-  const json = (await response.json()) as { tx_id: string; note_id: string };
-  return { txId: json.tx_id, noteId: json.note_id };
+  return faucetFetch(`${baseUrl}/get_tokens?${params}`, async response => {
+    if (!response.ok) {
+      throw await failedResponse('Public faucet mint failed', response);
+    }
+    const json: { tx_id: string; note_id: string } = await response.json();
+    return { txId: json.tx_id, noteId: json.note_id };
+  });
 }
 
 /**

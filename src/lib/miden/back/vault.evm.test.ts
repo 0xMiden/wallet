@@ -93,11 +93,16 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: jest.fn((a: string, b: string) => a === b)
 }));
 
-jest.mock('lib/miden/reset', () => ({
-  clearStorage: jest.fn(async () => {
-    for (const k of Object.keys(memoryStore)) delete memoryStore[k];
-  })
-}));
+jest.mock('lib/miden/reset', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
+  return {
+    PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
+    // Mirrors the real reset: every key but the kept list goes.
+    clearStorage: jest.fn(async (_clearDb: boolean = true, keep: readonly string[] = actual.PRESERVED_STORAGE_KEYS) => {
+      for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
+    })
+  };
+});
 
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => true),

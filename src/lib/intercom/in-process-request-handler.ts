@@ -1,4 +1,5 @@
 import * as Actions from 'lib/miden/back/actions';
+import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
@@ -54,6 +55,8 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
 
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
+      // Claims requeued while the vault was locked have nothing else to restart them off the extension (#1202).
+      startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.UnlockResponse };
 
     case WalletMessageType.LockRequest:

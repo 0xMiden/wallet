@@ -285,7 +285,9 @@ export async function getCurrentPermission(origin: string): Promise<MidenDAppGet
         rpc: await getNetworkRPC(dApp.network),
         address: dApp.accountId,
         privateDataPermission: dApp.privateDataPermission,
-        allowedPrivateData: dApp.allowedPrivateData
+        allowedPrivateData: dApp.allowedPrivateData,
+        // Older sessions stored null here (see requestPermission), so the key is omitted then.
+        ...(typeof dApp.publicKey === 'string' && dApp.publicKey !== '' ? { publicKey: dApp.publicKey } : {})
       }
     : null;
   return {

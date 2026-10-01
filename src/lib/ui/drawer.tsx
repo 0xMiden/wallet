@@ -5,9 +5,11 @@ import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
 import { IconName } from 'app/icons/v2';
+import { HeaderRule } from 'components/ui/HeaderRule';
 import { IconButton } from 'components/ui/IconButton';
 import { sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
@@ -44,15 +46,36 @@ interface DrawerProps {
    * extension a sheet closing over an open drawer still clears that drawer's black background.
    */
   noBodyStyles?: boolean;
+  /**
+   * Mobile back closes an open sheet, ahead of any page handler. `false` for a sheet its host's page
+   * handler closes instead (the send and swap pickers, which that handler guards); a sheet that is not
+   * dismissible never closes on back by itself either.
+   */
+  closeOnBack?: boolean;
 }
 
-function Drawer({ open = false, onOpenChange, children, screenKey, dismissible, noBodyStyles }: DrawerProps) {
+/** Mounted only while an open sheet closes on back, so it registers on top and unregisters on close. */
+function CloseOnBack({ close }: { close: () => void }) {
+  useCloseOnBack(true, close);
+  return null;
+}
+
+function Drawer({
+  open = false,
+  onOpenChange,
+  children,
+  screenKey,
+  dismissible,
+  noBodyStyles,
+  closeOnBack = true
+}: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
+      {open && dismissible !== false && closeOnBack && <CloseOnBack close={onClose} />}
       <VaulDrawer.Root
         open={open}
         onOpenChange={onOpenChange}
@@ -139,22 +162,25 @@ function DrawerContent({
 }
 
 /**
- * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` (optionally
- * over a `DrawerDescription`) and the 32px circular close on the right, on the 16px sheet margin.
- * No rule under it — separation inside a sheet comes from the `fill` groups below, not from a
- * divider across the top (design-system.md, "Elevation"). The close reads `onClose` from the drawer
+ * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` and the 32px
+ * circular close on the right, on the 16px sheet margin, then the `HeaderRule` a page header ends
+ * with, so a sheet opens the way a tab root does: its title at the tab title's size. A `DrawerDescription` goes under the header, not
+ * in it: the row centres the close on its content, so a paragraph beside it pushed the close off
+ * the title's line. The close reads `onClose` from the drawer
  * context, so the handle-less default needs no extra wiring.
  */
 function DrawerHeader({ className, children }: { className?: string; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const { onClose } = useContext(DrawerContext);
   return (
-    <div
-      data-slot="drawer-header"
-      className={cn('flex w-full shrink-0 items-center justify-between gap-3 px-4 pt-5 pb-4', className)}
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-      <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
+    <div data-slot="drawer-header" className={cn('w-full shrink-0 px-4 pt-5 pb-3', className)}>
+      <div className="flex items-center justify-between gap-3 pb-2">
+        {/* A title in the header takes the tab title's size; a `DrawerTitle` outside it (an
+            `AlertSheet`'s question) keeps its own. */}
+        <div className="flex min-w-0 flex-col gap-0.5 [&>[data-slot=drawer-title]]:text-title-tab">{children}</div>
+        <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
+      </div>
+      <HeaderRule />
     </div>
   );
 }
@@ -179,7 +205,7 @@ function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLPar
   return (
     <VaulDrawer.Description
       data-slot="drawer-description"
-      className={cn('text-body-sm text-muted', className)}
+      className={cn('px-4 pb-2 text-caption-heading text-muted', className)}
       {...props}
     />
   );

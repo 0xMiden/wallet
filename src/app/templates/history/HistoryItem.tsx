@@ -19,7 +19,8 @@ import {
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
-  isFaucetRequest
+  isFaucetRequest,
+  isReceiveEntry
 } from './transactionUtils';
 
 type HistoryItemProps = {
@@ -32,7 +33,7 @@ type HistoryItemProps = {
 const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry }) => {
   const { t } = useTranslation();
   const { compact } = useAppEnv();
-  const isReceive = entry.transactionIcon === 'RECEIVE' || entry.message === 'Consuming';
+  const isReceive = isReceiveEntry(entry);
   const isFaucet = isFaucetRequest(entry);
 
   const handleCancelClick = useCallback(
@@ -44,11 +45,13 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     [entry]
   );
 
-  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
+  // An unconfirmed bridge or earn-withdraw row falls through to the plain not-confirmed row below
+  // (#1250 F-024), the same way HistoryView's list keeps it out of the bridge/earn layout.
+  if (!entry.isUnconfirmed && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
-  if (isEarnWithdrawEntry(entry)) {
+  if (!entry.isUnconfirmed && isEarnWithdrawEntry(entry)) {
     return <EarnWithdrawRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
@@ -62,7 +65,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
-  const title = isFaucet ? t('faucetRequest') : entry.message;
+  const title = isFaucet ? t('faucetRequest') : entry.isUnconfirmed ? t('notConfirmed') : entry.message;
   return (
     <div
       className={classNames(

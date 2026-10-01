@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import AssetListItemDefault, { AssetListItem } from './AssetListItem';
+import AssetListItemDefault, { AssetListItem, AssetListItemSkeleton } from './AssetListItem';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -113,10 +113,14 @@ describe('AssetListItem', () => {
   it('truncates a long name before it pushes the price or the check out of the row', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', name: 'A very long token name' });
 
-    const nameColumn = screen.getByText('A very long token name').parentElement!;
-    expect(nameColumn).toHaveClass('min-w-0');
-    expect(nameColumn).not.toHaveClass('shrink-0');
-    const leading = nameColumn.parentElement!;
+    const nameRow = screen.getByText('A very long token name').parentElement!;
+    expect(nameRow).toHaveClass('min-w-0');
+    expect(nameRow).not.toHaveClass('shrink-0');
+    // The name row sits inside the name+amount stack, which sits inside the leading group; each must
+    // be allowed to shrink, or the one above it cannot.
+    const stack = nameRow.parentElement!;
+    expect(stack).toHaveClass('min-w-0');
+    const leading = stack.parentElement!;
     expect(leading).toHaveClass('min-w-0', 'flex-1');
     const trailing = screen.getByText('$2.50').closest('[data-slot="trailing"]');
     expect(trailing).toHaveClass('shrink-0');
@@ -126,6 +130,24 @@ describe('AssetListItem', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
 
     expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+  });
+
+  describe('badge rendering', () => {
+    it('renders a badge right after the name, outside the truncating name element, in a wrapper that never shrinks', () => {
+      renderItem({ name: 'A very long token name', badge: <span data-testid="badge">B</span> });
+
+      const name = screen.getByText('A very long token name');
+      const wrapper = screen.getByTestId('badge').parentElement!;
+      expect(name).not.toContainElement(wrapper);
+      expect(name.nextElementSibling).toBe(wrapper);
+      expect(wrapper).toHaveClass('shrink-0');
+    });
+
+    it('leaves the name alone in its row when no badge is given', () => {
+      renderItem();
+
+      expect(screen.getByText('Miden').parentElement!.children).toHaveLength(1);
+    });
   });
 
   describe('selection', () => {
@@ -186,5 +208,26 @@ describe('AssetListItem', () => {
       expect(hapticLight).not.toHaveBeenCalled();
       expect((container.firstChild as HTMLElement).className).not.toContain('cursor-pointer');
     });
+  });
+});
+
+describe('AssetListItemSkeleton', () => {
+  it('stands in for a row with the row height and no text', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    const row = screen.getByTestId('skeleton-row');
+    expect(row).toHaveClass('h-18');
+    expect(row).toHaveTextContent('');
+  });
+
+  it('draws a round icon block and pulsing bars where the name, amount, price and change go', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    const blocks = screen.getByTestId('skeleton-row').querySelectorAll('[data-slot="skeleton"]');
+    expect(blocks).toHaveLength(5);
+    expect(blocks[0]).toHaveClass('rounded-full', 'w-9', 'h-9');
+  });
+
+  it('is hidden from assistive tech, since it has nothing to announce', () => {
+    render(<AssetListItemSkeleton data-testid="skeleton-row" />);
+    expect(screen.getByTestId('skeleton-row')).toHaveAttribute('aria-hidden', 'true');
   });
 });

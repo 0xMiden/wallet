@@ -1,7 +1,10 @@
 import {
+  ApplyAfterSubmitError,
   extractSdkErrorCode,
+  isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isGuardianCanonicalizationError,
+  isStaleInitialCommitmentError,
   isTransactionDiscardedError
 } from './sdk-error-code';
 
@@ -151,6 +154,19 @@ describe('isApplyAfterSubmitError', () => {
   });
 });
 
+describe('ApplyAfterSubmitError', () => {
+  it('classifies by its code and, with the code gone, by its text', () => {
+    const cause = new Error('store quota');
+    const error = new ApplyAfterSubmitError(cause);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('ApplyAfterSubmitError');
+    expect(error.cause).toBe(cause);
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
+  });
+});
+
 describe('isTransactionDiscardedError', () => {
   // Verbatim from both producers of this verdict: the SDK's
   // `TransactionsResource.waitFor` (`throw new Error(\`Transaction rejected: ${hex}\`)`
@@ -194,6 +210,64 @@ describe('isTransactionDiscardedError', () => {
   });
 });
 
+/**
+ * The two phrases the node's admission refusal carries (quoted in #904 and in
+ * `guardian/account.ts`); the wording around them is illustrative.
+ */
+const STALE_INITIAL_COMMITMENT_REFUSAL =
+  'transaction conflicts with current mempool state: initial account commitment 0x1111 does not match ' +
+  'the current commitment 0x2222 for account 0x3333';
+
+describe('isStaleInitialCommitmentError', () => {
+  it('matches the node refusing a transaction whose initial account commitment was superseded', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(`failed to submit proven transaction: ${STALE_INITIAL_COMMITMENT_REFUSAL}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the refusal after the offscreen bus rewraps it', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(`Offscreen call 'guardianPipeline' failed: ${STALE_INITIAL_COMMITMENT_REFUSAL}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the refusal on the cause chain', () => {
+    expect(
+      isStaleInitialCommitmentError(new Error('submit failed', { cause: new Error(STALE_INITIAL_COMMITMENT_REFUSAL) }))
+    ).toBe(true);
+  });
+
+  it('does not assemble a match from two errors in one chain', () => {
+    const chain = new Error('initial account commitment 0x1111 was read', {
+      cause: new Error('the note does not match the current commitment of its script')
+    });
+    expect(isStaleInitialCommitmentError(chain)).toBe(false);
+  });
+
+  it('does not match the SDK refusing to import guardian state', () => {
+    expect(
+      isStaleInitialCommitmentError(
+        new Error(
+          'Refusing to overwrite local state: incoming commitment does not match on-chain commitment for account 0x3333'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('never reads a lock-recovery eviction as a node verdict', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    expect(
+      isStaleInitialCommitmentError(
+        new WasmClientPoisonedError('realm-error', new Error(STALE_INITIAL_COMMITMENT_REFUSAL))
+      )
+    ).toBe(false);
+  });
+});
+
 describe('isGuardianCanonicalizationError', () => {
   // Verbatim shape of the SDK's refusal to import a guardian view that is not
   // ahead of the local one.
@@ -230,5 +304,85 @@ describe('isGuardianCanonicalizationError', () => {
       isGuardianCanonicalizationError(new WasmClientPoisonedError('realm-error', new Error(CANONICALIZATION_MESSAGE)))
     ).toBe(false);
     expect(isGuardianCanonicalizationError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+describe('isAccountNotFoundOnChainError', () => {
+  // web-sdk 0.16.1 renders miden-client's RequestError for a 0.16 node's
+  // uncoded not-found answer as this chain (issue #1127).
+  const NODE_016_MISS =
+    'failed to import public account: RPC error: grpc request failed for get_account: invalid request parameters: ' +
+    'code: \'Client specified an invalid argument\', message: "account 0x0e3b5b2d8a1f4c10000000000000ab not found at block 1234"';
+
+  it('matches the uncoded 0.16 node answer', () => {
+    expect(isAccountNotFoundOnChainError(new Error(NODE_016_MISS))).toBe(true);
+  });
+
+  it('matches it after the offscreen bus re-wraps the message', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(`Offscreen call 'importPublicMidenWalletFromSeed' failed: ${NODE_016_MISS}`)
+      )
+    ).toBe(true);
+  });
+
+  it('matches the code web-sdk sets when the node attaches one', () => {
+    expect(isAccountNotFoundOnChainError(Object.assign(new Error('x'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' }))).toBe(
+      true
+    );
+  });
+
+  it("matches the SDK's typed not-found text when the code was lost", () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'failed to import public account: account with id 0x0e3b5b2d8a1f4c10000000000000ab not found on the network'
+        )
+      )
+    ).toBe(true);
+  });
+
+  it('does not match a real outage', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error('client error: RPC error: Miden node is unavailable; check that the node is running and reachable')
+      )
+    ).toBe(false);
+  });
+
+  it('does not match another get_account rejection', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'failed to import public account: RPC error: grpc request failed for get_account: invalid request parameters: ' +
+            'code: \'Client specified an invalid argument\', message: "account 0xabc is not public"'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('does not match a not-found on another endpoint', () => {
+    expect(
+      isAccountNotFoundOnChainError(
+        new Error(
+          'RPC error: grpc request failed for sync_notes: invalid request parameters: note not found at block 9'
+        )
+      )
+    ).toBe(false);
+  });
+
+  it('does not assemble a match from two links of the chain', () => {
+    const inner = new Error('state for account 0xabc not found at block 12');
+    const outer = new Error('RPC error: grpc request failed for get_account: invalid request parameters', {
+      cause: inner
+    });
+    expect(isAccountNotFoundOnChainError(outer)).toBe(false);
+  });
+
+  it('never reads a poisoned client as a miss', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    expect(isAccountNotFoundOnChainError(new WasmClientPoisonedError('realm-error', new Error(NODE_016_MISS)))).toBe(
+      false
+    );
   });
 });

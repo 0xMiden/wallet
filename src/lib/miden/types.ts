@@ -36,6 +36,8 @@ export interface ConsumableNote {
   swapOrder?: SwapOrderNoteMetadata;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** The note is a standard P2ID or P2IDE payment; absent reads as not. */
+  standardPayment?: boolean;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
   /**
@@ -60,7 +62,9 @@ export interface SwapOrderNoteMetadata {
 export enum MidenSharedStorageKey {
   DAppEnabled = 'DAppEnabled',
   PasswordAttempts = 'PasswordAttempts',
-  TimeLock = 'TimeLock'
+  TimeLock = 'TimeLock',
+  OnboardingCompleted = 'onboarding_completed',
+  LastShownChangelogVersion = 'last_shown_changelog_version'
 }
 
 export interface MidenDAppSession {

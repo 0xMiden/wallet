@@ -14,10 +14,11 @@
  * `getMidenClient(...)` leaf anymore.
  *
  * Routing:
- *   - Epoch bridged-send + earn-deposit → send-style recallable P2IDE note →
- *     `midenClientProxy.sendTransaction(tx, signCallback)`.
- *   - Agglayer bridged-send (pre-built request) →
+ *   - earn-deposit and Agglayer bridged-send (pre-built request) →
  *     `midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback)`.
+ *     An earn-deposit without its bytes is refused before it mints.
+ *   - a legacy Epoch bridged-send with no bytes → send-style recallable P2IDE note →
+ *     `midenClientProxy.sendTransaction(tx, signCallback)`.
  *
  * Funds-safety (analysed, not re-proven here — inherited from the shared proxy +
  * loop machinery): a wedge-kill → OperationAbortedError → the
@@ -249,9 +250,11 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     void tx;
   });
 
-  it('earn-deposit (always send-style) → midenClientProxy.sendTransaction(tx, signCallback); never newTransaction, never the inline SW leaf', async () => {
-    const tx = await run('tx-earn', {
+  it('earn-deposit (pre-built collateral request) → midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback); never sendTransaction, never the inline SW leaf', async () => {
+    const requestBytes = new Uint8Array([0xea, 0x51]);
+    await run('tx-earn', {
       type: 'earn-deposit',
+      requestBytes,
       secondaryAccountId: 'mtst1qallocator',
       faucetId: 'faucet',
       amount: 500n,
@@ -259,11 +262,11 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
-    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback);
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
-    expect(mockInlineSendTransaction).not.toHaveBeenCalled();
+    expect(mockInlineNewTransaction).not.toHaveBeenCalled();
     // Finalized via the earn-deposit completion (NOT the generic custom-tx path).
     expect(mockComplete.earn).toHaveBeenCalledTimes(1);
     expect(mockComplete.bridged).not.toHaveBeenCalled();
@@ -299,10 +302,34 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockComplete.earn).not.toHaveBeenCalled();
   });
 
+  it('earn-deposit with no request bytes is refused before it mints: no send-style fallback for Earn', async () => {
+    // The fallback would mint a P2IDE with no mandate binding, which the allocator refuses to bind.
+    const tx = buildTx('tx-earn-no-bytes', {
+      type: 'earn-deposit',
+      requestBytes: undefined,
+      secondaryAccountId: 'mtst1qallocator',
+      faucetId: 'faucet',
+      amount: 500n,
+      noteType: 'public',
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+    });
+    txStore.push({ ...tx });
+
+    await expect(generateTransaction(tx as never, signCallback, false, provider as never)).rejects.toThrow(
+      'Earn deposit has no collateral request with its mandate binding, so it was not sent.'
+    );
+
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.earn).not.toHaveBeenCalled();
+  });
+
   it('flag ON changes nothing at THIS seam — the switch still delegates to the proxy leaf (the proxy owns the offscreen route)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    const tx = await run('tx-earn-flagon', {
+    const requestBytes = new Uint8Array([0xea, 0x52]);
+    await run('tx-earn-flagon', {
       type: 'earn-deposit',
+      requestBytes,
       secondaryAccountId: 'mtst1qallocator',
       faucetId: 'faucet',
       amount: 500n,
@@ -310,7 +337,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback);
     // The proxy is the ONLY leaf — the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });

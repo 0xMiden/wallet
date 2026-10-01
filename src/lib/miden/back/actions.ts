@@ -417,7 +417,10 @@ export function createHDAccount(walletType: WalletType, name?: string) {
       }
 
       const accounts = await vault.createHDAccount(walletType, name);
-      accountsUpdated({ accounts });
+      // A Guardian creation registers outside the WASM lock, so a lock can land meanwhile. The
+      // `locked` state is built fresh on purpose; publishing into it would hand a locked popup
+      // the account list. The vault holds the account, and the next unlock loads it (#1207).
+      if (store.getState().vault === vault) accountsUpdated({ accounts });
     })
   );
 }

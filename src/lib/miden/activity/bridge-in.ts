@@ -11,7 +11,7 @@ import {
   ITransaction,
   ITransactionStatus
 } from '../db/types';
-import { fetchFromStorage, putToStorage } from '../front/storage';
+import { fetchFromStorage, inStorageTurn, putToStorage } from '../front/storage';
 
 /** Pending Epoch deliveries survive closed screens and incomplete consume tagging. */
 const REGISTRY_KEY = 'epoch_bridge_in_intents';
@@ -41,17 +41,8 @@ async function writeRegistry(records: PendingBridgeInIntent[]): Promise<void> {
 }
 
 // The entire array shares one lock. Callbacks may write local rows, never await network or re-enter this registry.
-let mutationTail: Promise<unknown> = Promise.resolve();
 function withBridgeInRegistryLock<T>(operation: () => Promise<T>): Promise<T> {
-  if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request<Promise<T>>('epoch-bridge-in-registry', operation);
-  }
-  const run = mutationTail.then(operation, operation);
-  mutationTail = run.then(
-    () => undefined,
-    () => undefined
-  );
-  return run;
+  return inStorageTurn('epoch-bridge-in-registry', operation);
 }
 
 const registryIdentity = (intent: PendingBridgeInIntent): string => intentKey(intent.userAddress, intent.intentNonce);

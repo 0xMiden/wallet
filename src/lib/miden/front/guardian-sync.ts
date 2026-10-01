@@ -1,3 +1,6 @@
+// lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
+// this adds no module to that cycle; the function is only called during a sync, never at module load.
+import { requestSWTransactionProcessing } from 'lib/miden/activity';
 import { classifyGuardianRecovery, noteRecoveryDivergence } from 'lib/miden/back/guardian-recovery-dispatcher';
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import {
@@ -21,6 +24,7 @@ import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
+import { canonicalGuardianEndpoint, sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -122,8 +126,9 @@ export const zustandProvider: GuardianAccountProvider = {
  * at activation (`completeReplaceHotKeyTransaction`), once the hot signer makes
  * the account 2-of-N. Don't "fix" this filter to harden pre-activation accounts.
  */
-// Accounts whose update_guardian hardening we've already verified this session,
-// so the self-heal check below runs at most once per account per session.
+// Signer sets (`${publicKey}|${hotPublicKey}`) whose update_guardian hardening
+// we've already verified this session, so the self-heal check below runs at most
+// once per signer set per session and a hot-key rotation runs it again.
 const hardeningChecked = new Set<string>();
 
 // `consecutiveAuthFailures` counts 401s in a row (reset on any successful
@@ -498,7 +503,12 @@ function recordGuardianServerFailure(accountPublicKey: string): void {
 /** The server answered (success, 401, 429) — it is alive, so the outage is over. */
 function clearGuardianServerFailures(accountPublicKey: string): void {
   consecutiveServerFailures.delete(accountPublicKey);
-  if (outageAccounts.delete(accountPublicKey)) notifyOutageListeners();
+  if (outageAccounts.delete(accountPublicKey)) {
+    notifyOutageListeners();
+    // Restarts the service worker's processing loop, so rows requeued during the outage run once their cooldown
+    // ends instead of waiting for something else to wake the worker (#779).
+    requestSWTransactionProcessing();
+  }
 }
 
 /**
@@ -509,7 +519,9 @@ function clearGuardianServerFailures(accountPublicKey: string): void {
  */
 function recordSuccessfulGuardianSync(accountPublicKey: string): void {
   consecutiveServerFailures.delete(accountPublicKey);
-  outageAccounts.delete(accountPublicKey);
+  // Restarts the service worker's processing loop, so rows requeued during the outage run once their cooldown
+  // ends instead of waiting for something else to wake the worker (#779).
+  if (outageAccounts.delete(accountPublicKey)) requestSWTransactionProcessing();
   unrepairableAccounts.delete(accountPublicKey);
   lastGuardianSyncAt.set(accountPublicKey, Date.now());
   notifyOutageListeners();
@@ -534,7 +546,9 @@ function recordSuccessfulGuardianSync(accountPublicKey: string): void {
  *  - `missingRegistrationLedger` is already keyed by (account, endpoint,
  *    guardian key), so it never inherits in the first place.
  *  - `hardeningChecked` describes the ACCOUNT's on-chain procedure thresholds,
- *    which a rotation does not change.
+ *    which an endpoint switch does not change. It is keyed per signer set
+ *    (account and hot key), so a hot-key rotation re-arms it while an endpoint
+ *    switch does not.
  */
 const syncedGuardianEndpoint = new Map<string, string>();
 
@@ -1212,9 +1226,11 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   if (!snapshot) return false;
 
   const onChainGuardian = snapshot.guardian;
+  // The endpoint's canonical form, so a respelling of the same operator does not
+  // arrive with a fresh budget.
   const healSubject = {
     accountPublicKey: account.publicKey,
-    endpoint,
+    endpoint: canonicalGuardianEndpoint(endpoint),
     guardianKey: onChainGuardian ?? 'no-guardian-key'
   };
   // Open the attempt BEFORE the guards: `tryBegin` admits and stamps in ONE call, so the
@@ -1750,7 +1766,10 @@ async function passMayRecord(generation: number, accountPublicKey: string, endpo
   // Resolved for the same reason the detector above resolves: this has to compare
   // the operator the pass actually talked to, not the field that may or may not
   // name it.
-  if (resolveGuardianEndpoint(current) !== endpoint) return false;
+  //
+  // Compared as endpoints, like the rotation check: a respelling of the same
+  // Guardian is still the operator the pass talked to.
+  if (!sameGuardianEndpoint(resolveGuardianEndpoint(current), endpoint)) return false;
   // AGAIN, AFTER THE AWAIT. The check at the top of this function is only as fresh
   // as the moment it ran, and the account read above can yield - so a reset landing
   // between that read and this return handed the caller a `true` earned under
@@ -1821,8 +1840,11 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // stays where it was - its position in the pass is deliberate - but the key it
     // uses is just a function of the account and the operator this lap talks to.
     const fuseKey = guardianSyncFuseKey(account.publicKey, endpoint);
+    // Compared as endpoints, not strings, for the same false-positive reason: a
+    // respelling of the same Guardian (host case, default port, trailing slash)
+    // is not a rotation, and treating it as one throws away its verdicts.
     const syncedAgainst = syncedGuardianEndpoint.get(account.publicKey);
-    if (syncedAgainst !== undefined && syncedAgainst !== endpoint) {
+    if (syncedAgainst !== undefined && !sameGuardianEndpoint(syncedAgainst, endpoint)) {
       console.warn(
         `[Guardian Sync] ${account.publicKey} now points at ${endpoint || '(none)'} rather than ` +
           `${syncedAgainst || '(none)'} — dropping the previous operator's sync state`
@@ -1946,7 +1968,10 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         // no chance of the two disagreeing about what is pending this tick.
         ...(pendingRotationRow ? { pendingRotation: { rowId: pendingRotationRow } } : {}),
         budgets: {
-          selfHeal: selfHealLedger.budgetSpent({ accountPublicKey: account.publicKey, endpoint })
+          selfHeal: selfHealLedger.budgetSpent({
+            accountPublicKey: account.publicKey,
+            endpoint: canonicalGuardianEndpoint(endpoint)
+          })
             ? 'spent'
             : 'available',
           // Narrowed as far as each subject allows. The missing-registration
@@ -1954,7 +1979,10 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // only the key is out of reach, so it is asked per OPERATOR - asked
           // per account it kept answering "spent" for the operator the account
           // had just rotated to, from a budget belonging to the one it left.
-          missingRegistration: missingRegistrationLedger.anySpentForAccount(account.publicKey, endpoint)
+          missingRegistration: missingRegistrationLedger.anySpentForAccount(
+            account.publicKey,
+            canonicalGuardianEndpoint(endpoint)
+          )
             ? 'spent'
             : 'available',
           // The recheck budget is keyed by row, and the row IS in hand - the
@@ -2100,7 +2128,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         consecutiveUnknownAccount.delete(account.publicKey);
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
-        const healSubject = { accountPublicKey: account.publicKey, endpoint };
+        const healSubject = { accountPublicKey: account.publicKey, endpoint: canonicalGuardianEndpoint(endpoint) };
         const attempt = fails >= SELF_HEAL_AUTH_FAILURE_THRESHOLD ? selfHealLedger.tryBegin(healSubject) : null;
         if (attempt) {
           // The ledger books the budget against what the attempt DID, not
@@ -2248,7 +2276,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
 /**
  * The `update_guardian` threshold-2 hardening self-heal: if a migrated account's
  * original hardening tx was dropped it would otherwise sit at threshold-1
- * indefinitely. Idempotent, once per session per account.
+ * indefinitely. Idempotent, once per signer set per session (account and hot
+ * key), so a hot-key rotation re-arms it while an endpoint switch does not.
  *
  * REJECTS ON AN EVICTION AND ON NOTHING ELSE. `ensureGuardianProcedureThresholds` is
  * best-effort about the hardening itself but re-throws `WasmClientPoisonedError`,
@@ -2266,7 +2295,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
  * success is not, and an opportunistic step must not be able to retract it.
  */
 async function runGuardianHardeningSelfHeal(account: WalletAccount): Promise<void> {
-  if (hardeningChecked.has(account.publicKey)) return;
+  const hardeningKey = `${account.publicKey}|${account.hotPublicKey}`;
+  if (hardeningChecked.has(hardeningKey)) return;
   // Marked BEFORE the await, so a second tick cannot enter while this one
   // is still inside - and withdrawn again if the client is evicted under
   // it. "Once per session" is a bound on how often an IDEMPOTENT check
@@ -2275,8 +2305,9 @@ async function runGuardianHardeningSelfHeal(account: WalletAccount): Promise<voi
   // mark would strand a migrated account at threshold-1 for the rest of
   // the session - the exact state this self-heal exists to repair. Only
   // poison withdraws it; an ordinary failure keeps the once-per-session
-  // bound rather than re-queuing the check on every 3 s tick.
-  hardeningChecked.add(account.publicKey);
+  // bound rather than re-queuing the check on every 3 s tick. The key is the
+  // signer set, so a hot-key rotation is a new check even when this one sticks.
+  hardeningChecked.add(hardeningKey);
   try {
     const { ensureGuardianProcedureThresholds, startBackgroundTransactionProcessing } =
       await import('lib/miden/transaction');
@@ -2304,7 +2335,7 @@ async function runGuardianHardeningSelfHeal(account: WalletAccount): Promise<voi
     }
   } catch (hardeningError) {
     if (isWasmClientPoisonedError(hardeningError)) {
-      hardeningChecked.delete(account.publicKey);
+      hardeningChecked.delete(hardeningKey);
       throw hardeningError;
     }
     // Swallowed, and the once-per-session mark deliberately KEPT: an ordinary

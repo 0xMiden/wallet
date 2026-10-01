@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 import i18n from 'i18next';
 
+import { isDisplayable } from './adaptive-precision';
 import {
   toLocalFormat,
   getPluralKey,
@@ -148,6 +149,20 @@ describe('adaptive amount formatting', () => {
     // 18 decimals is the deepest real token, so the clamp never truncates one.
     expect(getAdaptiveDecimalPlaces('0.000000000000000001')).toBe(19);
     expect(toAdaptiveFixed('0.000000000000000001')).toBe('0.0000000000000000010');
+  });
+});
+
+describe('isDisplayable', () => {
+  // Past 40 places either side of the point, writing an amount out means writing every digit.
+  it.each<[string, boolean]>([
+    ['1e40', true],
+    ['1e41', false],
+    ['1e-40', true],
+    ['1e-41', false],
+    ['0', true],
+    ['NaN', false]
+  ])('reads %s as displayable: %s', (value, displayable) => {
+    expect(isDisplayable(new BigNumber(value))).toBe(displayable);
   });
 });
 

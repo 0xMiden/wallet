@@ -2,10 +2,33 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
+import { isOnboardingFinishing } from 'app/onboarding-finish';
 import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 import ForgotPassword from './ForgotPassword';
+
+// The real store, with each mark's arm/release recorded so the handler's ordering is assertable.
+const mockMarks: Array<{ arm: jest.Mock; release: jest.Mock }> = [];
+// Wraps the real navigateOnFromOnboarding so a holder that regresses to a plain navigate is
+// distinguishable from one that still goes through it: this stays a jest.fn, the delegate call
+// resolves the real module lazily so it is safe regardless of when the factory below runs.
+const mockNavigateOn = jest.fn((to: string) =>
+  jest.requireActual('app/onboarding-finish').navigateOnFromOnboarding(to)
+);
+jest.mock('app/onboarding-finish', () => {
+  const actual = jest.requireActual('app/onboarding-finish');
+  return {
+    ...actual,
+    navigateOnFromOnboarding: (to: string) => mockNavigateOn(to),
+    markOnboardingFinishing: () => {
+      const mark = actual.markOnboardingFinishing();
+      const recorded = { arm: jest.fn(() => mark.arm()), release: jest.fn(() => mark.release()) };
+      mockMarks.push(recorded);
+      return recorded;
+    }
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read/write at call time (must be `mock`-prefixed so
@@ -102,12 +125,6 @@ jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
-// The key `Vault.spawn`'s reset preserves; the page has to preserve it across
-// its own wipe too (see the endpoint-override test below).
-jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  ENDPOINT_OVERRIDE_STORAGE_KEY: 'endpoint_overrides'
-}));
-
 // Telemetry: each beginFlow() records the flow name and returns a fresh spy
 // handle so a test can assert which flows were begun and how each settled.
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
@@ -170,9 +187,18 @@ function renderPage() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockFlowHandles.length = 0;
+  // clearAllMocks only clears call data, not a queued *Once implementation, so a
+  // test whose mockRejectedValueOnce/mockImplementationOnce never fires (e.g. it
+  // stops before the dispatch that would consume it) leaks that one-shot into
+  // the next test that calls the same mock. Reset these four explicitly and
+  // re-apply their default; mockBeginFlow is never given a one-shot.
+  mockRegisterWallet.mockReset();
+  mockRegisterWallet.mockResolvedValue(undefined);
+  mockPutToStorage.mockReset();
+  mockNavigate.mockReset();
+  mockClassifyError.mockReset();
   mockClassifyError.mockReturnValue('unknown');
   mockFetchFromStorage.mockResolvedValue(null);
-  mockRegisterWallet.mockResolvedValue(undefined);
   mockPostOnboardingRoute.mockReturnValue('/');
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
@@ -313,43 +339,21 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  /**
-   * The recovery wipe must not take the dev-settings endpoint override with it.
-   * `clearClientStorage()` is a blanket `localStorage.clear()`, and on desktop
-   * localStorage IS the platform key-value store, so the override — the one key
-   * a storage reset is supposed to survive — went with it. `Vault.spawn`'s reset
-   * snapshots it only AFTER this call, so it read null and restored nothing: the
-   * account was recovered on the custom network while the next launch resolved
-   * the build-default endpoints (empty balances, wrong native token, no error).
-   */
-  it('preserves the endpoint override across the recovery wipe (desktop localStorage)', async () => {
+  // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so the page never
+  // reads or rewrites the endpoint override: no step of an attempt can lose it (#1174).
+  it('never reads or rewrites the endpoint override around the recovery wipe', async () => {
     mockFetchFromStorage.mockResolvedValue({ rpcUrl: 'https://custom.example.com' });
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
-    expect(mockFetchFromStorage).toHaveBeenCalledWith('endpoint_overrides');
-    expect(mockPutToStorage).toHaveBeenCalledWith('endpoint_overrides', { rpcUrl: 'https://custom.example.com' });
-    // Read BEFORE the wipe, written back AFTER it — the order is the fix.
-    expect(mockFetchFromStorage.mock.invocationCallOrder[0]).toBeLessThan(
-      mockClearClientStorage.mock.invocationCallOrder[0]!
-    );
-    expect(mockPutToStorage.mock.invocationCallOrder[0]).toBeGreaterThan(
-      mockClearClientStorage.mock.invocationCallOrder[0]!
-    );
-  });
-
-  it('writes no override back when none was set', async () => {
-    // The common case: no dev-settings override, so the wipe has nothing to
-    // preserve and must not resurrect a key with a null value.
-    renderPage();
-    await dispatch({ id: 'create-wallet' });
-    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
-    await dispatch({ id: 'confirmation' });
-
     expect(mockClearClientStorage).toHaveBeenCalledTimes(1);
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
     expect(mockPutToStorage).not.toHaveBeenCalled();
+    expect(mockClearClientStorage.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockRegisterWallet.mock.invocationCallOrder[0]!
+    );
   });
 
   it('confirmation hands off to the side panel when available (#428)', async () => {
@@ -362,6 +366,45 @@ describe('ForgotPassword', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('holds the finishing mark while it registers and releases it after navigating on', async () => {
+    const warn = jest.spyOn(console, 'warn');
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    let heldDuringRegister: boolean | undefined;
+    let heldAtNavigate: boolean | undefined;
+    mockRegisterWallet.mockImplementationOnce(async () => {
+      heldDuringRegister = isOnboardingFinishing();
+    });
+    mockNavigate.mockImplementation((path: string) => {
+      if (path === '/finish-side-panel') heldAtNavigate = isOnboardingFinishing();
+    });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(heldDuringRegister).toBe(true);
+    expect(heldAtNavigate).toBe(true);
+    expect(isOnboardingFinishing()).toBe(false);
+    expect(warn.mock.calls.filter(([message]) => String(message).startsWith('[onboarding-finish]'))).toHaveLength(0);
+    warn.mockRestore();
+  });
+
+  it('releases the finishing mark when registration fails', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(isOnboardingFinishing()).toBe(false);
   });
 
   it('confirmation does NOT navigate when registration fails — the reset already happened (#630)', async () => {
@@ -573,6 +616,64 @@ describe('ForgotPassword', () => {
     expect(captured.props?.recoveryError).toContain('register failed');
     expect(mockNavigate).not.toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  it('clears the spinner and retries from the start when the recovery wipe throws (#1093)', async () => {
+    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('storage unavailable');
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    const result = captured.backHandler!();
+    expect(result).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClearClientStorage).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalled();
+  });
+
+  it('shows the reason and clears the spinner when settling the failed recover flow throws (#1093)', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error('guardian not found'));
+    mockClassifyError.mockImplementationOnce(() => {
+      throw new Error('classify failed');
+    });
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    // React 18.2's act does not flush the queued updates when its callback
+    // rejects, so the rejection is caught inside the act scope.
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('classify failed');
+    });
+
+    expect(captured.props?.isLoading).toBe(false);
+    expect(captured.props?.recoveryError).toContain('guardian not found');
+  });
+
+  it('leaves the spinner cleared when navigating on after a successful registration throws', async () => {
+    mockNavigate.mockImplementationOnce(() => {
+      throw new Error('navigation failed');
+    });
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await act(async () => {
+      await expect(captured.onAction!({ id: 'confirmation' })).rejects.toThrow('navigation failed');
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(captured.props?.isLoading).toBe(false);
   });
 
   // -------------------------------------------------------------------------

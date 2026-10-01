@@ -186,8 +186,9 @@ const ALLOWED: Record<string, string[]> = {
   // lifetime, released only where the run never got its turn. No cap curve and
   // no settle stamp, so the ledger would describe it worse than the Set does.
   'src/lib/miden/back/guardian-recovery.ts': ['startedRecoveries'],
-  // The origins the native HTTP bridge may talk to: an allowlist.
-  'src/lib/miden/guardian/native-http.ts': ['guardianOrigins'],
+  // Session allowlist, plus one hold per in-flight probe. The hold is removed
+  // when that probe settles, so it is not a retry budget.
+  'src/lib/miden/guardian/native-http.ts': ['guardianOrigins', 'probeHolds'],
   // One promise chain per account, which serializes that account's guardian
   // transactions: ordering, not retry state.
   'src/lib/miden/guardian/serialize.ts': ['guardianTxChains']

@@ -7,8 +7,8 @@
  * by the wallet's always-on frontend pollers, which each re-fire every few
  * seconds and keep the single WASM thread saturated:
  *   - `useSyncTrigger` (3s chain sync)
- *   - the balance poll (`fetchBalances`, 5s) — which deliberately bypasses
- *     `withWasmClientLock`, so holding that lock gives the read zero protection
+ *   - the balance poll (`fetchBalances`, 5s), which takes the WASM lock every
+ *     tick and so keeps competing with the read for it
  *   - the claimable-notes SWR (`getConsumableNotes`, 5s)
  *
  * A test hook sets `__TEST_SYNC_PAUSED__` for the duration of its read; every

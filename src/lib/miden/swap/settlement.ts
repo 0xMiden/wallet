@@ -8,6 +8,7 @@ import {
   type SwapOrder
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isRotationPendingAccount } from '../back/rotation-pending';
 import { ITransactionStatus } from '../db/types';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
@@ -72,6 +73,10 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
  * Pass `preloadedOrders` when the caller already ran `localSwapOrders` this
  * tick — it is an unindexed full scan of the transactions table and must not
  * be repeated per stage.
+ *
+ * The single guard site for both callers (the service worker's inline call and
+ * `settleSwapOrders` below): a rotation-pending account's orders are left untouched
+ * until the flag clears, whichever caller reached here.
  */
 export async function reconcileSwapOrderNotes(
   accountId: string,
@@ -80,6 +85,9 @@ export async function reconcileSwapOrderNotes(
   nowSeconds: number = Math.floor(Date.now() / 1000),
   preloadedOrders?: SwapOrder[]
 ): Promise<SwapSettlementResult> {
+  if (isRotationPendingAccount(accountId)) {
+    return { queuedTransactionIds: [], managedNoteIds: new Set() };
+  }
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const queuedTransactionIds: string[] = [];
   const managedNoteIds = new Set(notes.filter(n => n.swapOrder).map(n => n.id));

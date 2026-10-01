@@ -80,8 +80,9 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
     />
   );
 
+  // SendManager's back handler closes this sheet, so the sheet does not register its own.
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} screenKey="accounts">
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="accounts" closeOnBack={false}>
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('addressBook')}</DrawerTitle>
@@ -111,7 +112,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
                   <>
                     {mine.length > 0 && (
                       <section>
-                        <SectionHeader>{t('myAccounts')}</SectionHeader>
+                        <SectionHeader size="md">{t('myAccounts')}</SectionHeader>
                         <ListGroup>
                           {mine.map(c => renderRow(c, `${t(c.contactType)} · ${truncateAddress(c.id, true, 8)}`))}
                         </ListGroup>
@@ -119,7 +120,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
                     )}
                     {contacts.length > 0 && (
                       <section>
-                        <SectionHeader>{t('contacts')}</SectionHeader>
+                        <SectionHeader size="md">{t('contacts')}</SectionHeader>
                         <ListGroup>
                           {contacts.map(c =>
                             renderRow(

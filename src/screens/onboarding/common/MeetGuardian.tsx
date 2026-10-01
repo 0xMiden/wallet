@@ -1,10 +1,8 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianPings } from 'app/hooks/useGuardianAvailability';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { Card } from 'components/ui/Card';
@@ -14,11 +12,11 @@ import { Notice } from 'components/ui/Notice';
 import { Skeleton } from 'components/ui/Skeleton';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { TextAction } from 'components/ui/TextAction';
-import { usePreset } from 'lib/animation';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
+import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 export interface MeetGuardianPoint {
@@ -28,27 +26,16 @@ export interface MeetGuardianPoint {
   bodyKey: string;
 }
 
-/** The three facts the step asks the user to tick before a guardian is offered. */
+/**
+ * The three facts the step asks the user to tick before it goes on: Continue opens only then. The picker
+ * its Change action opens on the card's operator (`onboarding/navigator`) goes on only as Continue does,
+ * once they are ticked and with an operator that has answered online; until they are, it returns here.
+ */
 export const MEET_GUARDIAN_POINTS: readonly MeetGuardianPoint[] = [
   { id: 'local-state', titleKey: 'meetGuardianLocalStateTitle', bodyKey: 'meetGuardianLocalStateBody' },
   { id: 'seed-phrase', titleKey: 'meetGuardianSeedPhraseTitle', bodyKey: 'meetGuardianSeedPhraseBody' },
   { id: 'guardian', titleKey: 'meetGuardianProtectsTitle', bodyKey: 'meetGuardianProtectsBody' }
 ];
-
-/** What every operator guarantees, in the order the card lists them; each drawn with a check. */
-const GUARDIAN_GUARANTEE_KEYS: readonly string[] = [
-  'meetGuardianCannotMoveFunds',
-  'meetGuardianBacksUpState',
-  'meetGuardianCanSwitch'
-];
-
-/** One line about each built-in operator; an operator without one gets the generic line. */
-const OPERATOR_BIO_KEYS: Readonly<Record<string, string>> = {
-  'open-zeppelin': 'guardianBioOpenZeppelin',
-  gateway: 'guardianBioGateway',
-  'lambda-class': 'guardianBioLambdaClass',
-  kodax: 'guardianBioKoda'
-};
 
 export interface MeetGuardianScreenProps {
   /** The ticks and the locked operator, owned by the flow so the picker round trip keeps them. */
@@ -56,21 +43,24 @@ export interface MeetGuardianScreenProps {
   onProgressChange: React.Dispatch<React.SetStateAction<MeetGuardianProgress>>;
   /** The operator Continue picked, or the no-guardian sentinel from the private-account link. */
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
-  /** "Choose a different Guardian": the host pushes the full picker. */
+  /** The card's Change action: the host pushes the full picker. */
   onChooseDifferent?: () => void;
   /** Dev-gated: offer a fully private account with no guardian co-signer. */
   showNoGuardianOption?: boolean;
 }
 
 /**
- * The create flow's guardian step. The user ticks the three facts about a private account; once
- * all three are ticked the card of the fastest
- * reachable operator appears and Continue opens. The operator is chosen once, when every
- * operator has answered its first ping, so the card does not change under the user while later
- * rounds refresh the number on it. An operator that later goes offline closes Continue and says
- * so on the card. Once the facts are ticked, "Choose a different Guardian" is offered while the
- * first round is out, beside the chosen operator and when none answers; a network with no
- * operator at all says so and offers nothing to pick.
+ * The create flow's guardian step. The fastest reachable operator leads the page on one card: its
+ * name, a Change action that opens the full picker, one sentence for what it does, and a "What is a
+ * Guardian?" footer that opens the explainer sheet. The three facts about a private account follow,
+ * and Continue opens once all three are ticked and the chosen operator has answered online. The
+ * operator is chosen once, when every operator has answered its first ping, so the card does not
+ * switch operator under the user while later rounds re-check the chosen one. An operator that later
+ * goes offline closes Continue and says so on the card.
+ * The same card says so when none answers, still offering Change; a network with no operator at all
+ * says so and offers nothing to pick. Change opens the full picker on the card's operator, and the picker
+ * goes on only as Continue does: once the three facts are ticked and with an operator that has answered
+ * online. Until the facts are ticked it returns here with the pick.
  */
 export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   progress,
@@ -80,7 +70,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   showNoGuardianOption = false
 }) => {
   const { t } = useTranslation();
-  const reveal = usePreset('reveal');
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const { checked, chosenId } = progress;
   const allChecked = MEET_GUARDIAN_POINTS.every(point => checked[point.id]);
 
@@ -126,19 +116,9 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const handleNoGuardian = () => onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
 
-  const bioKey = chosen ? OPERATOR_BIO_KEYS[chosen.id] : undefined;
-
-  const chooseDifferent = noOperators ? null : (
-    <TextAction className="-mx-1 self-start" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
-      {t('chooseDifferentGuardian')}
-    </TextAction>
-  );
-
   return (
     <OnboardingStepLayout
       data-testid="onboarding-meet-guardian"
-      heading="hero"
-      inset="px-6"
       title={t('setUpYourAccount')}
       description={t('setUpYourAccountDescription')}
       footer={
@@ -158,8 +138,94 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         </>
       }
     >
-      {/* Both blocks keep their full height so the body scrolls rather than squashing them. */}
-      <ListGroup className="shrink-0">
+      {/* The Guardian leads the page as one outlined card: who it is and how to change it, then one
+          sentence for what it does and does not do. The facts that explain the account follow. */}
+      <section data-testid="meet-guardian-section" className="flex shrink-0 flex-col gap-3">
+        {/* One card in every state: while the round is out it holds the operator's shape (the logo row,
+            the sentence's two lines), so the checklist below barely moves when the operator lands, and
+            when none answers its row carries the notice instead. Only the row's content and the sentence
+            change between states; the Change action and the footer link keep their place in the tree,
+            so a press or focus on either survives the round settling whichever way it goes. */}
+        <Card
+          surface="outline"
+          padding="none"
+          data-testid={chosen ? 'meet-guardian-card' : noneReachable ? undefined : 'meet-guardian-checking'}
+          aria-busy={!noneReachable && chosenVerdict === undefined}
+          className="flex flex-col overflow-hidden"
+        >
+          <div className="flex items-center gap-3 px-4 py-3.5">
+            {chosen ? (
+              <GuardianLogoTile guardianId={chosen.id} />
+            ) : noneReachable ? null : (
+              <Skeleton className="size-12 rounded-xl" />
+            )}
+            {noneReachable ? (
+              <Notice
+                tone="negative"
+                role="status"
+                className="min-w-0 flex-1"
+                data-testid="meet-guardian-none-reachable"
+              >
+                {t('meetGuardianNoneReachable')}
+              </Notice>
+            ) : (
+              <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                {chosen ? (
+                  // max-w-full: in an items-start column a truncating span is otherwise as wide as its text.
+                  <span className="max-w-full truncate text-row-title text-ink" data-testid="meet-guardian-name">
+                    {chosen.name}
+                  </span>
+                ) : (
+                  <Skeleton className="h-4 w-32" />
+                )}
+                {/* The operator's state takes the label's place until it answers: checking while the card
+                    waits on its verdict (Continue waits too), offline if a later round loses it. */}
+                {!chosen ? (
+                  <span className="text-caption text-muted">{t('meetGuardianChecking')}</span>
+                ) : chosenVerdict === undefined ? (
+                  <StatusBadge status="checking" live data-testid="meet-guardian-checking-status" />
+                ) : chosenVerdict.status === 'offline' ? (
+                  <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
+                ) : (
+                  <span className="text-caption-heading text-muted" data-testid="meet-guardian-header">
+                    {t('meetGuardianYourGuardian')}
+                  </span>
+                )}
+              </div>
+            )}
+            {!noOperators && (
+              <TextAction className="-mr-1" data-testid="meet-guardian-choose-different" onClick={onChooseDifferent}>
+                {t('meetGuardianChange')}
+              </TextAction>
+            )}
+          </div>
+          {/* The sentence once the operator lands; its two lines' placeholder until then. */}
+          {!noneReachable && (
+            <div className="border-t border-hairline px-4 py-3">
+              {chosen ? (
+                <p className="text-caption-heading text-muted" data-testid="meet-guardian-summary">
+                  {t('meetGuardianSummary', { name: chosen.name })}
+                </p>
+              ) : (
+                <div className="flex w-full flex-col gap-1.5 py-1" aria-hidden>
+                  <Skeleton className="h-3.5 w-full" />
+                  <Skeleton className="h-3.5 w-2/3" />
+                </div>
+              )}
+            </div>
+          )}
+          {/* The card's footer: the explainer link on the card's `fill` well under a hairline, there from
+              the start like the header link it replaces, so it reads the same while checking. */}
+          <div className="border-t border-hairline bg-fill px-3" data-testid="meet-guardian-footer">
+            <TextAction data-testid="meet-guardian-info" onClick={() => setIsInfoOpen(true)}>
+              {t('whatIsAGuardian')}
+            </TextAction>
+          </div>
+        </Card>
+      </section>
+
+      {/* Plain rows on the page, like the testnet notice before it; the hairlines start after the box. */}
+      <ListGroup surface="plain" insetHairlines className="shrink-0">
         {MEET_GUARDIAN_POINTS.map(point => (
           <CheckboxRow
             key={point.id}
@@ -174,82 +240,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         ))}
       </ListGroup>
 
-      {/* The card unfolds under the list once the last fact is ticked, and folds away if one is unticked. */}
-      <AnimatePresence initial={false}>
-        {allChecked && (
-          <motion.div key="guardian" className="shrink-0 overflow-hidden" {...reveal}>
-            {chosen ? (
-              <Card
-                data-testid="meet-guardian-card"
-                className="flex flex-col gap-3"
-                aria-busy={chosenVerdict === undefined}
-              >
-                <div className="flex items-center gap-3">
-                  <GuardianLogoTile guardianId={chosen.id} />
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    {/* "Fastest" is true of the operator locked in here, not of one picked in the full picker. */}
-                    {!(progress.pickedByUser && options.length > 1) && (
-                      <span className="text-caption text-muted">
-                        {options.length > 1
-                          ? t('meetGuardianFastestOf', { operators: String(options.length) })
-                          : t('meetGuardianOnlyOperator')}
-                      </span>
-                    )}
-                    <span className="truncate text-row-title text-ink" data-testid="meet-guardian-name">
-                      {chosen.name}
-                    </span>
-                  </div>
-                  {/* Nothing once it answers. A card kept from before the picker has no verdict yet, so it says
-                      it is checking (Continue waits for the answer); a later round that loses the operator shows
-                      offline, which is why Continue closed. */}
-                  {chosenVerdict === undefined ? (
-                    <StatusBadge status="checking" live data-testid="meet-guardian-checking-status" />
-                  ) : chosenVerdict.status === 'offline' ? (
-                    <StatusBadge status="offline" live data-testid="meet-guardian-offline" />
-                  ) : null}
-                </div>
-
-                <ul className="flex flex-col gap-2">
-                  {GUARDIAN_GUARANTEE_KEYS.map(key => (
-                    <li key={key} className="flex items-start gap-2">
-                      <span
-                        aria-hidden="true"
-                        className="flex size-4.5 shrink-0 items-center justify-center text-positive-ink"
-                      >
-                        <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
-                      </span>
-                      <span className="text-caption text-ink">{t(key)}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <p className="text-caption text-muted">{t(bioKey ?? 'guardianBioGeneric')}</p>
-
-                {chooseDifferent}
-              </Card>
-            ) : noneReachable ? (
-              <div className="flex flex-col gap-3">
-                <Notice tone="negative" role="status" data-testid="meet-guardian-none-reachable">
-                  {t('meetGuardianNoneReachable')}
-                </Notice>
-                {chooseDifferent}
-              </div>
-            ) : (
-              <Card data-testid="meet-guardian-checking" className="flex flex-col gap-3" aria-busy>
-                <div className="flex items-center gap-3">
-                  <Skeleton className="size-12 rounded-xl bg-fill-pressed" />
-                  <div className="flex flex-1 flex-col gap-1.5">
-                    <Skeleton className="h-3.5 w-32 bg-fill-pressed" />
-                    <Skeleton className="h-4 w-40 bg-fill-pressed" />
-                  </div>
-                </div>
-                <span className="text-caption text-muted">{t('meetGuardianChecking')}</span>
-                {chooseDifferent}
-              </Card>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
     </OnboardingStepLayout>
   );
 };

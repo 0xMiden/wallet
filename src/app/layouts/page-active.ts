@@ -1,14 +1,59 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
+
+import type { Transition } from 'framer-motion';
+
+import { springs, tabBarSwap, useMotion } from 'lib/animation';
 
 /**
  * Whether the page a component renders in is the one on screen. TabLayout keeps a visited tab
- * mounted under the active one and MobilePageLayers keeps a page mounted under a slide page, so work
- * a page does only for display, such as a poll, pauses while this is false.
+ * mounted under the active one, MobilePageLayers keeps a page mounted under a slide page, and
+ * HomeSwipeContainer keeps every Home page mounted beside the centred one, so work a page does only
+ * for display, such as a poll, pauses while this is false. An SWR read gated on it holds a null key
+ * while false, never `isPaused`: SWR sends a shared key's mutate and error retry to its first subscriber, and a paused
+ * one swallows them (see History).
  */
 export const PageActiveContext = createContext(true);
 
 export function usePageActive(): boolean {
   return useContext(PageActiveContext);
+}
+
+/**
+ * Whether the tab a component renders in is the selected tab, whatever covers its layer. Unlike
+ * PageActiveContext it stays true while a slide page covers the layer, so a tab's return (the pane
+ * shown again) can be told apart from a slide page's reveal.
+ */
+export const TabActiveContext = createContext(true);
+
+export function useTabActive(): boolean {
+  return useContext(TabActiveContext);
+}
+
+/**
+ * True for the one commit that shows a retained tab pane again. TabLayout hands a hidden pane its new
+ * route only in that commit, so whatever changed there changed out of sight: the pane takes its new
+ * state at once, since a slide or a pop from the state it left would read as a glitch. A slide page
+ * uncovering the pane is not this case, so this reads the tab-only signal, not the page/layer one.
+ */
+export function useTabShownAgain(): boolean {
+  const shown = useTabActive();
+  const wasShown = useRef(shown);
+  const shownAgain = shown && !wasShown.current;
+  useEffect(() => {
+    wasShown.current = shown;
+  }, [shown]);
+  return shownAgain;
+}
+
+/**
+ * The Activity list's layout transition: `springs.settle`, with only its `layout` channel on `tabBarSwap` in the commit
+ * `useTabShownAgain` reports, so a row or date group that survives a filter a link changed while the tab was hidden
+ * takes its new place at once (#1198). Only the layout channel: a row's `whileTap` press reads the same `transition`,
+ * and nothing re-renders the row after that commit, so a whole swap would leave its press instant until the next one.
+ */
+export function useSettleLayoutTransition(): Transition {
+  const settle = useMotion(springs.settle);
+  return useTabShownAgain() ? { ...settle, layout: tabBarSwap } : settle;
 }
 
 /**
@@ -22,4 +67,26 @@ export const PageOnScreenContext = createContext(true);
 
 export function usePageOnScreen(): boolean {
   return useContext(PageOnScreenContext);
+}
+
+/**
+ * True when a router Pop reached the page while its current layer was not mounted (it never had one, after a reload
+ * or a remount beneath history; its layer went; or its layer was retired), so the Pop mounted it fresh. It is read
+ * once, when the content mounts; a close only returns to a mounted layer, so it never sets it. Such a page never
+ * slides in from the right, which would read as a push; it fades in instead, unless its layer reveals it.
+ */
+export const PageMountedByReturnContext = createContext(false);
+
+export function usePageMountedByReturn(): boolean {
+  return useContext(PageMountedByReturnContext);
+}
+
+/**
+ * True when that return mount is a reveal: the page's layer brings it back from under the page that left, so the page
+ * plays no mount entrance of its own at all.
+ */
+export const PageRevealedByLayerContext = createContext(false);
+
+export function usePageRevealedByLayer(): boolean {
+  return useContext(PageRevealedByLayerContext);
 }

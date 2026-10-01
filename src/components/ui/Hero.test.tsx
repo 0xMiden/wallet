@@ -96,3 +96,12 @@ describe('Hero — name level', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Ready' })).toHaveClass('text-hero-name');
   });
 });
+
+it('sets the name at the page title size with nameSize="lg", and at the hero size by default', () => {
+  const { rerender } = render(<Hero visual={<span />} name="Your wallet is ready!" nameAs="h1" nameSize="lg" />);
+  expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-tab');
+  expect(screen.getByRole('heading', { level: 1 })).not.toHaveClass('text-hero-name');
+
+  rerender(<Hero visual={<span />} name="Sent" nameAs="h1" />);
+  expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-hero-name');
+});

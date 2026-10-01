@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
@@ -8,6 +9,7 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
@@ -16,9 +18,12 @@ import {
   FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
   FAUCET_UNSUBMITTED_MARKER_MS,
   FaucetRequestInProgressError,
+  FaucetRequestUnresolvedError,
+  type FaucetFundingMarker,
   WalletPromptStatus,
   WalletPromptType,
   __resetInFlightFaucetRequestsForTest,
+  clearFaucetFundingMarker,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
@@ -33,6 +38,7 @@ import {
   isFaucetFundingMarkerLive,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
+  parseFaucetFundingMarker,
   reconcileBridgedSends,
   reportHotKeyHardwareFailure,
   reportHotKeyRotationNeeded,
@@ -60,6 +66,7 @@ const bridgeRows: ITransaction[] = [];
 const findClaimableDeposit = jest.fn();
 const updateClaimStatus = jest.fn();
 const pollEpochIntentFill = jest.fn();
+const completeVerifiedLanded = jest.fn();
 
 // Only indexed reads exist: a read that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
@@ -81,7 +88,14 @@ jest.mock('lib/agglayer', () => ({
   findClaimableMidenToEvmDeposit: (...args: unknown[]) => findClaimableDeposit(...args)
 }));
 jest.mock('lib/miden/transaction/complete', () => ({
-  updateBridgeClaimStatus: (...args: unknown[]) => updateClaimStatus(...args)
+  updateBridgeClaimStatus: (...args: unknown[]) => updateClaimStatus(...args),
+  // The one shared source of the bridged-send landed display values (#1250) -
+  // stubbed rather than the real function so this suite stays about
+  // `reconcileBridgedSends`'s own decisions, not `complete.ts`'s literals.
+  bridgedSendLandedValues: () => ({ displayMessage: 'Bridged to EVM', displayIcon: 'SEND', completedAt: 1_700_000_000 })
+}));
+jest.mock('lib/miden/transaction/helper', () => ({
+  completeVerifiedLandedTransaction: (...args: unknown[]) => completeVerifiedLanded(...args)
 }));
 jest.mock('lib/epoch', () => ({
   pollEpochIntentFill: (...args: unknown[]) => pollEpochIntentFill(...args)
@@ -166,21 +180,54 @@ describe('wallet prompts', () => {
     expect(normalizeWalletPromptStorage({ version: 1, prompts: {} }).faucetByAccount).toEqual({});
   });
 
-  it('calculates the aggregate pending-note USD value across token decimals and prices', () => {
-    expect(
-      getPendingNotesUsdTotal(
-        [
-          { id: 'note-1', amount: '1250000', faucetId: '0xmiden', metadata: { decimals: 6, symbol: 'MIDEN' } },
-          { id: 'note-2', amount: '200000000', faucetId: '0ximiden', metadata: { decimals: 8, symbol: 'IMIDEN' } },
-          { id: 'note-3', amount: '3000000', faucetId: '0xother', metadata: { decimals: 6, symbol: 'UNKNOWN' } }
-        ],
-        {
-          MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
-          IMIDEN: { price: 0.5, change24h: 0, percentageChange24h: 0 }
-        }
-      )
-    ).toBe(6.5);
-    expect(getPendingNotesUsdTotal([], {})).toBe(0);
+  describe('getPendingNotesUsdTotal', () => {
+    const prices = {
+      USDC: { price: 2, change24h: 0, percentageChange24h: 0 },
+      ETH: { price: 3000, change24h: 0, percentageChange24h: 0 }
+    };
+    const usdc = {
+      id: 'note-1',
+      amount: '1250000',
+      faucetId: MIDEN_USDC_FAUCET,
+      metadata: { decimals: 6, symbol: 'USDC', name: 'USDC' }
+    };
+    // IETH is quoted under ETH (its swap token's priceSymbol), never under its own symbol.
+    const ieth = {
+      id: 'note-2',
+      amount: '200000000',
+      faucetId: TOKEN_IETH.faucetId,
+      metadata: { decimals: 8, symbol: 'IETH', name: 'IETH' }
+    };
+
+    it('sums every note at its quoted price, across decimals, reading IETH at the ETH price', () => {
+      expect(getPendingNotesUsdTotal([usdc, ieth], prices)).toBe(6002.5);
+    });
+
+    it('gives no total when any note has no quote, never a $1 figure for it', () => {
+      const unquoted = {
+        id: 'note-3',
+        amount: '3000000',
+        faucetId: '0xother',
+        metadata: { decimals: 6, symbol: 'OTHER', name: 'Other' }
+      };
+      expect(getPendingNotesUsdTotal([usdc, unquoted], prices)).toBeNull();
+    });
+
+    // A registry faucet is priced by its id, so a note still carrying the placeholder's guessed 6
+    // decimals would be the real ETH quote times a quantity 100x too large (38 IETH, not 0.38).
+    it('gives no total for a note whose scale is unknown, even when its faucet is quoted', () => {
+      const unsized = {
+        id: 'note-4',
+        amount: '38000000',
+        faucetId: TOKEN_IETH.faucetId,
+        metadata: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
+      };
+      expect(getPendingNotesUsdTotal([usdc, unsized], prices)).toBeNull();
+    });
+
+    it('totals nothing as zero', () => {
+      expect(getPendingNotesUsdTotal([], {})).toBe(0);
+    });
   });
 
   it('seeds a pending prompt when no prompt state exists', async () => {
@@ -696,7 +743,9 @@ describe('wallet prompts', () => {
   );
 
   it.each([
-    ['a sent request past its arrival window', FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS, true],
+    // No surface flagged it (each one watching closed first, or the flag write failed), yet it is
+    // unresolved all the same, as the mount read names it: only a request that names it replaces it.
+    ['a sent request past its arrival window, named as the one replaced', FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS, true],
     ['an unsent request past its own timeout', FAUCET_UNSUBMITTED_MARKER_MS, false]
   ])('starts a new request over %s', async (_state, ageMs, submitted) => {
     const stale = { requestedAt: Date.now() - ageMs - 1, baselineNoteIds: [], ...(submitted && { submitted }) };
@@ -709,7 +758,7 @@ describe('wallet prompts', () => {
       }
     );
 
-    await faucet('accountStale', marker);
+    await faucet('accountStale', marker, { replaces: submitted ? stale.requestedAt : undefined });
 
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
     expect(await fetchFaucetFundingMarker('accountStale')).toEqual({
@@ -719,13 +768,90 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('refuses a request over a sent request past its arrival window that does not name it', async () => {
+    const stale: FaucetFundingMarker = {
+      requestedAt: Date.now() - FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS - 1,
+      baselineNoteIds: ['note-1'],
+      submitted: true
+    };
+    await setFaucetFundingMarker('accountStale', stale);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    const error = await faucet('accountStale', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+    expect(error).toMatchObject({ record: { requestedAt: stale.requestedAt, baselineNoteIds: ['note-1'] } });
+    expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+    expect(await fetchFaucetFundingMarker('accountStale')).toEqual(stale);
+  });
+
+  describe('over an unresolved request', () => {
+    // Sent 30 s ago by this clock, yet already flagged unresolved by the surface whose wait ended.
+    const unresolvedRecord = (): FaucetFundingMarker => ({
+      requestedAt: Date.now() - 60_000,
+      baselineNoteIds: ['note-1'],
+      submitted: true,
+      submittedAt: Date.now() - 30_000,
+      unresolved: true
+    });
+
+    it.each([
+      ['a request that does not name it', () => undefined],
+      ['a request that names another record', (record: FaucetFundingMarker) => record.requestedAt - 1]
+    ])('refuses %s before any proof of work, and leaves the record', async (_case, replacing) => {
+      // A surface that read storage before another surface flagged the record never asked the user.
+      const record = unresolvedRecord();
+      await setFaucetFundingMarker('accountUnresolved', record);
+      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+      const error = await faucet(
+        'accountUnresolved',
+        { requestedAt: Date.now(), baselineNoteIds: [] },
+        { replaces: replacing(record) }
+      ).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+      expect(error).toMatchObject({
+        record: { requestedAt: record.requestedAt, baselineNoteIds: record.baselineNoteIds }
+      });
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+      expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual(record);
+    });
+
+    it("sends once the request names the record, and the new request's marker replaces it", async () => {
+      const record = unresolvedRecord();
+      await setFaucetFundingMarker('accountUnresolved', record);
+      const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+      const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
+      mintFromMidenFaucetMock.mockImplementation(
+        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+          seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
+          await beforeSubmit?.();
+          return { txId: '0xtx', noteId: '0xnote' };
+        }
+      );
+
+      await faucet('accountUnresolved', marker, { replaces: record.requestedAt });
+
+      expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+      expect(seen).toEqual([marker]);
+      expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
+        ...marker,
+        submitted: true,
+        submittedAt: expect.any(Number)
+      });
+    });
+  });
+
   it('does not send a request another surface already ended as abandoned', async () => {
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
       async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
         // This realm's timers were held back; meanwhile another surface found the marker
         // unflagged past the request timeout, cleared it and offered Fund again.
-        await setFaucetFundingMarker('accountFenced', null);
+        await clearFaucetFundingMarker('accountFenced');
         await beforeSubmit?.();
         sent = true;
         return { txId: '0xtx', noteId: '0xnote' };
@@ -756,7 +882,7 @@ describe('wallet prompts', () => {
           await new Promise<void>(resolve => {
             releaseClear = resolve;
           });
-          if (stored !== null && !stored.submitted) await setFaucetFundingMarker('accountClearing', null);
+          if (stored !== null && !stored.submitted) await clearFaucetFundingMarker('accountClearing');
         });
         await read;
         const flagging = beforeSubmit?.();
@@ -820,6 +946,64 @@ describe('wallet prompts', () => {
     });
 
     expect(await fetchFaucetFundingMarker('accountClock')).toBeNull();
+  });
+
+  it('keeps an unresolved marker stamped in the future: it is never live, so the stamp wedges nothing', async () => {
+    const unresolved: FaucetFundingMarker = {
+      requestedAt: Date.now() + 60_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    };
+    await setFaucetFundingMarker('accountClockUnresolved', unresolved);
+
+    expect(await fetchFaucetFundingMarker('accountClockUnresolved')).toEqual(unresolved);
+  });
+
+  it('reads a sent marker stamped in the future as unresolved, before any surface flagged it', async () => {
+    // Dropped, the request would read as never made, and the next tap would send again without asking.
+    const requestedAt = Date.now() + 60_000;
+    await setFaucetFundingMarker('accountClockSent', { requestedAt, baselineNoteIds: [], submitted: true });
+
+    expect(await fetchFaucetFundingMarker('accountClockSent')).toEqual({
+      requestedAt,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('parses each shape of a marker stamped in the future as the stored read does', async () => {
+    const requestedAt = Date.now() + 60_000;
+    const unresolved: FaucetFundingMarker = { requestedAt, baselineNoteIds: [], submitted: true, unresolved: true };
+    const shapes: Array<[object, FaucetFundingMarker | null]> = [
+      [{ requestedAt, baselineNoteIds: [] }, null],
+      [{ requestedAt, baselineNoteIds: [], submitted: true }, unresolved],
+      [{ requestedAt, baselineNoteIds: [], unresolved: true }, unresolved],
+      [{ requestedAt, baselineNoteIds: [], submitted: true, unresolved: true }, unresolved]
+    ];
+
+    for (const [stored, parsed] of shapes) {
+      expect(parseFaucetFundingMarker(stored)).toEqual(parsed);
+      await putToStorage('faucet_funding_v2:accountAhead', stored);
+      expect(await fetchFaucetFundingMarker('accountAhead')).toEqual(parsed);
+    }
+  });
+
+  it('refuses a request over a sent marker stamped in the future that does not name it', async () => {
+    await setFaucetFundingMarker('accountClockSent', {
+      requestedAt: Date.now() + 60_000,
+      baselineNoteIds: [],
+      submitted: true
+    });
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    const error = await faucet('accountClockSent', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(FaucetRequestUnresolvedError);
+    expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
   });
 
   it('keeps when a flagged request went out, and ignores a send time it cannot trust', async () => {
@@ -905,14 +1089,86 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('keeps the unresolved flag, and reads any stored value of it as unresolved', async () => {
+    await setFaucetFundingMarker('accountUnresolved', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+    expect(await fetchFaucetFundingMarker('accountUnresolved')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+
+    // Read as absent, a garbled flag would let a second surface send again without asking.
+    await putToStorage('faucet_funding_v2:accountUnresolvedGarbled', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: 'yes'
+    });
+    expect(await fetchFaucetFundingMarker('accountUnresolvedGarbled')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('reads an unresolved marker as sent, even with no submitted flag stored', async () => {
+    // Only a sent request can be left unresolved; read as unsent, it would be cleared as abandoned.
+    await putToStorage('faucet_funding_v2:accountUnresolvedOnly', {
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      unresolved: true
+    });
+
+    expect(await fetchFaucetFundingMarker('accountUnresolvedOnly')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      unresolved: true
+    });
+  });
+
+  it('never reads an unresolved request as live, unless it still runs here', () => {
+    const now = Date.now();
+    // Sent 30 s ago, so its arrival window has not ended by this clock: the flag alone ends the wait.
+    const marker: FaucetFundingMarker = {
+      requestedAt: now - 60_000,
+      baselineNoteIds: [],
+      submitted: true,
+      submittedAt: now - 30_000,
+      unresolved: true
+    };
+
+    expect(isFaucetFundingMarkerLive(marker, { runningHere: false, settledAt: null })).toBe(false);
+    expect(isFaucetFundingMarkerLive(marker, { runningHere: true, settledAt: null })).toBe(true);
+  });
+
   it('stores the funding marker per account', async () => {
     await setFaucetFundingMarker('accountA', { requestedAt: 1_000, baselineNoteIds: ['note-1'] });
 
     expect(await fetchFaucetFundingMarker('accountA')).toEqual({ requestedAt: 1_000, baselineNoteIds: ['note-1'] });
     expect(await fetchFaucetFundingMarker('accountB')).toBeNull();
 
-    await setFaucetFundingMarker('accountA', null);
+    await clearFaucetFundingMarker('accountA');
     expect(await fetchFaucetFundingMarker('accountA')).toBeNull();
+  });
+
+  it('removes the storage key when the marker is cleared, rather than writing null', async () => {
+    const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
+    await setFaucetFundingMarker('accountClear', marker);
+
+    await clearFaucetFundingMarker('accountClear');
+
+    const provider = getStorageProvider();
+    const stored = await provider.get(['faucet_funding_v2:accountClear']);
+    expect('faucet_funding_v2:accountClear' in stored).toBe(false);
+    expect(await fetchFaucetFundingMarker('accountClear')).toBeNull();
   });
 
   it('ignores malformed funding markers', async () => {
@@ -1524,6 +1780,7 @@ describe('bridge prompts', () => {
     findClaimableDeposit.mockResolvedValue(undefined);
     updateClaimStatus.mockResolvedValue(undefined);
     pollEpochIntentFill.mockResolvedValue(undefined);
+    completeVerifiedLanded.mockResolvedValue(undefined);
   });
 
   it('returns unsettled bridged-sends for the account, newest first', async () => {
@@ -1631,7 +1888,7 @@ describe('bridge prompts', () => {
   });
 
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
-    findClaimableDeposit.mockResolvedValue({ deposit: true });
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xAAA1' });
     const claimable = baseBridge({
       id: 'agg-ready',
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
@@ -1647,7 +1904,7 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
-    expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true }, '0xAAA1');
   });
 
   it('marks ready only the row whose OWN bridge-out produced the claimable deposit', async () => {
@@ -1657,7 +1914,7 @@ describe('bridge prompts', () => {
     // Deposit 41 belongs to row A. An unbound lookup (no origin hash) resolves it
     // too, so dropping the binding flips BOTH rows ready off this one deposit.
     findClaimableDeposit.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
-      originTxHash === '0xrow-b-origin' ? null : { deposit_cnt: 41 }
+      originTxHash === '0xrow-b-origin' ? null : { deposit_cnt: 41, tx_hash: '0xrow-a-origin' }
     );
 
     bridgeRows.push(
@@ -1675,7 +1932,7 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(updateClaimStatus).toHaveBeenCalledTimes(1);
-    expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true });
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true }, '0xrow-a-origin');
   });
 
   // `pollBridgedSend` queries the allocator and writes back onto the row, so a
@@ -1744,6 +2001,511 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  // Stored Epoch evidence settles a Failed row on its own, before this pass's
+  // polls even run - it needs no fresh fill answer (#1250).
+  it('promotes a Failed, non-restored Epoch bridge to Completed from its own stored evidence', async () => {
+    completeVerifiedLanded.mockImplementation(async (id: string, otherValues: Partial<ITransaction> = {}) => {
+      const target = bridgeRows.find(r => r.id === id);
+      if (target) Object.assign(target, otherValues, { status: ITransactionStatus.Completed });
+    });
+    const landed = baseBridge({
+      id: 'epoch-landed',
+      status: ITransactionStatus.Failed,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+    });
+    bridgeRows.push(landed);
+
+    await reconcileBridgedSends();
+
+    expect(completeVerifiedLanded).toHaveBeenCalledWith('epoch-landed', expect.any(Object));
+    expect(landed.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('leaves alone a restored row, an Epoch row whose evidence itself says failed, a Failed Agglayer claimed row, and a Completed row', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'restored-epoch-confirmed',
+        status: ITransactionStatus.Failed,
+        restoredFromBackup: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+      }),
+      baseBridge({
+        id: 'epoch-evidence-failed',
+        status: ITransactionStatus.Failed,
+        extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' }
+      }),
+      baseBridge({
+        id: 'agg-claimed-but-failed-row',
+        status: ITransactionStatus.Failed,
+        extraInputs: { provider: 'agglayer', claimStatus: 'claimed' }
+      }),
+      baseBridge({
+        id: 'epoch-already-completed',
+        status: ITransactionStatus.Completed,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+      })
+    );
+
+    await reconcileBridgedSends();
+
+    expect(completeVerifiedLanded).not.toHaveBeenCalled();
+  });
+
+  // A Failed row's own outcome can still be unknown (#1250): the rotation gate and
+  // Activity History already call this "not confirmed" via `isUnconfirmedFailure`,
+  // so the background poll settles it by the same bound evidence a Completed row
+  // gets, rather than leaving it stuck until the user reopens the detail page.
+  it('flips a Failed AggLayer bridge to ready once its OWN bound deposit is claimable', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xABC' });
+    const unconfirmed = baseBridge({
+      id: 'agg-failed-unconfirmed',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xabc',
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(unconfirmed);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xabc');
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-failed-unconfirmed', 'ready', { depositReady: true }, '0xABC');
+  });
+
+  // An unbound lookup on a Failed row could claim a sibling deposit for a bridge that
+  // never even landed - the same reason `findClaimableMidenToEvmDeposit` binds by
+  // `originTxHash` in the first place - so a Failed row with no transaction id is left
+  // alone rather than guessed at.
+  it('never looks up a claimable deposit for a Failed AggLayer bridge with no transaction id', async () => {
+    const unconfirmed = baseBridge({
+      id: 'agg-failed-no-txid',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(unconfirmed);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  it('polls the Epoch fill for a Failed row whose outcome is unconfirmed, keyed by its own intent nonce', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 8453 });
+    const unconfirmed = baseBridge({
+      id: 'epoch-failed-unconfirmed',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-unconfirmed',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(unconfirmed);
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-unconfirmed' });
+    expect(updateClaimStatus).toHaveBeenCalledWith('epoch-failed-unconfirmed', 'not-applicable', {
+      epochStatus: 'confirmed',
+      fillTxHash: '0xfill',
+      fillChainId: 8453
+    });
+  });
+
+  // `isUnconfirmedFailure` is false with none of its own qualifying evidence - an
+  // ordinary error and no `mayHaveSubmitted` reads as a definite failure, the same
+  // as today, so the row is skipped rather than resurfacing a poll for good.
+  it('never polls a Failed row whose failure is definite', async () => {
+    const definite = baseBridge({
+      id: 'agg-failed-definite',
+      status: ITransactionStatus.Failed,
+      error: 'Some ordinary rejection',
+      transactionId: '0xabc',
+      initiatedAt: Math.floor(Date.now() / 1000) - 3600,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(definite);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
+  // A background poll of a row whose landing is unknown cannot rely on an answer ever
+  // arriving, the way a Completed row can - so it has a terminal condition. Past it, the
+  // row is left to the detail page's own on-demand tracker and fill poll (#1250).
+  it('excludes a Failed AggLayer bridge whose 24-hour unconfirmed window has elapsed, but still polls one inside it', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xABC' });
+    const stale = baseBridge({
+      id: 'agg-failed-stale',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xstale',
+      initiatedAt: Math.floor(Date.now() / 1000) - 25 * 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const fresh = baseBridge({
+      id: 'agg-failed-fresh',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xfresh',
+      initiatedAt: Math.floor(Date.now() / 1000) - 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(stale, fresh);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale');
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xfresh');
+  });
+
+  it('does not fill-poll a Failed Epoch row whose 24-hour unconfirmed window has elapsed, but still polls one inside it', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const stale = baseBridge({
+      id: 'epoch-failed-stale',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-stale',
+        destinationAddress: '0xdest'
+      }
+    });
+    const fresh = baseBridge({
+      id: 'epoch-failed-fresh',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-fresh',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(stale, fresh);
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).not.toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-stale' });
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-fresh' });
+  });
+
+  // A Completed row is polled as today, with no window - only an unconfirmed Failed
+  // row's outcome can be left unresolved forever the way a landed one cannot.
+  it('still polls a Completed row 25 hours old, since the window applies only to an unconfirmed Failed row', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const oldCompleted = baseBridge({
+      id: 'epoch-completed-old',
+      status: ITransactionStatus.Completed,
+      initiatedAt: Math.floor(Date.now() / 1000) - 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-completed-old',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(oldCompleted);
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-completed-old' });
+  });
+
+  // F-049: the window's age comes from the row's own failure stamp - `completedAt`
+  // when `cancelTransaction` wrote one, `initiatedAt` otherwise - not from
+  // `initiatedAt` alone, so a row initiated long ago that only just failed is not
+  // excluded before its own 24-hour window has even started.
+  it('looks up a Failed-unconfirmed Agglayer row by its completedAt, not its far-older initiatedAt, and fill-polls the same shape for Epoch', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xrecent' });
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const now = Math.floor(Date.now() / 1000);
+    const aggRecentFailure = baseBridge({
+      id: 'agg-recent-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xrecent',
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochRecentFailure = baseBridge({
+      id: 'epoch-recent-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-recent-failure',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggRecentFailure, epochRecentFailure);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xrecent');
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-recent-failure' });
+  });
+
+  // Same shape, but the failure stamp itself is already 25 hours old, so the window
+  // has elapsed regardless of how long ago the transaction was initiated. Passes
+  // today too, since the far-older initiatedAt already excludes it.
+  it('still excludes a Failed-unconfirmed row whose own completedAt is 25 hours old', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const aggStaleFailure = baseBridge({
+      id: 'agg-stale-completedat',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xstale2',
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 25 * 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochStaleFailure = baseBridge({
+      id: 'epoch-stale-completedat',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 48 * 60 * 60,
+      completedAt: now - 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-stale-completedat',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggStaleFailure, epochStaleFailure);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale2');
+    expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
+      destinationAddress: '0xdest',
+      intentNonce: 'n-stale-completedat'
+    });
+  });
+
+  // F-050: a stamp ahead of the clock (a clock stepped back, or a stamp written while
+  // the clock ran fast) is untrusted, the way the faucet marker's stampedAhead already
+  // is in this file - it pauses the background poll until the clock reaches it, rather
+  // than reading as already elapsed. The stamp here is only an hour ahead, well inside
+  // the window's own magnitude, so only the sign rule excludes it.
+  it('pauses the background poll for a Failed-unconfirmed row whose completedAt is ahead of the clock', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const aggFutureFailure = baseBridge({
+      id: 'agg-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xfuture',
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochFutureFailure = baseBridge({
+      id: 'epoch-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-future-failure',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggFutureFailure, epochFutureFailure);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalledWith('0xdest', '0xfuture');
+    expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
+      destinationAddress: '0xdest',
+      intentNonce: 'n-future-failure'
+    });
+  });
+
+  // F-053: the same guard is symmetric with time - once the clock reaches the stamp
+  // it once was ahead of, the row reads as within the window again and the poll
+  // resumes on its own, with no separate unpause step.
+  it('resumes the background poll once the clock passes a stamp that was ahead of it', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const aggFutureFailure = baseBridge({
+      id: 'agg-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      transactionId: '0xfuture',
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochFutureFailure = baseBridge({
+      id: 'epoch-future-failure',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: now - 60 * 60,
+      completedAt: now + 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-future-failure',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggFutureFailure, epochFutureFailure);
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue((now + 2 * 60 * 60) * 1000);
+    try {
+      await reconcileBridgedSends();
+
+      expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xfuture');
+      expect(pollEpochIntentFill).toHaveBeenCalledWith({
+        destinationAddress: '0xdest',
+        intentNonce: 'n-future-failure'
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  // F-051: the future-stamp check sits inside the failedUnconfirmed expression only,
+  // so a Completed row keeps its unwindowed poll whatever its own completedAt says.
+  it('still polls a Completed row whose completedAt is ahead of the clock', async () => {
+    findClaimableDeposit.mockResolvedValue({ tx_hash: '0xstillpolled' });
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const now = Math.floor(Date.now() / 1000);
+    const aggCompletedFuture = baseBridge({
+      id: 'agg-completed-future',
+      status: ITransactionStatus.Completed,
+      completedAt: now + 25 * 60 * 60,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+    const epochCompletedFuture = baseBridge({
+      id: 'epoch-completed-future',
+      status: ITransactionStatus.Completed,
+      completedAt: now + 25 * 60 * 60,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-completed-future',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(aggCompletedFuture, epochCompletedFuture);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', undefined);
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({
+      destinationAddress: '0xdest',
+      intentNonce: 'n-completed-future'
+    });
+  });
+
+  // F-047: `extraInputs` is read defensively, the same way the promotion filter already
+  // reads it, so an in-window Failed-unconfirmed row that somehow carries none does not
+  // throw out of the per-row catch as a warning.
+  it('does not warn when an in-window Failed-unconfirmed bridged-send has no extraInputs', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const noExtraInputs = baseBridge({
+      id: 'agg-failed-no-extra-inputs',
+      status: ITransactionStatus.Failed,
+      mayHaveSubmitted: true,
+      initiatedAt: Math.floor(Date.now() / 1000) - 60 * 60,
+      extraInputs: undefined
+    });
+
+    bridgeRows.push(noExtraInputs);
+    await reconcileBridgedSends();
+
+    expect(warn).not.toHaveBeenCalledWith(
+      '[wallet-prompts] bridged-send poll failed',
+      'agg-failed-no-extra-inputs',
+      expect.any(Error)
+    );
+    warn.mockRestore();
+  });
+
+  // One row's rejecting promotion must not stop the pass for the others, the same
+  // rule the polling pass already keeps (#1250).
+  it('keeps promoting and polling other rows when one stored-evidence promotion rejects, and names the failing row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    completeVerifiedLanded.mockRejectedValueOnce(new Error('write conflict'));
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const rejectingPromotion = baseBridge({
+      id: 'epoch-landed-rejects',
+      status: ITransactionStatus.Failed,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+    });
+    const stillPolled = baseBridge({
+      id: 'epoch-completed-pending',
+      status: ITransactionStatus.Completed,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-still-polled',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(rejectingPromotion, stillPolled);
+
+    await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalledWith(
+      '[wallet-prompts] bridged-send landing failed',
+      'epoch-landed-rejects',
+      expect.any(Error)
+    );
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-still-polled' });
+    warn.mockRestore();
+  });
+
+  // The stored-evidence promotion filter reads a Failed row's `extraInputs` the same
+  // defensive way `isBridgeRouteFailedRow` already does - `undefined` is excluded,
+  // never dereferenced - so a row with none never crashes the filter itself, which
+  // runs synchronously ahead of the pass's own per-row catch.
+  it('excludes a Failed bridged-send row with no extraInputs from the promotion filter, and does not reject', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+    const noExtraInputs = baseBridge({
+      id: 'epoch-no-extra-inputs',
+      status: ITransactionStatus.Failed,
+      extraInputs: undefined
+    });
+    const stillPolled = baseBridge({
+      id: 'epoch-completed-pending-2',
+      status: ITransactionStatus.Completed,
+      extraInputs: {
+        provider: 'epoch',
+        epochStatus: 'pending',
+        intentNonce: 'n-still-polled-2',
+        destinationAddress: '0xdest'
+      }
+    });
+
+    bridgeRows.push(noExtraInputs, stillPolled);
+
+    await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+    expect(completeVerifiedLanded).not.toHaveBeenCalled();
+    expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-still-polled-2' });
   });
 });
 
@@ -1830,5 +2592,51 @@ describe('hot-key rotation-needed report', () => {
 
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+  });
+});
+
+describe('without Web Locks (iOS 15.0-15.3)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    jest.clearAllMocks();
+    mintFromMidenFaucetMock.mockReset();
+    __resetInFlightFaucetRequestsForTest();
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+  });
+
+  it('loads the prompt record in the hook and stores a dismissal', async () => {
+    await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.isPromptPending(WalletPromptType.VerifySeedPhrase)).toBe(true);
+
+    act(() => {
+      result.current.dismissPrompt(WalletPromptType.VerifySeedPhrase);
+    });
+
+    await waitFor(async () => {
+      expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.VerifySeedPhrase]).toBe(
+        WalletPromptStatus.Dismissed
+      );
+    });
+  });
+
+  it('funds an account, flagging its marker submitted before the token request goes out', async () => {
+    const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        await beforeSubmit?.();
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    await faucet('accountA', marker);
+
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+    expect(await fetchFaucetFundingMarker('accountA')).toEqual({
+      ...marker,
+      submitted: true,
+      submittedAt: expect.any(Number)
+    });
   });
 });

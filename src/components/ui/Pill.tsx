@@ -63,6 +63,8 @@ export type PillProps = PillBehaviourProps & {
   children: React.ReactNode;
   /** Leading glyph, sized by the pill. */
   icon?: React.ReactNode;
+  /** Trailing glyph, sized like `icon`; on a pill wider than its content it sits at the far end. */
+  trailingIcon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
   /**
@@ -76,6 +78,9 @@ export type PillProps = PillBehaviourProps & {
   disabled?: boolean;
   className?: string;
   'aria-label'?: string;
+  /** For a tappable pill that opens a sheet or menu. */
+  'aria-haspopup'?: 'dialog' | 'menu';
+  'aria-expanded'?: boolean;
   'data-testid'?: string;
 };
 
@@ -128,6 +133,21 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
   defaultVariants: { size: 'md' }
 });
 
+/** The trailing glyph's box: `pillIconVariants` mirrored, pushed to the far end of a stretched pill. */
+const pillTrailingIconVariants = cva(
+  'ml-auto flex shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
+  {
+    variants: {
+      size: {
+        xs: '-mr-0.5 h-3 w-3',
+        sm: '-mr-0.5 h-3.5 w-3.5',
+        md: '-mr-1 h-4 w-4'
+      } satisfies Record<PillSize, string>
+    },
+    defaultVariants: { size: 'md' }
+  }
+);
+
 /**
  * The app's pill: one height, padding and type scale for every chip, badge, label and small
  * action. Every tone reserves the same 1px border box (`border-transparent` unless the tone or
@@ -139,6 +159,7 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
 export const Pill: React.FC<PillProps> = ({
   children,
   icon,
+  trailingIcon,
   size = 'md',
   tone = 'neutral',
   onClick,
@@ -148,6 +169,8 @@ export const Pill: React.FC<PillProps> = ({
   className,
   live,
   'aria-label': ariaLabel,
+  'aria-haspopup': ariaHasPopup,
+  'aria-expanded': ariaExpanded,
   'data-testid': dataTestId
 }) => {
   // `cn` (tailwind-merge), not `clsx`: a caller's own border/background/text utility in
@@ -165,7 +188,14 @@ export const Pill: React.FC<PillProps> = ({
   const content = (
     <>
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
-      <span className="min-w-0 truncate">{children}</span>
+      <span data-slot="pill-label" className="min-w-0 truncate">
+        {children}
+      </span>
+      {trailingIcon && (
+        <span data-slot="pill-trailing" className={pillTrailingIconVariants({ size })}>
+          {trailingIcon}
+        </span>
+      )}
     </>
   );
 
@@ -195,6 +225,8 @@ export const Pill: React.FC<PillProps> = ({
       disabled={disabled}
       aria-pressed={selected}
       aria-label={ariaLabel}
+      aria-haspopup={ariaHasPopup}
+      aria-expanded={ariaExpanded}
       data-testid={dataTestId}
       className={classes}
     >

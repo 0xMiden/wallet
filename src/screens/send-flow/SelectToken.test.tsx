@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
@@ -34,19 +34,30 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
 
+// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
+const mockHiddenIds = new Set<string>();
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
+}));
+
 // vaul drawer — render children plus a probe button so we can fire the
 // `onOpenChange` the component wires to the sheet, and surface `open`.
+// The sheet's closeOnBack, captured so a test can see which tier owns its mobile back.
+let mockDrawerCloseOnBack: boolean | undefined;
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
     onOpenChange,
+    closeOnBack,
     children
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    closeOnBack?: boolean;
     children: React.ReactNode;
   }) => (
-    <div data-testid="drawer" data-open={String(open)}>
+    <div data-testid="drawer" data-open={String(open)} ref={() => (mockDrawerCloseOnBack = closeOnBack)}>
       <button data-testid="drawer-openchange" onClick={() => onOpenChange(false)} />
       {children}
     </div>
@@ -82,10 +93,8 @@ jest.mock('components/TokenLogo', () => ({
   )
 }));
 
-// `lib/prices` reaches for the live price feed; the fiat column only needs a
-// deterministic price per symbol here.
+// `lib/prices` reaches for the live price feed; the fiat column uses the real pure lookups.
 jest.mock('lib/prices', () => ({
-  getTokenPrice: (_prices: unknown, symbol: string) => ({ price: symbol === 'BTC' ? 2 : 1, percentageChange24h: 0 }),
   listedFiatValue: jest.requireActual('lib/prices/binance').listedFiatValue,
   listedPrice: jest.requireActual('lib/prices/binance').listedPrice
 }));
@@ -98,7 +107,7 @@ type Balance = {
 };
 
 const BTC: Balance = {
-  tokenId: 't-btc',
+  tokenId: TOKEN_IBTC.faucetId,
   metadata: { symbol: 'BTC', name: 'Bitcoin', decimals: 8 },
   balance: 1.5,
   fiatPrice: 50000
@@ -144,9 +153,15 @@ beforeEach(() => {
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
   mockStoreState = { tokenPrices: {} };
+  mockHiddenIds.clear();
 });
 
 describe('SelectTokenDrawer', () => {
+  it("leaves mobile back to SendManager's handler, which closes the sheet", () => {
+    renderDrawer();
+    expect(mockDrawerCloseOnBack).toBe(false);
+  });
+
   it('renders the localized title, search box and one row per balance when there is no query', () => {
     setBalances([BTC, ETH, XYZ]);
     renderDrawer();
@@ -235,6 +250,20 @@ describe('SelectTokenDrawer', () => {
     expect(screen.getByTestId('send-token-ETH')).toBeInTheDocument();
   });
 
+  it('leaves a hidden token out of the picker, and a search does not bring it back', () => {
+    setBalances([BTC, ETH]);
+    mockHiddenIds.add(ETH.tokenId);
+    renderDrawer();
+
+    expect(mockUseHiddenTokens).toHaveBeenCalledWith('pk-abc');
+    expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-ETH')).toBeNull();
+
+    fireEvent.change(search(), { target: { value: 'eth' } });
+
+    expect(screen.queryByTestId('send-token-ETH')).toBeNull();
+  });
+
   it('builds the UIToken, resets the search and closes the drawer on select', () => {
     mockStoreState = { tokenPrices: { BTC: { price: 50000 } } };
     setBalances([BTC, ETH]);
@@ -248,7 +277,7 @@ describe('SelectTokenDrawer', () => {
     fireEvent.click(screen.getByTestId('send-token-BTC'));
 
     const expected: UIToken = {
-      id: 't-btc',
+      id: TOKEN_IBTC.faucetId,
       name: 'BTC',
       decimals: 8,
       balance: 1.5,

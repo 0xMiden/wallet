@@ -7,10 +7,12 @@ import {
   getNoteRecallableAtMs,
   isAddressValid,
   isPrivateNoteType,
+  standardPaymentScriptRoots,
   toNoteTypeString
 } from './helpers';
 import { NoteTypeEnum } from './types';
 
+const P2ID_ROOT = '0xp2id';
 const P2IDE_ROOT = '0xp2ide';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -19,6 +21,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   // to get right.
   NoteType: { Private: 0, Public: 1 },
   NoteScript: {
+    p2id: () => ({ root: () => ({ toHex: () => '0xp2id' }) }),
     p2ide: () => ({ root: () => ({ toHex: () => '0xp2ide' }) })
   },
   Address: {
@@ -90,6 +93,12 @@ describe('miden helpers', () => {
     // silent downgrade of a user-approved Private note to a public one.
     it.each(['Private', 'PRIVATE', 'priv', '', 'unknown', 2])('rejects the unrecognized value %p', value => {
       expect(() => isPrivateNoteType(value as any)).toThrow('Unknown note type');
+    });
+  });
+
+  describe('standardPaymentScriptRoots', () => {
+    it('is exactly the P2ID and P2IDE roots (#805)', () => {
+      expect(standardPaymentScriptRoots()).toEqual(new Set([P2ID_ROOT, P2IDE_ROOT]));
     });
   });
 

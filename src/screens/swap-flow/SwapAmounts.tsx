@@ -79,8 +79,10 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   // feels like a press there.
   const [flips, setFlips] = useState(0);
   const flipTransition = resolveTransition(reduceMotion, tabBarMotion.highlight);
-  const sideMotion = (from: number) => ({
-    key: flips,
+  // Each side's key names the side (0 pay, 1 receive) as well as the flip: the two are siblings,
+  // and a key they shared left every earlier pair mounted on a flip, stacking the forms down the page.
+  const sideMotion = (side: 0 | 1, from: number) => ({
+    key: `${side}-${flips}`,
     initial: flips === 0 ? false : { y: from, opacity: 0 },
     animate: { y: 0, opacity: 1 },
     transition: flipTransition
@@ -122,7 +124,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       }
     >
       <div className="flex flex-col gap-5">
-        <motion.div {...sideMotion(-24)} data-testid="swap-pay-side">
+        <motion.div {...sideMotion(0, -24)} data-testid="swap-pay-side">
           <SelectAmount
             embedded
             label={fieldLabel(t('youPay'))}
@@ -165,7 +167,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
         </div>
 
-        <motion.div {...sideMotion(24)} data-testid="swap-receive-side">
+        <motion.div {...sideMotion(1, 24)} data-testid="swap-receive-side">
           <SelectAmount
             embedded
             // "You Receive" is the swap output — the user's balance of that token

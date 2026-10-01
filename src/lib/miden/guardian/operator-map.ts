@@ -20,7 +20,8 @@
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
+import { withGuardianProbe } from 'lib/miden/guardian/native-http';
 import { getBuiltInGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 
@@ -41,14 +42,18 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
 /**
  * One operator's key commitment, or `undefined` if it did not answer in time.
  *
- * `registerGuardianOrigin` first: on mobile, guardian traffic reaches the
- * network only through the `CapacitorHttp` CORS bypass, and that interceptor
- * routes registered origins only. The built-ins are pre-seeded, so this matters
- * for the custom / self-hosted endpoint — which is exactly the endpoint the
- * drift reconciler and the manual-URL apply below hand to this function, so
- * without it those two paths report every custom operator unreachable on mobile.
+ * Run under `withGuardianProbe`: on mobile, guardian traffic reaches the network
+ * only through the `CapacitorHttp` CORS bypass, and that interceptor routes only
+ * origins registered for the session or held by an in-flight probe. The built-ins
+ * are pre-seeded, so this matters for the custom / self-hosted endpoint the drift
+ * reconciler, the manual-URL apply below and the picker's ping hand to this
+ * function: without it those paths report every custom operator unreachable on
+ * mobile. The probe keeps the origin routed only when the endpoint answers with a
+ * key commitment of a Guardian's shape (`isGuardianKeyCommitment`), so a URL that
+ * is not a Guardian is not left routed.
  *
- * A non-string commitment is "did not answer", not a value. The guardian client
+ * Any answer that is not a Guardian's key (a non-string, an empty string, a string
+ * that is not a 32-byte hex word) is "did not answer", not a value. The guardian client
  * returns `data.commitment` off an unchecked `response.json()` cast, so the type
  * is whatever the endpoint chose to serve; `normalizeHex` calls `.startsWith` on
  * it, and the fold that does so in `probeBuiltInOperators` runs OUTSIDE the
@@ -56,35 +61,43 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
  * threw a `TypeError` out of the whole fan-out and took drift reconciliation down
  * for every account on the device, including accounts pointed at other, healthy
  * operators — the opposite of the isolation this module is built to provide.
- * Rejecting it HERE rather than guarding the fold is what gives all four callers
+ * Rejecting it HERE rather than guarding the fold is what gives every caller
  * the same guarantee and keeps the `answered < asked` bookkeeping honest: an
  * endpoint serving a nonsense type is exactly as informative as one that is down,
- * so it must not complete a round that `'none'` requires to be complete.
+ * so it must not complete a round that `'none'` requires to be complete. The same
+ * holds for a malformed string: the probe already calls that host not a Guardian,
+ * and a `'mismatch'` from it would make drift reconciliation accuse immediately.
  */
-async function fetchOperatorCommitment(
+export async function fetchOperatorCommitment(
   endpoint: string,
   timeoutMs: number = ENDPOINT_CHECK_TIMEOUT_MS
 ): Promise<string | undefined> {
-  registerGuardianOrigin(endpoint);
-  return new Promise<string | undefined>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`guardian pubkey check for ${endpoint} timed out`)), timeoutMs);
-    new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
-      value => {
-        clearTimeout(timer);
-        const commitment: unknown = value?.commitment;
-        if (commitment !== undefined && typeof commitment !== 'string') {
-          console.warn(`[Guardian] ${endpoint} served a non-string key commitment; treating it as unanswered.`);
-          resolve(undefined);
-          return;
-        }
-        resolve(commitment);
-      },
-      error => {
-        clearTimeout(timer);
-        reject(error);
-      }
-    );
-  });
+  return withGuardianProbe(
+    endpoint,
+    () =>
+      new Promise<string | undefined>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`guardian pubkey check for ${endpoint} timed out`)), timeoutMs);
+        new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
+          value => {
+            clearTimeout(timer);
+            const commitment: unknown = value?.commitment;
+            if (commitment !== undefined && !isGuardianKeyCommitment(commitment)) {
+              console.warn(
+                `[Guardian] ${endpoint} served a key commitment that is not a 32-byte hex word; treating it as unanswered.`
+              );
+              resolve(undefined);
+              return;
+            }
+            resolve(commitment);
+          },
+          error => {
+            clearTimeout(timer);
+            reject(error);
+          }
+        );
+      }),
+    isGuardianKeyCommitment
+  );
 }
 
 /** What one probe round of the built-in operators established. */
@@ -251,7 +264,7 @@ export async function checkEndpointCommitment(
  * cold-starting but perfectly correct self-hosted operator report as the WRONG
  * operator — the harshest possible reading of "slow".
  */
-const USER_ENDPOINT_CHECK_TIMEOUT_MS = 20_000;
+export const USER_ENDPOINT_CHECK_TIMEOUT_MS = 20_000;
 
 /**
  * Verify a specific endpoint's operator key matches the on-chain commitment,

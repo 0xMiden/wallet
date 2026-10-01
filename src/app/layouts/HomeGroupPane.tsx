@@ -27,9 +27,10 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
  *   `pointerdown` that does not reach the track.
  * - **The page margin**: 16px, the design system's, the same on all four, on the body and on the
  *   pinned CTA alike.
- * - **The top offset**: 36px from the top of the pane to its first line, so the title does not
- *   move as you swipe between panes, and a pane's content lands where a pushed step's does (60px
- *   row, 4px rule and 8px under it: 72px).
+ * - **The top offset**, one per kind of pane: 36px to a titled pane's first line (Send, Earn,
+ *   Swap), so the title does not move as you swipe between them and a pane's content lands where
+ *   a pushed step's does (60px row, 4px rule and 8px under it: 72px); 20px for Receive, which opens
+ *   on its code; and a pushed step's own header gap.
  * - **Bottom clearance** over the docked tab bar, from the same expression the pinned CTA uses, so
  *   a pane without a CTA ends its content exactly where one with a CTA ends its button.
  */
@@ -40,16 +41,18 @@ const PANE_GUTTER = 'px-4';
 /**
  * Where the body's content starts.
  *
- * `root` is a pane's own first line, 36px down - Receive's "Receive at", Earn's "Your Earnings",
- * Send's "Send to", Swap's "You Pay". `header` is a pushed step: `PageHeader` already ends in its
- * own `mb-2` rule spacing, and that is the whole gap (`PushedPageGap.test.tsx` pins it against
+ * `root` is a pane's own first line, 36px down - Earn's "Your Earnings", Send's "Send to", Swap's
+ * "You Pay". `visual` is a pane that opens on a visual rather than a title, 20px down, above a
+ * titled pane's first line in both themes - Receive's code. `header` is a pushed step: `PageHeader`
+ * already ends in its own `mb-2` rule spacing, and that is the whole gap (`PushedPageGap.test.tsx` pins it against
  * `SubPageLayout`) — the body adds nothing on top of it, or a pushed flow step opens with 16px
  * instead of the 8px every other pushed page opens with.
  */
-export type HomeGroupPaneTop = 'root' | 'header';
+export type HomeGroupPaneTop = 'root' | 'visual' | 'header';
 
 const PANE_TOP: Record<HomeGroupPaneTop, string> = {
   root: 'pt-9',
+  visual: 'pt-5',
   header: ''
 };
 
@@ -72,7 +75,10 @@ export const HomeGroupPaneRoot: React.FC<HomeGroupPaneRootProps> = ({ testId, ch
 export interface HomeGroupPaneBodyProps {
   /** Test id for the scrolling body. */
   testId?: string;
-  /** The pane's first line. Omitted where the content's own first line is the title (Swap). */
+  /**
+   * The pane's first line. Omitted where the content's own first line is the title (Swap), or where the
+   * pane opens on a visual and draws its own sr-only heading (Receive).
+   */
   title?: React.ReactNode;
   titleTestId?: string;
   top?: HomeGroupPaneTop;

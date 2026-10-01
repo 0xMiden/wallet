@@ -505,6 +505,17 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
     return last;
   };
 
+  const persistedRun = async () =>
+    (
+      await fetchFromStorage<Record<string, { endpoint: string; windows: number; lastAt: number }>>(
+        SILENT_DRIFT_RUN_STORAGE_KEY
+      )
+    )?.pk;
+
+  /** A stranded account whose stored pointer is spelled `guardianEndpoint`. */
+  const spelledVault = (guardianEndpoint: string) =>
+    makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC', guardianEndpoint, guardianSyncStatus: 'in-sync' });
+
   beforeEach(() => {
     elapsedWindows = 0;
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
@@ -643,6 +654,25 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
       }
       expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
     });
+
+    // A fresh realm has no cooldown, so only the run's own too-soon check stands
+    // between a respelled pointer and a run rewritten at one window.
+    it('does not restart the run when a fresh realm reads the pointer respelled', async () => {
+      await runWindows(justUnder, () => spelledVault('https://Guardian.Example.com'));
+      await realmRestart();
+      const before = await persistedRun();
+      expect(before?.windows).toBe(justUnder);
+
+      const realNow = Date.now;
+      Date.now = () => before!.lastAt;
+      try {
+        await resolveGuardianDrift(spelledVault('https://guardian.example.com') as never, 'pk');
+      } finally {
+        Date.now = realNow;
+      }
+
+      expect(await persistedRun()).toEqual(before);
+    });
   });
 
   // The run's subject is the pair (account, STORED endpoint) — "this endpoint has
@@ -668,6 +698,7 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
 
     expect(await runWindows(1, () => rotated)).toEqual({ status: 'in-sync', changed: false });
     expect(rotated.setGuardianSyncStatus).not.toHaveBeenCalled();
+    expect(await persistedRun()).toMatchObject({ endpoint: 'https://fresh.guardian', windows: 1 });
 
     // And the new endpoint earns its own full run rather than being let off: the
     // reset re-arms the guard, it does not disable it.
@@ -703,6 +734,35 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
     }
 
     expect(checkEndpointCommitment).toHaveBeenCalledWith('https://fresh.guardian', 'customC');
+  });
+
+  // Both of the above key on WHICH operator is stored, and a respelling (host
+  // case, a default port, a trailing slash) names the same one, so it must
+  // neither restart the run nor cut the cooldown short.
+  it('keeps counting the run when the stored pointer is only respelled', async () => {
+    const original = spelledVault('https://Guardian.Example.com');
+    await runWindows(justUnder, () => original);
+
+    const respelled = spelledVault('https://guardian.example.com');
+    expect(await runWindows(1, () => respelled)).toEqual({ status: 'needs-user-input', changed: true });
+    expect((await persistedRun())?.windows).toBe(SILENT_DRIFT_WINDOWS_BEFORE_PROMPT);
+  });
+
+  it('serves out the cooldown when the stored pointer is only respelled', async () => {
+    await runWindows(justUnder, () => spelledVault('https://Guardian.Example.com'));
+    const before = await persistedRun();
+    (checkEndpointCommitment as jest.Mock).mockClear();
+
+    const realNow = Date.now;
+    Date.now = () => before!.lastAt;
+    try {
+      await resolveGuardianDrift(spelledVault('https://guardian.example.com') as never, 'pk');
+    } finally {
+      Date.now = realNow;
+    }
+
+    expect(checkEndpointCommitment).not.toHaveBeenCalled();
+    expect(await persistedRun()).toEqual(before);
   });
 
   // The false-positive cost has to stay bounded: the moment the endpoint speaks

@@ -95,6 +95,19 @@ export const isWalletAccount = (value: unknown): value is WalletAccount => {
   );
 };
 
+/**
+ * A Guardian account the wallet did not derive from its recovery phrase (hdIndex < 0;
+ * today that is onboarding's key import, `Vault.spawnFromHotKey`). An encrypted wallet
+ * file leaves its record and keys out: its SDK row still travels in the database dump
+ * and the restore skips it, so the account is not restored from the file. The user
+ * restores it from its everyday and EVM keys instead: no phrase derives them, and a
+ * Guardian's keys never travel in a file (the account-file export refuses them too).
+ * The exporter and the export screen both read this, so the file and the screen cannot
+ * disagree about which accounts it restores.
+ */
+export const isExcludedFromWalletFile = (account: Pick<WalletAccount, 'type' | 'hdIndex'>): boolean =>
+  account.type === WalletType.Guardian && account.hdIndex < 0;
+
 const parseImportedAccount = (value: unknown): ImportedAccountBackup => {
   if (
     !isRecord(value) ||

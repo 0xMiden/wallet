@@ -13,9 +13,8 @@
  * response) reports offline: the picker disables that operator's card until a
  * later round reports it online, and onboarding never picks it.
  */
-import { GuardianHttpClient } from '@openzeppelin/guardian-client';
-
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
+import { fetchOperatorCommitment } from 'lib/miden/guardian/operator-map';
 
 /**
  * Per-ping deadline. Short on purpose: this verdict disables an operator's card
@@ -35,33 +34,14 @@ export async function pingGuardianEndpointLatency(
   endpoint: string,
   timeoutMs: number = GUARDIAN_PING_TIMEOUT_MS
 ): Promise<number | null> {
-  // Built-ins are pre-seeded for the mobile CORS bypass; register defensively
-  // so a custom/overridden endpoint also routes through native HTTP.
-  registerGuardianOrigin(endpoint);
-  const startedAt = performance.now();
+  // One try around everything, so the ping cannot reject whatever the helper below does.
   try {
-    const result = await new Promise<{ commitment?: string }>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`guardian ping to ${endpoint} timed out`)), timeoutMs);
-      new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
-        value => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        error => {
-          clearTimeout(timer);
-          reject(error);
-        }
-      );
-    });
-    // A STRING commitment, not merely a truthy one. The body is an unchecked
-    // `response.json()` cast, so `{"commitment": 1234}` reaches here as a number
-    // and `Boolean(1234)` reported a host serving nonsense as a live guardian —
-    // the same unvalidated value `fetchOperatorCommitment` refuses, on the same
-    // endpoint, for the same reason. Fails toward "offline", which is what every
-    // other non-guardian response already reports.
-    const isGuardian = typeof result?.commitment === 'string' && result.commitment.length > 0;
-    return isGuardian ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
+    const startedAt = performance.now();
+    // Probes the origin on mobile, and settles it by the same rule as the verdict below.
+    const commitment = await fetchOperatorCommitment(endpoint, timeoutMs);
+    return isGuardianKeyCommitment(commitment) ? Math.max(0, Math.round(performance.now() - startedAt)) : null;
   } catch {
+    // Offline, whatever the cause.
     return null;
   }
 }

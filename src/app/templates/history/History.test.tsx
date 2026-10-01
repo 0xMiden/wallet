@@ -1,8 +1,14 @@
 import React from 'react';
 
 import { render, screen, act, waitFor, cleanup } from '@testing-library/react';
+import { flushSync } from 'react-dom';
+import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
+// The real strings, not mocked (this module is not replaced by any `jest.mock` in this file) -
+// used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
+// call reads (#1250).
+import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 
 // Imported AFTER the mocks are registered.
 import History from './History';
@@ -19,6 +25,7 @@ const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
 const mockSuppressedLinkedConsumeIds = jest.fn();
+const mockSupersededFailedConsumeIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -43,9 +50,12 @@ const mockSwrConfigs: Record<string, unknown> = {};
 // module-internal `fetchTransactionsAsHistoryEntries` /
 // `fetchPendingTransactionsAsHistoryEntries` helpers.
 // ---------------------------------------------------------------------------
+// Hands the real `lib/swr` to the tests that switch it on, for behaviour that lives in SWR's shared cache.
+let mockRealSwr = false;
 const mockUseRetryableSWR = jest.fn(
-  (key: unknown, fetcher: () => Promise<unknown>, config?: { isPaused?: () => boolean }) => {
-    mockSwrConfigs[String((key as unknown[])[0])] = config;
+  (key: unknown, fetcher: () => Promise<unknown>, config?: Record<string, unknown>) => {
+    // A null key is a read that is not running: no fetch, no data, not loading. Every hook still runs.
+    if (key !== null) mockSwrConfigs[String((key as unknown[])[0])] = config;
     const keyStr = JSON.stringify(key);
     const [state, setState] = React.useState<{ data: unknown; isLoading: boolean; error?: unknown }>({
       data: undefined,
@@ -54,9 +64,10 @@ const mockUseRetryableSWR = jest.fn(
     const [tick, setTick] = React.useState(0);
     const mutateRef = React.useRef<jest.Mock>();
     if (!mutateRef.current) mutateRef.current = jest.fn(() => setTick(t => t + 1));
-    mockSwrMutates[String((key as unknown[])[0])] = mutateRef.current;
+    if (key !== null) mockSwrMutates[String((key as unknown[])[0])] = mutateRef.current;
 
     React.useEffect(() => {
+      if (key === null) return undefined;
       let active = true;
       Promise.resolve(fetcher()).then(
         data => {
@@ -72,13 +83,14 @@ const mockUseRetryableSWR = jest.fn(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keyStr, tick]);
 
+    if (key === null) return { data: undefined, isLoading: false, error: undefined, mutate: mutateRef.current };
     return { data: state.data, isLoading: state.isLoading, error: state.error, mutate: mutateRef.current };
   }
 );
 
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: (...args: [unknown, () => Promise<unknown>, { isPaused?: () => boolean }?]) =>
-    mockUseRetryableSWR(...args)
+  useRetryableSWR: (...args: [unknown, () => Promise<unknown>, Record<string, unknown>?]) =>
+    mockRealSwr ? jest.requireActual('lib/swr').useRetryableSWR(...args) : mockUseRetryableSWR(...args)
 }));
 
 // `react-i18next` is imported (top-level) by `app/defaults`; echo keys back.
@@ -89,6 +101,7 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
   suppressedLinkedConsumeIds: (...args: unknown[]) => mockSuppressedLinkedConsumeIds(...args),
+  supersededFailedConsumeIds: (...args: unknown[]) => mockSupersededFailedConsumeIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
   // The REAL predicate: which rows may be cancelled is exactly what these
@@ -97,7 +110,10 @@ jest.mock('lib/miden/activity', () => ({
   // Real (pure) implementations so the cancelled-row mapping is exercised
   // against the production sentinel string.
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
-  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user',
+  // The REAL predicate, same reasoning as isCancellableTransaction above: which rows the
+  // builder marks not-confirmed (#1250) is exactly what the isUnconfirmed tests assert.
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
 }));
 
 jest.mock('lib/miden/db/types', () => ({
@@ -288,6 +304,7 @@ async function renderHistory(props: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRealSwr = false;
   mockHistoryViewProps = undefined;
   mockHistoryViewCalls = [];
 
@@ -318,6 +335,7 @@ beforeEach(() => {
     async (transactions: Array<{ id: string; extraInputs?: { bridgeIn?: { bridgeReceiveTxId?: string } } }>) =>
       new Set(transactions.filter(tx => tx.extraInputs?.bridgeIn?.bridgeReceiveTxId === 'BR-KEEP').map(tx => tx.id))
   );
+  mockSupersededFailedConsumeIds.mockResolvedValue(new Set());
   mockResolveConsumeExtraAmounts.mockResolvedValue([]);
 });
 
@@ -326,7 +344,7 @@ afterEach(() => cleanup());
 // The activity screen measures "time until the user can see their activity",
 // so it needs to know when the first load settles — this list owns that state.
 describe('History initial-load signal', () => {
-  it('reports the initial load once the transaction query settles', async () => {
+  it('reports the initial load once the reads it needs have answered', async () => {
     const onInitialLoad = jest.fn();
 
     await renderHistory({ onInitialLoad });
@@ -350,6 +368,26 @@ describe('History initial-load signal', () => {
     });
 
     await waitFor(() => expect(onInitialLoad.mock.calls.length).toBeGreaterThan(0));
+  });
+
+  it('reports the load under Pending once the in-flight read answers, though the settled read never runs', async () => {
+    mockGetCompletedTransactions.mockImplementation(() => new Promise(() => {}));
+    const onInitialLoad = jest.fn();
+
+    await renderHistory({ filter: 'pending', pendingItems: [], onInitialLoad });
+
+    await waitFor(() => expect(onInitialLoad.mock.calls.length).toBeGreaterThan(0));
+  });
+
+  it('does not report the load while the in-flight read has not answered', async () => {
+    mockGetUncompletedTransactions.mockImplementation(() => new Promise(() => {}));
+    const onInitialLoad = jest.fn();
+
+    await renderHistory({ onInitialLoad });
+    await waitFor(() => expect(mockGetCompletedTransactions).toHaveBeenCalled());
+    await act(async () => undefined);
+
+    expect(onInitialLoad).not.toHaveBeenCalled();
   });
 });
 
@@ -437,6 +475,111 @@ describe('History', () => {
     expect(verdictOf('completed-unconfirmed')).toBe('submitted-unconfirmed');
     expect(verdictOf('completed-confirmed')).toBe('confirmed');
     expect(verdictOf('pending-queued')).toBe('in-flight');
+  });
+
+  it('sets isUnconfirmed (and keeps isCancelled) for a stamped user cancel, and for a failed bridge-in consume', async () => {
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      // A user cancel the pipeline had already picked up (processingStartedAt set): the row is
+      // both isCancelled (Retry stays hidden) and isUnconfirmed (its pipeline may still land).
+      {
+        id: 'stamped-cancel',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'send',
+        completedAt: 500,
+        error: 'Transaction was cancelled by user',
+        processingStartedAt: 1_600_000_000
+      },
+      // A bridge-in consume the cold-start sweep failed: unconfirmed, not cancelled.
+      {
+        id: 'bridge-in-failed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'consume',
+        completedAt: 600,
+        error: TRANSACTION_INTERRUPTED_ERROR,
+        extraInputs: { bridgeIn: { provider: 'agglayer' } }
+      },
+      // A rotation the vault shortfall gate names even though it may have submitted: a
+      // definite failure, not an unknown outcome (#1250).
+      {
+        id: 'rotation-shortfall',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'replace-hot-key',
+        completedAt: 700,
+        error: TRANSACTION_VAULT_SHORTFALL_ERROR,
+        mayHaveSubmitted: true
+      },
+      // A bridged-send `markBridgedSendFailed` demoted after the allocator rejected the intent: its
+      // own route evidence proves it failed, so it stays a definite failure too (#1250).
+      {
+        id: 'bridge-route-failed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 800,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' }
+      },
+      // Siblings whose fill has not (yet) reported failed keep reading not-confirmed.
+      {
+        id: 'bridge-fill-pending',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 900,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+      },
+      {
+        id: 'bridge-fill-confirmed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 1000,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(6));
+
+    const stampedCancel = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-stamped-cancel');
+    expect(stampedCancel.isCancelled).toBe(true);
+    expect(stampedCancel.isUnconfirmed).toBe(true);
+
+    const bridgeIn = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-in-failed');
+    expect(bridgeIn.isCancelled).toBe(false);
+    expect(bridgeIn.isUnconfirmed).toBe(true);
+
+    const rotationShortfall = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-rotation-shortfall');
+    expect(rotationShortfall.isUnconfirmed).toBe(false);
+
+    const bridgeRouteFailed = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-route-failed');
+    expect(bridgeRouteFailed.isUnconfirmed).toBe(false);
+
+    const bridgeFillPending = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-fill-pending');
+    expect(bridgeFillPending.isUnconfirmed).toBe(true);
+
+    const bridgeFillConfirmed = mockHistoryViewProps.entries.find(
+      (e: any) => e.key === 'completed-bridge-fill-confirmed'
+    );
+    expect(bridgeFillConfirmed.isUnconfirmed).toBe(true);
   });
 
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {
@@ -560,11 +703,12 @@ describe('History', () => {
       expect(mockSwrMutates['latest-pending-transactions']).toHaveBeenCalled();
     });
 
-    it('forwards no load error under the Pending filter, where both reads are paused', async () => {
+    it('never runs the settled read under Pending, so its failure cannot surface there', async () => {
       mockGetCompletedTransactions.mockRejectedValue(new Error('db down'));
       await renderHistory({ filter: 'pending' });
 
       await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      expect(mockGetCompletedTransactions).not.toHaveBeenCalled();
       expect(mockHistoryViewProps.loadError).toBe(false);
     });
 
@@ -1191,6 +1335,44 @@ describe('History', () => {
       secondaryAddress: '0xpend'
     });
   });
+
+  it('drops a failed claim row the superseded lookup names (#771)', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'CLAIMED',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 4n,
+              noteId: 'n1',
+              noteIds: ['n1'],
+              completedAt: 5000
+            },
+            {
+              id: 'ATTEMPT',
+              status: STATUS.Failed,
+              displayMessage: 'Failed',
+              displayIcon: 'FAILED',
+              faucetId: 'fa1',
+              type: 'consume',
+              noteId: 'n1',
+              completedAt: 4000
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['ATTEMPT']));
+
+    await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-CLAIMED'));
+
+    expect(entryKeys()).not.toContain('completed-ATTEMPT');
+  });
 });
 
 // A batch claim's secondary assets are rendered on the row, so they have to
@@ -1415,7 +1597,7 @@ it('suppresses a consume row represented by its claiming note, but retains a bat
   expect(mockHistoryViewProps.entries[0].txId).toBe('batch');
 });
 
-it('suppresses a legacy single-note consume row behind a CLAIMING card, keeps rows no card represents, and hides history under Pending', async () => {
+it('suppresses a legacy single-note consume row behind a CLAIMING card, keeps rows no card represents, and keeps only in-flight rows under Pending', async () => {
   mockGetCompletedTransactions.mockResolvedValue([
     {
       id: 'legacy',
@@ -1478,7 +1660,45 @@ it('suppresses a legacy single-note consume row behind a CLAIMING card, keeps ro
   await act(async () => {
     rerender(<History address="0xme" pendingItems={[claimed]} filter="pending" />);
   });
-  expect(entryKeys()).toEqual([]);
+  expect(entryKeys()).toEqual(['pending-queued-send']);
+});
+
+it('lists in-flight transactions under Pending beside the note cards, and no settled row', async () => {
+  const note: PendingActivityItem = {
+    note: {
+      id: 'incoming',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  // Settled rows are held first, so choosing Pending has some to drop.
+  const { rerender } = await renderHistory({ filter: 'all', pendingItems: [note] });
+  await waitFor(() => expect(entryKeys()).toContain('completed-S'));
+
+  await act(async () => {
+    rerender(<History address="0xme" filter="pending" pendingItems={[note]} />);
+  });
+  // Queued and generating rows (a send, a swap, a consume) stay; completed, failed and cancelled rows do not.
+  expect(entryKeys()).toEqual(['pending-PQ', 'pending-PP', 'pending-undefined']);
+  expect(mockHistoryViewProps.pendingItems).toEqual([note]);
+});
+
+it('keeps Pending loading while the in-flight read has not answered', async () => {
+  mockGetUncompletedTransactions.mockImplementation(() => new Promise(() => {}));
+  await renderHistory({ filter: 'pending', pendingItems: [] });
+  await act(async () => undefined);
+  expect(mockHistoryViewProps.initialLoading).toBe(true);
+});
+
+it('shows a load error under Pending when the in-flight read fails', async () => {
+  mockGetUncompletedTransactions.mockRejectedValue(new Error('db down'));
+  await renderHistory({ filter: 'pending', pendingItems: [] });
+  await waitFor(() => expect(mockHistoryViewProps.loadError).toBe(true));
 });
 
 it('hides the consume row of every represented claim while drawing only the cards it is told to', async () => {
@@ -1579,19 +1799,22 @@ it('hides a failed consume row while its failed card offers the retry, and shows
   expect(entryKeys()).toEqual(['completed-failed-claim']);
 });
 
-it('stops paging and polling transaction history while the Pending filter shows only transfer cards', async () => {
+// [settled history, in-flight transactions]: whether each read holds a key, and so is subscribed and running.
+const readsRunning = () => mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[0] !== null);
+
+it('stops paging and reading settled history under Pending but keeps reading in-flight transactions', async () => {
   const { rerender } = await renderHistory({ filter: 'pending' });
   expect(mockHistoryViewProps.hasMore).toBe(false);
-  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([true, true]);
+  expect(readsRunning()).toEqual([false, true]);
 
   await act(async () => {
     rerender(<History address="0xme" filter="all" />);
   });
   expect(mockHistoryViewProps.hasMore).toBe(true);
-  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([false, false]);
+  expect(readsRunning()).toEqual([true, true]);
 });
 
-it('pauses both transaction polls while the page is off screen and refreshes them when it returns', async () => {
+it('stops both transaction reads while the page is off screen and reads them when it returns', async () => {
   const view = (onScreen: boolean) => (
     <PageActiveContext.Provider value={onScreen}>
       <History address="0xme" />
@@ -1602,52 +1825,77 @@ it('pauses both transaction polls while the page is off screen and refreshes the
     utils = render(view(false));
   });
   await waitFor(() => expect(screen.getByTestId('history-view')).toBeTruthy());
-  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([true, true]);
+  expect(readsRunning()).toEqual([false, false]);
+  expect(mockGetCompletedTransactions).not.toHaveBeenCalled();
+  expect(mockGetUncompletedTransactions).not.toHaveBeenCalled();
 
-  const reads = () => mockGetCompletedTransactions.mock.calls.length + mockGetUncompletedTransactions.mock.calls.length;
-  const before = reads();
   await act(async () => {
     utils?.rerender(view(true));
   });
-  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([false, false]);
-  await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  expect(readsRunning()).toEqual([true, true]);
+  await waitFor(() => expect(mockGetCompletedTransactions).toHaveBeenCalled());
+  expect(mockGetUncompletedTransactions).toHaveBeenCalled();
 });
 
-it('refreshes both transaction reads whenever they resume, and only then', async () => {
+it('refreshes each transaction read whenever it resumes, and only then', async () => {
   const view = (onScreen: boolean, filter: 'pending' | 'all') => (
     <PageActiveContext.Provider value={onScreen}>
       <History address="0xme" filter={filter} />
     </PageActiveContext.Provider>
   );
-  const refreshes = () =>
-    mockUseRetryableSWR.mock.results.slice(-2).map(result => result.value.mutate?.mock.calls.length);
+  const fetches = () => [
+    mockGetCompletedTransactions.mock.calls.filter(call => call[1] === undefined).length,
+    mockGetUncompletedTransactions.mock.calls.length
+  ];
   let utils: ReturnType<typeof render> | undefined;
   await act(async () => {
     utils = render(view(true, 'pending'));
   });
-  await waitFor(() => expect(screen.getByTestId('history-view')).toBeTruthy());
+  await waitFor(() => expect(fetches()).toEqual([0, 1]));
 
-  // Off screen and back with Pending still selected: the reads never resumed, so nothing refreshes.
+  // Off screen: nothing is read.
   await act(async () => {
     utils?.rerender(view(false, 'pending'));
   });
+  expect(fetches()).toEqual([0, 1]);
+
+  // Back on screen with Pending still selected: only the in-flight read runs again.
   await act(async () => {
     utils?.rerender(view(true, 'pending'));
   });
-  expect(refreshes()).toEqual([0, 0]);
+  await waitFor(() => expect(fetches()).toEqual([0, 2]));
 
-  // Leaving Pending resumes both reads, and each refreshes at once rather than on its next interval.
+  // Leaving Pending starts the settled-history read at once rather than on its next interval.
   await act(async () => {
     utils?.rerender(view(true, 'all'));
   });
-  expect(refreshes()).toEqual([1, 1]);
+  await waitFor(() => expect(fetches()).toEqual([1, 2]));
 });
 
-it('shows no transaction loading state under Pending, whose list is transfer cards only', async () => {
-  // A read that never settles keeps reporting loading, as a paused read that never ran does.
+it('keeps showing its rows while its page is off screen', async () => {
+  const view = (onScreen: boolean) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <History address="0xme" />
+    </PageActiveContext.Provider>
+  );
+  let utils: ReturnType<typeof render> | undefined;
+  await act(async () => {
+    utils = render(view(true));
+  });
+  await waitFor(() => expect(entryKeys()).toContain('completed-S'));
+  const shown = entryKeys();
+
+  await act(async () => {
+    utils?.rerender(view(false));
+  });
+  expect(entryKeys()).toEqual(shown);
+});
+
+it('takes the loading state under Pending from the in-flight read alone', async () => {
+  // A read that never settles keeps reporting loading, as a needed read that has not answered does.
   mockGetCompletedTransactions.mockImplementation(() => new Promise(() => {}));
   const { rerender } = await renderHistory({ filter: 'pending', pendingItems: [] });
-  expect(mockHistoryViewProps.initialLoading).toBe(false);
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
 
   await act(async () => {
     rerender(<History address="0xme" filter="all" pendingItems={[]} />);
@@ -1738,5 +1986,354 @@ describe('History narrowed and re-rendered by its caller', () => {
       true,
       undefined
     );
+  });
+});
+
+// The real lib/swr, whose shared cache and routing the mock above cannot model.
+describe('History on the real SWR cache', () => {
+  beforeEach(() => {
+    mockRealSwr = true;
+  });
+
+  const inCache = (ui: React.ReactElement) => (
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{ui}</SWRConfig>
+  );
+  const page = (onScreen: boolean, props: Record<string, unknown> = {}) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <History address="0xme" {...(props as any)} />
+    </PageActiveContext.Provider>
+  );
+  const visibleView = () => mockHistoryViewCalls.filter(props => props.fullHistory).at(-1);
+
+  it('retries on the page that is showing when an off-screen page of the same account mounted first', async () => {
+    // The first settled read, which only the page on screen runs, fails; later ones succeed.
+    let failed = false;
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
+      if (offset === undefined && !failed) {
+        failed = true;
+        throw new Error('db down');
+      }
+      return offset === undefined ? makeCompleted() : [];
+    });
+    await act(async () => {
+      render(
+        inCache(
+          <>
+            {page(false)}
+            {page(true, { fullHistory: true })}
+          </>
+        )
+      );
+    });
+    await waitFor(() => expect(visibleView()?.loadError).toBe(true));
+    const before = mockGetCompletedTransactions.mock.calls.length;
+
+    await act(async () => visibleView().onRetry());
+    await waitFor(() => expect(mockGetCompletedTransactions.mock.calls.length).toBeGreaterThan(before));
+    await waitFor(() => expect(visibleView()?.loadError).toBe(false));
+  });
+
+  it('reports no initial load for a page that mounted off screen until it is on screen and answered', async () => {
+    const onInitialLoad = jest.fn();
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(inCache(page(false, { onInitialLoad })));
+    });
+    expect(onInitialLoad).not.toHaveBeenCalled();
+    expect(mockHistoryViewProps.initialLoading).toBe(true);
+
+    await act(async () => {
+      utils?.rerender(inCache(page(true, { onInitialLoad })));
+    });
+    await waitFor(() => expect(onInitialLoad).toHaveBeenCalled());
+  });
+
+  // Past the hooks' own 3 s dedupe window, so a read again is SWR revalidating a key that comes back, not a dedupe hit.
+  const pastDedupe = () => act(() => new Promise(resolve => setTimeout(resolve, 3_100)));
+  const settledFetches = () => mockGetCompletedTransactions.mock.calls.filter(call => call[1] === undefined).length;
+
+  it('reads both again when its page comes back on screen with their data cached', async () => {
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(inCache(page(true)));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(1));
+    await waitFor(() => expect(mockGetUncompletedTransactions).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      utils?.rerender(inCache(page(false)));
+    });
+    await pastDedupe();
+    await act(async () => {
+      utils?.rerender(inCache(page(true)));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(2));
+    await waitFor(() => expect(mockGetUncompletedTransactions).toHaveBeenCalledTimes(2));
+  }, 10_000);
+
+  it('reads settled history again when the filter leaves Pending', async () => {
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(inCache(page(true, { filter: 'all' })));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(1));
+
+    await act(async () => {
+      utils?.rerender(inCache(page(true, { filter: 'pending' })));
+    });
+    await pastDedupe();
+    await act(async () => {
+      utils?.rerender(inCache(page(true, { filter: 'all' })));
+    });
+    await waitFor(() => expect(settledFetches()).toBe(2));
+  }, 10_000);
+
+  it("never shows another account's rows while an off-screen page switches accounts", async () => {
+    mockGetCompletedTransactions.mockImplementation(async (addr: string, offset?: number) =>
+      addr === '0xA' && offset === undefined ? makeCompleted() : []
+    );
+    mockGetUncompletedTransactions.mockImplementation(async (addr: string) => (addr === '0xA' ? makePending() : []));
+    const account = (address: string, onScreen: boolean, filter = 'all') => (
+      <PageActiveContext.Provider value={onScreen}>
+        <History address={address} filter={filter as any} />
+      </PageActiveContext.Provider>
+    );
+    let utils: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      utils = render(inCache(account('0xA', true)));
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-S'));
+
+    await act(async () => {
+      utils?.rerender(inCache(account('0xA', false)));
+    });
+    await act(async () => {
+      utils?.rerender(inCache(account('0xB', false)));
+    });
+    expect(entryKeys()).toEqual([]);
+
+    // Under Pending the settled read stays off; leaving Pending must not bring 0xA's settled rows back.
+    await act(async () => {
+      utils?.rerender(inCache(account('0xB', true, 'pending')));
+    });
+    await act(async () => {
+      utils?.rerender(inCache(account('0xB', true, 'all')));
+    });
+    await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+    expect(entryKeys()).toEqual([]);
+  });
+
+  // The cached settled read predates the claim that took the card away, so it still holds the note's failed
+  // attempts unsuperseded (#771).
+  describe('when a claim card leaves', () => {
+    const failedAttempt = (id: string, noteId: string) => ({
+      id,
+      status: STATUS.Failed,
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      type: 'consume',
+      noteIds: [noteId],
+      completedAt: 700
+    });
+    // Only the refreshed read has it, so seeing it means that read has landed.
+    const freshRow = {
+      id: 'fresh',
+      status: STATUS.Completed,
+      displayMessage: 'fresh',
+      displayIcon: 'SEND',
+      type: 'send',
+      completedAt: 800
+    };
+    const claimCard = (noteId: string): PendingActivityItem => ({
+      note: {
+        id: noteId,
+        faucetId: 'fa1',
+        amount: '100',
+        senderAddress: 'sender',
+        isBeingClaimed: true,
+        type: 'unknown',
+        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+      },
+      status: 'claiming'
+    });
+    const holdNextSettledRead = () => {
+      let release: (rows: unknown[]) => void = () => {};
+      mockGetCompletedTransactions.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            release = resolve;
+          })
+      );
+      return (rows: unknown[]) => act(async () => release(rows));
+    };
+    const shownSince = (from: number, key: string) =>
+      mockHistoryViewCalls.slice(from).some(props => props.entries.some((entry: { key: string }) => entry.key === key));
+    const settledReads = () => mockGetCompletedTransactions.mock.calls.length;
+    // A hold a failing test never reached would otherwise answer the next test's first read.
+    afterEach(() => mockGetCompletedTransactions.mockReset());
+
+    const mountWithCards = async (rows: unknown[], cards: PendingActivityItem[]) => {
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      await act(async () => {
+        utils = render(inCache(page(true, { pendingItems: cards })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      return (next: PendingActivityItem[]) =>
+        act(async () => {
+          utils?.rerender(inCache(page(true, { pendingItems: next })));
+        });
+    };
+
+    it('keeps its failed attempts hidden until the refreshed read settles, which drops them as superseded', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      const showCards = await mountWithCards(rows, [claimCard('note-n')]);
+      expect(entryKeys()).not.toContain('completed-attempt');
+      const before = settledReads();
+      const release = holdNextSettledRead();
+      const from = mockHistoryViewCalls.length;
+
+      await showCards([]);
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt']));
+      await release([...rows, freshRow]);
+      await waitFor(() => expect(entryKeys()).toContain('completed-fresh'));
+      await act(async () => {});
+      expect(entryKeys()).not.toContain('completed-attempt');
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+    });
+
+    it('releases overlapping leaves only once the refresh started after the last of them settles', async () => {
+      const rows = [failedAttempt('attempt-a', 'note-a'), failedAttempt('attempt-b', 'note-b')];
+      const showCards = await mountWithCards(rows, [claimCard('note-a'), claimCard('note-b')]);
+      const before = settledReads();
+      const from = mockHistoryViewCalls.length;
+
+      const releaseA = holdNextSettledRead();
+      await showCards([claimCard('note-b')]);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      const releaseB = holdNextSettledRead();
+      await showCards([]);
+      await waitFor(() => expect(settledReads()).toBe(before + 2));
+
+      // SWR discards the older fetch that the newer refresh replaced, so settling it proves nothing about the feed.
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt-a']));
+      await releaseA(rows);
+      expect(shownSince(from, 'completed-attempt-a')).toBe(false);
+      expect(shownSince(from, 'completed-attempt-b')).toBe(false);
+
+      // Attempt-a is left unsuperseded, so only the release can show it.
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt-b']));
+      await releaseB([...rows, freshRow]);
+      await waitFor(() => expect(entryKeys()).toContain('completed-fresh'));
+      await act(async () => {});
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt-a'));
+      const stale = mockHistoryViewCalls
+        .slice(from)
+        .filter(props => props.entries.some((entry: { key: string }) => entry.key === 'completed-attempt-a'))
+        .filter(props => !props.entries.some((entry: { key: string }) => entry.key === 'completed-fresh'));
+      expect(stale).toEqual([]);
+      expect(shownSince(from, 'completed-attempt-b')).toBe(false);
+    });
+
+    it('shows a failed attempt again once the refreshed read settles without superseding it', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      const showCards = await mountWithCards(rows, [claimCard('note-n')]);
+      const before = settledReads();
+      const release = holdNextSettledRead();
+      const from = mockHistoryViewCalls.length;
+
+      await showCards([]);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+
+      await release(rows);
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt'));
+    });
+
+    it('keeps a note that left under Pending held until the settled read runs again and is refreshed', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      const show = (filter: string, cards: PendingActivityItem[]) =>
+        act(async () => {
+          utils?.rerender(inCache(page(true, { filter, pendingItems: cards })));
+        });
+      await act(async () => {
+        utils = render(inCache(page(true, { filter: 'all', pendingItems: [claimCard('note-n')] })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      await show('pending', [claimCard('note-n')]);
+      await show('pending', []);
+
+      mockGetCompletedTransactions.mockResolvedValue([...rows, freshRow]);
+      const from = mockHistoryViewCalls.length;
+      await show('all', []);
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt'));
+      const stale = mockHistoryViewCalls
+        .slice(from)
+        .filter(props => props.entries.some((entry: { key: string }) => entry.key === 'completed-attempt'))
+        .filter(props => !props.entries.some((entry: { key: string }) => entry.key === 'completed-fresh'));
+      expect(stale).toEqual([]);
+    });
+
+    it('refreshes a note that left under Pending when the switch to all commits before any other render', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      await act(async () => {
+        utils = render(inCache(page(true, { filter: 'all', pendingItems: [claimCard('note-n')] })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      await act(async () => {
+        utils?.rerender(inCache(page(true, { filter: 'pending', pendingItems: [claimCard('note-n')] })));
+      });
+
+      mockGetCompletedTransactions.mockResolvedValue([...rows, freshRow]);
+      const before = settledReads();
+      const from = mockHistoryViewCalls.length;
+      // Two sync commits: the effect after the leave queues its updates at default priority, which the switch skips.
+      await act(async () => {
+        flushSync(() => utils?.rerender(inCache(page(true, { filter: 'pending', pendingItems: [] }))));
+        flushSync(() => utils?.rerender(inCache(page(true, { filter: 'all', pendingItems: [] }))));
+      });
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      await waitFor(() => expect(entryKeys()).toContain('completed-attempt'));
+      const stale = mockHistoryViewCalls
+        .slice(from)
+        .filter(props => props.entries.some((entry: { key: string }) => entry.key === 'completed-attempt'))
+        .filter(props => !props.entries.some((entry: { key: string }) => entry.key === 'completed-fresh'));
+      expect(stale).toEqual([]);
+    });
+
+    it('keeps its failed attempts hidden when the page goes off screen before the refreshed read settles', async () => {
+      const rows = [failedAttempt('attempt', 'note-n')];
+      mockGetCompletedTransactions.mockResolvedValue(rows);
+      let utils: ReturnType<typeof render> | undefined;
+      const show = (onScreen: boolean, cards: PendingActivityItem[]) =>
+        act(async () => {
+          utils?.rerender(inCache(page(onScreen, { pendingItems: cards })));
+        });
+      await act(async () => {
+        utils = render(inCache(page(true, { pendingItems: [claimCard('note-n')] })));
+      });
+      await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
+      const before = settledReads();
+      const release = holdNextSettledRead();
+      const from = mockHistoryViewCalls.length;
+
+      await show(true, []);
+      await waitFor(() => expect(settledReads()).toBe(before + 1));
+      await show(false, []);
+
+      // Off screen the page keeps drawing its pre-refresh rows, so the refresh settling there cannot release.
+      mockSupersededFailedConsumeIds.mockResolvedValue(new Set(['attempt']));
+      await release([...rows, freshRow]);
+      await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+      expect(shownSince(from, 'completed-attempt')).toBe(false);
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
@@ -24,7 +25,10 @@ export function useCurrentGuardianEndpoint(): { endpoint: string } {
 // the user typed. An endpoint that isn't this network's built-in is a custom
 // guardian and displays as its host (guardianEndpointDisplayName's fallback).
 export function guardianOptionForEndpoint(endpoint: string): GuardianOption | undefined {
-  return GUARDIAN_OPTIONS.find(o => o.endpoint.get(getEffectiveNetworkName()) === endpoint);
+  return GUARDIAN_OPTIONS.find(o => {
+    const e = o.endpoint.get(getEffectiveNetworkName());
+    return e !== undefined && sameGuardianEndpoint(e, endpoint);
+  });
 }
 
 // "https://guardian.miden.io/foo" -> "guardian.miden.io"; falls back to the raw
