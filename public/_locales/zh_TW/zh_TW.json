@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "備份您的種子短語",
+  "seedBackupRequiredAction": "立即備份",
+  "seedBackupRequiredBody": "您的錢包餘額已達到 150 美元。您必須先備份種子短語，才能繼續操作。請將其寫下、存放在安全的地方，並完成驗證程序以使用您的錢包。",
+  "seedBackupSaveFailed": "無法儲存備份檢查。請重試。",
   "payload": "有效載荷",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "請確認您的存款",

@@ -1,4 +1,8 @@
 {
+  "seedBackupRequiredTitle": "シードフレーズをバックアップしてください",
+  "seedBackupRequiredAction": "今すぐバックアップしてください",
+  "seedBackupRequiredBody": "ウォレットの残高が150米ドルに達しました。続行するには、シードフレーズをバックアップする必要があります。シードフレーズを書き留め、安全な場所に保管してから、確認手続きを完了させてウォレットをご利用ください。",
+  "seedBackupSaveFailed": "バックアップチェックを保存できませんでした。もう一度お試しください。",
   "payload": "ペイロード",
   "bridgeDepositTitle": "Miden Bridge",
   "bridgeDepositHeading": "入金を確認してください",

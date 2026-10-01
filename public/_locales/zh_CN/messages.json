@@ -1,4 +1,20 @@
 {
+  "seedBackupRequiredTitle": {
+    "message": "备份您的助记词",
+    "englishSource": "Back up your recovery phrase"
+  },
+  "seedBackupRequiredAction": {
+    "message": "立即备份",
+    "englishSource": "Back up now"
+  },
+  "seedBackupRequiredBody": {
+    "message": "您的钱包余额已达到 150 美元。您必须先备份助记词，才能继续操作。请将其记录下来，保存在安全的地方，并完成验证以使用您的钱包。",
+    "englishSource": "Your wallet has reached $150 USD. You must back up your recovery phrase before you can continue. Write it down, keep it in a safe place, and complete the check to use your wallet."
+  },
+  "seedBackupSaveFailed": {
+    "message": "无法保存备份检查。请重试。",
+    "englishSource": "Could not save the backup check. Please try again."
+  },
   "payload": {
     "message": "有效载荷",
     "englishSource": "Payload"

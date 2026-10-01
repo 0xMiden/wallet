@@ -2,10 +2,13 @@ import React, { ReactNode, useId, useRef } from 'react';
 
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
 
 export interface AlertSheetProps {
   open: boolean;
+  /** When false, only the action can advance: no cancel, Escape, or mobile back. */
+  dismissible?: boolean;
   title: ReactNode;
   /** The one sentence under the title. It becomes the sheet's accessible description. */
   children?: ReactNode;
@@ -37,6 +40,7 @@ export interface AlertSheetProps {
  */
 export function AlertSheet({
   open,
+  dismissible = true,
   title,
   children,
   actionLabel,
@@ -61,6 +65,7 @@ export function AlertSheet({
   const hasDescription = children !== undefined && children !== null && children !== '';
 
   useHideDappBubblesWhileOpen(open);
+  useMobileBackHandler(() => open && !dismissible, [open, dismissible], { overlay: true });
 
   const dismiss = onCancel ?? onAction;
 
@@ -71,7 +76,7 @@ export function AlertSheet({
       // question resolves as cancelled rather than leaving its promise pending.
       dismissible={false}
       onOpenChange={next => {
-        if (!next) dismiss();
+        if (!next && dismissible) dismiss();
       }}
       noBodyStyles
       screenKey={screenKey}
@@ -102,7 +107,7 @@ export function AlertSheet({
         }}
         onEscapeKeyDown={event => {
           event.preventDefault();
-          dismiss();
+          if (dismissible) dismiss();
         }}
       >
         <div className="px-4 pt-6 pb-4">
@@ -116,7 +121,7 @@ export function AlertSheet({
             <Button ref={actionRef} variant={actionVariant} onClick={onAction} data-testid={actionTestId}>
               {actionLabel}
             </Button>
-            {onCancel && (
+            {onCancel && dismissible && (
               <Button ref={cancelRef} variant={ButtonVariant.Secondary} onClick={onCancel} data-testid={cancelTestId}>
                 {cancelLabel}
               </Button>

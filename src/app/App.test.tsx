@@ -196,6 +196,14 @@ jest.mock('lib/desktop/DesktopDappHandler', () => ({
   default: () => <div data-testid="desktop-dapp-handler" />
 }));
 
+let mockBackupRequired = false;
+jest.mock('app/templates/SeedBackupGate', () => ({
+  SeedBackupGate: ({ children }: { children: React.ReactNode }) => {
+    if (mockBackupRequired) return <div data-testid="required-backup" />;
+    return <>{children}</>;
+  }
+}));
+
 jest.mock('lib/desktop/DesktopDappConfirmationModal', () => ({
   __esModule: true,
   DesktopDappConfirmationModal: () => <div data-testid="desktop-confirm-modal" />
@@ -220,6 +228,7 @@ describe('app/App', () => {
   });
 
   beforeEach(() => {
+    mockBackupRequired = false;
     // Silence the diagnostic `[AppProvider] Rendering ...` log.
     jest.spyOn(console, 'log').mockImplementation(() => {});
     // Reset to the "extension, not mobile, not desktop" baseline; each test
@@ -235,6 +244,28 @@ describe('app/App', () => {
   afterEach(() => {
     jest.clearAllMocks();
   });
+
+  it.each(['extension', 'mobile', 'desktop', 'confirmation'])(
+    'blocks %s controls during required backup',
+    async surface => {
+      mockBackupRequired = true;
+      mockIsExtension.mockReturnValue(surface === 'extension' || surface === 'confirmation');
+      mockIsMobile.mockReturnValue(surface === 'mobile');
+      mockIsDesktop.mockReturnValue(surface === 'desktop');
+      const view = renderApp({ windowType: 'FullPage', confirmWindow: surface === 'confirmation' });
+      expect(view.getByTestId('required-backup')).toBeInTheDocument();
+      if (surface === 'desktop') await view.findByTestId('desktop-dapp-handler');
+      for (const id of [
+        'page-router',
+        'confirm-page',
+        'desktop-confirm-modal',
+        'dapp-browser-provider',
+        'pin-extension-prompt'
+      ]) {
+        expect(view.queryByTestId(id)).not.toBeInTheDocument();
+      }
+    }
+  );
 
   describe('extension surface (not mobile, not desktop, not confirm)', () => {
     it('renders PageRouter with the pin-extension prompt and no mobile/confirm surfaces', () => {
