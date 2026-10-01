@@ -103,9 +103,9 @@ describe('parseDecryptedWalletFile', () => {
       type: WalletType.OnChain,
       hdIndex: 1
     };
-    expect(() => parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [hdAccount, withoutScheme] })).toThrow(
-      MalformedBackupFileError
-    );
+    expect(() =>
+      parseDecryptedWalletFile({ ...versionTwoPayload, accounts: [hdAccount, importedAccount, withoutScheme] })
+    ).toThrow(MalformedBackupFileError);
   });
 
   it.each(['abc', 'not-hex', ''])('rejects malformed imported secret hex %p', secretKeyHex => {

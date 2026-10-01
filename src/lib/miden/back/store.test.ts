@@ -120,7 +120,7 @@ describe('back/store', () => {
         isPublic: true,
         type: 'on-chain' as any,
         hdIndex: 0,
-        authScheme: 'ecdsa'
+        authScheme: 'ecdsa' as const
       };
       unlocked({
         vault: mockVault,

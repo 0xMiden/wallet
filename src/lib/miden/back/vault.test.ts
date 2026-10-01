@@ -2445,8 +2445,8 @@ describe('Vault.spawnFromMidenClient', () => {
     // The keystore-insert call must receive the ECDSA-marker secret produced
     // by AuthSecretKey.ecdsaWithRNG, not the falcon one. Confirms the
     // restore path picks the right derivation function based on the stored
-    // scheme, which is the contract that prevents post-migration encrypted-
-    // file restores from corrupting an account's signing key.
+    // scheme, which is the contract that prevents a restore from corrupting
+    // an account's signing key.
     const fakeAcc = { id: () => 'pk-ecdsa' as any, isFaucet: () => false, isNetwork: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
@@ -2499,9 +2499,8 @@ describe('Vault.importAccountFromPrivateKey', () => {
       type: WalletType.OnChain,
       hdIndex: -1
     });
-    // Mocked secret key has no scheme accessors → detectAuthScheme falls
-    // through to the legacy default. Mirrors how a pre-migration Falcon
-    // hex key behaves on import.
+    // Mocked secret key has no scheme accessors → detectAuthScheme reads it
+    // as Falcon, since Falcon is the only other AuthScheme.
     expect(imported.authScheme).toBe('falcon');
     expect(mockAccountsInsert).toHaveBeenCalledWith({ account: expect.any(Object) });
     expect(mockKeystoreInsert).toHaveBeenCalled();

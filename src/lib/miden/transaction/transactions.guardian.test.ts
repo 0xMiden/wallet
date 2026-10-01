@@ -355,7 +355,7 @@ const makeGuardianProvider = (isGuardian: boolean) => {
               isPublic: true,
               type: WalletType.Guardian,
               hdIndex: 0,
-              authScheme: 'ecdsa',
+              authScheme: 'ecdsa' as const,
               guardianEndpoint: 'https://old.guardian'
             }
           ]
@@ -377,7 +377,7 @@ const makeSuffixGuardianProvider = () => ({
       isPublic: true,
       type: WalletType.Guardian,
       hdIndex: 0,
-      authScheme: 'ecdsa',
+      authScheme: 'ecdsa' as const,
       guardianEndpoint: 'https://old.guardian',
       hotPublicKey: 'old-hot-pub',
       coldPublicKey: 'cold'
@@ -6363,7 +6363,7 @@ describe('initiateReplaceHotKeyTransaction', () => {
           isPublic: true,
           type: WalletType.Guardian,
           hdIndex: 0,
-          authScheme: 'ecdsa',
+          authScheme: 'ecdsa' as const,
           guardianEndpoint: 'https://old.guardian'
         }
       ]
@@ -6383,7 +6383,7 @@ describe('initiateReplaceHotKeyTransaction', () => {
           isPublic: true,
           type: WalletType.Guardian,
           hdIndex: 0,
-          authScheme: 'ecdsa'
+          authScheme: 'ecdsa' as const
         }
       ]
     };
