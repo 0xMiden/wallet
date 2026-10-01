@@ -165,10 +165,17 @@ export interface IBridgedSendExtraInputs {
   recallBlocks?: number;
   /**
    * epoch: absolute Miden block after which the P2IDE bridge note becomes
-   * reclaimable by the sender. Recorded when the row is demoted to Failed so the
-   * activity detail can gate the "Reclaim funds" affordance.
+   * reclaimable by the sender, which gates the activity detail's "Reclaim funds"
+   * affordance. Stamped from the note when the row is created; older rows hold the
+   * intent's estimate, written when they were demoted to Failed.
    */
   reclaimHeight?: number;
+  /**
+   * epoch: id of the P2IDE bridge note, stamped when it is built. Unlike
+   * `outputNoteIds` it does not say the note was produced, so the reclaim UI reads
+   * it only for a row whose note may exist.
+   */
+  reclaimNoteId?: string;
   /**
    * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
@@ -998,6 +1005,9 @@ export interface IBridgedSendNoteParams {
   recipientId: string;
   noteType: NoteType;
   recallBlocks: number;
+  /** Epoch bridged-send only: the note's absolute reclaim height and id from `buildEpochCollateralRequestBytes`. */
+  reclaimHeight?: number;
+  reclaimNoteId?: string;
 }
 
 export class BridgedSendTransaction implements ITransaction {
@@ -1055,7 +1065,9 @@ export class BridgedSendTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
-      recallBlocks: sendParams?.recallBlocks
+      recallBlocks: sendParams?.recallBlocks,
+      reclaimHeight: sendParams?.reclaimHeight,
+      reclaimNoteId: sendParams?.reclaimNoteId
     };
   }
 }

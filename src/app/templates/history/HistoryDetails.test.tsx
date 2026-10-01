@@ -23,6 +23,7 @@ import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
+import { IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
@@ -315,8 +316,14 @@ jest.mock('./TransactionIcon', () => ({
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
 // so this swap/history unit test does not load Wagmi's ESM-only runtime.
+const mockBridgeClaimSection = jest.fn((props: { entry: IHistoryEntry; restoredFromBackup: boolean }) => {
+  void props;
+});
 jest.mock('./BridgeClaimSection', () => ({
-  BridgeClaimSection: () => <div data-testid="bridge-claim-section" />
+  BridgeClaimSection: (props: { entry: IHistoryEntry; restoredFromBackup: boolean }) => {
+    mockBridgeClaimSection(props);
+    return <div data-testid="bridge-claim-section" />;
+  }
 }));
 
 jest.mock('./transactionUtils', () => ({
@@ -3146,6 +3153,28 @@ describe('HistoryDetails', () => {
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('notConfirmed');
+    });
+
+    it('hands the bridge section the stamped reclaim height and note id of an unconfirmed bridge-out (#1250)', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        status: 3,
+        error: TRANSACTION_STUCK_ERROR,
+        outputNoteIds: undefined,
+        extraInputs: {
+          ...(bridgedSendTx.extraInputs as Record<string, unknown>),
+          epochStatus: undefined,
+          reclaimHeight: 3016,
+          reclaimNoteId: 'note-stamped'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        isUnconfirmed: true,
+        bridgeReclaimHeight: 3016,
+        bridgeReclaimNoteId: 'note-stamped'
+      });
     });
 
     // A stamped user cancel may have landed, so it keeps the bridge section like any other

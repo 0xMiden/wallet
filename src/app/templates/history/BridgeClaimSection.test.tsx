@@ -143,6 +143,8 @@ const agglayer = (o: Partial<IHistoryEntry> = {}) =>
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
+    mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
     mockEvm = { provider: null, address: undefined, isConnected: false, connect: jest.fn() };
   });
 
@@ -183,22 +185,47 @@ describe('BridgeClaimSection', () => {
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
     });
 
-    it('still shows the reclaim UI when the row is also unconfirmed (#1250)', async () => {
-      // The reclaim gate reads the raw status, not the shared not-confirmed rule: a reclaim of a
-      // note that never landed fails before it moves funds, so it stays keyed on transactionFailed.
+    it('offers Reclaim for an unconfirmed failed row from its stamped height and note id (#1250)', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
-      renderSection({ entry: entry({ isUnconfirmed: true }) });
-      expect(await screen.findByText('t:reclaimFunds')).toBeInTheDocument();
+      renderSection({
+        entry: entry({
+          isUnconfirmed: true,
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped'
+        })
+      });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() =>
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+      );
     });
 
-    it('withholds the reclaim UI for an unconfirmed row with no reclaim height stored (#1250)', async () => {
-      // A row markBridgedSendFailed never reached (or reached with no reclaimHeight argument)
-      // has nothing for canShowReclaim to gate on, unconfirmed or not.
-      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200);
-      renderSection({ entry: entry({ isUnconfirmed: true, bridgeReclaimHeight: undefined }) });
+    it('offers no Reclaim for a failure before the note was sent, even with the stamped fields (#1250)', () => {
+      renderSection({
+        entry: entry({ bridgeEpochStatus: undefined, outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
+      });
       expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
       expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers no Reclaim for a route-failed row whose note never committed (#1250)', () => {
+      // markBridgedSendFailed also demotes a row still Queued or in flight, so 'failed' alone
+      // does not prove a note exists; only a committed outputNoteIds[0] does.
+      renderSection({
+        entry: entry({ bridgeEpochStatus: 'failed', outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
+      });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('still offers Reclaim for an allocator-rejected row, consuming its committed note (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
     });
 
     it('shows Not confirmed while unconfirmed and pending, then the live fill once it reports confirmed', async () => {

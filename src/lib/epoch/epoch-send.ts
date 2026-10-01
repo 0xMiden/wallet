@@ -191,7 +191,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     // its own reason keeps that failure instead - markBridgedSendFailed leaves an
     // already-Failed row untouched (#1250).
     if (bridgeTxId) {
-      await markBridgedSendFailed(bridgeTxId, intent.error, params.midenReclaimHeight);
+      await markBridgedSendFailed(bridgeTxId, intent.error);
     }
     throw new Error(intent.error);
   }

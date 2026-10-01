@@ -1100,17 +1100,25 @@ describe('initiateConsumeTransaction reuse path', () => {
         type: 'bridged-send',
         status: ITransactionStatus.Completed,
         displayMessage: 'Bridged to EVM',
-        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+        extraInputs: {
+          provider: 'epoch',
+          claimStatus: 'not-applicable',
+          epochStatus: 'pending',
+          reclaimHeight: 3016,
+          reclaimNoteId: 'note-stamped'
+        }
       });
 
-      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small', 12345);
+      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small');
 
       const row = txStore.find(t => t.id === 'bs-fail-1')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
       expect(row.displayMessage).toBe('Bridge failed — funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.reclaimHeight).toBe(12345);
+      // Stamped when the note was built; the demotion keeps both (#1250).
+      expect(row.extraInputs.reclaimHeight).toBe(3016);
+      expect(row.extraInputs.reclaimNoteId).toBe('note-stamped');
     });
 
     it('leaves a row the note pipeline already failed untouched, and reports nothing (#1250)', async () => {
@@ -1126,7 +1134,7 @@ describe('initiateConsumeTransaction reuse path', () => {
         extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'pending' }
       });
 
-      await markBridgedSendFailed('bs-fail-pipeline', 'allocator rejected the intent', 99999);
+      await markBridgedSendFailed('bs-fail-pipeline', 'allocator rejected the intent');
 
       const row = txStore.find(t => t.id === 'bs-fail-pipeline')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
@@ -1134,69 +1142,6 @@ describe('initiateConsumeTransaction reuse path', () => {
       expect(row.displayMessage).toBe('Bridge failed - funds unspent');
       expect(row.extraInputs).toEqual({ provider: 'epoch', claimStatus: 'failed', epochStatus: 'pending' });
       expect(mockedReportOperation).not.toHaveBeenCalled();
-    });
-
-    describe('the unconfirmed-failure exception', () => {
-      it('merges only the reclaim height into an already-Failed unconfirmed row, reporting nothing', async () => {
-        // mayHaveSubmitted makes this row's outcome unknown rather than failed - the note may
-        // still have landed, so the row only gains the height its reclaim button needs.
-        txStore.push({
-          id: 'bs-fail-unconfirmed',
-          type: 'bridged-send',
-          status: ITransactionStatus.Failed,
-          error: 'allocator unreachable',
-          displayMessage: 'Not confirmed',
-          mayHaveSubmitted: true,
-          extraInputs: { provider: 'epoch', claimStatus: 'pending', epochStatus: 'pending' }
-        });
-
-        await markBridgedSendFailed('bs-fail-unconfirmed', 'intent rejected', 1234);
-
-        const row = txStore.find(t => t.id === 'bs-fail-unconfirmed')!;
-        expect(row.status).toBe(ITransactionStatus.Failed);
-        expect(row.error).toBe('allocator unreachable');
-        expect(row.displayMessage).toBe('Not confirmed');
-        expect(row.extraInputs.claimStatus).toBe('pending');
-        expect(row.extraInputs.epochStatus).toBe('pending');
-        expect(row.extraInputs.reclaimHeight).toBe(1234);
-        expect(mockedReportOperation).not.toHaveBeenCalled();
-      });
-
-      it('leaves a definite-failure row untouched even though a reclaim height is given', async () => {
-        // epochStatus 'failed' is route evidence a reader already treats as a definite failure
-        // (isBridgeRouteFailedRow), so it stays outside the exception above.
-        txStore.push({
-          id: 'bs-fail-definite',
-          type: 'bridged-send',
-          status: ITransactionStatus.Failed,
-          error: 'allocator rejected the intent',
-          displayMessage: 'Bridge failed - funds unspent',
-          extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' }
-        });
-
-        await markBridgedSendFailed('bs-fail-definite', 'allocator rejected the intent', 1234);
-
-        const row = txStore.find(t => t.id === 'bs-fail-definite')!;
-        expect(row.extraInputs).toEqual({ provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' });
-        expect(mockedReportOperation).not.toHaveBeenCalled();
-      });
-
-      it('leaves an unconfirmed row unchanged when no reclaim height is given', async () => {
-        txStore.push({
-          id: 'bs-fail-unconfirmed-no-height',
-          type: 'bridged-send',
-          status: ITransactionStatus.Failed,
-          mayHaveSubmitted: true,
-          extraInputs: { provider: 'epoch', claimStatus: 'pending', epochStatus: 'pending' }
-        });
-
-        await markBridgedSendFailed('bs-fail-unconfirmed-no-height', 'intent rejected');
-
-        const row = txStore.find(t => t.id === 'bs-fail-unconfirmed-no-height')!;
-        expect(row.status).toBe(ITransactionStatus.Failed);
-        expect(row.extraInputs).toEqual({ provider: 'epoch', claimStatus: 'pending', epochStatus: 'pending' });
-        expect(mockedReportOperation).not.toHaveBeenCalled();
-      });
     });
 
     it('still demotes a row that was in flight (not yet terminal)', async () => {
@@ -1207,13 +1152,12 @@ describe('initiateConsumeTransaction reuse path', () => {
         extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
       });
 
-      await markBridgedSendFailed('bs-fail-in-flight', 'allocator rejected the intent', 54321);
+      await markBridgedSendFailed('bs-fail-in-flight', 'allocator rejected the intent');
 
       const row = txStore.find(t => t.id === 'bs-fail-in-flight')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.reclaimHeight).toBe(54321);
     });
   });
 });

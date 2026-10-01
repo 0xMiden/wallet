@@ -95,16 +95,19 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // lookup bind to THIS row rather than the address's sole claimable deposit (lib/agglayer/status.ts).
   const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!entry.externalTxId);
 
-  // Failed Epoch (Fast) bridge-out: the funds sit in a recallable P2IDE note that
-  // the sender can reclaim once the reclaim height passes. Gate a "Reclaim funds"
-  // button on that block height.
+  // A failed Epoch (Fast) bridge-out offers "Reclaim funds" once the reclaim height
+  // passes, and only while its note may exist: the allocator rejected the intent after
+  // the note committed, or the outcome is unknown. A definite failure never sent its
+  // note, so a reclaim would consume nothing (#1250).
+  const noteMayExist = entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed';
   const reclaimHeight = entry.bridgeReclaimHeight;
-  const reclaimNoteId = entry.outputNoteIds?.[0];
+  const reclaimNoteId =
+    entry.outputNoteIds?.[0] ?? (entry.isUnconfirmed === true ? entry.bridgeReclaimNoteId : undefined);
   // `transactionFailed` is exactly the state import forces every unfinished
   // restored row into, so without the flag check a dump naming any note id gets
   // a "Reclaim funds" button that queues a real consume through the signer.
   const canShowReclaim =
-    isEpoch && transactionFailed && !restoredFromBackup && reclaimHeight != null && !!reclaimNoteId;
+    isEpoch && transactionFailed && noteMayExist && !restoredFromBackup && reclaimHeight != null && !!reclaimNoteId;
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 

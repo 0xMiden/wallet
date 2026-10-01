@@ -53,6 +53,15 @@ export interface EpochCollateralNoteArgs {
   bindingAttachmentFelts: bigint[];
 }
 
+export interface EpochCollateralRequest {
+  /** The serialized transaction request, submitted verbatim by every path. */
+  requestBytes: Uint8Array;
+  /** Absolute Miden block after which the sender can reclaim the note. */
+  reclaimHeight: number;
+  /** Id of the P2IDE note the request creates. */
+  noteId: string;
+}
+
 /**
  * Build (and serialize) the transaction request that mints an Epoch collateral
  * note — the smallocator PR #38 contract: a PUBLIC, reclaimable P2IDE note
@@ -69,13 +78,15 @@ export interface EpochCollateralNoteArgs {
  * The reclaim height is `current chain head + recallBlocks`. The allocator
  * validates the REMAINING window against its own (later) head; the blocks that
  * elapse during proving/submission (and guardian co-signing) are covered by the
- * ~1000-block buffer the SDK bakes into `recallBlocks`.
+ * ~1000-block buffer the SDK bakes into `recallBlocks`. The height and the note id
+ * come back with the bytes so a bridged-send row can record them (#1250).
  */
-export async function buildEpochCollateralRequestBytes(args: EpochCollateralNoteArgs): Promise<Uint8Array> {
+export async function buildEpochCollateralRequestBytes(args: EpochCollateralNoteArgs): Promise<EpochCollateralRequest> {
   // Fresh RPC head (not the local sync height) so a cold-started wallet can't
   // understate the reclaim height. Also ensures the SDK WASM is initialized
   // before the note classes below are constructed.
   const currentBlock = await getCurrentMidenBlock();
+  const reclaimHeight = currentBlock + args.recallBlocks;
   // A fresh salt per build. miden-client derives the native conversion info from the
   // anchored block and commits `hash(CONVERSION_INFO || SALT)` itself, so nothing has
   // to be read off the chain here. The salt is serialized with the request, and these
@@ -110,15 +121,17 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       toAccountId(args.senderAccountId),
       toAccountId(args.allocatorId),
       new NoteAssets([asset]),
-      currentBlock + args.recallBlocks,
+      reclaimHeight,
       null,
       NoteType.Public,
       attachment
     );
+    // The browser build consumes a Note passed by value, so its id is read before the NoteArray takes it.
+    const noteId = note.id().toString();
     // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
     // only on the builder.
     let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
     builder = builder.withFeeConversionSalt(feeSalt);
-    return builder.build().serialize();
+    return { requestBytes: builder.build().serialize(), reclaimHeight, noteId };
   });
 }

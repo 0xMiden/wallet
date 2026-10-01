@@ -132,6 +132,8 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+  /** epoch: id of the bridge's P2IDE note, stamped when it was built; read only while the note may exist. */
+  bridgeReclaimNoteId?: string;
   /**
    * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
    * detail view can withhold affordances that turn a row back into work —
