@@ -2,6 +2,10 @@
 
 ## 1.17.0 (TBD)
 
+### Changes
+
+- [FIX][ci] The Windows MSI build maps an rc.N app version to the numeric product version WiX accepts, so a release candidate installs while the app still shows the rc version.
+
 ## 1.17.0-rc.0 (2026-09-27)
 
 ### Changes
