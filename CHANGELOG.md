@@ -5,6 +5,7 @@
 ### Changes
 
 - [CHANGE][all] CI builds this branch against the web-sdk that tracks rust-sdk#2645 (account witnesses and account-code upgrades). That SDK release targets the miden-client RC which will contain the same pull request. `@miden-sdk/miden-sdk` in this repo still names the published 0.17.0-rc.4, because 0.17.0-rc.5 is not on npm yet, and CI installs the pull request instead. `TransactionRequest` bytes written by 0.17.0-rc.4 do not deserialize, so a proposal saved by that SDK has to be built again. The committed native prover binaries still match published `miden-client` 0.17.0-rc.4 and move when that client RC is published. Local E2E builds the miden-client CLI and the test node from that same client commit, because a chain left on published 0.17.0-rc.4 does not deliver notes to this SDK.
+- [FIX][ci] The Windows MSI build maps an rc.N app version to the numeric product version WiX accepts, so a release candidate installs while the app still shows the rc version.
 
 ## 1.17.0-rc.0 (2026-09-27)
 
