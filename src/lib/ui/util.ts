@@ -1,24 +1,7 @@
-import { Clipboard } from '@capacitor/clipboard';
 import { clsx, type ClassValue } from 'clsx';
 import { extendTailwindMerge } from 'tailwind-merge';
 
 import { TYPE_STYLES } from './type-styles';
-
-/**
- * Wipes the clipboard, for use after a secret is pasted into a field.
- *
- * Resolves whether the wipe happened, and never rejects.
- */
-export const clearClipboard = async (): Promise<boolean> => {
-  try {
-    await Clipboard.write({ string: '' });
-    return true;
-  } catch (error) {
-    // The log records the cause; the caller shows the warning.
-    console.error('[clipboard] failed to clear the clipboard after a secret was pasted:', error);
-    return false;
-  }
-};
 
 /**
  * A type style replaces an earlier size, line-height, weight, family or tracking class, and a
