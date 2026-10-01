@@ -27,6 +27,7 @@ import {
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
+import { setNominalUnquotedPriceSetting, useNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
@@ -120,6 +121,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
   const noWalletYet = useWalletStore(selectIsIdle);
+  // A device display preference, not part of the override: it applies on the tap, with no save,
+  // and stays usable in read-only mode. It has no effect on mainnet (lib/prices/unquoted-default).
+  const nominalUnquotedPrice = useNominalUnquotedPrice();
 
   const presetItems = useMemo<SegmentedControlItem[]>(
     () => [
@@ -411,6 +415,12 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               }))
             }
             trailing={<CheckboxIndicator checked={form.allowNoGuardian} />}
+          />
+          <ListRow
+            title={t('devNominalUnquotedPrice')}
+            data-testid="dev-nominal-unquoted-price"
+            onClick={() => setNominalUnquotedPriceSetting(!nominalUnquotedPrice)}
+            trailing={<CheckboxIndicator checked={nominalUnquotedPrice} />}
           />
         </ListGroup>
       </SubPageSection>

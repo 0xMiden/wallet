@@ -12,8 +12,8 @@ import { UIToken } from './types';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
-// The fiat values under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
-// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+// The fiat values under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the

@@ -21,6 +21,13 @@ export const BG_SETTINGS_MIRRORED_KEY = 'bg_settings_mirrored';
 export const HAPTIC_FEEDBACK_STORAGE_KEY = 'haptic_feedback_setting';
 export const DEFAULT_HAPTIC_FEEDBACK = true;
 
+/**
+ * Developer Settings' "value unquoted tokens at $1" switch (`lib/settings/nominal-price`). Off
+ * by default: a token the price feed does not list shows the dash until a developer turns it on.
+ */
+export const NOMINAL_UNQUOTED_PRICE_STORAGE_KEY = 'nominal_unquoted_price_setting';
+export const DEFAULT_NOMINAL_UNQUOTED_PRICE = 'off';
+
 export const CARD_COLOR_STORAGE_KEY = 'balance_card_color';
 export type CardColor = 'slate' | 'orange' | 'blue' | 'green' | 'purple';
 export const CARD_COLORS: CardColor[] = ['slate', 'orange', 'blue', 'green', 'purple'];

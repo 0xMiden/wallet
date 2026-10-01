@@ -72,8 +72,8 @@ const scanQRCodeMock = jest.fn();
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
-// The token prices under test follow mainnet's rule, no price without a quote; jest runs as testnet,
-// where an unquoted token prices at $1 (lib/prices/unquoted-default).
+// The token prices under test follow the default rule, no price without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };

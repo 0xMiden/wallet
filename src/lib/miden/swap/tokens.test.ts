@@ -32,8 +32,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
   getNativeAssetMetadataSync: jest.fn()
 }));
-// The quote rules under test are mainnet's, no figure without a quote; jest runs as testnet, where
-// an unquoted token prices at $1 (lib/prices/unquoted-default).
+// The quote rules under test are the default ones, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
 // Balances key a faucet by the SDK's bech32 form of its id, whose prefix names the network; make that

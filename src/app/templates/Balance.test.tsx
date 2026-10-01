@@ -10,8 +10,8 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import Balance from './Balance';
 
-// The totals under test follow mainnet's rule, no figure without a quote; jest runs as testnet,
-// where an unquoted token prices at $1 (lib/prices/unquoted-default). The off-mainnet case flips it.
+// The totals under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 

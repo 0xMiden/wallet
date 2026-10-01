@@ -72,26 +72,28 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
 }
 
 /**
- * Whether a figure can be shown yet. On mainnet an empty map is prices still loading, which a
- * figure shows as its placeholder, and a loaded map without a symbol is a token with no price.
- * Off mainnet every token has a price from the start (the feed's, or the nominal rate), so a
- * figure never waits on the feed: a test-network wallet that holds only the native token would
- * otherwise show its placeholder for as long as the feed is unreachable.
+ * Whether a figure can be shown yet. An empty map is prices still loading, which a figure shows
+ * as its placeholder, and a loaded map without a symbol is a token with no price. With the
+ * nominal rate on (`hasUnquotedDefaultPrice`) every token has a price from the start (the feed's,
+ * or the nominal rate), so a figure never waits on the feed: a test-network wallet that holds
+ * only the native token would otherwise show its placeholder for as long as the feed is
+ * unreachable.
  */
 export function pricesLoaded(prices: TokenPrices): boolean {
   return hasUnquotedDefaultPrice() || Object.keys(prices).length > 0;
 }
 
 /**
- * The quote of a token the feed does not list where `hasUnquotedDefaultPrice` says so (every
- * network but mainnet): $1 per whole unit, with no movement.
+ * The quote of a token the feed does not list where `hasUnquotedDefaultPrice` says so (the
+ * Developer Settings switch, off mainnet): $1 per whole unit, with no movement.
  */
 const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
 
 /**
- * The feed's quote for a price symbol, or none: on mainnet an unquoted token has no fiat value,
- * and a zero price is not a quote; off mainnet an unquoted token (a symbol the feed does not
- * list, or no price symbol at all) is quoted at the nominal $1 rate. A held token is priced
+ * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
+ * price is not a quote, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when an
+ * unquoted token (a symbol the feed does not list, or no price symbol at all) is quoted at $1.
+ * A held token is priced
  * through `tokenQuote` (lib/miden/swap/tokens), which resolves its price symbol first (IETH at
  * ETH); call this directly only with a symbol already resolved, as the sparkline and chart do.
  */

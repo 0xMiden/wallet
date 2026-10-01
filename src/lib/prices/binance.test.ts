@@ -13,8 +13,8 @@ import {
 } from './binance';
 
 jest.mock('axios');
-// The quote rules under test are mainnet's, no figure without a quote; jest runs as testnet, where
-// an unquoted token prices at $1 (lib/prices/unquoted-default). The off-mainnet cases flip it.
+// The quote rules under test are the default ones, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal cases flip it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 

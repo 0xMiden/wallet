@@ -4,10 +4,17 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { isNominalUnquotedPriceEnabled, setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
 import { WalletStatus } from 'lib/shared/types';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 
 import DeveloperSettings from './DeveloperSettings';
+
+/** The no-guardian row's indicator; the options group has a second checkbox row. */
+const noGuardianCheckbox = () => within(screen.getByTestId('dev-allow-no-guardian')).getByTestId('checkbox');
+
+// The nominal-price switch persists in localStorage, which jsdom keeps across tests.
+afterEach(() => setNominalUnquotedPriceSetting(false));
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and every rendered label is the raw key.
@@ -414,7 +421,7 @@ describe('DeveloperSettings', () => {
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://typed.example');
     // Likewise: the toggle reads what the last preset set, not the `true` a whole-form capture
     // would have restored alongside the URLs.
-    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+    expect(noGuardianCheckbox()).toHaveAttribute('data-checked', 'false');
   });
 
   // The screen is most often opened ON a saved custom override, and those endpoints are remembered
@@ -435,7 +442,7 @@ describe('DeveloperSettings', () => {
     expect(
       within(screen.getByTestId('dev-endpoint-network-id')).getByTestId('dev-endpoint-network-devnet')
     ).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+    expect(noGuardianCheckbox()).toHaveAttribute('data-checked', 'false');
   });
 
   // The two sources in one walk: what was typed here outranks what the screen opened with.
@@ -952,7 +959,38 @@ describe('DeveloperSettings — allowNoGuardian', () => {
   it('renders the no-guardian toggle row', () => {
     render(<DeveloperSettings />);
     expect(screen.getByTestId('dev-allow-no-guardian')).toBeInTheDocument();
-    expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+    expect(noGuardianCheckbox()).toHaveAttribute('data-checked', 'false');
+  });
+
+  // The nominal-price row is a device preference, not an override field: it persists on the tap,
+  // leaves the form and its preset alone, and stays usable in read-only mode, where a saved override
+  // disables every field.
+  it('turns the nominal unquoted price on and off at once, without touching the form', () => {
+    render(<DeveloperSettings />);
+    const row = screen.getByTestId('dev-nominal-unquoted-price');
+    expect(within(row).getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+    expect(isNominalUnquotedPriceEnabled()).toBe(false);
+
+    fireEvent.click(row);
+    expect(within(row).getByTestId('checkbox')).toHaveAttribute('data-checked', 'true');
+    expect(isNominalUnquotedPriceEnabled()).toBe(true);
+    expect(applyEndpointOverride).not.toHaveBeenCalled();
+    expect(
+      within(screen.getByTestId('dev-endpoint-preset')).getByTestId('dev-endpoint-preset-testnet')
+    ).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(row);
+    expect(within(row).getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
+    expect(isNominalUnquotedPriceEnabled()).toBe(false);
+  });
+
+  it('keeps the nominal-price row usable in read-only mode', () => {
+    render(<DeveloperSettings readOnly />);
+    const row = screen.getByTestId('dev-nominal-unquoted-price');
+    expect(row).toBeEnabled();
+
+    fireEvent.click(row);
+    expect(isNominalUnquotedPriceEnabled()).toBe(true);
   });
 
   it('persists allowNoGuardian=true when toggled on and saved', async () => {

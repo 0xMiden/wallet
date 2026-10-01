@@ -1076,6 +1076,7 @@
   "devEndpointExplorer": "Explorer URL",
   "devEndpointGuardian": "Custom guardian URL",
   "devAllowNoGuardian": "Allow 'No guardian' option in onboarding",
+  "devNominalUnquotedPrice": "Value unquoted tokens at $1 (test networks only)",
   "devEndpointChecking": "Checking…",
   "devEndpointReachable": "Host reachable",
   "devEndpointNoResponse": "No response",
