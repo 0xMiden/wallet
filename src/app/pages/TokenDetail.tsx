@@ -133,7 +133,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
-              scaleIsKnown && (quote || !pricesLoaded(tokenPrices)) ? (
+              scaleIsKnown && (quote || !pricesLoaded(tokenPrices, [priceSymbol])) ? (
                 <AnimatedNumber
                   value={fiatValue}
                   format={value => `$${formatFiat(value)}`}

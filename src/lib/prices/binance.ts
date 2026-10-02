@@ -71,16 +71,28 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
   }
 }
 
+/** Whether the feed lists a price symbol: an own `KNOWN_SYMBOLS` key. */
+export function isListedSymbol(symbol: string | undefined): boolean {
+  // Indexed, not `in`, so an inherited member such as `toString` does not read as listed.
+  return symbol !== undefined && typeof KNOWN_SYMBOLS[symbol] === 'string';
+}
+
 /**
- * Whether a figure can be shown yet. An empty map is prices still loading, which a figure shows
- * as its placeholder, and a loaded map without a symbol is a token with no price. With the
- * nominal rate on (`hasUnquotedDefaultPrice`) every token has a price from the start (the feed's,
- * or the nominal rate), so a figure never waits on the feed: a test-network wallet that holds
- * only the native token would otherwise show its placeholder for as long as the feed is
- * unreachable.
+ * Whether a figure built from these price symbols can be shown yet. An empty map is prices still
+ * loading, which a figure shows as its placeholder, and a loaded map without a symbol is a token
+ * with no price. With the nominal rate on (`hasUnquotedDefaultPrice`) a symbol the feed does not
+ * list is priced from the start, so a figure whose symbols are all unlisted never waits on the
+ * feed: a test-network wallet that holds only the native token would otherwise show its
+ * placeholder for as long as the feed is unreachable. A listed symbol (`isListedSymbol`) never
+ * takes that rate, so a figure that needs one still waits for the feed's first quote.
  */
-export function pricesLoaded(prices: TokenPrices): boolean {
-  return hasUnquotedDefaultPrice() || Object.keys(prices).length > 0;
+export function pricesLoaded(prices: TokenPrices, priceSymbols: Iterable<string | undefined>): boolean {
+  if (Object.keys(prices).length > 0) return true;
+  if (!hasUnquotedDefaultPrice()) return false;
+  for (const symbol of priceSymbols) {
+    if (isListedSymbol(symbol)) return false;
+  }
+  return true;
 }
 
 /**
@@ -112,9 +124,7 @@ export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
   const quote = symbol === undefined ? undefined : prices[symbol];
   if (quote && quote.price > 0) return quote;
-  // Indexed, not `in`, so an inherited member such as `toString` does not read as listed.
-  const listed = symbol !== undefined && typeof KNOWN_SYMBOLS[symbol] === 'string';
-  return !listed && hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
+  return !isListedSymbol(symbol) && hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
 }
 
 /**

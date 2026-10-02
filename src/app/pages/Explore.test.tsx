@@ -469,7 +469,7 @@ describe('Explore', () => {
       expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
     });
 
-    it('shows the total off mainnet before any price has loaded, since every token has a price there', async () => {
+    it('shows the total off mainnet before any price has loaded when no held token is one the feed lists', async () => {
       mockedHasUnquotedDefaultPrice.mockReturnValue(true);
       mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
       mockTokenPrices = {};
@@ -483,6 +483,80 @@ describe('Explore', () => {
       } finally {
         mockedHasUnquotedDefaultPrice.mockReturnValue(false);
       }
+    });
+
+    // IETH is priced at ETH, which never takes the nominal rate: the total without it would be the
+    // native token's alone, short by whatever the IETH is worth.
+    it('shows the dash off mainnet before any price has loaded when a held token is one the feed lists', async () => {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+      mockAllBalances = [
+        makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+        makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+      ];
+      mockTokenPrices = {};
+      mockPortfolioTotal = new BigNumber(100);
+
+      try {
+        await renderExplore();
+
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
+      } finally {
+        mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+      }
+    });
+
+    // Balance sums none of these, so the listed symbol they are priced at (ETH) has no part in the
+    // total to wait for.
+    describe('off mainnet before any price has loaded, a held IETH the total leaves out', () => {
+      const renderBeforeAnyPrice = async () => {
+        mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+        mockTokenPrices = {};
+        mockPortfolioTotal = new BigNumber(100);
+        await renderExplore();
+      };
+
+      afterEach(() => {
+        mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+      });
+
+      it('does not hold back the total when it is hidden', async () => {
+        mockAllBalances = [
+          makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+          makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+        ];
+        mockStoredHiddenTokens = [TOKEN_IETH.faucetId];
+
+        await renderBeforeAnyPrice();
+
+        expect(screen.getByTestId('hidden-assets-toggle')).toHaveTextContent('hiddenAssetsCount:1');
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+      });
+
+      it('does not hold back the total when its balance is zero', async () => {
+        mockAllBalances = [
+          makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+          makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0)
+        ];
+
+        await renderBeforeAnyPrice();
+
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+      });
+
+      it('does not hold back the total when its scale is unknown', async () => {
+        mockAllBalances = [
+          makeToken('faucet-native', 'MIDEN', 'Miden', 100),
+          {
+            tokenId: TOKEN_IETH.faucetId,
+            balance: 0.1,
+            metadata: { symbol: 'IETH', name: 'IETH', scaleIsUnknown: true }
+          }
+        ];
+
+        await renderBeforeAnyPrice();
+
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+      });
     });
 
     // The same rule as the "$-" total above, one row down: a change figure the app does not have is

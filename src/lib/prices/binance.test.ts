@@ -203,16 +203,25 @@ afterEach(() => {
 
 describe('pricesLoaded', () => {
   it('is false before the feed has delivered any quote', () => {
-    expect(pricesLoaded({})).toBe(false);
+    expect(pricesLoaded({}, [])).toBe(false);
+    expect(pricesLoaded({}, ['IMIDEN'])).toBe(false);
   });
 
   it('is true once any quote exists, whether or not a given symbol is among them', () => {
-    expect(pricesLoaded({ BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } })).toBe(true);
+    expect(pricesLoaded({ BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } }, ['ETH'])).toBe(true);
   });
 
-  it('is true before the feed has delivered off mainnet, where every token has a price from the start', () => {
+  it('is true off mainnet before the feed has delivered when no symbol is one the feed lists', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
-    expect(pricesLoaded({})).toBe(true);
+    expect(pricesLoaded({}, [undefined, 'IMIDEN'])).toBe(true);
+    expect(pricesLoaded({}, [])).toBe(true);
+  });
+
+  // A listed symbol takes no nominal rate, so its figure still waits on the feed.
+  it('is false off mainnet before the feed has delivered when any symbol is one the feed lists', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(pricesLoaded({}, ['ETH'])).toBe(false);
+    expect(pricesLoaded({}, ['IMIDEN', 'BTC'])).toBe(false);
   });
 });
 
