@@ -115,9 +115,6 @@ function load(opts: LoadOpts = {}) {
   return { mod, platformMock, localPlugin, hardwarePlugin, nativePlugin, prefs };
 }
 
-const SERVER = 'miden.wallet.biometric';
-const CRED_KEY = 'vault_biometric_key';
-const ENABLED_KEY = 'biometric_enabled';
 const UNKNOWN_SETUP = { available: false, reason: 'unknown', managedProfile: false };
 
 beforeAll(() => {
@@ -432,277 +429,58 @@ describe('biometric service', () => {
   });
 
   describe('confirmSensitiveAction', () => {
-    it('allows the action when biometrics are unavailable', async () => {
-      const local = makePlugin({ isAvailable: jest.fn().mockResolvedValue({ isAvailable: false, biometryType: 0 }) });
-      const { mod } = load({ platform: IOS, local });
-
-      expect(await mod.confirmSensitiveAction('Confirm send')).toBe(true);
-    });
-
-    it('allows the action when biometrics are available but not enabled', async () => {
-      const preferences = { get: jest.fn().mockResolvedValue({ value: 'false' }), set: jest.fn() };
-      const { mod } = load({ platform: IOS, preferences });
-
-      expect(await mod.confirmSensitiveAction('Confirm send')).toBe(true);
-    });
-
-    it('gates on authentication when available and enabled (allowed)', async () => {
+    it('off mobile, resolves true without probing or verifying', async () => {
       const local = makePlugin();
-      const preferences = { get: jest.fn().mockResolvedValue({ value: 'true' }), set: jest.fn() };
-      const { mod } = load({ platform: IOS, local, preferences });
+      const { mod } = load({ platform: NOT_MOBILE, local });
+      const probe = jest.fn().mockResolvedValue(true);
 
-      expect(await mod.confirmSensitiveAction('Confirm send')).toBe(true);
-      expect(local.verifyIdentity).toHaveBeenCalled();
+      expect(await mod.confirmSensitiveAction('Confirm your send', probe)).toBe(true);
+      expect(probe).not.toHaveBeenCalled();
+      expect(local.verifyIdentity).not.toHaveBeenCalled();
     });
 
-    it('blocks when available and enabled but authentication fails', async () => {
-      const local = makePlugin({ verifyIdentity: jest.fn().mockRejectedValue(new Error('nope')) });
-      const preferences = { get: jest.fn().mockResolvedValue({ value: 'true' }), set: jest.fn() };
-      const { mod } = load({ platform: IOS, local, preferences });
-
-      expect(await mod.confirmSensitiveAction('Confirm send')).toBe(false);
-    });
-
-    it('allows the action (fails open) when the probe throws', async () => {
-      // isMobile throwing makes checkBiometricAvailability reject, hitting the outer catch.
-      const { mod } = load({ platform: { ...IOS, mobileThrows: true } });
-
-      expect(await mod.confirmSensitiveAction('Confirm send')).toBe(true);
-    });
-  });
-
-  describe('storeCredential', () => {
-    it('throws when plugin is null', async () => {
-      const { mod } = load({ platform: NOT_MOBILE });
-      await expect(mod.storeCredential('pw')).rejects.toThrow('Biometric plugin not available');
-    });
-
-    it('stores the credential under the biometric server/key', async () => {
+    it('on mobile, no hardware protector: resolves true without verifying', async () => {
       const local = makePlugin();
       const { mod } = load({ platform: IOS, local });
+      const probe = jest.fn().mockResolvedValue(false);
 
-      await mod.storeCredential('super-secret');
-
-      expect(local.setCredentials).toHaveBeenCalledWith({
-        username: CRED_KEY,
-        password: 'super-secret',
-        server: SERVER
-      });
-    });
-  });
-
-  describe('getCredential', () => {
-    it('returns null when plugin is null', async () => {
-      const { mod } = load({ platform: NOT_MOBILE });
-      expect(await mod.getCredential()).toBeNull();
+      expect(await mod.confirmSensitiveAction('Confirm your send', probe)).toBe(true);
+      expect(local.verifyIdentity).not.toHaveBeenCalled();
     });
 
-    it('returns the stored password', async () => {
-      const local = makePlugin({
-        getCredentials: jest.fn().mockResolvedValue({ username: CRED_KEY, password: 'pw-123' })
-      });
-      const { mod } = load({ platform: IOS, local });
-
-      expect(await mod.getCredential()).toBe('pw-123');
-      expect(local.getCredentials).toHaveBeenCalledWith({ server: SERVER });
-    });
-
-    it('returns null when retrieval throws', async () => {
-      const local = makePlugin({ getCredentials: jest.fn().mockRejectedValue(new Error('no cred')) });
-      const { mod } = load({ platform: IOS, local });
-
-      expect(await mod.getCredential()).toBeNull();
-    });
-  });
-
-  describe('deleteCredential', () => {
-    it('does nothing when plugin is null', async () => {
-      const { mod } = load({ platform: NOT_MOBILE });
-      await expect(mod.deleteCredential()).resolves.toBeUndefined();
-    });
-
-    it('deletes the stored credential', async () => {
+    it('on mobile with a hardware protector, authenticates with the given reason', async () => {
       const local = makePlugin();
       const { mod } = load({ platform: IOS, local });
+      const probe = jest.fn().mockResolvedValue(true);
 
-      await mod.deleteCredential();
-
-      expect(local.deleteCredentials).toHaveBeenCalledWith({ server: SERVER });
+      expect(await mod.confirmSensitiveAction('Confirm your send', probe)).toBe(true);
+      expect(local.verifyIdentity).toHaveBeenCalledWith({ reason: 'Confirm your send', useFallback: true });
     });
 
-    it('swallows errors when deletion throws', async () => {
-      const local = makePlugin({ deleteCredentials: jest.fn().mockRejectedValue(new Error('missing')) });
-      const { mod } = load({ platform: IOS, local });
-
-      await expect(mod.deleteCredential()).resolves.toBeUndefined();
-    });
-  });
-
-  describe('isBiometricEnabled', () => {
-    it('returns false when not on mobile', async () => {
-      const { mod } = load({ platform: NOT_MOBILE });
-      expect(await mod.isBiometricEnabled()).toBe(false);
-    });
-
-    it('returns true when the preference is the string "true"', async () => {
-      const preferences = { get: jest.fn().mockResolvedValue({ value: 'true' }), set: jest.fn() };
-      const { mod } = load({ platform: IOS, preferences });
-
-      expect(await mod.isBiometricEnabled()).toBe(true);
-      expect(preferences.get).toHaveBeenCalledWith({ key: ENABLED_KEY });
-    });
-
-    it('returns false when the preference is any other value', async () => {
-      const preferences = { get: jest.fn().mockResolvedValue({ value: 'false' }), set: jest.fn() };
-      const { mod } = load({ platform: IOS, preferences });
-
-      expect(await mod.isBiometricEnabled()).toBe(false);
-    });
-
-    it('returns false when reading the preference throws', async () => {
-      const preferences = { get: jest.fn().mockRejectedValue(new Error('prefs down')), set: jest.fn() };
-      const { mod } = load({ platform: IOS, preferences });
-
-      expect(await mod.isBiometricEnabled()).toBe(false);
-    });
-  });
-
-  describe('setBiometricEnabled', () => {
-    it('does nothing when not on mobile', async () => {
-      const preferences = makePreferences();
-      const { mod } = load({ platform: NOT_MOBILE, preferences });
-
-      await mod.setBiometricEnabled(true);
-
-      expect(preferences.set).not.toHaveBeenCalled();
-    });
-
-    it('writes "true" and verifies successfully when enabling', async () => {
-      const preferences = makePreferences();
-      const local = makePlugin();
-      const { mod } = load({ platform: IOS, preferences, local });
-
-      await mod.setBiometricEnabled(true);
-
-      expect(preferences.set).toHaveBeenCalledWith({ key: ENABLED_KEY, value: 'true' });
-      // Enabling must NOT delete the stored credential.
-      expect(local.deleteCredentials).not.toHaveBeenCalled();
-    });
-
-    it('writes "false" and deletes the credential when disabling', async () => {
-      const preferences = makePreferences();
-      const local = makePlugin();
-      const { mod } = load({ platform: IOS, preferences, local });
-
-      await mod.setBiometricEnabled(false);
-
-      expect(preferences.set).toHaveBeenCalledWith({ key: ENABLED_KEY, value: 'false' });
-      expect(local.deleteCredentials).toHaveBeenCalledWith({ server: SERVER });
-    });
-
-    it('handles verification mismatch without throwing', async () => {
-      // set writes 'true' but get reports a different value -> verification-failed branch.
-      const preferences = {
-        set: jest.fn().mockResolvedValue(undefined),
-        get: jest.fn().mockResolvedValue({ value: 'unexpected' })
-      };
-      const local = makePlugin();
-      const { mod } = load({ platform: IOS, preferences, local });
-
-      await expect(mod.setBiometricEnabled(true)).resolves.toBeUndefined();
-      expect(preferences.set).toHaveBeenCalledWith({ key: ENABLED_KEY, value: 'true' });
-    });
-
-    it('swallows errors when the preference write throws', async () => {
-      const preferences = { set: jest.fn().mockRejectedValue(new Error('write fail')), get: jest.fn() };
-      const { mod } = load({ platform: IOS, preferences });
-
-      await expect(mod.setBiometricEnabled(true)).resolves.toBeUndefined();
-    });
-  });
-
-  describe('unlockWithBiometric', () => {
-    it('returns null when plugin is null', async () => {
-      const { mod } = load({ platform: NOT_MOBILE });
-      expect(await mod.unlockWithBiometric('Unlock')).toBeNull();
-    });
-
-    it('verifies (iOS, no fallback) then returns the credential', async () => {
-      const local = makePlugin({
-        getCredentials: jest.fn().mockResolvedValue({ username: CRED_KEY, password: 'unlocked-pw' })
-      });
-      const { mod } = load({ platform: IOS, local });
-
-      const pw = await mod.unlockWithBiometric('Unlock wallet');
-
-      expect(pw).toBe('unlocked-pw');
-      expect(local.verifyIdentity).toHaveBeenCalledWith({ reason: 'Unlock wallet', useFallback: false });
-      expect(local.getCredentials).toHaveBeenCalledWith({ server: SERVER });
-    });
-
-    it('verifies (Android, no fallback) then returns the credential', async () => {
-      const native = makePlugin({
-        getCredentials: jest.fn().mockResolvedValue({ username: CRED_KEY, password: 'android-pw' })
-      });
-      const { mod } = load({ platform: ANDROID, native });
-
-      const pw = await mod.unlockWithBiometric('Unlock');
-
-      expect(pw).toBe('android-pw');
-      expect(native.verifyIdentity).toHaveBeenCalledWith({
-        reason: 'Unlock',
-        title: 'Bread',
-        subtitle: 'Unlock',
-        description: '',
-        useFallback: false
-      });
-    });
-
-    it('returns null when verification/retrieval throws', async () => {
+    it('on mobile with a hardware protector, blocks when authentication fails', async () => {
       const local = makePlugin({ verifyIdentity: jest.fn().mockRejectedValue(new Error('denied')) });
       const { mod } = load({ platform: IOS, local });
+      const probe = jest.fn().mockResolvedValue(true);
 
-      expect(await mod.unlockWithBiometric('Unlock')).toBeNull();
+      expect(await mod.confirmSensitiveAction('Confirm your send', probe)).toBe(false);
     });
-  });
 
-  describe('setupBiometric', () => {
-    it('returns false when biometrics are unavailable', async () => {
+    it('still authenticates through a biometry lockout, via the passcode fallback', async () => {
       const local = makePlugin({ isAvailable: jest.fn().mockResolvedValue({ isAvailable: false, biometryType: 0 }) });
       const { mod } = load({ platform: IOS, local });
+      const probe = jest.fn().mockResolvedValue(true);
 
-      expect(await mod.setupBiometric('pw')).toBe(false);
+      expect(await mod.confirmSensitiveAction('Confirm your send', probe)).toBe(true);
+      expect(local.verifyIdentity).toHaveBeenCalledWith({ reason: 'Confirm your send', useFallback: true });
     });
 
-    it('returns false when authentication fails', async () => {
-      const local = makePlugin({ verifyIdentity: jest.fn().mockRejectedValue(new Error('denied')) });
-      const { mod } = load({ platform: IOS, local });
-
-      expect(await mod.setupBiometric('pw')).toBe(false);
-    });
-
-    it('stores the credential, enables biometrics, and returns true on success', async () => {
-      const preferences = makePreferences();
+    it('propagates a rejecting protector probe without authenticating', async () => {
       const local = makePlugin();
-      const { mod } = load({ platform: IOS, local, preferences });
-
-      const ok = await mod.setupBiometric('wallet-pw');
-
-      expect(ok).toBe(true);
-      expect(local.setCredentials).toHaveBeenCalledWith({
-        username: CRED_KEY,
-        password: 'wallet-pw',
-        server: SERVER
-      });
-      expect(preferences.set).toHaveBeenCalledWith({ key: ENABLED_KEY, value: 'true' });
-    });
-
-    it('returns false when a step throws', async () => {
-      // isAvailable/authenticate succeed, but storing the credential rejects.
-      const local = makePlugin({ setCredentials: jest.fn().mockRejectedValue(new Error('keystore fail')) });
       const { mod } = load({ platform: IOS, local });
+      const probe = jest.fn().mockRejectedValue(new Error('protector check failed'));
 
-      expect(await mod.setupBiometric('pw')).toBe(false);
+      await expect(mod.confirmSensitiveAction('Confirm your send', probe)).rejects.toThrow('protector check failed');
+      expect(local.verifyIdentity).not.toHaveBeenCalled();
     });
   });
 
@@ -710,17 +488,7 @@ describe('biometric service', () => {
     it('exposes biometricService and default export with all functions', () => {
       const { mod } = load({ platform: IOS });
 
-      const expected = [
-        'checkBiometricAvailability',
-        'authenticate',
-        'storeCredential',
-        'getCredential',
-        'deleteCredential',
-        'isBiometricEnabled',
-        'setBiometricEnabled',
-        'unlockWithBiometric',
-        'setupBiometric'
-      ];
+      const expected = ['checkBiometricAvailability', 'authenticate'];
       for (const fn of expected) {
         expect(typeof (mod.biometricService as Record<string, unknown>)[fn]).toBe('function');
       }
