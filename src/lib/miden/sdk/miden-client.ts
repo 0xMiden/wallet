@@ -153,7 +153,7 @@ interface LockHolder {
   pauseCount: number;
   cancelWatchdog: (() => void) | null;
   /**
-   * Unpaused wall-clock this hold has already spent, and when the current
+   * Unpaused running time this hold has already spent, and when the current
    * unpaused segment began (`null` while a pause bracket is open). Together they
    * make the normal ceiling a bound on the HOLD rather than on the current
    * segment: re-arming the full ceiling at every bracket close would let a flow
@@ -163,7 +163,7 @@ interface LockHolder {
   unpausedElapsedMs: number;
   segmentStartedAt: number | null;
   /**
-   * Same ledger for PAUSED wall-clock: total time this hold has spent inside
+   * Same ledger for PAUSED running time: total time this hold has spent inside
    * pause brackets, and when the current paused segment began. Without it each
    * bracket re-armed a fresh relaxed ceiling, so SEQUENTIAL brackets (sign,
    * then prove, then sign again…) bought unbounded unwatched time — the exact
@@ -680,7 +680,7 @@ function ensureRealmErrorListener(): void {
 /**
  * The relaxed ceiling this hold has left, with the same once-per-hold finishing
  * slice the normal ceiling gets. Shared by the pause bracket and the yield,
- * which are the same budget seen from two places: a yield banks its wall-clock
+ * which are the same budget seen from two places: a yield banks its running time
  * into `pausedElapsedMs` on the way out, so a hold that alternates the two must
  * not find the second one arming at zero.
  */
