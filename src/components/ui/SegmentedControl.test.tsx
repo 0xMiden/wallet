@@ -389,20 +389,27 @@ describe('SegmentedControl — layouts', () => {
     renderControl();
 
     const group = screen.getByRole('radiogroup');
-    expect(group).toHaveClass('overflow-x-auto', 'no-scrollbar');
+    expect(group).toHaveClass('flex', 'overflow-x-auto', 'no-scrollbar');
     expect(group).toHaveAttribute('data-layout-scroll', 'true');
     expect(getRadio('All')).toHaveClass('shrink-0');
     expect(getRadio('All')).not.toHaveClass('flex-1');
   });
 
-  it('fill: equal-width items across the full width, no scrolling', () => {
+  it('fill: a full-width grid of equal columns, no scrolling', () => {
     renderControl({ layout: 'fill' });
 
     const group = screen.getByRole('radiogroup');
-    expect(group).toHaveClass('w-full');
+    expect(group).toHaveClass('grid', 'w-full', 'grid-flow-col', 'auto-cols-fr');
+    expect(group).not.toHaveClass('flex');
     expect(group).not.toHaveClass('overflow-x-auto');
     expect(group).toHaveAttribute('data-layout-scroll', 'false');
-    expect(getRadio('All')).toHaveClass('flex-1', 'min-w-0');
+  });
+
+  it('fill: items take their grid column, not a flex share', () => {
+    renderControl({ layout: 'fill' });
+
+    expect(getRadio('All')).toHaveClass('min-w-0');
+    expect(getRadio('All')).not.toHaveClass('flex-1');
   });
 
   it('sizes: sm is 32px, md (default) is 40px', () => {

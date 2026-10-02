@@ -321,6 +321,13 @@ describe('TextField — secret', () => {
     expect(cover()).toBeNull();
   });
 
+  it('frosts the cover with a plain 8px blur, prefixed and not, so older WebViews still blur the secret', () => {
+    render(<TextField secret value="my private key" onChange={jest.fn()} />);
+
+    expect(cover()).toHaveClass('[backdrop-filter:blur(8px)]', '[-webkit-backdrop-filter:blur(8px)]');
+    expect(cover()).not.toHaveClass('backdrop-blur-sm');
+  });
+
   describe('once revealed', () => {
     beforeEach(() => jest.useFakeTimers());
     afterEach(() => jest.useRealTimers());
