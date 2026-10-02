@@ -998,6 +998,55 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  const runEpochBridgeLeafFailing = async (id: string, error: Error) => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw error;
+      return fn();
+    });
+    txStore.push({
+      id,
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      }
+    });
+    try {
+      expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    } finally {
+      sdk.withWasmClientLock = origLock;
+    }
+    return txStore.find(t => t.id === id);
+  };
+
+  it('records the landed note of an Epoch bridged-send whose apply failed after submit (#1250)', async () => {
+    // Nothing else records it: the bridge's own failure handling runs in the realm driving it, which may be gone.
+    const row = await runEpochBridgeLeafFailing('tx-bridge-landed', new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE));
+
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.outputNoteIds).toEqual(['note-stamped']);
+    expect(row.extraInputs.epochStatus).toBe('failed');
+    expect(row.extraInputs.claimStatus).toBe('failed');
+  });
+
+  it('records nothing for an Epoch bridged-send that failed before submit (#1250)', async () => {
+    const row = await runEpochBridgeLeafFailing('tx-bridge-pre-submit', new Error('tx-execution-failed'));
+
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(row.extraInputs.epochStatus).toBeUndefined();
+    expect(row.extraInputs.claimStatus).toBe('not-applicable');
+  });
+
   it('records the landed id on the result-awaiting row it fails (#1233)', async () => {
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
@@ -1435,6 +1484,47 @@ describe('generateTransactionsLoop error paths', () => {
     expect(result).toBe(false);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore[0]!.requestBytes).toBe(earnBytes);
+  });
+
+  it('a requeue drops the bridge submit claim of its attempt (#1250)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    const extraInputs = {
+      provider: 'epoch',
+      claimStatus: 'not-applicable',
+      epochStatus: 'pending',
+      recallBlocks: 1200,
+      reclaimNoteId: 'note-stamped'
+    };
+    let claimedAtSign: unknown;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        claimedAtSign = txStore.find(t => t.id === 'tx-bridge-claim-requeued')?.extraInputs.submitClaimed;
+        throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-bridge-claim-requeued',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { ...extraInputs }
+    });
+
+    try {
+      expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    } finally {
+      sdk.withWasmClientLock = origLock;
+    }
+
+    expect(claimedAtSign).toBe(true);
+    const row = txStore.find(t => t.id === 'tx-bridge-claim-requeued');
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.extraInputs).toStrictEqual(extraInputs);
   });
 });
 
