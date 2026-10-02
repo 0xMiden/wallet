@@ -97,17 +97,18 @@ const GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG
  * {@link MultisigService.finalizeGuardianSwitch} — its `GET /pubkey` and each
  * `registerOnGuardian` attempt.
  *
- * `GuardianHttpClient` calls bare `fetch` with no `AbortSignal` (the reason
+ * `GuardianHttpClient` passes no `AbortSignal` (the reason
  * `withOutgoingGuardianDeadline` exists for the arms that talk to the OUTGOING
- * operator), and these two calls sit PAST the on-chain commit. An operator that
- * accepts the connection and then goes silent therefore produces no error at all,
- * the retry budget below never advances on silence, and
- * `completeSwitchGuardianTransaction` never reaches its terminal status write —
- * parking a committed rotation at `GeneratingTransaction`, which the routed UI
- * observes and never dismisses, and never recording `registerFailed`, the very
- * flag whose self-heal exists to finish this registration later. The direct path
- * bounds its counterparts for exactly this reason; the coordinated path had the
- * same hole (F-144 bounded only the endpoint persist beside it).
+ * operator), so an operator that accepts the connection and then goes silent
+ * produces no error until the fetch boundary cuts the request off at
+ * GUARDIAN_REQUEST_TIMEOUT_MS, and these two calls sit PAST the on-chain commit:
+ * every attempt spent in silence keeps `completeSwitchGuardianTransaction` from
+ * its terminal status write, parking a committed rotation at
+ * `GeneratingTransaction`, which the routed UI observes, and leaving
+ * `registerFailed`, the very flag whose self-heal exists to finish this
+ * registration later, unrecorded. The direct path bounds its counterparts more
+ * tightly for exactly this reason (F-144 bounded only the endpoint persist beside
+ * it).
  *
  * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` and to the shared
  * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS` (./serialize), which bounds the pre-sign
@@ -119,6 +120,20 @@ const GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG
 export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
 // The per-attempt backoff (capped exponential, and Retry-After-aware on 429s)
 // lives in `guardianRegisterBackoffMs` (./serialize, #619).
+
+/**
+ * Ceiling on the settlement read before a proposal (#312). Short, because it is
+ * a hint: no answer only means the proposal goes ahead and meets the Guardian's
+ * own 409 if the previous delta is still settling.
+ */
+export const PRIOR_CANDIDATE_CHECK_TIMEOUT_MS = 10_000;
+
+/** Where the delta a previous write left stands: still a `candidate`, `settled`, or `unknown`. */
+export type PriorCandidateState = 'candidate' | 'settled' | 'unknown';
+
+/** The Guardian holds no delta at that nonce. Duck-typed like the other Guardian error checks. */
+const isGuardianDeltaNotFound = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'code' in err && err.code === 'delta_not_found';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -449,10 +464,43 @@ export class MultisigService {
 
   /**
    * Read this guardian's state for the account over HTTP only, never under the WASM lock (#1233): a
-   * caller asks before an adopt, whose hold a silent guardian would park until the watchdog evicts it.
+   * caller asks before an adopt, whose hold a silent guardian would park until the fetch boundary cuts
+   * each request off a minute in.
    */
   async probeGuardianState(): Promise<void> {
     await this.client.guardianClient.getState(this.accountId);
+  }
+
+  /**
+   * Where the delta at `nonce` stands on this service's Guardian, for the
+   * settlement gate before a proposal (#312): `'candidate'` while the Guardian
+   * still holds it as a candidate, `'settled'` once it canonicalized, discarded
+   * or retained it or holds no such delta, and `'unknown'` for any other answer,
+   * a failed read or no answer within PRIOR_CANDIDATE_CHECK_TIMEOUT_MS. HTTP
+   * only, never under the WASM lock, and never rejects.
+   */
+  async priorCandidateState(nonce: number): Promise<PriorCandidateState> {
+    try {
+      const delta = await withTimeout(
+        this.client.guardianClient.getDelta(this.accountId, nonce),
+        PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+        `reading guardian candidate ${nonce}`
+      );
+      switch (delta.status.status) {
+        case 'candidate':
+          return 'candidate';
+        case 'canonical':
+        case 'discarded':
+        case 'retained':
+          return 'settled';
+        default:
+          return 'unknown';
+      }
+    } catch (error) {
+      if (isGuardianDeltaNotFound(error)) return 'settled';
+      console.warn(`[Guardian] could not read candidate ${nonce}; the proposal goes ahead`, error);
+      return 'unknown';
+    }
   }
 
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
@@ -522,11 +570,11 @@ export class MultisigService {
     let realignAttempted = false;
     for (;;) {
       try {
-        // Bounded like every other pure-sync hold (#777): this is a guardian
-        // HTTP round-trip with no deadline of its own, and it is reached from the
-        // idle loop, so on the default 5-minute backstop one unresponsive
-        // guardian parked the whole app's WASM access — and did it once per
-        // retry in this loop.
+        // Bounded like every other pure-sync hold (#777): it is reached from the
+        // idle loop, and the fetch boundary lets each guardian request in it run up
+        // to GUARDIAN_REQUEST_TIMEOUT_MS, so one unresponsive guardian holds the
+        // whole app's WASM access for that minute once per retry in this loop; the
+        // ceiling bounds the hold as a whole.
         await withWasmClientLock(() => this.multisig.syncState(), {
           watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
           label: 'guardian-sync'

@@ -27,9 +27,13 @@ import {
 } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import {
+  clearGuardianCandidate,
+  getGuardianCandidate,
+  GuardianBackpressureError,
   guardianRetryAfterSec,
   isGuardianPendingConflict,
   isGuardianRateLimited,
+  recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry
 } from 'lib/miden/guardian/serialize';
@@ -41,6 +45,7 @@ import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
@@ -267,14 +272,16 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
   return false;
 };
 
-// Cooldown (seconds) applied to a tx requeued after a transient guardian
-// pending-delta 409. A persistently-conflicting tx is always the OLDEST Queued
-// row by initiatedAt, so without a backoff it is re-picked every cycle — burning
-// the ~60s inline retry budget and starving another account's freshly-queued tx
-// until it ages out at MAX_QUEUED_AGE. Setting `nextEligibleAt = now + this` makes
-// the loop skip it for at least one cycle so other accounts drain first. Kept
-// comfortably above the processing loop's ~5s poll interval so the skip is not a
-// race; MAX_QUEUED_AGE stays the terminal cap.
+// Cooldown (seconds) applied to a tx requeued on Guardian backpressure (#312): a
+// pending-delta 409 or the settlement gate's refusal. A Guardian request cut off at
+// its deadline is not backpressure: it waits out the unreachable arm's cooldown
+// below. A persistently-busy tx is always the OLDEST Queued row by
+// initiatedAt, so without a backoff it is re-picked every cycle, re-asking the
+// Guardian and starving another account's freshly-queued tx until it ages out at
+// MAX_QUEUED_AGE. Setting `nextEligibleAt = now + this` makes the loop skip it
+// for at least one cycle so other accounts drain first. Kept comfortably above
+// the processing loop's ~5s poll interval so the skip is not a race;
+// MAX_QUEUED_AGE stays the terminal cap.
 const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 
 // Cooldown (seconds) applied to a tx requeued after a transient remote-prover
@@ -298,7 +305,7 @@ const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 // Ceiling (seconds) on the doubling the unreachable, 409 and 429 arms give a row they requeue again (#1223). Four times
 // the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's 429
 // can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
-// timeout, so the rows between them get laps.
+// timeout, or three that each run to the 60 s Guardian request cut-off, so the rows between them get laps.
 const GUARDIAN_REQUEUE_BACKOFF_CAP_SEC = 240;
 
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
@@ -367,13 +374,12 @@ const UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC = 180;
 //
 // It does NOT reliably outlast the candidate quarantine left by the failed
 // attempt's `abandonCandidate`, which is an intent rather than an immediate
-// release: `withGuardianConflictRetry` budgets 12 x 5s for that window, so a
-// draw anywhere in this range can still land inside it. That is survivable
-// rather than free — the retry earns a 409 and spends conflict-retry attempts
-// waiting out the quarantine, which is what that budget is for — and widening
-// this range past a minute to avoid it would cost every retry the delay, on a
-// three-minute budget. The decorrelation argument above is what justifies the
-// width; outlasting the quarantine is not claimed.
+// release, so a draw anywhere in this range can still land inside it. That is
+// survivable rather than free: the retry earns a 409, which the backpressure arm
+// requeues at the pending-conflict cooldown, and widening this range past a
+// minute to avoid it would cost every retry the delay, on a three-minute budget.
+// The decorrelation argument above is what justifies the width; outlasting the
+// quarantine is not claimed.
 const UNAUTHORIZED_EXECUTION_JITTER_SEC = 40;
 
 /**
@@ -429,6 +435,14 @@ const nextRequeueStreak = (
   row: Pick<ITransaction, 'requeueStreak'> | undefined,
   arm: IRequeueStreakArm
 ): IRequeueStreak => ({ arm, count: row?.requeueStreak?.arm === arm ? row.requeueStreak.count + 1 : 1 });
+
+/**
+ * Guardian backpressure (#312): a pending-delta 409 (a paused or released account is not one) or the settlement gate's
+ * refusal, both meaning the Guardian is still settling the account's previous delta. A request the fetch boundary cut
+ * off is not backpressure: it says only that the Guardian did not answer, which `isGuardianOutage` reads as unreachable.
+ */
+const isGuardianBackpressure = (error: unknown): boolean =>
+  isGuardianPendingConflict(error) || error instanceof GuardianBackpressureError;
 
 /**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
@@ -747,9 +761,9 @@ function scheduleRequeueWake(
       }
       if (row.status !== ITransactionStatus.Queued) {
         // In flight under another driver. NOT a reason to stop: that attempt can
-        // end by requeueing rather than finishing, through the pending-delta
-        // (409), rate-limit (429), prover-outage or locked-wallet arms — none of
-        // which schedules a wake, since only the unauthorized and unreachable arms do. Stopping
+        // end by requeueing rather than finishing, through the rate-limit (429),
+        // prover-outage or locked-wallet arms, none of which schedules a wake (only
+        // the backpressure, unauthorized and unreachable arms do). Stopping
         // here on `GeneratingTransaction` would hand the row back to a queue
         // with no driver off-extension, which is the strand this chain exists to
         // prevent, and the row would look healthy on the way there. So watch it
@@ -781,28 +795,32 @@ function scheduleRequeueWake(
   requeueWakes.set(txId, timer);
 }
 
+/** What a guardian arm stamps on the row it requeues, on top of the requeue itself. */
+type RequeueExtraValues = { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak; guardianBusy?: true };
+
 /**
  * Return a tx to the Queued state for a later generateTransactionsLoop cycle
  * instead of terminal-failing it, backing it off with `nextEligibleAt` so it
  * doesn't starve other accounts' queued txs. Called by the guardian arms for a
- * pending-delta 409, a remote-prover outage (#419) and a rate-limit 429, by
- * `requeueWithWake` for the unreachable-guardian (#779) and
+ * remote-prover outage (#419) and a rate-limit 429, by `requeueWithWake` for the
+ * Guardian-backpressure (#312), unreachable-guardian (#779) and
  * unauthorized-at-execution arms, and by the loop's pre-send sync failure and
  * locked-wallet requeues. Clearing `processingStartedAt` avoids
  * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
- * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own —
+ * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own, and
  * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
  *
  * A guardian arm passes the row's `requeueStreak` in `extraValues`, with a cooldown it has already doubled; every
- * other requeue clears the streak (#1223). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which
- * a wake is timed from.
+ * other requeue clears the streak (#1223). Only the backpressure arm passes `guardianBusy`, and every other requeue
+ * clears it the same way (#312). Returns the row's `initiatedAt` and the `nextEligibleAt` written, which a wake is
+ * timed from.
  */
 async function requeueTransactionForRetry(
   txId: string,
   txType: ITransactionType,
   stage: ITransactionStage,
   cooldownSec: number,
-  extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
+  extraValues?: RequeueExtraValues
 ): Promise<{ initiatedAt: number | undefined; nextEligibleAt: number }> {
   // A guardian recallable `send` freezes an ABSOLUTE reclaim height (syncHeight +
   // recallBlocks) and its asset when its bytes are first built, so a wrong callback
@@ -884,6 +902,8 @@ async function requeueTransactionForRetry(
     nextEligibleAt,
     // Only a guardian arm passes a streak, in `extraValues`, so any other requeue ends the row's.
     requeueStreak: undefined,
+    // Only the backpressure arm passes it, so any other requeue ends the busy state on screen (#312).
+    guardianBusy: undefined,
     ...(clearRequestBytes ? { requestBytes: undefined } : {}),
     ...carriedDeadline,
     ...extraValues
@@ -903,7 +923,7 @@ async function requeueWithWake(
   cooldownSec: number,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   guardianProvider: GuardianAccountProvider,
-  extraValues?: { unauthorizedRetryUntil?: number; requeueStreak?: IRequeueStreak }
+  extraValues?: RequeueExtraValues
 ): Promise<void> {
   const requeued = await requeueTransactionForRetry(txId, txType, 'creating-proposal', cooldownSec, extraValues);
   // The new chain's ceiling stands in for an unusable `initiatedAt`, as `hardExpiresAt` does on a re-arm.
@@ -998,13 +1018,11 @@ async function reconcileStructuralApplyFailure(
   // When the row already recorded that it took the direct path, don't even ask.
   // The build can only fail, and it is not free to let it: the operator shape
   // that produced the unreachable verdict is typically one that accepts the
-  // connection and goes silent, so this call would hold the WASM lock to the
-  // 5-minute watchdog and come back as `WasmClientPoisonedError` — which is
-  // deliberately NOT an unreachable verdict, so it would rethrow, the caller
-  // would log "reconcile failed; cancelling", and a rotation that IS on chain
-  // would end Failed with the vault still naming the dead operator. Bounded by
-  // the same deadline as the switch arms for a row without the marker (an older
-  // row, or a reconcile on the coordinated path).
+  // connection and goes silent, so this call would hold the WASM lock until the
+  // fetch boundary cuts the request off (GUARDIAN_REQUEST_TIMEOUT_MS) for an
+  // answer the row already has. A row without the marker (an older row, or a
+  // reconcile on the coordinated path) asks under the same deadline as the
+  // switch arms.
   let service: MultisigService | undefined;
   const tookDirectPath =
     tx.type === 'switch-guardian' && (tx as SwitchGuardianTransaction).extraInputs?.switchedDirectly === true;
@@ -1281,7 +1299,9 @@ const generateTransactionWithProvider = async (
   markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
-    stage: 'sending'
+    stage: 'sending',
+    // Running again, so the transaction screen stops saying the Guardian is busy (#312).
+    guardianBusy: undefined
   });
 
   // Route Guardian accounts through Guardian service
@@ -1418,37 +1438,41 @@ const generateTransactionWithProvider = async (
       // (former) abort branch was unreachable with the flag off — its removal
       // cannot change flag-OFF behavior.
       //
-      // A transient guardian 409 (a prior delta still canonicalizing) that
-      // outlasted withGuardianConflictRetry's budget is NOT a terminal failure
-      // for a VALUE-MOVING op: the single-delta lock clears on its own, and its
-      // proposal creator is side-effect-free/idempotent, so returning the tx to
-      // the queue for the next generateTransactionsLoop cycle is safe. We reset
-      // the status to Queued AND clear processingStartedAt — a bare return would
-      // leave it GeneratingTransaction, which cancelStuckTransactions would then
-      // reap as stalled; cancelStaleQueuedTransactions (MAX_QUEUED_AGE) remains
-      // the terminal cap. We also stamp `nextEligibleAt` so the loop backs this
-      // tx off for a cycle rather than re-picking it as the oldest row every
-      // time — otherwise it would starve another account's queued tx.
+      // Guardian backpressure (#312): a pending-delta 409 or the settlement gate's refusal, both saying the Guardian is
+      // still settling the account's previous delta. Neither is terminal for a VALUE-MOVING op: a candidate settles on
+      // its own and the proposal creator is side-effect-free, so the row goes back to the queue on the first
+      // occurrence. Waiting it out here held this account's lock and the loop's Web Lock for about a minute, which
+      // stalled every account's queue. The requeue clears processingStartedAt (a bare return would leave it
+      // GeneratingTransaction for cancelStuckTransactions to reap), backs the row off with `nextEligibleAt`, arms a wake
+      // off the extension and marks it `guardianBusy`, whose copy names the previous transaction. A Guardian request
+      // the fetch boundary cut off is not backpressure: it says only that the Guardian did not answer, so it takes the
+      // unreachable arm below. MAX_QUEUED_AGE remains the terminal cap.
       //
-      // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): a
-      // replace-hot-key 409 that outlasts its in-process wait escapes after its key
-      // was minted but before it was persisted, so a requeue would mint another;
-      // switch-guardian / update-procedure-threshold re-runs can register a
-      // duplicate delta. They fall through to cancelTransaction - the user retries.
+      // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): they still wait out a 409 in process, and
+      // one that outlasts that wait falls through to cancelTransaction - the user retries.
       //
-      // A repeat doubles the cooldown (#1223). Each attempt spends withGuardianConflictRetry's ~55 s before it
-      // requeues, so with two rows on one stalled account the other's 15 s has always run out and the pair holds the
-      // front of the queue for as long as the stall lasts.
+      // A repeat doubles the cooldown (#1223), so two rows on one stalled account do not take turns at the front of
+      // the queue for as long as the stall lasts.
       //
       // This arm and the ones below read the failure's stage and the row's requeue streak off the stored row: the
       // in-memory `transaction` is the row as the loop picked it.
       const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
-      if (isGuardianPendingConflict(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)) {
+      // Both kill shapes, matching `cancel.ts` and the locked-vault gate below: a
+      // requeue re-broadcasts, so the classifier that permits one must name the whole
+      // abandonment class rather than half of it. (Every `OperationAbortedError` that
+      // can carry a guardian pipeline today is produced next to a realm teardown, so
+      // the pipeline really is dead and the requeue would be legitimate - this is the
+      // invariant made local rather than inherited from that adjacency.)
+      const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
+      // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
+      const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
+      if (REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
-        console.warn(`[Guardian] proposal still conflicting after retry budget, requeueing in ${cooldown}s`);
-        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown, {
-          requeueStreak
+        console.warn(`[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`, error);
+        await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
+          requeueStreak,
+          guardianBusy: true
         });
         return;
       }
@@ -1476,15 +1500,6 @@ const generateTransactionWithProvider = async (
       // sits squarely inside the window an eviction lands in, and requeueing
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
-      // Both kill shapes, matching `cancel.ts` and the locked-vault gate below: a
-      // requeue re-broadcasts, so the classifier that permits one must name the whole
-      // abandonment class rather than half of it. (Every `OperationAbortedError` that
-      // can carry a guardian pipeline today is produced next to a realm teardown, so
-      // the pipeline really is dead and the requeue would be legitimate — this is the
-      // invariant made local rather than inherited from that adjacency.)
-      const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
-      // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
-      const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
@@ -2259,23 +2274,22 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
  * where an unbounded wait stops every account's transactions and disables the
  * stuck-row reaper that would otherwise clean up after it.
  *
- * WHY a deadline is needed at all, when the WASM lock already has a watchdog.
- * The guardian transport carries no client-side deadline (`GuardianHttpClient`
- * calls bare `fetch` with no `AbortSignal`), and the service load happens INSIDE
- * `withWasmClientLock`. So an operator that accepts the connection and then goes
- * silent — the wedged-operator outage this whole path exists to escape — never
- * produced a classifiable error at all: the hold ran out the 5-minute watchdog,
- * the eviction arrived as `WasmClientPoisonedError`, and that is deliberately
- * NOT unreachable (it is a local kill), so the fallback never fired and the row
- * failed terminally with no requeue and no Retry. The single outage shape most
- * likely to need the direct switch was the one shape that could not reach it.
+ * WHY a deadline is needed at all, when the WASM lock has a watchdog and the fetch
+ * boundary cuts every Guardian request off at GUARDIAN_REQUEST_TIMEOUT_MS (#312).
+ * The service load happens INSIDE `withWasmClientLock`, so an operator that
+ * accepts the connection and then goes silent (the wedged-operator outage this
+ * whole path exists to escape) holds the lock until that cut-off, and a hold the
+ * watchdog evicts instead fails as `WasmClientPoisonedError`, which is
+ * deliberately NOT unreachable (it is a local kill), so the fallback never fires
+ * and the row fails terminally with no requeue and no Retry. The deadline gives
+ * the caller an unreachable verdict whatever the hold does.
  *
- * The deadline does not cancel the request or release the lock — nothing can, the
- * fetch has no abort — so the abandoned hold still waits out the watchdog. What
- * it changes is that the CALLER gets an unreachable verdict at 30s and commits to
- * the direct path; that path's own `withWasmClientLock` then queues behind the
- * wedged holder and is admitted when the watchdog evicts it onto a fresh client.
- * Slow, but it completes, where before it could not.
+ * The deadline does not cancel the request or release the lock (`GuardianHttpClient`
+ * passes no signal), so the abandoned hold runs on until the fetch boundary cuts
+ * its request off a minute in. What it changes is that the CALLER gets an
+ * unreachable verdict at 30s and commits to the direct path; that path's own
+ * `withWasmClientLock` then queues behind the abandoned holder and is admitted
+ * once that hold ends. Slow, but it completes.
  */
 const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
@@ -2691,6 +2705,37 @@ const resolveRotationHotKey = async (
 };
 
 /**
+ * The settlement gate (#312). This realm's lock on the account ends at submit, not when the Guardian settles the
+ * delta, so the next proposal usually met a pending-delta 409. Before a value-moving proposal, ask the Guardian about
+ * the candidate the last write here left: still a candidate throws GuardianBackpressureError, which requeues the row
+ * before any proposal work; settled forgets it; no answer lets the POST and its 409 decide, and keeps the record so
+ * the next attempt asks again. A record from another Guardian (a switch since) is dropped unasked.
+ */
+const assertPriorCandidateSettled = async (transaction: ITransaction, service: MultisigService): Promise<void> => {
+  const accountId = canonicalWalletAccountId(transaction.accountId);
+  const prior = getGuardianCandidate(accountId);
+  if (prior === undefined) return;
+  if (!sameGuardianEndpoint(prior.endpoint, service.guardianEndpoint)) {
+    clearGuardianCandidate(accountId, prior.nonce);
+    return;
+  }
+  const state = await service.priorCandidateState(prior.nonce);
+  if (state === 'candidate') throw new GuardianBackpressureError(accountId, prior.nonce);
+  if (state === 'settled') clearGuardianCandidate(accountId, prior.nonce);
+};
+
+/**
+ * Remember the candidate a Guardian write whose submit resolved left on its Guardian, for the next proposal's
+ * settlement gate (#312). Every Guardian write records, structural ones included, so a send after a rotation waits
+ * for the rotation's delta too.
+ */
+const recordLeftCandidate = (transaction: ITransaction, service: MultisigService, proposal: Proposal): void =>
+  recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
+    endpoint: service.guardianEndpoint,
+    nonce: proposal.nonce
+  });
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -2728,16 +2773,19 @@ const generateGuardianTransaction = async (
   // rotation-pending. The hot-bound path is the only one cached by
   // guardian-manager; cold services here are transient.
   //
-  // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta (a
-  // prior delta still canonicalizing) instead of failing the tx. It wraps proposal
-  // creation only; replace-hot-key resolves its key outside it, so its retries
-  // propose the same key.
+  // Value-moving types (REQUEUEABLE_ON_PENDING_CONFLICT) ask `assertPriorCandidateSettled` first and propose once:
+  // Guardian backpressure requeues the row at once (#312). The structural types and a bridged-send, on both bridge
+  // providers, keep `withGuardianConflictRetry`, which waits out a transient 409 in process: a requeue of a structural
+  // op could mint a second key or register a duplicate delta, and a bridged-send is not requeueable, so a gate refusal
+  // or a 409 that reached the loop would fail it. It wraps proposal creation only; replace-hot-key resolves its key
+  // outside it, so its retries propose the same key.
   let service: MultisigService;
 
   switch (transaction.type) {
     case 'send': {
       const sendTx = transaction as SendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await assertPriorCandidateSettled(transaction, service);
       const recallBlocks = sendTx.extraInputs?.recallBlocks;
       if (recallBlocks) {
         // TEMP WORKAROUND (OpenZeppelin/guardian#366): the multisig client's
@@ -2769,9 +2817,7 @@ const generateGuardianTransaction = async (
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks
         );
-        proposalResult = await withGuardianConflictRetry(() =>
-          service.createCustomProposal(requestBytes, 'recallable_send')
-        );
+        proposalResult = await service.createCustomProposal(requestBytes, 'recallable_send');
       } else {
         // Same coercion as the recallable branch above. This used to be
         // hardcoded Private, which broke a Public guardian send two ways at
@@ -2780,13 +2826,11 @@ const generateGuardianTransaction = async (
         // `completeSendTransaction` skipped the private-note relay — so the
         // recipient was never handed the note file and could not see or consume
         // it, on a plain P2ID with no reclaim window for the sender either.
-        proposalResult = await withGuardianConflictRetry(() =>
-          service.createSendProposal(
-            sendTx.secondaryAccountId,
-            sendTx.faucetId,
-            BigInt(sendTx.amount),
-            isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public
-          )
+        proposalResult = await service.createSendProposal(
+          sendTx.secondaryAccountId,
+          sendTx.faucetId,
+          BigInt(sendTx.amount),
+          isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public
         );
       }
       break;
@@ -2795,7 +2839,8 @@ const generateGuardianTransaction = async (
       const consumeTx = transaction as ConsumeTransaction;
       const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
       service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal(consumeNoteIds));
+      await assertPriorCandidateSettled(transaction, service);
+      proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
       break;
     }
     case 'switch-guardian': {
@@ -2979,7 +3024,9 @@ const generateGuardianTransaction = async (
             t.requestBytes = aggBytes;
           });
         }
-        proposalResult = await service.createCustomProposal(aggBytes, 'agglayer_bridged_send');
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createCustomProposal(aggBytes, 'agglayer_bridged_send')
+        );
       }
       break;
     }
@@ -3006,13 +3053,13 @@ const generateGuardianTransaction = async (
       // were built. Checked before the service load, which can reach the guardian.
       const requestBytes = await requireEarnDepositRequestBytes(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createCustomProposal(requestBytes, 'earn_deposit')
-      );
+      await assertPriorCandidateSettled(transaction, service);
+      proposalResult = await service.createCustomProposal(requestBytes, 'earn_deposit');
       break;
     }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await assertPriorCandidateSettled(transaction, service);
       const swapTx = transaction as SwapTransaction;
       // PSWAP notes carry a randomly-generated serial number, so the request
       // must be built ONCE and the exact same bytes reused for BOTH
@@ -3092,7 +3139,7 @@ const generateGuardianTransaction = async (
           t.requestBytes = swapBytes;
         });
       }
-      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(swapBytes, 'swap'));
+      proposalResult = await service.createCustomProposal(swapBytes, 'swap');
       break;
     }
     case 'update-procedure-threshold': {
@@ -3118,12 +3165,13 @@ const generateGuardianTransaction = async (
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await assertPriorCandidateSettled(transaction, service);
       // A dApp builds this request itself and the wallet only ever sees finished bytes, so
       // unlike every other custom-proposal path there is no builder here to commit fee
       // conversion info on. The SDK exposes no auth-arg setter on a finished request, so on a
       // guarded account and a fee-charging chain this aborts in `fee::pay_fee`. Committing it
       // has to happen where the request is built, i.e. dApp-side.
-      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
+      proposalResult = await service.createCustomProposal(requestBytes);
       break;
     }
   }
@@ -3149,8 +3197,8 @@ const generateGuardianTransaction = async (
     }
     try {
       // Bounded for the same reason as the two arms above: this loads state from
-      // the OUTGOING guardian, and a silent operator here would otherwise wedge
-      // the lock rather than reach the fallback below.
+      // the OUTGOING guardian, and a silent operator here would otherwise hold the
+      // lock until the fetch boundary's cut-off before reaching the fallback below.
       const coldService = await withOutgoingGuardianDeadline(
         () => MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord),
         'loading the cold co-signing service from the outgoing guardian'
@@ -3200,11 +3248,10 @@ const generateGuardianTransaction = async (
       // Deadline-bounded like the calls above it, and for a sharper reason: one
       // of the two verdicts that reach here is that this operator is unreachable,
       // and the shape that most often produces that verdict is one that accepts
-      // the connection and never replies. An unbounded best-effort call against it
-      // does not merely delay the fallback, it replaces it — the row sits at
-      // `signing-proposal` forever, and `switch-guardian` has no requeue and no
-      // Retry. A cleanup step must not be able to cost more than the thing it
-      // cleans up.
+      // the connection and never replies. Left to the fetch boundary's minute per
+      // request, a best-effort call against it holds the row at `signing-proposal`
+      // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
+      // A cleanup step must not be able to cost more than the thing it cleans up.
       try {
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
@@ -3243,20 +3290,20 @@ const generateGuardianTransaction = async (
   // already in the mempool trigger a SECOND, unilateral `update_guardian`.
   let guardianCoSignReturned = false;
   try {
-    // The LAST outgoing-guardian round trip, and until now the only unbounded
-    // one — the three calls above it are deadline-bounded precisely because a
-    // silent operator wedges the row at `signing-proposal`, and this call reaches
-    // the same operator over the same connection. A rotation that survived the
-    // bounded calls could still hang here forever, which is the one outcome
-    // `switch-guardian` cannot absorb: it has no requeue and no Retry, so a hung
-    // row is a guardian the user can never rotate away from.
+    // The LAST outgoing-guardian round trip. The three calls above it carry the
+    // 30s outgoing deadline precisely because a silent operator wedges the row at
+    // `signing-proposal`, and this call reaches the same operator over the same
+    // connection. Without it a rotation that survived the bounded calls would
+    // wait here on the fetch boundary's GUARDIAN_REQUEST_TIMEOUT_MS per request,
+    // which `switch-guardian` absorbs worst: it has no requeue and no Retry.
     //
-    // Bounded for `switch-guardian` ONLY, deliberately. For a send the same hang
-    // is a stall, not a trap — sends requeue and retry — and imposing a 30s
-    // ceiling there would fail transactions on a merely slow-but-healthy operator
-    // that would otherwise have completed. The asymmetry is the point: the
-    // deadline buys an escape hatch for the type that has none, and buys the
-    // other types nothing but a new way to fail.
+    // Bounded for `switch-guardian` ONLY, deliberately. For a send the same
+    // silence is a stall, not a trap: the fetch boundary cuts it off at a minute
+    // and sends requeue and retry, while imposing a 30s ceiling there would fail
+    // transactions on a merely slow-but-healthy operator that would otherwise
+    // have completed. The asymmetry is the point: the deadline buys an escape
+    // hatch for the type that has none, and buys the other types nothing but a
+    // new way to fail.
     //
     // KNOWN IMPRECISION: this call is not purely a guardian round trip.
     // `signAndCreateTransactionRequest` POSTs to the operator and THEN builds the
@@ -3394,6 +3441,8 @@ const generateGuardianTransaction = async (
     // the submit resolved (a kill, a pre-submit error, a canonicalization refusal) abandons: both
     // leaves wrap every post-submit failure as the apply-after-submit error.
     const submitResolved = isApplyAfterSubmitError(error);
+    // The node has the write, so its candidate is on the Guardian now: the next proposal's gate asks about it (#312).
+    if (submitResolved) recordLeftCandidate(transaction, service, proposalResult);
     // The same hand-over as the success path below, for a switch whose submit resolved and whose
     // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
     // chain may never see.
@@ -3478,6 +3527,8 @@ const generateGuardianTransaction = async (
     }
     throw error;
   }
+
+  recordLeftCandidate(transaction, service, proposalResult);
 
   // Clears the WORKER's copy of a prover outage, and only ever that one. Each
   // realm holds its own `connectivity-state` module state, so this cannot reach

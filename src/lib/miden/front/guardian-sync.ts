@@ -17,7 +17,7 @@ import {
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalGuardian } from 'lib/miden/guardian/post-switch-state';
-import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
+import { guardianRetryAfterSec, isGuardianRateLimited, isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
@@ -305,9 +305,10 @@ export function getGuardianLastSyncAt(accountPublicKey: string): number | undefi
  * needed no sustained fault, just one header.
  *
  * The slack on top covers the sync that ENDS the cooldown: the stamp is only
- * refreshed once that round trip completes, and `service.sync()` has no client
- * deadline, so a healthy-but-slow account must not flap either. Still a statement
- * about the present rather than about the session.
+ * refreshed once that round trip completes, and the fetch boundary lets each
+ * Guardian request in `service.sync()` run up to GUARDIAN_REQUEST_TIMEOUT_MS, so a
+ * healthy-but-slow account must not flap either. Still a statement about the
+ * present rather than about the session.
  */
 export const GUARDIAN_SYNC_STAMP_FRESH_MS = SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 30_000;
 
@@ -354,16 +355,20 @@ function markGuardianUnrepairable(accountPublicKey: string, reason: string): voi
   notifyOutageListeners();
 }
 
+/** Flag this account's guardian as down, which surfaces the switch-guardian prompt. Arms once. */
+function armGuardianOutage(accountPublicKey: string, reason: string): void {
+  if (outageAccounts.has(accountPublicKey)) return;
+  console.warn(
+    `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${reason}) - surfacing the switch-guardian prompt`
+  );
+  outageAccounts.add(accountPublicKey);
+  notifyOutageListeners();
+}
+
 function recordGuardianServerFailure(accountPublicKey: string): void {
   const fails = (consecutiveServerFailures.get(accountPublicKey) ?? 0) + 1;
   consecutiveServerFailures.set(accountPublicKey, fails);
-  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD && !outageAccounts.has(accountPublicKey)) {
-    console.warn(
-      `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${fails} consecutive failures) — surfacing the switch-guardian prompt`
-    );
-    outageAccounts.add(accountPublicKey);
-    notifyOutageListeners();
-  }
+  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD) armGuardianOutage(accountPublicKey, `${fails} consecutive failures`);
 }
 
 /** The server answered (success, 401, 429) — it is alive, so the outage is over. */
@@ -539,7 +544,7 @@ async function adoptFromPreviousGuardian(
   if (!account.hotPublicKey) return undefined;
   const unsaved = await findUnsavedSwitchRow(account.publicKey, endpoint).catch(() => undefined);
   // A direct switch fled that operator, so it never received the switch delta, and it may take the
-  // connection and go silent until the watchdog.
+  // connection and go silent until the fetch boundary cuts each request off a minute in.
   if (!unsaved || unsaved.switchedDirectly) return undefined;
   // An adopt that parked the realm's WASM lock would park it again on the next lap.
   const fuseKey = guardianAdoptFuseKey(account.publicKey, unsaved.previousGuardianEndpoint);
@@ -1020,7 +1025,8 @@ async function attemptColdReRegisterSelfHeal(
   let rotation: OwnRotation | undefined;
   let verifiedSigners: readonly string[] | undefined;
   // What the heal's holds did, booked once on the heal fuse when the probe settles (#1233). An eviction
-  // spends no attempt, so without the fuse a parked node would take a two-minute hold every cooldown.
+  // spends no attempt, so without the fuse a parked node would take a two-minute hold every cooldown. A Guardian
+  // request timeout books as one: it is the same silent Guardian, cut off at 60 s before the watchdog (#312).
   let evicted = false;
   let failed = false;
   try {
@@ -1094,7 +1100,7 @@ async function attemptColdReRegisterSelfHeal(
           );
           return true;
         }
-        if (isSyncWatchdogEviction(e)) {
+        if (isSyncWatchdogEviction(e) || isGuardianRequestTimeout(e)) {
           evicted = true;
         } else {
           failed = true;
@@ -1223,7 +1229,7 @@ async function attemptColdReRegisterSelfHeal(
     });
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
-    if (isSyncWatchdogEviction(e)) {
+    if (isSyncWatchdogEviction(e) || isGuardianRequestTimeout(e)) {
       evicted = true;
     } else {
       failed = true;
@@ -1341,10 +1347,10 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
 
 /**
  * Coalesces overlapping runs onto the in-flight one. The extension's 3s tick
- * fires `syncGuardianAccounts()` without awaiting it (`useSyncTrigger`), and a
- * guardian request has no client-side deadline, so a slow or hanging operator
- * lets runs stack — and two of this function's own invariants are per-run, not
- * per-account:
+ * fires `syncGuardianAccounts()` without awaiting it (`useSyncTrigger`), and the
+ * fetch boundary lets a guardian request run up to GUARDIAN_REQUEST_TIMEOUT_MS
+ * (a minute), so a slow or hanging operator lets runs stack, and two of this
+ * function's own invariants are per-run, not per-account:
  *
  *  - `consecutiveServerFailures` would count CALLERS rather than attempts.
  *    `MultisigService.sync()` returns one shared in-flight promise, so N
@@ -1376,9 +1382,9 @@ let syncGeneration = 0;
  * May this pass still record what it just learned about `endpoint`?
  *
  * Checked AFTER the long awaits, because everything before them was decided from
- * a snapshot: the pass reads the account list once, then spends an unbounded
- * amount of time in drift reconciliation and `service.sync()` (a guardian
- * request with no client-side deadline). A user rotation committing during that
+ * a snapshot: the pass reads the account list once, then spends minutes at worst
+ * in drift reconciliation and `service.sync()` (guardian requests the fetch
+ * boundary cuts off only after a minute each). A user rotation committing during that
  * window replaces the endpoint the pass is talking to, and the verdict in hand
  * is then about an operator this account no longer uses — most visibly a
  * SUCCESS, which would stamp `lastGuardianSyncAt` and report the new guardian as
@@ -1730,10 +1736,19 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // exact defeat-by-ordering the split ledger was written to fix: this loop is
       // sequential, so a healthy sibling's `noteSyncSuccess` erased the parked account's
       // increment inside the same lap and the threshold could never be reached.
-      if (isSyncWatchdogEviction(error)) {
+      //
+      // A Guardian request timeout counts as an eviction (#312): the fetch boundary now cuts a silent Guardian off at
+      // 60 s, before the watchdog would evict the hold, so it is the same parked-Guardian evidence arriving sooner.
+      const guardianTimedOut = isGuardianRequestTimeout(error);
+      if (isSyncWatchdogEviction(error) || guardianTimedOut) {
         noteSyncWatchdogEviction(fuseKey);
       } else {
         noteNonEvictionSyncFailure(fuseKey);
+      }
+      // The fuse lights below the outage threshold and a fused account skips this catch until its next probe, half an
+      // hour away, so a silent Guardian would otherwise reach the switch-guardian prompt only an hour later.
+      if (guardianTimedOut && isSyncFused(fuseKey)) {
+        armGuardianOutage(account.publicKey, 'its requests keep timing out');
       }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }

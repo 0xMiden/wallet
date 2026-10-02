@@ -228,6 +228,13 @@ jest.mock('../sdk/miden-client', () => ({
   assertWasmHoldCurrent: (hold: unknown, where: string) => mockAssertWasmHoldCurrent(hold, where)
 }));
 
+// What the Guardian fetch boundary rejects with when it cuts a request off (#312), duck-typed by name as the
+// production check reads it, and worded as the real error is.
+const guardianRequestTimeout = () =>
+  Object.assign(new Error('Guardian request to https://guardian.test/state timed out after 60000 ms'), {
+    name: 'GuardianRequestTimeoutError'
+  });
+
 describe('zustandProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -663,6 +670,65 @@ describe('syncGuardianAccounts', () => {
     jest.restoreAllMocks();
   });
 
+  // The fetch boundary cuts a silent Guardian off at 60 s, before the watchdog would evict the hold, so the cut-off is
+  // the same parked-Guardian evidence and has to light the same fuse (#312).
+  it.each([
+    ['directly', guardianRequestTimeout],
+    ['as the cause of the failure', () => new Error('Guardian sync failed', { cause: guardianRequestTimeout() })]
+  ])(
+    'counts a Guardian request timeout %s as an eviction, lighting the fuse and the outage prompt together (#312)',
+    async (_label, timeout) => {
+      __resetSyncFuseStateForTests();
+      jest.spyOn(console, 'warn').mockImplementation();
+      jest.spyOn(console, 'error').mockImplementation();
+      storeState.accounts = [{ publicKey: 'guardian-silent', type: WalletType.Guardian, hotPublicKey: 'hot-silent' }];
+      const key = guardianSyncFuseKey('guardian-silent', 'https://guardian.test');
+      const sync = jest.fn(async () => {
+        throw timeout();
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+      expect(syncFuseUntilMs(key)).toBeNull();
+      expect(isGuardianSyncOutage('guardian-silent')).toBe(false);
+
+      await syncGuardianAccounts();
+      expect(isSyncFused(key)).toBe(true);
+      // The lit fuse skips this account's sync, and with it the outage count, so the prompt arms on this lap.
+      expect(isGuardianSyncOutage('guardian-silent')).toBe(true);
+
+      __resetSyncFuseStateForTests();
+      jest.restoreAllMocks();
+    }
+  );
+
+  it('withdraws Guardian request timeout evidence on a failure of another kind (#312)', async () => {
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [{ publicKey: 'guardian-flaky', type: WalletType.Guardian, hotPublicKey: 'hot-flaky' }];
+    const key = guardianSyncFuseKey('guardian-flaky', 'https://guardian.test');
+    const sync = jest.fn(async () => {
+      throw guardianRequestTimeout();
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    sync.mockImplementationOnce(async () => {
+      throw new Error('recursive use of an object');
+    });
+    await syncGuardianAccounts();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    expect(syncFuseUntilMs(key)).toBeNull();
+    expect(isGuardianSyncOutage('guardian-flaky')).toBe(false);
+
+    await syncGuardianAccounts();
+    expect(isSyncFused(key)).toBe(true);
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
   it('skips Guardian accounts that still require hot-key rotation (post-recovery, pre-activation)', async () => {
     // Recovered accounts have requiresHotKeyRotation=true and no hotPublicKey
     // until the Activate Device Key banner runs the cold-signed update_signers
@@ -715,10 +781,10 @@ describe('syncGuardianAccounts', () => {
     expect(storeState.checkGuardianDrift).not.toHaveBeenCalledWith('pk2');
   });
 
-  // The ~3s tick fires this without awaiting it, and a guardian request has no
-  // client-side deadline, so overlapping runs would each count the SAME shared
-  // rejection toward the outage threshold and would each read the 429 cooldown
-  // before any of them wrote it.
+  // The ~3s tick fires this without awaiting it, and a guardian request can run a
+  // minute before the fetch boundary cuts it off, so overlapping runs would each
+  // count the SAME shared rejection toward the outage threshold and would each
+  // read the 429 cooldown before any of them wrote it.
   it('coalesces an overlapping tick onto the in-flight run', async () => {
     storeState.accounts = [{ publicKey: 'coalesce-pk', type: WalletType.Guardian, hotPublicKey: 'hot' }] as never;
     const sync = jest.fn(async () => {});
@@ -1432,6 +1498,26 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-adopt-fused', 'https://guardian.test'))).toBe(true);
+  });
+
+  // The fetch boundary now ends a silent Guardian's answer at 60 s, before the watchdog would (#312).
+  it("books a Guardian request timeout of the heal's cold init on the same fuse (#312)", async () => {
+    mockBuildColdMultisigService.mockRejectedValue(guardianRequestTimeout());
+
+    await runHealLaps('acct-heal-init-timeout');
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-init-timeout', 'https://guardian.test'))).toBe(true);
+  });
+
+  it("books a Guardian request timeout of the heal's adopt on the same fuse (#312)", async () => {
+    mockAdoptGuardianState.mockRejectedValue(guardianRequestTimeout());
+
+    await runHealLaps('acct-heal-adopt-timeout');
+
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-adopt-timeout', 'https://guardian.test'))).toBe(true);
   });
 
   it("withdraws the heal's eviction evidence when a heal lap gets through (#1233)", async () => {
@@ -2486,7 +2572,7 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     });
 
     // Everything a pass decides comes from one snapshot of the account list, and
-    // `service.sync()` is a guardian request with no client-side deadline. A
+    // `service.sync()` is a guardian request that can stay open for a minute. A
     // rotation committing while that request is open makes the result a
     // statement about an operator the account no longer points at — and a
     // SUCCESS would stamp it, reporting the new guardian as Online because the
@@ -3454,7 +3540,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     });
 
     // The direct path fled that operator: it never received the switch delta, and an init against it
-    // can hold the realm's WASM lock until the watchdog.
+    // can hold the realm's WASM lock until the fetch boundary cuts each request off a minute in.
     it('never contacts the previous guardian for a switch that took the direct path', async () => {
       mockFindUnsavedSwitchRow.mockResolvedValue({
         id: 'switch-row',

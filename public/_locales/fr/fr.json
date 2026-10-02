@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Preuve générée",
   "transactionStepSubmitting": "Envoyer",
   "transactionStepSyncingGuardian": "Synchronisation avec Guardian",
+  "guardianBusyStep": "En attente de votre «Guardian»",
+  "guardianBusyDescription": "Votre « Guardian » est encore en train de finaliser votre transaction précédente. Celle-ci se poursuit automatiquement.",
   "transactionStepDurationSec": "$seconds$ sec",
   "transactionStageSyncing": "Synchronisation du compte",
   "transactionStageSyncingDescription": "Récupération de l'état actuel de votre compte.",

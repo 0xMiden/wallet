@@ -223,7 +223,7 @@ validateCapturePlan(capturePlan);
 /**
  * The page-side shim every capture context installs, hoisted so it can be driven directly.
  *
- * It wraps `globalThis.fetch` in an accessor so the wallet's own `installGuardianCorsBypass` can
+ * It wraps `globalThis.fetch` in an accessor so the wallet's own `installGuardianFetchBoundary` can
  * still install its wrapper, while a re-entrant call from inside that wrapper reaches the real
  * browser fetch instead of looping. The guard distinguishes NESTING from CONCURRENCY: it covers
  * only the synchronous call into the installed wrapper, never the network round trip, because a

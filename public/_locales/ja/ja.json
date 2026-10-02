@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "証明が生成されました",
   "transactionStepSubmitting": "送信",
   "transactionStepSyncingGuardian": "Guardianとの同期",
+  "guardianBusyStep": "Guardianの到着をお待ちください",
+  "guardianBusyDescription": "Guardianは、まだ前回の取引を処理中です。今回の取引は自動的に続行されます。",
   "transactionStepDurationSec": "$seconds$ 秒",
   "transactionStageSyncing": "アカウントの同期",
   "transactionStageSyncingDescription": "最新の口座状況を取得しています。",

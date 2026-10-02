@@ -11,6 +11,8 @@
 
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
+import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
 import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
@@ -231,6 +233,9 @@ beforeEach(() => {
   gapsHold = null;
   _gh.__noteTypeForTest = 'private';
 });
+
+// The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
+afterEach(() => clearGuardianAccountLocks());
 
 describe('getUncompletedTransactions', () => {
   it('returns Queued + GeneratingTransaction rows for the given account, sorted by initiatedAt', async () => {
