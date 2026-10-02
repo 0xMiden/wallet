@@ -230,12 +230,26 @@ describe('quotedPrice', () => {
     expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBeUndefined();
   });
 
-  it('quotes a symbol the feed does not list, no symbol, or a zero price at $1 with no movement off mainnet', () => {
+  it('quotes a symbol the feed does not list, or no symbol, at $1 with no movement off mainnet', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
     const nominal = { price: 1, change24h: 0, percentageChange24h: 0 };
     expect(quotedPrice({ ETH: eth }, 'MIDEN')).toEqual(nominal);
     expect(quotedPrice({ ETH: eth }, undefined)).toEqual(nominal);
-    expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toEqual(nominal);
+    expect(quotedPrice({}, 'IMIDEN')).toEqual(nominal);
+    expect(quotedPrice({}, undefined)).toEqual(nominal);
+    expect(quotedPrice({}, 'toString')).toEqual(nominal);
+  });
+
+  // A listed symbol's missing quote is the feed loading or unreachable, not a token with no market,
+  // so $1 would misprice a real asset (a whole ETH at a dollar).
+  it.each(['ETH', 'BTC', 'USDC'])('gives the listed %s no quote off mainnet while the feed has none', symbol => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(quotedPrice({}, symbol)).toBeUndefined();
+  });
+
+  it('gives a listed symbol no quote for a zero price off mainnet, never the $1 default', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBeUndefined();
   });
 
   it('keeps the feed quote of a listed symbol off mainnet, never the $1 default', () => {

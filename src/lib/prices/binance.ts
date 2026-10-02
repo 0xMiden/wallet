@@ -90,17 +90,21 @@ export function pricesLoaded(prices: TokenPrices): boolean {
 const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
 
 /**
- * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
- * price is not a quote, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when an
- * unquoted token (a symbol the feed does not list, or no price symbol at all) is quoted at $1.
- * A held token is priced
- * through `tokenQuote` (lib/miden/swap/tokens), which resolves its price symbol first (IETH at
- * ETH); call this directly only with a symbol already resolved, as the sparkline and chart do.
+ * The feed's quote for a price symbol, or none; a zero price is not a quote. An unquoted token (a
+ * symbol the feed never lists, not a `KNOWN_SYMBOLS` key, or no price symbol at all) has no fiat
+ * value unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is quoted at $1. A
+ * listed symbol never takes that rate: while its quote is missing (the feed loading or
+ * unreachable) or zero it has none whatever the switch, since $1 would price a real asset at a
+ * dollar. A held token is priced through `tokenQuote` (lib/miden/swap/tokens), which resolves its
+ * price symbol first (IETH at ETH); call this directly only with a symbol already resolved, as the
+ * sparkline and chart do.
  */
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
   const quote = symbol === undefined ? undefined : prices[symbol];
   if (quote && quote.price > 0) return quote;
-  return hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
+  // Indexed, not `in`, so an inherited member such as `toString` does not read as listed.
+  const listed = symbol !== undefined && typeof KNOWN_SYMBOLS[symbol] === 'string';
+  return !listed && hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
 }
 
 /**
