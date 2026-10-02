@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useLayoutEffect } from 'react';
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -420,7 +420,7 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     expect(onResolve).toHaveBeenCalledTimes(1);
   });
 
-  it('does not resolve, logs the error, and leaves the modal approvable again when the prompt rejects', async () => {
+  it('does not resolve, logs and shows the error, and leaves the modal approvable again when the prompt rejects', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     confirmMock.mockRejectedValueOnce(new Error('protector check failed'));
     const onResolve = jest.fn();
@@ -436,6 +436,7 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
 
     expect(onResolve).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(expect.any(Error));
+    expect(screen.getByTestId('dapp-approval-error')).toHaveTextContent('protector check failed');
 
     confirmMock.mockResolvedValue(true);
     await act(async () => {
@@ -444,6 +445,78 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     await flush();
 
     expect(onResolve).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  it('shows a generic error when the prompt rejects with no message', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    confirmMock.mockRejectedValueOnce(new Error(''));
+    render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    await flush();
+
+    expect(screen.getByTestId('dapp-approval-error')).toHaveTextContent('smthWentWrong');
+    consoleSpy.mockRestore();
+  });
+
+  it('clears the error as soon as Approve is tapped again, before the next prompt settles', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    confirmMock.mockRejectedValueOnce(new Error('protector check failed'));
+    render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
+    );
+    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
+
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+    await flush();
+    expect(screen.getByTestId('dapp-approval-error')).toBeInTheDocument();
+
+    let release: (confirmed: boolean) => void = () => {};
+    confirmMock.mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        release = resolve;
+      })
+    );
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    expect(confirmMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('dapp-approval-error')).toBeNull();
+
+    await act(async () => {
+      release(false);
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('clears the error when the request changes, so it is gone on coming back to that request', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    confirmMock.mockRejectedValueOnce(new Error('protector check failed'));
+    const requestA = plainTransactionRequest();
+    const requestB = buildRequest({ id: 'req-2' });
+    const { rerender } = render(
+      <DappConfirmationModal request={requestA} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    await flush();
+    expect(screen.getByTestId('dapp-approval-error')).toBeInTheDocument();
+
+    rerender(<DappConfirmationModal request={requestB} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+    expect(screen.queryByTestId('dapp-approval-error')).toBeNull();
+
+    rerender(<DappConfirmationModal request={requestA} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+    expect(screen.queryByTestId('dapp-approval-error')).toBeNull();
     consoleSpy.mockRestore();
   });
 
@@ -613,6 +686,44 @@ describe('DappConfirmationModal - resolving through the store', () => {
 
     expect(second.result).toBeUndefined();
     expect(first.result).toEqual({ confirmed: false });
+  });
+
+  it("never shows the replaced request's prompt failure on the request that replaced it", async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let rejectA: (error: Error) => void = () => {};
+    confirmMock.mockReturnValueOnce(
+      new Promise<boolean>((_resolve, reject) => {
+        rejectA = reject;
+      })
+    );
+    // Read in the commit that first shows each request, before its effects run.
+    const shownWithError: string[] = [];
+    function ProbedHarness() {
+      const { request, resolve } = useDappConfirmation('s1');
+      useLayoutEffect(() => {
+        if (request && document.querySelector('[data-testid="dapp-approval-error"]')) shownWithError.push(request.id);
+      });
+      return request ? (
+        <DappConfirmationModal request={request} accountId={FULL_ACCOUNT_ID} onResolve={resolve} />
+      ) : null;
+    }
+    void dappConfirmationStore.requestConfirmation(sessionTransaction('req-1'));
+    render(<ProbedHarness />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+
+    void dappConfirmationStore.requestConfirmation(sessionTransaction('req-2'));
+    rejectA(new Error('protector check failed'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await waitFor(() => expect(screen.getByText('Send from req-2')).toBeInTheDocument());
+
+    expect(screen.queryByTestId('dapp-approval-error')).toBeNull();
+    expect(shownWithError).toEqual([]);
+    consoleSpy.mockRestore();
   });
 
   it('leaves the replacing request pending when Deny is tapped on the replaced one', async () => {

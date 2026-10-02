@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { useSprings } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import {
@@ -80,6 +81,9 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const getStrictAuthenticationProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   const [standingAccessAcknowledged, setStandingAccessAcknowledged] = useState(false);
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
+  // Kept with the request whose prompt failed and shown only while that request is on screen, so a
+  // rejection that lands after a replacement never reads as the new request's failure.
+  const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
   const resolvedRef = useRef(false);
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
@@ -105,6 +109,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     pendingApprovalRef.current = false;
     currentRequestIdRef.current = request.id;
     setShowSpendingLimitChallenge(false);
+    setApprovalError(null);
     return () => {
       currentRequestIdRef.current = null;
     };
@@ -225,6 +230,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
   async function handleApprove() {
     if (!canApprove || resolvedRef.current || pendingApprovalRef.current) return;
+    setApprovalError(null);
     if (request.spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
@@ -250,6 +256,10 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
         console.error(error);
         if (currentRequestIdRef.current === requestId) {
           pendingApprovalRef.current = false;
+          setApprovalError({
+            requestId,
+            message: error instanceof Error && error.message ? error.message : t('smthWentWrong')
+          });
         }
         return;
       }
@@ -354,6 +364,12 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
             <p className="text-sm capitalize text-ink">{request.network}</p>
           </div>
+
+          {approvalError?.requestId === request.id && (
+            <ErrorLine data-testid="dapp-approval-error" className="mt-3">
+              {approvalError.message}
+            </ErrorLine>
+          )}
         </div>
 
         {/* Actions */}
