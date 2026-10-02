@@ -1,11 +1,12 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
 
-import { Route } from './Route';
+import { Route, RouteOptions } from './Route';
+import { AgglayerEligibility } from './useAgglayerEligibility';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
@@ -31,5 +32,39 @@ describe('Route', () => {
     expect(footer).toHaveClass('pt-4');
     expect(footer).toHaveClass(stepFooterCushionClass());
     expect(footer.className).not.toContain('pb-24');
+  });
+
+  it('leaves Slow and Confirm enabled for an EVM deposit, which has no Miden faucet (#1276)', () => {
+    const onConfirm = jest.fn();
+    render(<Route route="agglayer" onRouteChange={jest.fn()} fastQuoteLoading={false} onConfirm={onConfirm} />);
+    expect(screen.getByTestId('bridge-route-slow')).toBeEnabled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('RouteOptions', () => {
+  it.each<AgglayerEligibility>(['loading', 'unsupported', 'error'])(
+    'blocks Slow while %s and keeps Fast available',
+    status => {
+      const onRouteChange = jest.fn();
+      render(
+        <RouteOptions route="agglayer" onRouteChange={onRouteChange} fastQuoteLoading={false} slowStatus={status} />
+      );
+      expect(screen.getByTestId('bridge-route-slow')).toBeDisabled();
+      fireEvent.click(screen.getByTestId('bridge-route-slow'));
+      expect(onRouteChange).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('bridge-route-fast'));
+      expect(onRouteChange).toHaveBeenCalledWith('epoch');
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      expect(screen.getByTestId('bridge-route-slow')).toHaveAttribute('aria-busy', String(status === 'loading'));
+    }
+  );
+
+  it('enables Slow after approval', () => {
+    render(<RouteOptions route="agglayer" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" />);
+    expect(screen.getByTestId('bridge-route-slow')).toBeEnabled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });
