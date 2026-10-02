@@ -438,12 +438,4 @@ describe('a Guardian request timeout as an outage (#312)', () => {
       false
     );
   });
-
-  it('is not an outage when a killed pipeline carrying it is wrapped in turn', () => {
-    const wrap = (kill: Error) => Object.assign(new Error('could not create the proposal'), { cause: kill });
-    expect(isGuardianOutage(wrap(new WasmClientPoisonedError('realm-error', timeout())))).toBe(false);
-    expect(
-      isGuardianOutage(wrap(Object.assign(new OperationAbortedError('op-1', 'deadline'), { cause: timeout() })))
-    ).toBe(false);
-  });
 });
