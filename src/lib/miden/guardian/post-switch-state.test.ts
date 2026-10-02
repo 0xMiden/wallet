@@ -1,4 +1,9 @@
-import { adoptPostSwitchState, readPostSwitchLocalState } from './post-switch-state';
+import {
+  adoptPostSwitchState,
+  POST_SWITCH_ADOPT_DEADLINE_MS,
+  POST_SWITCH_ADOPT_POLL_MS,
+  readPostSwitchLocalState
+} from './post-switch-state';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const mockGetAccount = jest.fn();
@@ -234,5 +239,31 @@ describe('adoptPostSwitchState (#1233)', () => {
       })
     ).resolves.toBe('pre-switch');
     expect(sleep.mock.calls).toEqual([[5_000], [5_000], [2_000]]);
+  });
+
+  it('ends at its deadline when the wall clock steps back an hour mid-wait', async () => {
+    jest.useFakeTimers();
+    const wallNow = Date.now.bind(Date);
+    let wallClockStepMs = 0;
+    const wallClock = jest.spyOn(Date, 'now').mockImplementation(() => wallNow() - wallClockStepMs);
+    try {
+      localNamesNewKeyWhen(() => false);
+      const adoptOnce = jest.fn(async () => {});
+      const settled = jest.fn();
+
+      void adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW).then(settled);
+      await jest.advanceTimersByTimeAsync(POST_SWITCH_ADOPT_POLL_MS + 1);
+      wallClockStepMs = 60 * 60_000;
+      await jest.advanceTimersByTimeAsync(POST_SWITCH_ADOPT_DEADLINE_MS - POST_SWITCH_ADOPT_POLL_MS - 2);
+      expect(settled).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(settled).toHaveBeenCalledWith('pre-switch');
+      expect(adoptOnce).toHaveBeenCalledTimes(POST_SWITCH_ADOPT_DEADLINE_MS / POST_SWITCH_ADOPT_POLL_MS);
+    } finally {
+      wallClock.mockRestore();
+      jest.useRealTimers();
+    }
   });
 });

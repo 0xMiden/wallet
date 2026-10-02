@@ -7953,11 +7953,13 @@ describe('generateTransaction — Guardian routing', () => {
     /**
      * Starts `run` under fake timers and advances past the apply's retry waits. Returns when the first
      * record read started, which is where the poll's bound starts, and whether the run has settled.
+     * The first read takes `firstReadMs`. Times are on the monotonic clock the poll uses.
      */
-    const startPolling = async (run: () => Promise<unknown>) => {
+    const startPolling = async (run: () => Promise<unknown>, firstReadMs = 0) => {
       let pollStartedAt: number | undefined;
       mockDidDirectSwitchLand.mockImplementationOnce(async () => {
-        pollStartedAt = Date.now();
+        pollStartedAt = performance.now();
+        if (firstReadMs > 0) await new Promise(resolve => setTimeout(resolve, firstReadMs));
         return undefined;
       });
       let settled = false;
@@ -7974,7 +7976,7 @@ describe('generateTransaction — Guardian routing', () => {
       const startedAt = pollStartedAt ?? 0;
       return {
         /** Advances the clock to `ms` after the poll started. */
-        advanceToPollTime: (ms: number) => jest.advanceTimersByTimeAsync(ms - (Date.now() - startedAt)),
+        advanceToPollTime: (ms: number) => jest.advanceTimersByTimeAsync(ms - (performance.now() - startedAt)),
         settled: () => settled
       };
     };
@@ -8085,6 +8087,77 @@ describe('generateTransaction — Guardian routing', () => {
         await advanceToPollTime(LANDED_CONFIRM_BOUND_MS + LANDED_CONFIRM_POLL_MS);
         expect(mockReadChainAccountCommitment).toHaveBeenCalledTimes(rounds);
       } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('runs no poll round when the first read outlasts the bound (#1233)', async () => {
+      jest.useFakeTimers();
+      try {
+        const { tx, row, coldService, provider } = arrangeLandedThreshold(jest.fn(async () => {}));
+        landWithFinalCommitment('final-commit');
+
+        const { advanceToPollTime, settled } = await startPolling(
+          () =>
+            generateTransaction(
+              tx,
+              jest.fn(async () => new Uint8Array([1])),
+              false,
+              provider
+            ),
+          LANDED_CONFIRM_BOUND_MS + 1
+        );
+        // Past the first round a bound started after the first read would run.
+        await advanceToPollTime(LANDED_CONFIRM_BOUND_MS + 1 + LANDED_CONFIRM_POLL_MS);
+
+        expect(mockReadChainAccountCommitment).not.toHaveBeenCalled();
+        expect(mockReadLastSyncedVerdict).not.toHaveBeenCalled();
+        expect(settled()).toBe(true);
+        expect(row()?.status).toBe(ITransactionStatus.Failed);
+        expect(row()?.error).toMatch(/has not confirmed it/);
+        expect(mockDidDirectSwitchLand).toHaveBeenCalledTimes(1);
+        expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('ends the poll at its bound when the wall clock steps back an hour mid-wait (#1233)', async () => {
+      jest.useFakeTimers();
+      const wallNow = Date.now.bind(Date);
+      let wallClockStepMs = 0;
+      const wallClock = jest.spyOn(Date, 'now').mockImplementation(() => wallNow() - wallClockStepMs);
+      try {
+        const { tx, row, provider } = arrangeLandedThreshold(jest.fn(async () => {}));
+        landWithFinalCommitment('final-commit');
+        mockReadChainAccountCommitment.mockResolvedValue('initial');
+
+        const { advanceToPollTime, settled } = await startPolling(() =>
+          generateTransaction(
+            tx,
+            jest.fn(async () => new Uint8Array([1])),
+            false,
+            provider
+          )
+        );
+        await advanceToPollTime(LANDED_CONFIRM_POLL_MS + 1);
+        wallClockStepMs = 60 * 60_000;
+        await advanceToPollTime(LANDED_CONFIRM_BOUND_MS - 1);
+        expect(settled()).toBe(false);
+
+        await advanceToPollTime(LANDED_CONFIRM_BOUND_MS);
+
+        expect(settled()).toBe(true);
+        expect(row()?.status).toBe(ITransactionStatus.Failed);
+        expect(row()?.error).toMatch(/has not confirmed it/);
+        expect(mockReadChainAccountCommitment.mock.calls).toEqual(
+          Array.from({ length: LANDED_CONFIRM_BOUND_MS / LANDED_CONFIRM_POLL_MS }, (_, round) => [
+            'acc-1',
+            LANDED_CONFIRM_BOUND_MS - round * LANDED_CONFIRM_POLL_MS
+          ])
+        );
+      } finally {
+        wallClock.mockRestore();
         jest.useRealTimers();
       }
     });

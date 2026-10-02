@@ -12,6 +12,7 @@ import { checkEndpointCommitment } from './operator-map';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { monotonicNowMs } from '../sync-backoff';
 
 /**
  * `'post-switch'`: the local copy names the new guardian's key. `'pre-switch'`: it names another.
@@ -67,7 +68,7 @@ export async function adoptPostSwitchState(
   newGuardianEndpoint: string,
   options: { deadlineMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number } = {}
 ): Promise<PostSwitchLocalState> {
-  const now = options.now ?? Date.now;
+  const now = options.now ?? monotonicNowMs;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)));
   const deadline = now() + (options.deadlineMs ?? POST_SWITCH_ADOPT_DEADLINE_MS);
   for (;;) {

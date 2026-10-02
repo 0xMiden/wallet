@@ -36,6 +36,7 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
@@ -2328,7 +2329,7 @@ const requireLandedCommit = async (
       `Guardian ${tx.type} was submitted, but its transaction id could not be read, so the node cannot confirm it; not completing it.`
     );
   }
-  const deadline = Date.now() + LANDED_CONFIRM_BOUND_MS;
+  const deadline = monotonicNowMs() + LANDED_CONFIRM_BOUND_MS;
   let verdict = await didDirectSwitchLand(id);
   const finalCommitment = landed.finalAccountCommitment;
   // The record comes first because only it can show a discard. The node's commitment can confirm a commit
@@ -2370,7 +2371,7 @@ const pollLandedCommit = async (
   finalCommitment: string,
   deadline: number
 ): Promise<boolean | undefined> => {
-  for (let remaining = deadline - Date.now(); remaining > 0; remaining = deadline - Date.now()) {
+  for (let remaining = deadline - monotonicNowMs(); remaining > 0; remaining = deadline - monotonicNowMs()) {
     await new Promise(resolve => setTimeout(resolve, Math.min(LANDED_CONFIRM_POLL_MS, remaining)));
     if ((await readChainAccountCommitment(accountId, remaining)) === finalCommitment) return true;
     const verdict = await readLastSyncedVerdict(id);
