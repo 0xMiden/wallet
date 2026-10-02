@@ -15,6 +15,7 @@ import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
 import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
@@ -153,6 +154,8 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 
 const mockBuildColdMultisigService = jest.fn();
 jest.mock('lib/miden/guardian', () => ({
+  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS:
+    jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian').PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
   MultisigService: {
     buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a)
   }
@@ -5716,7 +5719,7 @@ describe('generateTransaction — Guardian routing', () => {
         expect(service.priorCandidateState).not.toHaveBeenCalled();
       });
 
-      it('gives up on a retried abandon the Guardian never answers at the outgoing deadline, then the gate decides', async () => {
+      it('gives up on a retried abandon the Guardian never answers at the prior-candidate check bound, then the gate decides', async () => {
         jest.spyOn(console, 'warn').mockImplementation(() => {});
         jest.useFakeTimers();
         try {
@@ -5731,15 +5734,15 @@ describe('generateTransaction — Guardian routing', () => {
           const pending = run(row).then(() => {
             settled = true;
           });
-          await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS - 1);
+          await jest.advanceTimersByTimeAsync(PRIOR_CANDIDATE_CHECK_TIMEOUT_MS - 1);
           expect(service.abandonCandidate).toHaveBeenCalledWith(7);
           expect(service.priorCandidateState).not.toHaveBeenCalled();
           expect(settled).toBe(false);
 
           await jest.advanceTimersByTimeAsync(1);
+          expect(service.priorCandidateState).toHaveBeenCalledWith(7);
           await pending;
 
-          expect(service.priorCandidateState).toHaveBeenCalledWith(7);
           expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
           expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 7, abandon: true });
         } finally {

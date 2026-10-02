@@ -14,7 +14,7 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
-import { MultisigService } from 'lib/miden/guardian';
+import { MultisigService, PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
@@ -25,7 +25,7 @@ import {
   readChainAccountCommitment,
   readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
-import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
+import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from 'lib/miden/guardian/discover';
 import {
   clearGuardianCandidate,
   getGuardianCandidate,
@@ -2714,8 +2714,10 @@ const resolveRotationHotKey = async (
  * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
  * quarantine; refused for any reason, it stays for the next attempt and the proposal goes ahead. A record from another
- * Guardian (a switch since) is dropped unasked. Bounded, since it runs inside the FIFO loop's Web Lock, and never
- * throws: a cleanup must not fail the write it precedes.
+ * Guardian (a switch since) is dropped unasked. Never throws: a cleanup must not fail the write it precedes. Bounded
+ * at PRIOR_CANDIDATE_CHECK_TIMEOUT_MS, since it runs inside the FIFO loop's Web Lock: the bound cancels nothing and the
+ * next proposal retries idempotently, so a shorter one than the outgoing deadline loses nothing and shortens each stall
+ * against a silent Guardian.
  */
 const releaseUnabandonedCandidate = async (transaction: ITransaction, service: MultisigService): Promise<void> => {
   const accountId = canonicalWalletAccountId(transaction.accountId);
@@ -2726,8 +2728,9 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
     return;
   }
   try {
-    await withOutgoingGuardianDeadline(
-      () => service.abandonCandidate(prior.nonce),
+    await withTimeout(
+      service.abandonCandidate(prior.nonce),
+      PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
       'retrying the abandon of a failed write on its guardian'
     );
   } catch (abandonError) {
