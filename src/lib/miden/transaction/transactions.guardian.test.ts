@@ -1276,6 +1276,22 @@ describe('completeSwitchGuardianTransaction', () => {
       expect(row().status).toBe(ITransactionStatus.Completed);
     });
 
+    it('asks the node about a post-switch copy no adopt produced, and ends a switch it discarded (#1233)', async () => {
+      const { tx, multisigService, setGuardianEndpoint, provider, row } = landedSwitch();
+      mockAdoptPostSwitchState.mockResolvedValueOnce('post-switch');
+      mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+
+      await expect(
+        completeSwitchGuardianTransaction(tx, undefined, multisigService as never, provider as never, true, landed)
+      ).rejects.toMatchObject({ name: 'GuardianSwitchDiscardedError' });
+
+      expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('0xswitch');
+      expect(multisigService.adoptGuardianStateOnce).not.toHaveBeenCalled();
+      expect(multisigService.finalizeGuardianSwitch).not.toHaveBeenCalled();
+      expect(setGuardianEndpoint).toHaveBeenLastCalledWith('acc-1', 'https://old.guardian');
+      expect(row().status).toBe(ITransactionStatus.GeneratingTransaction);
+    });
+
     // A pre-switch copy after the bound is also what a switch the node discarded leaves: the
     // outgoing guardian never holds a post-switch state to adopt. The node's verdict tells them apart.
     describe('a copy still pre-switch after the bound', () => {

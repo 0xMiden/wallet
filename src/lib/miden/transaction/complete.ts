@@ -816,11 +816,14 @@ export const completeSwitchGuardianTransaction = async (
         )
       : 'post-switch';
     // Pre-switch at the bound is also what a switch the node discarded leaves, since the outgoing
-    // guardian then never holds a post-switch state, and an unknown copy may be either. Ask the node
-    // about the transaction, as the direct path does: a discard means the switch did not happen, so
-    // the endpoint persisted above goes back to the previous guardian and the caller fails the row.
-    // No verdict keeps the flag.
-    const askNodeAbout = localState === 'post-switch' ? undefined : landed?.transactionId;
+    // guardian then never holds a post-switch state, and an unknown copy may be either. A post-switch
+    // copy can be the failed apply's own account write (the store's apply writes the record, then the
+    // account, then notes and tags), which proves no commit; one an adopt produced can only meet a
+    // commit or no verdict, so asking there costs one bounded verdict read and changes no outcome.
+    // So ask the node about the transaction whatever the copy reads, as the direct path does: a discard
+    // means the switch did not happen, so the endpoint persisted above goes back to the previous
+    // guardian and the caller fails the row. No verdict keeps the flag.
+    const askNodeAbout = landed?.transactionId;
     if (askNodeAbout !== undefined && (await didDirectSwitchLand(askNodeAbout)) === false) {
       const restored = await restorePreviousGuardianEndpoint(
         guardianProvider,
