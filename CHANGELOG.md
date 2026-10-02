@@ -51,6 +51,7 @@
 
 ### Fixes
 
+- [FIX][all] A wallet creation or seed-less Guardian import that fails part way no longer leaves behind the vault-key protector it wrote, or a complete wallet that the next start opens on Unlock: like a failed restore, it leaves no wallet (#946).
 - [FIX][all] Private-note duplicate acknowledgements clear the SDK relay outbox, so delivery checks and interrupted sends no longer cause the same stored notes to be resent on every sync (#1294).
 - [FIX][extension] The transaction queue starts its next ready transaction as soon as it finishes one instead of idling 5 s first, so a claim queued behind Guardian sends no longer waits an extra 5 s for each; the E2E claim drain now fails only once transactions stop completing or the drain reaches twice its budget, and the stress suite's claims use its Guardian-aware budget (#1266)
 - [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). When neither credential can be read, a page shows an error instead of an unlock step (#1056).
