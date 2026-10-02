@@ -2736,6 +2736,17 @@ const recordLeftCandidate = (transaction: ITransaction, service: MultisigService
   });
 
 /**
+ * Remember a candidate whose transaction never landed and whose best-effort abandon failed, so the account's next
+ * proposal retries the abandon (#1317) instead of meeting that candidate until its Guardian's hold expires.
+ */
+const recordUnabandonedCandidate = (accountId: string, service: MultisigService, nonce: number): void =>
+  recordGuardianCandidate(canonicalWalletAccountId(accountId), {
+    endpoint: service.guardianEndpoint,
+    nonce,
+    abandon: true
+  });
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -3262,6 +3273,7 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce);
       }
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
@@ -3482,11 +3494,12 @@ const generateGuardianTransaction = async (
         );
       } catch (abandonError) {
         // Cleanup must never mask the transaction failure. The abandonment call
-        // is idempotent, so a later recovery path can safely retry it.
+        // is idempotent, so the account's next proposal retries it (#1317).
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce);
       }
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the

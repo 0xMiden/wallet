@@ -49,14 +49,17 @@ export function withGuardianAccountLock<T>(accountId: string, fn: () => Promise<
 }
 
 /**
- * The candidate a Guardian write left on its Guardian once its submit resolved:
- * the Guardian (`endpoint`, spelled as the service that proposed it spells it)
- * and the delta's `nonce`. The next proposal on the account asks the Guardian
- * about it before proposing (#312).
+ * The candidate a Guardian write left on its Guardian: the Guardian (`endpoint`,
+ * spelled as the service that proposed it spells it) and the delta's `nonce`.
+ * The next proposal on the account asks the Guardian about it before proposing
+ * (#312). `abandon` marks a candidate whose transaction never landed and whose
+ * abandon the Guardian has not accepted; the next proposal retries that abandon
+ * first (#1317).
  */
 export interface GuardianCandidate {
   endpoint: string;
   nonce: number;
+  abandon?: true;
 }
 
 // Per realm, keyed like the lock chains above (the canonical account id), and dropped with them.

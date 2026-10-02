@@ -5468,6 +5468,45 @@ describe('generateTransaction — Guardian routing', () => {
       expect(service.abandonCandidate).toHaveBeenCalledWith(8);
       expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
     });
+
+    describe('a candidate whose abandon failed (#1317)', () => {
+      // A send whose execute fails before its submit, so the catch abandons its candidate (nonce 8).
+      const arrangeFailureBeforeSubmit = (service: ReturnType<typeof busyService>, executeError: unknown) => {
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const client = makeClientApi(makeResult());
+        client.transactions.executeRequest.mockRejectedValueOnce(executeError);
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+      };
+
+      it('a write that failed before its submit and could not abandon its candidate records the abandon', async () => {
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+        arrangeFailureBeforeSubmit(service, new Error('failed to execute transaction: kernel assertion'));
+        const row = queueRow('abandon-failed-before-submit', SEND);
+
+        await run(row);
+
+        expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, abandon: true });
+      });
+
+      it('an evicted pipeline abandons nothing and records no abandon, since its transaction may still land', async () => {
+        const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+        arrangeFailureBeforeSubmit(service, new WasmClientPoisonedError('watchdog'));
+
+        await run(queueRow('evicted-before-submit', SEND)).catch(() => {});
+
+        expect(service.abandonCandidate).not.toHaveBeenCalled();
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+      });
+    });
   });
 
   it('Guardian send: an unreachable guardian at signing-proposal requeues (#779)', async () => {
@@ -7065,6 +7104,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     const multisigService = {
+      guardianEndpoint: 'https://old.guardian',
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch', nonce: 33 },
         newEndpoint: 'https://new.guardian'
@@ -7112,6 +7152,12 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.abandonCandidate).toHaveBeenCalledWith(33);
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
     expect(txStore.find(r => r.id === txId)!.status).toBe(ITransactionStatus.Completed);
+    // The account's next proposal retries it, or drops it unasked once the switch has moved the account (#1317).
+    expect(getGuardianCandidate('guardian-acc')).toEqual({
+      endpoint: 'https://old.guardian',
+      nonce: 33,
+      abandon: true
+    });
   });
 
   // A commit wait that fails without a verdict is resolved by ASKING THE CHAIN

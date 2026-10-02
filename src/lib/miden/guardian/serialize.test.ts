@@ -486,3 +486,26 @@ describe('the settlement record (#312)', () => {
     expect(getGuardianCandidate('A')).toBeUndefined();
   });
 });
+
+describe('the abandon mark (#1317)', () => {
+  it('reads back a candidate recorded with its abandon mark', () => {
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, abandon: true });
+
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7, abandon: true });
+  });
+
+  it('is gone once a plain record of the same candidate replaces it', () => {
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, abandon: true });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
+
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7 });
+  });
+
+  it('clears by nonce like a plain record', () => {
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, abandon: true });
+
+    clearGuardianCandidate('A', 7);
+
+    expect(getGuardianCandidate('A')).toBeUndefined();
+  });
+});
