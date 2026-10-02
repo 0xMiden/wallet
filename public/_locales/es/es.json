@@ -1290,5 +1290,9 @@
   "unhide": "Mostrar",
   "unhideTokenLabel": "Mostrar $name$",
   "hiddenTokensError": "No se han podido actualizar los tokens ocultos. Inténtalo de nuevo.",
-  "hiddenTokensUnreadable": "No se han podido cargar los tokens ocultos."
+  "hiddenTokensUnreadable": "No se han podido cargar los tokens ocultos.",
+  "confirmSendReason": "Confirma tu envío",
+  "confirmSwapReason": "Confirma tu cambio",
+  "confirmDappTransactionReason": "Confirma esta transacción",
+  "confirmEarnDepositReason": "Confirma tu depósito"
 }

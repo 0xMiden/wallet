@@ -3,11 +3,10 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
-import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
+import { checkBiometricAvailability } from 'lib/biometric';
 
 import RotateGuardianReview from './RotateGuardianReview';
 
-const mockIsBiometricEnabled = isBiometricEnabled as jest.Mock;
 const mockCheckBiometricAvailability = checkBiometricAvailability as jest.Mock;
 
 const mockUnlock = jest.fn();
@@ -131,7 +130,6 @@ jest.mock('components/Alert', () => ({
 }));
 
 jest.mock('lib/biometric', () => ({
-  isBiometricEnabled: jest.fn().mockResolvedValue(false),
   checkBiometricAvailability: jest.fn()
 }));
 
@@ -937,7 +935,7 @@ it('does not redirect after the user backs out of the credential step mid-flight
 
 describe('hot-key label (face / fingerprint)', () => {
   beforeEach(() => {
-    mockIsBiometricEnabled.mockResolvedValue(true);
+    mockHasHardwareProtector.mockResolvedValue(true);
   });
 
   it('reads faceUnlock for a face biometric on Android', async () => {
@@ -964,5 +962,16 @@ describe('hot-key label (face / fingerprint)', () => {
     render(<RotateGuardianReview />);
 
     expect(await screen.findByText('fingerprint')).toBeInTheDocument();
+  });
+
+  it('reads the password label when the vault has no hardware protector, even if biometrics are available', async () => {
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+    await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+
+    expect(screen.getByText('password')).toBeInTheDocument();
+    expect(mockCheckBiometricAvailability).not.toHaveBeenCalled();
   });
 });

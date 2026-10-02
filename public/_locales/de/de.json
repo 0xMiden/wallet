@@ -1290,5 +1290,9 @@
   "unhide": "Einblenden",
   "unhideTokenLabel": "$name$ wieder einblenden",
   "hiddenTokensError": "Versteckte Token konnten nicht aktualisiert werden. Bitte versuche es erneut.",
-  "hiddenTokensUnreadable": "Versteckte Token konnten nicht geladen werden."
+  "hiddenTokensUnreadable": "Versteckte Token konnten nicht geladen werden.",
+  "confirmSendReason": "Bestätigen Sie Ihre Überweisung",
+  "confirmSwapReason": "Bestätigen Sie Ihren Wechsel",
+  "confirmDappTransactionReason": "Bestätigen Sie diese Transaktion",
+  "confirmEarnDepositReason": "Bestätigen Sie Ihre Einzahlung"
 }

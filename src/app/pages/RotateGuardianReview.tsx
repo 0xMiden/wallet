@@ -17,7 +17,7 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
-import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
+import { checkBiometricAvailability } from 'lib/biometric';
 import {
   getUncompletedTransactions,
   initiateSwitchGuardianTransaction,
@@ -109,10 +109,10 @@ const RotateGuardianReview: FC = () => {
   // on this device (biometric flavor or password) like the design's key rows.
   const [hotKeyLabel, setHotKeyLabel] = useState(() => t('password'));
   useEffect(() => {
+    if (hasHardwareProtector !== true) return;
     let cancelled = false;
     (async () => {
       try {
-        if (!(await isBiometricEnabled())) return;
         const availability = await checkBiometricAvailability();
         if (cancelled) return;
         if (availability.biometryType === 'face') setHotKeyLabel(isIOS() ? t('faceId') : t('faceUnlock'));
@@ -124,7 +124,7 @@ const RotateGuardianReview: FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [hasHardwareProtector, t]);
 
   // Rotating the guardian is a security-critical flow the user can be walked
   // into from settings or from a recovery prompt, and it ends in a password /

@@ -1290,5 +1290,9 @@
   "unhide": "非表示を解除",
   "unhideTokenLabel": "$name$ の非表示を解除",
   "hiddenTokensError": "非表示のトークンを更新できませんでした。もう一度お試しください。",
-  "hiddenTokensUnreadable": "非表示のトークンを読み込むことができませんでした。"
+  "hiddenTokensUnreadable": "非表示のトークンを読み込むことができませんでした。",
+  "confirmSendReason": "送信の確認",
+  "confirmSwapReason": "交換を確認してください",
+  "confirmDappTransactionReason": "この取引を確認してください",
+  "confirmEarnDepositReason": "入金を確認してください"
 }

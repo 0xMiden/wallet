@@ -1290,5 +1290,9 @@
   "unhide": "Pokaż",
   "unhideTokenLabel": "Odblokuj $name$",
   "hiddenTokensError": "Nie udało się zaktualizować ukrytych tokenów. Spróbuj ponownie.",
-  "hiddenTokensUnreadable": "Nie udało się załadować ukrytych tokenów."
+  "hiddenTokensUnreadable": "Nie udało się załadować ukrytych tokenów.",
+  "confirmSendReason": "Potwierdź wysyłkę",
+  "confirmSwapReason": "Potwierdź wymianę",
+  "confirmDappTransactionReason": "Potwierdź tę transakcję",
+  "confirmEarnDepositReason": "Potwierdź swoją wpłatę"
 }

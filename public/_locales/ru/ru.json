@@ -1290,5 +1290,9 @@
   "unhide": "Показать",
   "unhideTokenLabel": "Показать $name$",
   "hiddenTokensError": "Не удалось обновить скрытые токены. Пожалуйста, попробуйте ещё раз.",
-  "hiddenTokensUnreadable": "Скрытые токены не удалось загрузить."
+  "hiddenTokensUnreadable": "Скрытые токены не удалось загрузить.",
+  "confirmSendReason": "Подтвердите отправку",
+  "confirmSwapReason": "Подтвердите обмен",
+  "confirmDappTransactionReason": "Подтвердите эту транзакцию",
+  "confirmEarnDepositReason": "Подтвердите свой депозит"
 }

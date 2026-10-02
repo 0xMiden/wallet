@@ -5701,5 +5701,21 @@
   "hiddenTokensUnreadable": {
     "message": "无法加载隐藏代币。",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "确认您的转账",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "确认您的更换操作",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "确认此交易",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "确认您的存款",
+    "englishSource": "Confirm your deposit"
   }
 }

@@ -55,6 +55,7 @@
 
 ### Fixes
 
+- [FIX][mobile] A wallet that unlocks with biometrics asks for Face ID or fingerprint to confirm each send, swap, earn deposit and dApp transaction, and the Guardian rotation review labels its hot key by how it is actually protected (#1308)
 - [FIX][all] A wallet creation or seed-less Guardian import that fails part way no longer leaves behind the vault-key protector it wrote, or a complete wallet that the next start opens on Unlock: like a failed restore, it leaves no wallet (#946).
 - [FIX][all] Private-note duplicate acknowledgements clear the SDK relay outbox, so delivery checks and interrupted sends no longer cause the same stored notes to be resent on every sync (#1294).
 - [FIX][extension] The transaction queue starts its next ready transaction as soon as it finishes one instead of idling 5 s first, so a claim queued behind Guardian sends no longer waits an extra 5 s for each; the E2E claim drain now fails only once transactions stop completing or the drain reaches twice its budget, and the stress suite's claims use its Guardian-aware budget (#1266)

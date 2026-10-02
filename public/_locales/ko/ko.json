@@ -1290,5 +1290,9 @@
   "unhide": "숨김 해제",
   "unhideTokenLabel": "$name$ 숨김 해제",
   "hiddenTokensError": "숨겨진 토큰을 업데이트할 수 없습니다. 다시 시도해 주세요.",
-  "hiddenTokensUnreadable": "숨겨진 토큰을 불러올 수 없습니다."
+  "hiddenTokensUnreadable": "숨겨진 토큰을 불러올 수 없습니다.",
+  "confirmSendReason": "송금 확인",
+  "confirmSwapReason": "교체 확인",
+  "confirmDappTransactionReason": "이 거래를 확인하십시오",
+  "confirmEarnDepositReason": "입금 확인"
 }

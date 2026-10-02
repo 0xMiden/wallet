@@ -1290,5 +1290,9 @@
   "unhide": "取消隐藏",
   "unhideTokenLabel": "取消隐藏 $name$",
   "hiddenTokensError": "无法更新隐藏代币。请重试。",
-  "hiddenTokensUnreadable": "无法加载隐藏代币。"
+  "hiddenTokensUnreadable": "无法加载隐藏代币。",
+  "confirmSendReason": "确认您的转账",
+  "confirmSwapReason": "确认您的更换操作",
+  "confirmDappTransactionReason": "确认此交易",
+  "confirmEarnDepositReason": "确认您的存款"
 }
