@@ -10,6 +10,7 @@
 
 ### Changes
 
+- [FIX][all] The send route choices remain clear in dark mode. The Slow route shows an estimated arrival time of 30 minutes, checks token registration before selection, and caches approved faucet IDs; the bridged-ETH faucet ID names testnet's registered AggLayer ETH faucet.
 - [CHANGE][ci] Local, Guardian Lifecycle and Guardian Bridge-Out E2E no longer run on pull requests based on a branch other than main or next; there their checks report under names no branch requires, so a stacked run never satisfies a required check on a pull request into main or next; the three can be dispatched by hand against published packages, and a Guardian Lifecycle dispatch runs its full suite (#1071).
 - [CHANGE][all] Import account is removed from the Accounts sheet on Home, with its private-key import page: the wallet holds a single account, so there is nothing to import an account into for now.
 - [FIX][all] Long lists on Send, Receive and Swap pages scroll instead of being cut off, so every recent recipient can be reached (#1291).

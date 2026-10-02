@@ -3457,6 +3457,22 @@
     "message": "느림",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "사용 불가",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "이 토큰이 Slow 경로를 지원하는지 확인 중…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "이 토큰은 Slow 경로를 지원하지 않습니다.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "이 토큰을 확인할 수 없습니다. 뒤로 돌아가서 다시 시도하십시오.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "초",
     "englishSource": "Seconds"
@@ -4405,8 +4421,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "약 6시간",
-    "englishSource": "~6 hours"
+    "message": "약 30분",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "입금 중입니다",
