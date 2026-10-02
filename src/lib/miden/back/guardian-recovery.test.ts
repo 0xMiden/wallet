@@ -178,7 +178,7 @@ function guardianOffersProposalCount(count: number) {
   );
 }
 
-// `startedRecoveries` and the queue are module state, so each test gets a fresh
+// `reservations` and the queue are module state, so each test gets a fresh
 // account id rather than a fresh module.
 let accountSeq = 0;
 
@@ -507,7 +507,8 @@ describe('detached recovery run', () => {
 
       expect(setPendingFlag).not.toHaveBeenCalled();
       await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
-      // The lock hook releases only failed runs, so only a backend restart frees an evicted pass's entry.
+      // The lock hook releases only failed runs, so for the same wallet generation only a backend restart frees an
+      // evicted pass's entry; a replaced wallet is admitted (see the #1302 tests).
       releaseGuardianRecoveriesOnLock();
       await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
     } finally {
@@ -515,6 +516,277 @@ describe('detached recovery run', () => {
         .mocked(recoverGuardianHistory)
         .mockReset()
         .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+
+  it('admits a replaced wallet after an evicted notes pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('admits a replaced wallet after an evicted history pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({
+      deferred: true,
+      evicted: true,
+      sourceFailures: 0,
+      restored: 0,
+      deferredSources: 0
+    });
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      jest
+        .mocked(recoverGuardianHistory)
+        .mockReset()
+        .mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0, deferredSources: 0 });
+    }
+  });
+
+  it('keeps an evicted pass parked when the generation read fails (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockRejectedValueOnce(new Error('storage down'));
+    try {
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      mockReadGeneration.mockReset();
+    }
+  });
+
+  it('starts one run when two starts race after a generation change (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    const [a, b] = await Promise.all([maybeStartGuardianRecovery(account), maybeStartGuardianRecovery(account)]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    await drainDetachedRun();
+  });
+
+  it('keeps an evicted pass parked across a lock for the same wallet (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('admits a replaced wallet after a completed recovery (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('keeps a completed recovery reserved for the same wallet (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+  });
+
+  it('admits a replaced wallet after the gate cleared a terminal checkpoint (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(terminalGuardianHistoryGeneration).mockResolvedValueOnce('gen-1');
+
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('admits a replaced wallet after a failed pass, before any lock (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport unavailable'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    await drainDetachedRun();
+  });
+
+  it('a lock still releases a failed pass for the same wallet (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport unavailable'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+  });
+
+  it('a lock does not free the reservation of a run admitted after a failed pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockRejectedValueOnce(new Error('transport unavailable'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    mockReadGeneration.mockResolvedValue('gen-2');
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    releaseGuardianRecoveriesOnLock();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+    await drainDetachedRun();
+  });
+
+  it('a released reservation leaves no generation entry to admit a second start (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    // A lock lands during the flag write and the record clear then fails, so the run releases its reservation.
+    setPendingFlag.mockImplementationOnce(async () => {
+      releaseGuardianRecoveriesOnLock();
+      return [];
+    });
+    mockClearProgress.mockResolvedValueOnce(undefined as never).mockRejectedValueOnce(new Error('storage down'));
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      await drainDetachedRun();
+    } finally {
+      mockClearProgress.mockReset();
+    }
+  });
+
+  it('does not admit a replaced wallet while the clean pass still clears its progress record (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const progressClear: { finish: () => void } = { finish: () => undefined };
+    mockClearProgress.mockResolvedValueOnce(undefined).mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          progressClear.finish = () => resolve();
+        })
+    );
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      expect(mockClearProgress).toHaveBeenCalledTimes(2);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+
+      progressClear.finish();
+      await drainDetachedRun();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      progressClear.finish();
+      await drainDetachedRun();
+      mockClearProgress.mockReset();
+    }
+  });
+
+  it('a progress clear that fails after the flag cleared keeps the account reserved for a failed pass (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const progressClear: { fail: () => void } = { fail: () => undefined };
+    mockClearProgress.mockResolvedValueOnce(undefined).mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          progressClear.fail = () => reject(new Error('storage down'));
+        })
+    );
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      expect(mockClearProgress).toHaveBeenCalledTimes(2);
+      progressClear.fail();
+      await drainDetachedRun();
+
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+      releaseGuardianRecoveriesOnLock();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      progressClear.fail();
+      await drainDetachedRun();
+      mockClearProgress.mockReset();
+    }
+  });
+
+  it('a flag clear whose tail fails keeps the reservation in flight until its run ends (#1302)', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    const progressClear: { finish: () => void } = { finish: () => undefined };
+    // The flag write lands and its broadcast throws, so clearPendingFlag returns 'cleared' through its catch.
+    mockAccountsUpdated.mockImplementationOnce(() => {
+      throw new Error('broadcast failed');
+    });
+    mockClearProgress.mockResolvedValueOnce(undefined).mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          progressClear.finish = () => resolve();
+        })
+    );
+    try {
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+      expect(mockClearProgress).toHaveBeenCalledTimes(2);
+      mockReadGeneration.mockResolvedValue('gen-2');
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(false);
+
+      progressClear.finish();
+      await drainDetachedRun();
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+      await drainDetachedRun();
+    } finally {
+      progressClear.finish();
+      await drainDetachedRun();
+      mockClearProgress.mockReset();
+      mockAccountsUpdated.mockReset();
+      mockProxy.drainPrivateNoteTransport.mockReset();
     }
   });
 
