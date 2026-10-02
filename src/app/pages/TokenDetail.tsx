@@ -59,6 +59,11 @@ const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
 const CHART_CONFIG = { price: { color: 'var(--accent-primary)' } };
 const CHART_STROKE = 'var(--color-price)';
 
+// The fewest decimals the unit price shows, by price symbol. A stablecoin moves in its fourth to
+// sixth decimal, which three would round away (#1239).
+const PRICE_MINIMUM_DECIMALS: Record<string, number> = { USDC: 6 };
+const DEFAULT_PRICE_MINIMUM_DECIMALS = 3;
+
 function formatTooltipTime(timestamp: number, tf: Timeframe): string {
   const date = new Date(timestamp);
   if (tf === '1H' || tf === '1D') return format(date, 'HH:mm');
@@ -236,10 +241,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const yDomain: [number, number] = [minVal - padding, maxVal + padding];
 
   const change = priceChange(priceInfo.change24h);
-  // Three decimals is the price line's own shape (`toAdaptiveFixed(price, 3)`), pinned to the
-  // destination so a count does not change how many it shows on the way. Built once per render,
-  // not per frame; the format closure below only calls it.
-  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, 3);
+  // Pinned to the destination so the count keeps one shape.
+  const minimumFormatDecimals = PRICE_MINIMUM_DECIMALS[symbol] ?? DEFAULT_PRICE_MINIMUM_DECIMALS;
+  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, minimumFormatDecimals);
   const formatPrice = (value: number) => `$${formatAdaptivePrice(value)}`;
 
   // Sits on `page`, not a `Card`: the chart reads better at the full content width than inset in a
@@ -284,7 +288,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-xl bg-ink px-2 py-1 text-xs text-page">
-                      <div className="text-badge">${toAdaptiveFixed(point.value)}</div>
+                      <div className="text-badge">${toAdaptiveFixed(point.value, minimumFormatDecimals)}</div>
                       {point.time && <div>{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );
