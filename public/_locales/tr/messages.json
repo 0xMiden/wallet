@@ -3457,6 +3457,22 @@
     "message": "Yavaş",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "Kullanılamıyor",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Bu token, Slow rotasını desteklemez.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Bu jetonu doğrulayamadım. Geri dönün ve tekrar deneyin.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "Saniye",
     "englishSource": "Seconds"
@@ -4405,8 +4421,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "~6 saat",
-    "englishSource": "~6 hours"
+    "message": "~30 dakika",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Para yatırıyorsunuz",

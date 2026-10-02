@@ -3457,6 +3457,22 @@
     "message": "遅い",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "利用不可",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "このトークンが「Slowルート」に対応しているかどうかを確認中…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "このトークンは「Slow」ルートをサポートしていません。",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "このトークンを確認できませんでした。戻って、もう一度試してください。",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "秒",
     "englishSource": "Seconds"
@@ -4405,8 +4421,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "約6時間",
-    "englishSource": "~6 hours"
+    "message": "約30分",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "現在、入金しています",
