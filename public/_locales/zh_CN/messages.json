@@ -2175,6 +2175,50 @@
     "message": "此设备不支持生物识别解锁。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "请在“设置”中为工作设备启用指纹或面部解锁功能，以便在此处使用。",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "在“设置”中设置指纹或面部识别，以使用生物识别解锁功能。",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "为工作设置的面部或指纹解锁安全性不足，无法保护钱包。请在“设置”中为工作设置指纹，以便在此处使用。",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "本设备上设置的面部或指纹解锁功能安全性不足，无法保护钱包。请在“设置”中配置指纹，以使用生物识别解锁功能。",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "该设备的生物识别功能无法保护钱包。请改用密码。",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "生物识别传感器目前无法使用。请重试，或使用密码。",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID 或 Touch ID 不可用。如果该应用已关闭此功能，请在“设置”中将其打开，或使用密码。",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "安装最新的安全更新以使用生物识别解锁功能。",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "在“设置”中设置设备密码，以使用生物识别解锁功能。",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "生物识别解锁在尝试次数过多后会被锁定。请先解锁设备，然后重试。",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "打开“设置”",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "选择您的Guardian",
     "englishSource": "Choose your Guardian"
@@ -3923,6 +3967,14 @@
   "fingerprint": {
     "message": "指纹",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "面部解锁",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "相机权限被拒绝",

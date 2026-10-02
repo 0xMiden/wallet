@@ -92,19 +92,22 @@ export async function checkBiometricAvailability(): Promise<BiometricAvailabilit
     console.log('[Biometric] isAvailable result:', JSON.stringify(result));
     let biometryType: BiometricAvailability['biometryType'] = 'none';
 
-    // BiometryType enum:
-    // 1 = TOUCH_ID/FINGERPRINT, 2 = FACE_ID, 3 = IRIS, 4 = MULTIPLE/OPTIC_ID
+    // Android reports capacitor-native-biometric's BiometryType (FINGERPRINT 3, FACE_AUTHENTICATION 4,
+    // IRIS_AUTHENTICATION 5, MULTIPLE 6); iOS reports LocalBiometric's (Touch ID 1, Face ID 2, and
+    // Optic ID 4, which reads as 'face').
     switch (result.biometryType) {
       case 1:
+      case 3:
         biometryType = 'fingerprint';
         break;
       case 2:
+      case 4:
         biometryType = 'face';
         break;
-      case 3:
+      case 5:
         biometryType = 'iris';
         break;
-      case 4:
+      case 6:
         biometryType = 'multiple';
         break;
       default:
@@ -123,6 +126,108 @@ export async function checkBiometricAvailability(): Promise<BiometricAvailabilit
       biometryType: 'none',
       errorMessage: error.message || 'Failed to check biometric availability'
     };
+  }
+}
+
+/** Why biometric setup cannot go ahead; see {@link checkBiometricSetup}. */
+export type BiometricUnavailableReason =
+  | 'none-enrolled'
+  | 'strong-not-enrolled'
+  | 'no-strong-biometric'
+  | 'hardware-unavailable'
+  | 'security-update-required'
+  | 'passcode-not-set'
+  | 'locked-out'
+  | 'unknown';
+
+export interface BiometricSetup {
+  available: boolean;
+  /** Null exactly when `available` is true. */
+  reason: BiometricUnavailableReason | null;
+  /** True in an Android work profile, whose biometric enrollments are its own. */
+  managedProfile: boolean;
+}
+
+/**
+ * Map a raw `BiometricManager.canAuthenticate(BIOMETRIC_STRONG)` result (androidx.biometric 1.1.0),
+ * plus the BIOMETRIC_WEAK result for the NONE_ENROLLED case, to why setup is blocked, or null for
+ * BIOMETRIC_SUCCESS. Asked for STRONG, NO_HARDWARE (12) also covers a device whose only biometric
+ * is class 2 but which has nothing enrolled either way (`weakCode` not 0): there `weakCode` can't
+ * tell the two apart, so NO_HARDWARE stays 'no-strong-biometric' regardless.
+ */
+export function reasonForAndroidStatus(code: number, weakCode?: number): BiometricUnavailableReason | null {
+  switch (code) {
+    case 0: // BIOMETRIC_SUCCESS
+      return null;
+    case 11: // BIOMETRIC_ERROR_NONE_ENROLLED
+      // weakCode 0 (BIOMETRIC_SUCCESS for WEAK) means a class-2 biometric IS enrolled, just not
+      // a strong one - fixable by enrolling a stronger biometric, unlike having none at all.
+      return weakCode === 0 ? 'strong-not-enrolled' : 'none-enrolled';
+    case 12: // BIOMETRIC_ERROR_NO_HARDWARE
+      return 'no-strong-biometric';
+    case 1: // BIOMETRIC_ERROR_HW_UNAVAILABLE
+      return 'hardware-unavailable';
+    case 15: // BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED
+      return 'security-update-required';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * Map a BiometricAuthError code (capacitor-native-biometric's numbering, which the iOS
+ * LocalBiometric plugin reports too) to why setup is blocked.
+ */
+export function reasonForPluginError(code: number | undefined): BiometricUnavailableReason {
+  switch (code) {
+    case 3: // BIOMETRICS_NOT_ENROLLED
+      return 'none-enrolled';
+    case 1: // BIOMETRICS_UNAVAILABLE
+      return 'hardware-unavailable';
+    case 2: // USER_LOCKOUT
+    case 4: // USER_TEMPORARY_LOCKOUT
+      return 'locked-out';
+    case 14: // PASSCODE_NOT_SET
+      return 'passcode-not-set';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * Whether biometric unlock can be set up, and if not, why. On Android it asks for a
+ * BIOMETRIC_STRONG biometric enrolled for the current user, the class the vault key accepts;
+ * on iOS it reads LocalBiometric's availability. Never rejects: any failure reads as 'unknown'.
+ */
+export async function checkBiometricSetup(): Promise<BiometricSetup> {
+  try {
+    if (isAndroid()) {
+      const { code, weakCode, managedProfile } = await HardwareSecurity.biometricStatus();
+      const reason = reasonForAndroidStatus(code, weakCode);
+      return { available: reason === null, reason, managedProfile };
+    }
+    if (isIOS()) {
+      const { isAvailable, errorCode } = await LocalBiometric.isAvailable();
+      return isAvailable
+        ? { available: true, reason: null, managedProfile: false }
+        : { available: false, reason: reasonForPluginError(errorCode), managedProfile: false };
+    }
+  } catch (error) {
+    console.error('[Biometric] checkBiometricSetup error:', error);
+  }
+  return { available: false, reason: 'unknown', managedProfile: false };
+}
+
+/**
+ * Open the system screen that enrolls a strong biometric (Android only). A no-op off
+ * Android or when the call fails. Never rejects.
+ */
+export async function openBiometricSettings(): Promise<void> {
+  try {
+    if (!isAndroid()) return;
+    await HardwareSecurity.openBiometricSettings();
+  } catch (error) {
+    console.error('[Biometric] openBiometricSettings error:', error);
   }
 }
 

@@ -46,6 +46,8 @@ function makePlugin(overrides: Record<string, any> = {}): Record<string, any> {
     encryptWithHardwareKey: jest.fn().mockResolvedValue({ encrypted: 'ENC' }),
     decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'DEC' }),
     deleteHardwareKey: jest.fn().mockResolvedValue(undefined),
+    biometricStatus: jest.fn().mockResolvedValue({ code: 0, managedProfile: false }),
+    openBiometricSettings: jest.fn().mockResolvedValue(undefined),
     ...overrides
   };
 }
@@ -116,6 +118,7 @@ function load(opts: LoadOpts = {}) {
 const SERVER = 'miden.wallet.biometric';
 const CRED_KEY = 'vault_biometric_key';
 const ENABLED_KEY = 'biometric_enabled';
+const UNKNOWN_SETUP = { available: false, reason: 'unknown', managedProfile: false };
 
 beforeAll(() => {
   // The module is intentionally chatty; silence console to keep test output clean.
@@ -143,13 +146,29 @@ describe('biometric service', () => {
     });
 
     it.each([
+      [0, 'none'],
       [1, 'fingerprint'],
       [2, 'face'],
-      [3, 'iris'],
-      [4, 'multiple'],
-      [0, 'none'],
+      [3, 'fingerprint'],
+      [4, 'face'],
+      [5, 'iris'],
+      [6, 'multiple'],
       [99, 'none']
-    ])('maps biometryType %s to "%s"', async (raw, mapped) => {
+    ])('maps Android biometryType %s to "%s"', async (raw, mapped) => {
+      const native = makePlugin({
+        isAvailable: jest.fn().mockResolvedValue({ isAvailable: true, biometryType: raw, errorCode: 7 })
+      });
+      const { mod } = load({ platform: ANDROID, native });
+
+      const res = await mod.checkBiometricAvailability();
+
+      expect(res).toEqual({ isAvailable: true, biometryType: mapped, errorCode: 7 });
+    });
+
+    it.each([
+      [1, 'fingerprint'],
+      [2, 'face']
+    ])('maps iOS biometryType %s to "%s"', async (raw, mapped) => {
       const local = makePlugin({
         isAvailable: jest.fn().mockResolvedValue({ isAvailable: true, biometryType: raw, errorCode: 7 })
       });
@@ -207,6 +226,167 @@ describe('biometric service', () => {
 
       expect(res.isAvailable).toBe(false);
       expect(res.errorMessage).toBe('Biometric plugin not available');
+    });
+  });
+
+  describe('reasonForAndroidStatus', () => {
+    it.each([
+      [0, null],
+      [11, 'none-enrolled'],
+      [12, 'no-strong-biometric'],
+      [1, 'hardware-unavailable'],
+      [15, 'security-update-required'],
+      [-1, 'unknown'],
+      [-2, 'unknown'],
+      [99, 'unknown']
+    ])('maps canAuthenticate(BIOMETRIC_STRONG) %s to %s', (code, reason) => {
+      const { mod } = load({ platform: ANDROID });
+
+      expect(mod.reasonForAndroidStatus(code)).toBe(reason);
+    });
+
+    // A class-2-only enrollment (weakCode 0, strong code 11) is distinct from no
+    // enrollment at all (weakCode 11 or missing): only the former can be fixed by
+    // enrolling a stronger biometric rather than any biometric.
+    it.each([
+      [11, 0, 'strong-not-enrolled'],
+      [11, 11, 'none-enrolled'],
+      [11, undefined, 'none-enrolled'],
+      [0, 0, null]
+    ])('maps canAuthenticate(BIOMETRIC_STRONG) %s with BIOMETRIC_WEAK %s to %s', (code, weakCode, reason) => {
+      const { mod } = load({ platform: ANDROID });
+
+      expect(mod.reasonForAndroidStatus(code, weakCode)).toBe(reason);
+    });
+  });
+
+  describe('reasonForPluginError', () => {
+    it.each([
+      [3, 'none-enrolled'],
+      [1, 'hardware-unavailable'],
+      [2, 'locked-out'],
+      [4, 'locked-out'],
+      [14, 'passcode-not-set'],
+      [0, 'unknown'],
+      [10, 'unknown'],
+      [undefined, 'unknown']
+    ])('maps plugin error %s to %s', (code, reason) => {
+      const { mod } = load({ platform: IOS });
+
+      expect(mod.reasonForPluginError(code)).toBe(reason);
+    });
+  });
+
+  describe('checkBiometricSetup', () => {
+    it.each([
+      [0, false, { available: true, reason: null, managedProfile: false }],
+      [0, true, { available: true, reason: null, managedProfile: true }],
+      [11, false, { available: false, reason: 'none-enrolled', managedProfile: false }],
+      [11, true, { available: false, reason: 'none-enrolled', managedProfile: true }],
+      [12, false, { available: false, reason: 'no-strong-biometric', managedProfile: false }]
+    ])('on Android reads biometricStatus code %s (managed profile: %s)', async (code, managedProfile, expected) => {
+      const hardware = makePlugin({ biometricStatus: jest.fn().mockResolvedValue({ code, managedProfile }) });
+      const native = makePlugin();
+      const { mod } = load({ platform: ANDROID, hardware, native });
+
+      expect(await mod.checkBiometricSetup()).toEqual(expected);
+      expect(hardware.biometricStatus).toHaveBeenCalledTimes(1);
+      expect(native.isAvailable).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      'on Android reads strong-not-enrolled from biometricStatus weakCode (managed profile: %s)',
+      async managedProfile => {
+        const hardware = makePlugin({
+          biometricStatus: jest.fn().mockResolvedValue({ code: 11, weakCode: 0, managedProfile })
+        });
+        const { mod } = load({ platform: ANDROID, hardware });
+
+        expect(await mod.checkBiometricSetup()).toEqual({
+          available: false,
+          reason: 'strong-not-enrolled',
+          managedProfile
+        });
+      }
+    );
+
+    it.each([
+      [
+        { isAvailable: true, biometryType: 2 },
+        { available: true, reason: null, managedProfile: false }
+      ],
+      [
+        { isAvailable: false, biometryType: 0, errorCode: 3 },
+        { available: false, reason: 'none-enrolled', managedProfile: false }
+      ],
+      [
+        { isAvailable: false, biometryType: 0, errorCode: 2 },
+        { available: false, reason: 'locked-out', managedProfile: false }
+      ],
+      [{ isAvailable: false, biometryType: 0 }, UNKNOWN_SETUP]
+    ])('on iOS reads LocalBiometric.isAvailable %j', async (availability, expected) => {
+      const local = makePlugin({ isAvailable: jest.fn().mockResolvedValue(availability) });
+      const hardware = makePlugin();
+      const { mod } = load({ platform: IOS, local, hardware });
+
+      expect(await mod.checkBiometricSetup()).toEqual(expected);
+      expect(local.isAvailable).toHaveBeenCalledTimes(1);
+      expect(hardware.biometricStatus).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['off mobile', NOT_MOBILE],
+      ['on a mobile platform that is neither iOS nor Android', MOBILE_OTHER]
+    ])('reads as unknown %s without asking a plugin', async (_label, platform) => {
+      const local = makePlugin();
+      const hardware = makePlugin();
+      const { mod } = load({ platform, local, hardware });
+
+      expect(await mod.checkBiometricSetup()).toEqual(UNKNOWN_SETUP);
+      expect(local.isAvailable).not.toHaveBeenCalled();
+      expect(hardware.biometricStatus).not.toHaveBeenCalled();
+    });
+
+    it('reads as unknown when the Android status call rejects, as on a native build without it', async () => {
+      const hardware = makePlugin({ biometricStatus: jest.fn().mockRejectedValue(new Error('not implemented')) });
+      const { mod } = load({ platform: ANDROID, hardware });
+
+      await expect(mod.checkBiometricSetup()).resolves.toEqual(UNKNOWN_SETUP);
+    });
+
+    it('reads as unknown when the iOS availability call rejects', async () => {
+      const local = makePlugin({ isAvailable: jest.fn().mockRejectedValue(new Error('LAContext failed')) });
+      const { mod } = load({ platform: IOS, local });
+
+      await expect(mod.checkBiometricSetup()).resolves.toEqual(UNKNOWN_SETUP);
+    });
+  });
+
+  describe('openBiometricSettings', () => {
+    it('on Android asks the plugin to open Settings', async () => {
+      const hardware = makePlugin();
+      const { mod } = load({ platform: ANDROID, hardware });
+
+      await expect(mod.openBiometricSettings()).resolves.toBeUndefined();
+      expect(hardware.openBiometricSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['on iOS', IOS],
+      ['off mobile', NOT_MOBILE]
+    ])('resolves undefined %s without calling the plugin', async (_label, platform) => {
+      const hardware = makePlugin();
+      const { mod } = load({ platform, hardware });
+
+      await expect(mod.openBiometricSettings()).resolves.toBeUndefined();
+      expect(hardware.openBiometricSettings).not.toHaveBeenCalled();
+    });
+
+    it('resolves undefined when the plugin rejects, as on a native build without it', async () => {
+      const hardware = makePlugin({ openBiometricSettings: jest.fn().mockRejectedValue(new Error('not implemented')) });
+      const { mod } = load({ platform: ANDROID, hardware });
+
+      await expect(mod.openBiometricSettings()).resolves.toBeUndefined();
     });
   });
 
