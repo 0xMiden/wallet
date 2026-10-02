@@ -685,33 +685,41 @@ export async function recoverPendingNotes(
   }
 }
 
-/**
- * Accounts whose pending-note recovery has started in this process. A pass
- * that FAILED a source keeps its entry, so an account gets at most one such
- * attempt per unlock: the flag stays set for the next unlock or backend start
- * to retry, without GuardianRecoveryProvider's 5s poll re-running the full
- * drain/backfill in a loop against a persistently failing source. A notes or
- * history pass deferred by a lock eviction keeps its entry too and resumes
- * from its checkpoint at the next backend start, since a re-offer would re-run
- * an op that can hold the mutex for the whole watchdog on every lap.
- *
- * Entries are released again only where the run never really got its turn — a
- * refused start, a rejected eligibility query, or a wallet lock — since those
- * are transient and should be retried within this same backend lifetime; and
- * a failed pass's entry is released by the next lock
- * (`releaseGuardianRecoveriesOnLock`). A terminal history failure ends like a
- * clean pass: it clears the flag and keeps the entry, so the cleared flag is
- * the stop, and a flag write that fails releases the entry for the next offer.
- */
-const startedRecoveries = new Set<string>();
+/** A finished run's kept reservation: the wallet generation it belongs to, and whether a source failed. */
+interface KeptReservation {
+  generation: string | undefined;
+  failed: boolean;
+}
 
 /**
- * Accounts whose finished run kept its `startedRecoveries` entry with the flag
- * still set because a source failed or was deferred. Only these are released
- * on lock: a run queued or in flight yields to the lock through `shouldYield`
- * on its own.
+ * Each account's recovery reservation. Absent means free, null means a run (or
+ * the start gate) holds it in flight, and a KeptReservation means a finished
+ * run keeps it. A pass that FAILED a source keeps it, so an account gets at
+ * most one such attempt per unlock: the flag stays set for the next unlock or
+ * backend start to retry, without GuardianRecoveryProvider's 5s poll re-running
+ * the full drain/backfill in a loop against a persistently failing source. A
+ * notes or history pass deferred by a lock eviction keeps it too and resumes
+ * from its checkpoint at the next backend start, since a re-offer would re-run
+ * an op that can hold the mutex for the whole watchdog on every lap. A clean
+ * pass and a terminal history failure keep it once the flag is cleared, so the
+ * cleared flag is the stop.
+ *
+ * A reservation is released again only where the run never really got its
+ * turn (a refused start, a rejected eligibility query, or a wallet lock), since
+ * those are transient and should be retried within this same backend lifetime,
+ * and where a flag write does not land, for the next offer. A kept one with
+ * `failed` set is released by the next lock (`releaseGuardianRecoveriesOnLock`),
+ * so the provider offers it again; a run queued or in flight yields to the lock
+ * through `shouldYield` on its own.
+ *
+ * Every kept reservation belongs to the wallet generation its run took: a
+ * wallet replaced since then, by a seed or file restore that sets the flag
+ * again, is admitted on its next offer. A run marks its reservation kept only
+ * once it has nothing left to await. A run's null is released only by that
+ * run's own terminal exits, which return at once, so a null seen at a kept
+ * write is the run's own.
  */
-const failedRecoveries = new Set<string>();
+const reservations = new Map<string, KeptReservation | null>();
 
 /** Bumped by every lock, so a run that ends after one knows its entry is already due for release. */
 let lockEpoch = 0;
@@ -729,8 +737,9 @@ let lockEpoch = 0;
  */
 export function releaseGuardianRecoveriesOnLock(): void {
   lockEpoch++;
-  for (const publicKey of failedRecoveries) startedRecoveries.delete(publicKey);
-  failedRecoveries.clear();
+  for (const [publicKey, held] of reservations) {
+    if (held?.failed) reservations.delete(publicKey);
+  }
   forgetUnsupportedHistorySources();
 }
 
@@ -761,12 +770,17 @@ let recoveryQueue: Promise<void> = Promise.resolve();
 export async function maybeStartGuardianRecovery(account: WalletAccount): Promise<boolean> {
   if (!account.guardianNoteRecoveryPending) return false;
   if (account.requiresHotKeyRotation) return false;
-  if (startedRecoveries.has(account.publicKey)) return false;
-
-  // Reserve the slot BEFORE awaiting: concurrent requests for the same
-  // account (popup + full page both mount the provider) would otherwise both
-  // pass the check above while the first one's Dexie query is in flight.
-  startedRecoveries.add(account.publicKey);
+  const held = reservations.get(account.publicKey);
+  if (held === null) return false;
+  if (held !== undefined) {
+    // Admission puts the reservation back in flight, which already reserves the slot for the run that follows.
+    if (!(await admitReplacedWallet(account.publicKey, held))) return false;
+  } else {
+    // Reserve the slot BEFORE awaiting: concurrent requests for the same
+    // account (popup + full page both mount the provider) would otherwise both
+    // pass the check above while the first one's Dexie query is in flight.
+    reservations.set(account.publicKey, null);
+  }
   try {
     // A terminal history checkpoint (a node's "no fee" answer, or an own operator's unsupported answer or a
     // source's invalid data marked at the cap) whose run could not clear the flag clears it here, so the gate
@@ -776,18 +790,20 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
     // own flag.
     const terminalGeneration = await terminalGuardianHistoryGeneration(account);
     if (terminalGeneration !== null) {
-      await clearPendingFlag(account, terminalGeneration);
+      if ((await clearPendingFlag(account, terminalGeneration)) === 'cleared') {
+        keepReservation(account.publicKey, { generation: terminalGeneration, failed: false });
+      }
       return false;
     }
     if (!(await isSafeToRunNow())) {
-      startedRecoveries.delete(account.publicKey);
+      reservations.delete(account.publicKey);
       return false;
     }
   } catch (error) {
     // Release the reservation: a rejected Dexie query is transient, and
     // holding the slot would make the account unstartable for the rest of
     // this backend's lifetime while its pending flag stays set.
-    startedRecoveries.delete(account.publicKey);
+    reservations.delete(account.publicKey);
     throw error;
   }
 
@@ -797,6 +813,30 @@ export async function maybeStartGuardianRecovery(account: WalletAccount): Promis
   // `.then` and strand accounts that are already marked started.
   recoveryQueue = recoveryQueue.then(() => runDetachedRecovery(account)).catch(() => {});
   return true;
+}
+
+/**
+ * Whether a kept reservation belongs to a wallet generation that has been
+ * replaced since. A read that rejects counts as unchanged. The reservation is
+ * taken back in flight only if it is still the one read before the await, so of
+ * two racing starts, or a start racing a lock, only one wins it.
+ */
+async function admitReplacedWallet(publicKey: string, held: KeptReservation): Promise<boolean> {
+  if (held.generation === undefined) return false;
+  let current: string;
+  try {
+    current = await readGuardianHistoryGeneration();
+  } catch {
+    return false;
+  }
+  if (current === held.generation || reservations.get(publicKey) !== held) return false;
+  reservations.set(publicKey, null);
+  return true;
+}
+
+/** Marks a run's reservation kept. The null check is defence in depth: only the run itself releases its null. */
+function keepReservation(publicKey: string, kept: KeptReservation): void {
+  if (reservations.get(publicKey) === null) reservations.set(publicKey, kept);
 }
 
 /**
@@ -822,7 +862,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
   // locked the wallet or started a transaction in the meantime.
   const yieldedAtTurn = await shouldYield();
   if (yieldedAtTurn) {
-    startedRecoveries.delete(account.publicKey);
+    reservations.delete(account.publicKey);
     console.log(`[GuardianRecovery] Deferring recovery for ${account.publicKey} at its turn: ${yieldedAtTurn}`);
     return;
   }
@@ -838,6 +878,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     generation = await readGuardianHistoryGeneration();
     const result = await recoverPendingNotes(account, generation);
     if (result.deferred && result.evicted) {
+      keepReservation(account.publicKey, { generation, failed: false });
       console.warn(
         `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
       );
@@ -847,7 +888,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       // Giving way is not a failing source: release the reservation so the
       // provider's poll restarts this account once the wallet is free again,
       // instead of waiting for the next backend start.
-      startedRecoveries.delete(account.publicKey);
+      reservations.delete(account.publicKey);
       console.warn(`[GuardianRecovery] Recovery for ${account.publicKey} deferred; will be re-offered`);
       return;
     }
@@ -868,13 +909,14 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       generation
     });
     if (history.deferred && history.evicted) {
+      keepReservation(account.publicKey, { generation, failed: false });
       console.warn(
         `[GuardianRecovery] Recovery for ${account.publicKey} deferred by a lock eviction; will resume on the next start`
       );
       return;
     }
     if (history.deferred) {
-      startedRecoveries.delete(account.publicKey);
+      reservations.delete(account.publicKey);
       return;
     }
     // A wallet replaced while the pass ran owns the record from here: no report, and no reservation held for it.
@@ -882,7 +924,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
       (history.failed || history.sourceFailures > 0 || history.deferredSources > 0) &&
       (await readGuardianHistoryGeneration()) !== generation
     ) {
-      startedRecoveries.delete(account.publicKey);
+      reservations.delete(account.publicKey);
       return;
     }
     if (history.failed) {
@@ -894,7 +936,9 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
         step: 'history-failed',
         restored: history.restored
       });
-      await clearPendingFlag(account, generation);
+      if ((await clearPendingFlag(account, generation)) === 'cleared') {
+        keepReservation(account.publicKey, { generation, failed: false });
+      }
       return;
     }
     // A deferred source (an operator the account may never have used that serves no history yet or cannot be read,
@@ -916,6 +960,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     // re-running the notes backfill; on 'replaced' the new wallet owns it.
     if ((await clearPendingFlag(account, generation)) !== 'cleared') return;
     await clearGuardianNoteRecoveryProgress(account.publicKey);
+    keepReservation(account.publicKey, { generation, failed: false });
   } catch (error) {
     failed = true;
     console.warn(`[GuardianRecovery] Detached pending-note recovery failed for ${account.publicKey}:`, error);
@@ -931,13 +976,15 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
           // A re-read that fails counts as unchanged: the finally must not throw.
         }
       }
-      // A lock that landed during the run, or during that read, has already released the set, so this run releases
-      // itself. Nothing is awaited between these tests and the add.
-      if (lockEpoch !== epoch || replaced) startedRecoveries.delete(account.publicKey);
-      else failedRecoveries.add(account.publicKey);
+      // A lock that landed during the run, or during that read, would already have released a failed reservation,
+      // so this run releases itself. Nothing is awaited between these tests and the keep.
+      if (lockEpoch !== epoch || replaced) reservations.delete(account.publicKey);
+      else keepReservation(account.publicKey, { generation, failed: true });
     }
   }
 }
+
+type FlagClearOutcome = 'cleared' | 'retry' | 'replaced';
 
 /**
  * The terminal write. Joins the accounts-list write queue: this is a
@@ -957,24 +1004,25 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
  * when the history generation moved under the run: the wallet was replaced,
  * so nothing is written and the flag is the new wallet's.
  */
-async function clearPendingFlag(account: WalletAccount, generation: string): Promise<'cleared' | 'retry' | 'replaced'> {
-  let outcome: 'cleared' | 'retry' | 'replaced' = 'retry';
+async function clearPendingFlag(account: WalletAccount, generation: string): Promise<FlagClearOutcome> {
+  // An object, not a `let`: TypeScript narrows a `let` to its initializer and never sees the queued callback's writes.
+  const state: { outcome: FlagClearOutcome } = { outcome: 'retry' };
   try {
     await getAccountsWriteQueue().add(async () => {
       const vault = liveVault();
       if (!vault) {
-        startedRecoveries.delete(account.publicKey);
+        reservations.delete(account.publicKey);
         console.warn(`[GuardianRecovery] Wallet locked before clearing the flag for ${account.publicKey}; will retry`);
         return;
       }
       if ((await readGuardianHistoryGeneration()) !== generation) {
-        outcome = 'replaced';
-        startedRecoveries.delete(account.publicKey);
+        state.outcome = 'replaced';
+        reservations.delete(account.publicKey);
         console.warn(`[GuardianRecovery] The wallet changed before clearing the flag for ${account.publicKey}`);
         return;
       }
       const updated = await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
-      outcome = 'cleared';
+      state.outcome = 'cleared';
       // A lock between the write and the broadcast would merge accounts back
       // into the state `locked` just reset; the flag is already persisted, so
       // dropping the broadcast is the safe half to lose.
@@ -982,8 +1030,9 @@ async function clearPendingFlag(account: WalletAccount, generation: string): Pro
       accountsUpdated(updated);
     });
   } catch (error) {
-    startedRecoveries.delete(account.publicKey);
+    // After 'cleared' the flag is no longer set, so the run keeps its reservation in flight until its own end.
+    if (state.outcome !== 'cleared') reservations.delete(account.publicKey);
     console.warn(`[GuardianRecovery] Failed to clear the recovery flag for ${account.publicKey}; will retry:`, error);
   }
-  return outcome;
+  return state.outcome;
 }
