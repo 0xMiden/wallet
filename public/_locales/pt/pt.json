@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Prova gerada",
   "transactionStepSubmitting": "Enviando",
   "transactionStepSyncingGuardian": "Sincronização com Guardian",
+  "guardianBusyStep": "Aguardando seu “Guardian”",
+  "guardianBusyDescription": "Seu “Guardian” ainda está finalizando sua transação anterior. Esta continua automaticamente.",
   "transactionStepDurationSec": "$seconds$ seg",
   "transactionStageSyncing": "Sincronizando a conta",
   "transactionStageSyncingDescription": "Buscando o estado mais recente da sua conta.",
@@ -1288,5 +1290,9 @@
   "unhide": "Mostrar",
   "unhideTokenLabel": "Exibir $name$",
   "hiddenTokensError": "Não foi possível atualizar os tokens ocultos. Tente novamente.",
-  "hiddenTokensUnreadable": "Não foi possível carregar os tokens ocultos."
+  "hiddenTokensUnreadable": "Não foi possível carregar os tokens ocultos.",
+  "confirmSendReason": "Confirme seu envio",
+  "confirmSwapReason": "Confirme sua troca",
+  "confirmDappTransactionReason": "Confirme esta transação",
+  "confirmEarnDepositReason": "Confirme seu depósito"
 }

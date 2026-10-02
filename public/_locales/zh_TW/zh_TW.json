@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "已產生證明",
   "transactionStepSubmitting": "提交",
   "transactionStepSyncingGuardian": "與 Guardian 同步",
+  "guardianBusyStep": "等待您的 Guardian",
+  "guardianBusyDescription": "您的 Guardian 仍在處理您之前的交易。這筆交易將自動繼續進行。",
   "transactionStepDurationSec": "$seconds$ sec",
   "transactionStageSyncing": "同步帳戶",
   "transactionStageSyncingDescription": "正在擷取您的最新帳戶狀態。",
@@ -1288,5 +1290,9 @@
   "unhide": "取消隱藏",
   "unhideTokenLabel": "取消隱藏 $name$",
   "hiddenTokensError": "無法更新隱藏代幣。請重試。",
-  "hiddenTokensUnreadable": "無法載入隱藏代幣。"
+  "hiddenTokensUnreadable": "無法載入隱藏代幣。",
+  "confirmSendReason": "確認您的轉帳",
+  "confirmSwapReason": "確認您的更換操作",
+  "confirmDappTransactionReason": "確認此筆交易",
+  "confirmEarnDepositReason": "確認您的存款"
 }

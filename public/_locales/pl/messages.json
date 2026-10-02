@@ -894,6 +894,14 @@
     "message": "Synchronizacja z Guardian",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "Czekasz na swój Guardian",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Twój portfel Guardian nadal finalizuje poprzednią transakcję. Ta transakcja jest kontynuowana automatycznie.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ sek.",
     "englishSource": "$seconds$ sec",
@@ -5693,5 +5701,21 @@
   "hiddenTokensUnreadable": {
     "message": "Nie udało się załadować ukrytych tokenów.",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "Potwierdź wysyłkę",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "Potwierdź wymianę",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "Potwierdź tę transakcję",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "Potwierdź swoją wpłatę",
+    "englishSource": "Confirm your deposit"
   }
 }

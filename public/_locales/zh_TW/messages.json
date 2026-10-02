@@ -894,6 +894,14 @@
     "message": "與 Guardian 同步",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "等待您的 Guardian",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "您的 Guardian 仍在處理您之前的交易。這筆交易將自動繼續進行。",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ sec",
     "englishSource": "$seconds$ sec",
@@ -5693,5 +5701,21 @@
   "hiddenTokensUnreadable": {
     "message": "無法載入隱藏代幣。",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "確認您的轉帳",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "確認您的更換操作",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "確認此筆交易",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "確認您的存款",
+    "englishSource": "Confirm your deposit"
   }
 }

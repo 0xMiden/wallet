@@ -9,6 +9,9 @@
  * error subscription).
  */
 
+import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
+import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import { isLockedError } from './helper';
@@ -213,6 +216,9 @@ beforeEach(() => {
   txStore.length = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });
+
+// The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
+afterEach(() => clearGuardianAccountLocks());
 
 describe('completeSendTransaction', () => {
   function makeSendTx(overrides: Partial<SendTransaction> = {}): SendTransaction {
@@ -1534,7 +1540,7 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
   it("skips a cooling-down requeued tx and runs another account's eligible tx that cycle", async () => {
     // Regression for the guardian pending-delta requeue starving other accounts:
     // a persistently-conflicting tx is always the OLDEST by initiatedAt, so after
-    // it is requeued it would be re-picked every cycle and burn the retry budget
+    // it is requeued it would be re-picked every cycle and re-ask the Guardian
     // while a second account's freshly-queued tx never runs — until it ages out at
     // MAX_QUEUED_AGE (~30 min). The backoff (nextEligibleAt) makes it yield the slot.
     const now = Math.floor(Date.now() / 1000);
@@ -1664,13 +1670,40 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
   it.each([
     {
       label: 'a 429',
-      error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' })
+      error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' }),
+      arm: 'guardian-rate-limited',
+      cooldownSec: 30
     },
-    { label: 'an unreachable Guardian', error: new TypeError('Failed to fetch') }
-  ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error }) => {
+    {
+      label: 'an unreachable Guardian',
+      error: new TypeError('Failed to fetch'),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
+    },
+    // A timeout says only that the Guardian did not answer: an unreachable Guardian, not a busy one (#312).
+    {
+      label: 'a Guardian request cut off at its deadline',
+      error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
+    }
+  ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error, arm, cooldownSec }) => {
+    const requeuedFrom = nowSec();
     await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
     expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Queued, stage: 'creating-proposal' });
-    expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(nowSec());
+    expect(txStore[0]!.requeueStreak).toEqual({ arm, count: 1 });
+    expect(txStore[0]!.nextEligibleAt).toBeGreaterThanOrEqual(requeuedFrom + cooldownSec);
+    expect(txStore[0]!.guardianBusy).toBeUndefined();
+  });
+
+  it('returns requeued, releasing the loop, when a pending-delta 409 marks a Guardian send busy (#312)', async () => {
+    const error = Object.assign(new Error('Conflict'), { status: 409, code: 'conflict_pending_delta' });
+    await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
+    expect(txStore[0]).toMatchObject({
+      status: ITransactionStatus.Queued,
+      stage: 'creating-proposal',
+      guardianBusy: true
+    });
   });
 
   it('returns processed when a Guardian send whose submit landed ends Completed', async () => {

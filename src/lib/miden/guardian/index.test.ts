@@ -19,7 +19,8 @@ import {
   GuardianReRegisterRefusedError,
   isGuardianAuthRejection,
   MultisigService,
-  POST_COMMIT_GUARDIAN_TIMEOUT_MS
+  POST_COMMIT_GUARDIAN_TIMEOUT_MS,
+  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -579,6 +580,78 @@ describe('MultisigService', () => {
       expect(getState).toHaveBeenCalledTimes(1);
       expect(getState).toHaveBeenCalledWith('acc-id');
       expect(wasmLockOptionsSeen).toHaveLength(0);
+    });
+  });
+
+  describe('priorCandidateState (#312)', () => {
+    const serviceReading = (getDelta: jest.Mock) =>
+      new MultisigService(makeMultisig() as never, { guardianClient: { getDelta } } as never, 'https://g.test');
+
+    it.each([
+      ['candidate', 'candidate', { status: 'candidate', timestamp: 't' }],
+      ['canonical', 'settled', { status: 'canonical', timestamp: 't' }],
+      ['discarded', 'settled', { status: 'discarded', timestamp: 't', reason: 'client_abandoned' }],
+      ['retained', 'settled', { status: 'retained', timestamp: 't', reason: 'retry_exhausted' }],
+      [
+        'pending (a proposal that never became a candidate)',
+        'unknown',
+        { status: 'pending', timestamp: 't', proposerId: 'p', cosignerSigs: [] }
+      ]
+    ])('reads a %s delta as %s, over HTTP and outside the WASM lock', async (_label, expected, status) => {
+      wasmLockOptionsSeen.length = 0;
+      const getDelta = jest.fn(async () => ({ accountId: 'acc-id', nonce: 7, status }));
+
+      await expect(serviceReading(getDelta).priorCandidateState(7)).resolves.toBe(expected);
+      expect(getDelta).toHaveBeenCalledWith('acc-id', 7);
+      expect(wasmLockOptionsSeen).toHaveLength(0);
+    });
+
+    it('reads a Guardian that holds no delta at that nonce as settled', async () => {
+      const getDelta = jest.fn(async () => {
+        throw Object.assign(new Error('Delta not found'), { status: 404, code: 'delta_not_found' });
+      });
+
+      await expect(serviceReading(getDelta).priorCandidateState(7)).resolves.toBe('settled');
+    });
+
+    it.each([
+      ['a 503', Object.assign(new Error('Service Unavailable'), { status: 503 })],
+      [
+        'a 401 from a key rotated since',
+        Object.assign(new Error('Unauthorized'), { status: 401, code: 'authentication_failed' })
+      ],
+      ['a network failure', new TypeError('Failed to fetch')]
+    ])('reads %s as unknown, never rejecting', async (_label, failure) => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const getDelta = jest.fn(async () => {
+          throw failure;
+        });
+
+        await expect(serviceReading(getDelta).priorCandidateState(7)).resolves.toBe('unknown');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('gives up after PRIOR_CANDIDATE_CHECK_TIMEOUT_MS and reads the silence as unknown', async () => {
+      jest.useFakeTimers();
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const service = serviceReading(jest.fn(() => new Promise(() => undefined)));
+        let outcome: string | undefined;
+        void service.priorCandidateState(7).then(state => {
+          outcome = state;
+        });
+
+        await jest.advanceTimersByTimeAsync(PRIOR_CANDIDATE_CHECK_TIMEOUT_MS - 1);
+        expect(outcome).toBeUndefined();
+        await jest.advanceTimersByTimeAsync(1);
+        expect(outcome).toBe('unknown');
+      } finally {
+        warnSpy.mockRestore();
+        jest.useRealTimers();
+      }
     });
   });
 

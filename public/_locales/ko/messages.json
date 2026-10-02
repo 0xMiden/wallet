@@ -894,6 +894,14 @@
     "message": "Guardian와의 동기화",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "Guardian를 기다리는 중",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Guardian는 여전히 이전 거래를 처리 중입니다. 이번 거래는 자동으로 이어집니다.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ 초",
     "englishSource": "$seconds$ sec",
@@ -5693,5 +5701,21 @@
   "hiddenTokensUnreadable": {
     "message": "숨겨진 토큰을 불러올 수 없습니다.",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "송금 확인",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "교체 확인",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "이 거래를 확인하십시오",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "입금 확인",
+    "englishSource": "Confirm your deposit"
   }
 }

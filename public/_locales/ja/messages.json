@@ -894,6 +894,14 @@
     "message": "Guardianとの同期",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "Guardianの到着をお待ちください",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Guardianは、まだ前回の取引を処理中です。今回の取引は自動的に続行されます。",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ 秒",
     "englishSource": "$seconds$ sec",
@@ -5693,5 +5701,21 @@
   "hiddenTokensUnreadable": {
     "message": "非表示のトークンを読み込むことができませんでした。",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "送信の確認",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "交換を確認してください",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "この取引を確認してください",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "入金を確認してください",
+    "englishSource": "Confirm your deposit"
   }
 }

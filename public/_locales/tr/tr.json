@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Kanıt oluşturuldu",
   "transactionStepSubmitting": "Gönderme",
   "transactionStepSyncingGuardian": "Guardian ile senkronizasyon",
+  "guardianBusyStep": "Guardian'ınızı bekliyorsunuz",
+  "guardianBusyDescription": "Guardian'ınız hala önceki işleminizi tamamlamaktadır. Bu işlem otomatik olarak devam eder.",
   "transactionStepDurationSec": "$seconds$ sn",
   "transactionStageSyncing": "Hesap senkronizasyonu",
   "transactionStageSyncingDescription": "En son hesap durumunuz alınıyor.",
@@ -1288,5 +1290,9 @@
   "unhide": "Gizlemeyi kaldır",
   "unhideTokenLabel": "$name$'i görünür hale getirin",
   "hiddenTokensError": "Gizli token'lar güncellenemedi. Lütfen tekrar deneyin.",
-  "hiddenTokensUnreadable": "Gizli token'lar yüklenemedi."
+  "hiddenTokensUnreadable": "Gizli token'lar yüklenemedi.",
+  "confirmSendReason": "Gönderiminizi onaylayın",
+  "confirmSwapReason": "Değiş tokuş işleminizi onaylayın",
+  "confirmDappTransactionReason": "Bu işlemi onaylayın",
+  "confirmEarnDepositReason": "Para yatırma işleminizi onaylayın"
 }

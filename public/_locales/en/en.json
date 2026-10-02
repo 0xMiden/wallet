@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Proof generated",
   "transactionStepSubmitting": "Submitting",
   "transactionStepSyncingGuardian": "Syncing with Guardian",
+  "guardianBusyStep": "Waiting for your Guardian",
+  "guardianBusyDescription": "Your Guardian is still finishing your previous transaction. This one continues automatically.",
   "transactionStepDurationSec": "$seconds$ sec",
   "transactionStageSyncing": "Syncing account",
   "transactionStageSyncingDescription": "Fetching your latest account state.",
@@ -1288,5 +1290,9 @@
   "unhide": "Unhide",
   "unhideTokenLabel": "Unhide $name$",
   "hiddenTokensError": "Could not update hidden tokens. Please try again.",
-  "hiddenTokensUnreadable": "Hidden tokens could not be loaded."
+  "hiddenTokensUnreadable": "Hidden tokens could not be loaded.",
+  "confirmSendReason": "Confirm your send",
+  "confirmSwapReason": "Confirm your swap",
+  "confirmDappTransactionReason": "Confirm this transaction",
+  "confirmEarnDepositReason": "Confirm your deposit"
 }
