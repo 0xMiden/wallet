@@ -383,11 +383,12 @@ describe('SendManager rendering', () => {
     expect(navigateMock).toHaveBeenCalledWith('/receive');
   });
 
-  it('does not hide the navbar when not on the /send path even past recipient', () => {
+  it('asks for the navbar hold past the recipient step on any route, leaving visibility to the hook', () => {
     mockPathname = '/';
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
-    expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(false);
+    expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
+    expect(useHideNavbarWhileOpenMock).not.toHaveBeenCalledWith(false);
   });
 
   it('renders the default (empty) branch for an unknown route name', () => {
