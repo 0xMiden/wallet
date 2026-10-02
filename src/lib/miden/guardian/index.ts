@@ -688,18 +688,13 @@ export class MultisigService {
           // names and a rebuild pins.
           {
             accountId: this.accountId,
-            signatureScheme: 'ecdsa',
-            midenRpcEndpoint: getEffectiveRpcUrl()
+            signatureScheme: 'ecdsa'
           }
         );
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
-        // Since protocol 0.16 the signed summary binds the reference block
-        // commitment, so it only reproduces when re-executed at that same block.
-        // The anchor names that block; without shipping it on the proposal, a
-        // cosigner or the executor re-executes at whatever height it happens to
-        // be synced to and derives a different summary, so the collected
-        // signatures no longer verify.
-        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
+        // The anchor names the block the auth args bind. Re-execution at a later
+        // tip reproduces the summary when the request declares that bound block.
+        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request);
         // The live anchor's only job is to be serialized onto the proposal; once
         // the wire form exists, release the WASM object (it holds a partial
         // blockchain) instead of leaving it to the finalizer - the same

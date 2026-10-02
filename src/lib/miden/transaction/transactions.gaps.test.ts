@@ -1355,7 +1355,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
     };
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
-      client: { transactions: guardianTxApi }
+      client: { transactions: guardianTxApi, syncChain: jest.fn(async () => {}), getSyncHeight: jest.fn(() => 1) }
     });
     try {
       // A real GuardianAccountProvider always implements getAccounts (the

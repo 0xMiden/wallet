@@ -48,8 +48,22 @@ runs:
       shell: bash
       run: |
         set -a; . playwright/e2e/local-stack/versions.env; set +a
-        echo "repo=$NODE_SRC_REPO" >> "$GITHUB_OUTPUT"
-        echo "rev=$NODE_SRC_REF"  >> "$GITHUB_OUTPUT"
+        repo="$NODE_SRC_REPO"
+        rev="$NODE_SRC_REF"
+        # A linked client commit already selected its protocol crates. Building the
+        # node from the published pin leaves the chain on the older protocol, and
+        # notes the funder creates never arrive in the SDK.
+        if [ -n "${MIDEN_LINKED_CLIENT_REV:-}" ]; then
+          if ! printf '%s' "$MIDEN_LINKED_CLIENT_REV" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error title=run-local-node::MIDEN_LINKED_CLIENT_REV='${MIDEN_LINKED_CLIENT_REV}' is not a 40-hex commit sha."
+            exit 1
+          fi
+          repo="${MIDEN_LINKED_CLIENT_URL:-$NODE_SRC_REPO}"
+          rev="$MIDEN_LINKED_CLIENT_REV"
+          echo "Node source follows linked client ${repo} @ ${rev}"
+        fi
+        echo "repo=$repo" >> "$GITHUB_OUTPUT"
+        echo "rev=$rev"  >> "$GITHUB_OUTPUT"
     - name: Drop apt repositories this repo never installs from
       uses: ./.github/actions/apt-drop-unused-repos
     - name: Install node build deps
@@ -72,7 +86,16 @@ runs:
         # clone process authenticates the clone and then those fetches fail.
         git clone -c http.extraheader="AUTHORIZATION: basic $auth" \
           --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
-        git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
+        # A published pin is on the default branch. A linked client sha is not,
+        # so fetch that commit before checkout. cat-file, not a failed checkout:
+        # a present commit can still be missing blobs, and checkout fetches those
+        # from the promisor remote. A depth-limited fetch there would truncate it.
+        rev="${{ steps.pins.outputs.rev }}"
+        dir="${{ runner.temp }}/miden-client"
+        if ! git -C "$dir" cat-file -e "${rev}^{commit}" 2>/dev/null; then
+          git -C "$dir" fetch -q --depth 1 origin "$rev"
+        fi
+        git -C "$dir" checkout -q "$rev" || git -C "$dir" checkout -q FETCH_HEAD
     # THE NODE AND THE SDK MUST SHARE ONE PROTOCOL REV.
     #
     # A guarded-multisig account built in the browser links `miden::standards::fee`

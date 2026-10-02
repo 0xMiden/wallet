@@ -72,6 +72,31 @@ runs:
           echo "root=$root"
         } >> "$GITHUB_OUTPUT"
 
+        # The SDK was compiled from this rust-sdk commit, so the funder CLI has to
+        # be that commit too. A published pin creates notes this SDK never sees.
+        # It wins over a Protocol PR marker: the client commit already selected
+        # the protocol crates the SDK built against.
+        client_rev="${MIDEN_LINKED_CLIENT_REV:-}"
+        if [ -n "$client_rev" ]; then
+          if ! printf '%s' "$client_rev" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error title=install-miden-client-cli::MIDEN_LINKED_CLIENT_REV='$client_rev' is not a 40-hex commit sha."
+            exit 1
+          fi
+          client_url="${MIDEN_LINKED_CLIENT_URL:-https://github.com/0xMiden/rust-sdk.git}"
+          rustc_id=$(rustc --version | sha256sum | cut -c1-8)
+          {
+            echo "git_url=$client_url"
+            echo "git_rev=$client_rev"
+            echo "proto_rev=none"
+            echo "linked_client=1"
+            echo "cache_key=miden-client-cli-${{ runner.os }}-${{ runner.arch }}-rustc$rustc_id-client$client_rev"
+            echo "root=$root"
+            echo "bin=$root/bin/miden-client"
+          } >> "$GITHUB_OUTPUT"
+          echo "CLI will be built from linked client ${client_url} @ ${client_rev:0:8}."
+          exit 0
+        fi
+
         if [ -z "$rev" ]; then
           # Absent means either "no linked Protocol PR" or "the injection has not run in this job
           # yet". Only the breadcrumb tells them apart, and conflating them is how an unpatched CLI
@@ -324,8 +349,58 @@ runs:
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}
+    - name: Restore the linked-client CLI
+      id: client_cli_cache
+      if: steps.pins.outputs.linked_client == '1'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.pins.outputs.root }}
+        key: ${{ steps.pins.outputs.cache_key }}
+    - name: Build the CLI from the linked client
+      if: steps.pins.outputs.linked_client == '1' && steps.client_cli_cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GIT_URL: ${{ steps.pins.outputs.git_url }}
+        GIT_REV: ${{ steps.pins.outputs.git_rev }}
+        ROOT: ${{ steps.pins.outputs.root }}
+      run: |
+        set -euo pipefail
+        rm -rf "$ROOT"; mkdir -p "$ROOT"
+        echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
+        # --locked: the client's own lock already selects its protocol crates.
+        # Rewriting the lock here is what makes cargo fetch a deleted git branch
+        # that the lock had already replaced.
+        cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked \
+          --root "$ROOT" --force
+        [ -x "$ROOT/bin/miden-client" ] || {
+          echo "::error title=install-miden-client-cli::miden-client was not installed to $ROOT/bin"
+          exit 1
+        }
+    - name: Save the linked-client CLI
+      if: steps.pins.outputs.linked_client == '1' && steps.client_cli_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.pins.outputs.root }}
+        key: ${{ steps.pins.outputs.cache_key }}
+    - name: Point the suite at the linked-client CLI
+      if: steps.pins.outputs.linked_client == '1'
+      shell: bash
+      env:
+        BIN: ${{ steps.pins.outputs.bin }}
+        ROOT: ${{ steps.pins.outputs.root }}
+      run: |
+        set -euo pipefail
+        [ -x "$BIN" ] || { echo "::error title=install-miden-client-cli::no miden-client at $BIN"; exit 1; }
+        "$BIN" --version
+        case "$BIN" in
+          *[[:space:]]*)
+            echo "::error title=install-miden-client-cli::the install path '$BIN' contains whitespace; MIDEN_CLIENT_BIN cannot carry it intact."
+            exit 1 ;;
+        esac
+        echo "MIDEN_CLIENT_BIN=$BIN" >> "$GITHUB_ENV"
+        echo "$ROOT/bin" >> "$GITHUB_PATH"
     - name: Install the CLI at its published pin
-      if: steps.pins.outputs.proto_rev == 'none'
+      if: steps.pins.outputs.proto_rev == 'none' && steps.pins.outputs.linked_client != '1'
       shell: bash
       env:
         GIT_URL: ${{ steps.pins.outputs.git_url }}

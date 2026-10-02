@@ -68,7 +68,7 @@ import {
   type OffscreenStageEvent
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
-import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
+import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
@@ -724,12 +724,11 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
   // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
-  // (offscreen) client's store — which is what makes the relay belong here: under
-  // 0.16 `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
-  // resolves the note by id from the calling client's store and derives the
-  // recipient's forward-scan hint from its stored `expected_height` (the chain tip
-  // when the note's transaction was submitted). On the dormant SW client that
-  // lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
+  // (offscreen) client's store, which is what makes the relay belong here.
+  // `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
+  // resolves the note by id from the calling client's store and reads the
+  // inclusion proof sync stored once that client has synced past the commitment.
+  // On the dormant SW client that lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
   // `Note.serialize()` raw bytes and is re-hydrated here purely to read its id back.
   // A transport relay — no prove / sign — so a void result (nothing to
   // re-hydrate); the SW-side caller only awaits it.
@@ -741,8 +740,8 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Re-push of an already-relayed private note, by id (see `relayPrivateNoteById`).
   // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
-  // THIS realm's store, so the id lookup and the `expected_height` hint derivation
-  // only resolve here. No note bytes to carry — the sweep has only the row.
+  // THIS realm's store, so the id lookup and the stored inclusion proof
+  // only resolve here. No note bytes to carry. The sweep has only the row.
   relayPrivateNoteById: async (_context, client, noteId: string, to: string) => {
     await client.relayPrivateNoteById(noteId, to);
     return null;
@@ -892,12 +891,9 @@ const DISPATCH: Record<string, DispatchFn> = {
   // costs a blank duration, never the transaction.
   // Args are destructured from the SHARED `GuardianPipelineArgs` tuple rather
   // than re-declared here, so this list and the SW-side packer cannot drift.
-  // Note `chainAnchorB64` is `string | null`: the slot is always on the wire and
-  // `encodeArg` maps an absent anchor to JSON `null`, never `undefined`. Every
-  // branch below selects on truthiness, which covers both — and the older tests
-  // that build a 3-arg envelope by hand.
+  // The historical anchor slot remains on the wire; execution uses the request's bound block at the tip.
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
-    const [accountId, trBytes, delegateTransaction, chainAnchorB64] = args;
+    const [accountId, trBytes, delegateTransaction] = args;
     // This op's own id and lock hold, threaded in by `handleCall` before any
     // await so both are provably ours (issue #775). The hold is what keeps a pause from
     // silencing the watchdog of whichever holder took the lock after an
@@ -909,39 +905,13 @@ const DISPATCH: Record<string, DispatchFn> = {
     if (!delegateTransaction) proveWorker.prewarm();
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     postStageEvent(context, 'executing');
-    // #784: execute AT the proposal's anchored reference block, not this realm's
-    // current sync height. The request's co-signatures were collected over a
-    // summary that binds that block's commitment (protocol 0.16), so an
-    // unanchored execute after the chain advanced derives a different summary
-    // and the kernel rejects the transaction as unauthorized. The anchor crossed
-    // in wire form (the proposal metadata's base64 — a WASM ChainAnchor cannot
-    // cross the message boundary) and is decoded here, in the realm that
-    // executes; freed as soon as executeRequest is done with it.
-    //
-    // The decode gets its own breadcrumb because it can throw (a skewed or
-    // truncated anchor fails here, before execution), and this realm's whole
-    // diagnostic contract is that a write names the step it stopped on.
-    // The decode sits INSIDE the try purely by shape, so nothing added between
-    // it and the execute can ever leak the anchor. It closes no live hazard
-    // today: the only statement between them is `recordProveTiming`, a bare
-    // return in production builds whose one unguarded statement in E2E ones is a
-    // `console.log`. `sdk.ChainAnchor` needs no cast: the lazy namespace is typed.
-    let anchor: sdk.ChainAnchor | undefined;
-    let executedTx;
-    try {
-      if (chainAnchorB64) recordProveTiming('guardianPipeline decoding chain anchor');
-      anchor = chainAnchorB64 ? sdk.ChainAnchor.deserialize(b64ToBytes(chainAnchorB64)) : undefined;
-      recordProveTiming(`guardianPipeline calling executeRequest anchored=${anchor ? 'yes' : 'no'}`);
-      executedTx = await client.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
-    } finally {
-      // Narrate a failed free to the realm's OWN channel too: the harness
-      // cannot attach a console to this document, so `console.warn` alone is
-      // invisible exactly where this realm is hardest to debug. Prefixed like
-      // every other line this op emits, so it survives the `] guardianPipeline `
-      // filter that separates the pipeline's trail from the envelope's — the one
-      // marker reporting a failure must not be the one the filter drops.
-      freeChainAnchor(anchor, message => recordProveTiming(`guardianPipeline ${message}`));
-    }
+    recordProveTiming('guardianPipeline preparing current tip');
+    await prepareGuardianTipExecution(client.client, tr, () =>
+      assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
+    );
+    assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
+    recordProveTiming('guardianPipeline calling executeRequest at current tip');
+    const executedTx = await client.client.transactions.executeRequest(accountId, tr);
     recordProveTiming('guardianPipeline executeRequest returned; proving');
     // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
     // brackets below cover proving, not this), so a node that accepts and never

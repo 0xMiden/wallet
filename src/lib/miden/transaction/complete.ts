@@ -125,27 +125,27 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
 
-    // Relay every note FIRST, then wait for the commit once.
+    // Wait for the commit ONCE, then relay every note.
     //
-    // The wait used to sit inside the per-note loop, which made note N+1's relay
-    // wait out note N's commit — up to a full commit interval of extra exposure per
-    // note, during which a realm teardown or a closed service worker loses the
-    // remaining relays entirely. It also re-waited on the same transaction id once
-    // per note, which is the same answer every time.
-    //
-    // Ordering relays before the wait is otherwise unchanged, and NOT for the reason
-    // the old comment gave: under 0.15 the hint was the client's live sync height,
-    // so waiting first advanced it past the note's commitment block and the
-    // recipient — who scans FORWARD from the hint — silently never found the note.
-    // 0.16's `sendPrivateOutput` derives the hint from the note's stored
-    // `expected_height`, which does not move with sync. The order is kept because it
-    // is still the right shape (hand over the note the moment it exists, gate the
-    // row's status on the commit), not because delivery depends on it.
+    // rc.5's transport verifies an inclusion proof. `sendPrivateOutput` reads the
+    // proof sync stored once this client has synced past the commitment, and
+    // throws when that proof is missing. Relaying first can no longer hand the
+    // note over: the proof does not exist yet. One wait covers every note,
+    // because they share the transaction id.
     //
     // Relays route through `midenClientProxy` (issue #260, slice 7b): under the flag
     // the write ran offscreen, so each note is an APPLIED OUTPUT note of the
-    // OFFSCREEN client's store — and `sendPrivateOutput` resolves it by id out of
-    // that store — so the relay MUST run there, not on the dormant SW client.
+    // OFFSCREEN client's store, and `sendPrivateOutput` resolves it by id out of
+    // that store, so the relay runs there, not on the dormant SW client.
+    try {
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
+    } catch (error) {
+      console.warn('Commit wait failed before relaying private notes; the relay may find no proof', {
+        txId: transaction.id,
+        error
+      });
+    }
+
     for (const fullNote of notesToRelay) {
       try {
         await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
@@ -169,19 +169,6 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       await recordNoteDelivery(transaction.id, noteDelivery);
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, noteDelivery, error });
-    }
-
-    // Confirmation only, once, and after the relays have settled. Its failure says
-    // nothing about delivery, so it is caught separately — folding it in with the
-    // relay's catch (as before) made a healthy relay followed by a slow commit
-    // indistinguishable from a note that never reached the transport at all.
-    try {
-      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
-    } catch (error) {
-      console.warn('Commit wait failed after relaying private notes; relying on SDK reconcile', {
-        txId: transaction.id,
-        error
-      });
     }
   } else if (undeliveredNotes > 0) {
     // Private notes existed but none could be turned into a relayable note.
@@ -954,17 +941,18 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     }
 
     try {
-      // Relay BEFORE waiting for commit. Under 0.16 the hint comes from the note's
-      // stored `expected_height` rather than the client's live sync height, so this
-      // ordering is no longer what keeps the hint below the commitment block — but
-      // it is still right: it puts the irreversible, unrecoverable step first, while
-      // the wait is only a confirmation gate.
-      //
-      // Both the relay and the paired wait route through `midenClientProxy` (issue
-      // #260, slice 7b) so they run on the SAME client that created the note — the
-      // OFFSCREEN client flag-on, whose store holds it as an applied output note and
-      // is therefore the only one `sendPrivateOutput` can resolve it from; the SW
-      // client flag-off (each proxy call owns its WASM lock).
+      // The proof rc.5's transport verifies exists only after this commit wait
+      // syncs past the block. Both the wait and the relay route through
+      // `midenClientProxy` (issue #260, slice 7b) so they run on the client that
+      // created the note: the offscreen client when the flag is on, whose store
+      // holds the output note `sendPrivateOutput` reads.
+      await setTransactionStage(tx.id, 'confirming');
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
+    } catch (error) {
+      console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
+    }
+
+    try {
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
       noteDelivery = 'relayed';
     } catch (error) {
@@ -1000,19 +988,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       await recordNoteDelivery(tx.id, noteDelivery);
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
-    }
-
-    // Confirmation only, and only once the relay has settled either way. Its own
-    // failure says nothing about delivery, so it must not disturb the state above.
-    try {
-      await setTransactionStage(tx.id, 'confirming');
-      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
-    } catch (error) {
-      // The on-chain tx may not be confirmed yet from this client's perspective;
-      // falling through to the normal Completed path is still correct because
-      // executedTx.id() is the canonical id and the chain is the source of truth —
-      // a subsequent sync reconciles it.
-      console.warn('Commit wait failed during private send; relying on SDK reconcile', { txId: tx.id, error });
     }
   } else if (isPrivateSend && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });

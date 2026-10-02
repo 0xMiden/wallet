@@ -1349,16 +1349,14 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    // `sendPrivate` takes the live Note and an explicit scan-after hint, so it
-    // does not need the note in this client's store. That lets the SW relay
-    // after an offscreen prove without a CORS fetch from the offscreen doc
-    // (localnet NTS is 127.0.0.1; host_permissions do not bypass that path).
-    // Relayed before the commit wait, so getSyncHeight is still at or below
-    // the commitment block.
-    await this.client.notes.sendPrivate({
-      note,
-      to: accountRefToSdk(to),
-      scanAfterBlockNum: await this.client.getSyncHeight()
+    // rc.5 verifies an inclusion proof and drops the scan-after hint.
+    // `sendPrivateOutput` reads the proof sync stored on this client's output
+    // note, which exists once `transactions.waitFor` has synced past the
+    // commitment. Callers wait for that commit before relaying. The call runs
+    // on the client that created the note, the same store the id lookup uses.
+    await this.client.notes.sendPrivateOutput({
+      noteId: note.id().toString(),
+      to: accountRefToSdk(to)
     });
   }
 
@@ -1370,9 +1368,9 @@ export class MidenClientInterface {
    * transaction row, so requiring a `Note` would mean re-hydrating one purely to
    * read back the id that `sendPrivateOutput` wants anyway.
    *
-   * Safe to call repeatedly: the hint is re-derived from the note's stored
-   * `expected_height` on every call, so a re-push is as correct as the first push
-   * however late it runs.
+   * Safe to call repeatedly. `sendPrivateOutput` reads the inclusion proof sync
+   * stored on the output note, so a later call is as correct as the first once
+   * that proof is in this client's store.
    */
   async relayPrivateNoteById(noteId: string, to: string): Promise<void> {
     await this.client.notes.sendPrivateOutput({ noteId, to: accountRefToSdk(to) });

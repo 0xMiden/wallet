@@ -13,7 +13,6 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 
 import { isOperationAbortedError } from './offscreen-codec';
@@ -85,21 +84,8 @@ function isAlreadyAuthorizedError(err: unknown): boolean {
  * True when `executeForSummary` died because it had no signer for this account, rather than
  * because the request itself is bad.
  *
- * `executeForSummary` does not run on the wallet's client: `getRawMidenClient` builds its own
- * (`WasmWebClient.createClient(endpoint, undefined, undefined, storeId)`), and the realm keystore
- * reaches the SDK only through the create options the wallet passes when it builds its OWN client
- * (`keystoreTrampolines` in `sdk/miden-client.ts`). That raw client therefore has no sign
- * callback, falls back to the SDK's IndexedDB keystore - empty, because the keys live in the
- * wallet vault - and the execution dies inside the kernel's `miden::protocol::auth::request`
- * event. A guardian account never hits it (its auth component collects co-signatures instead), so
- * this is every ORDINARY account, and before the fallback below it meant the dApp custom sheet had
- * no verified asset view at all - and, once a spending limit existed, effects the wallet could not
- * attribute made it refuse the request outright.
- *
- * Matched on text because the SDK reports it as a kernel event failure with no code. Deliberately
- * narrow: if the wording changes this stops matching and the sheet degrades to "effects unknown"
- * exactly as it did before, rather than retrying a request that genuinely failed to execute. The
- * real fix is upstream - the raw client should carry the caller's keystore.
+ * Matched narrowly because the SDK reports signing failures as kernel event errors
+ * without a code. Other execution failures must not enter the local fallback.
  */
 function isSummarySigningUnavailable(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err ?? '');
@@ -107,10 +93,8 @@ function isSummarySigningUnavailable(err: unknown): boolean {
 }
 
 /**
- * `executeForSummary` builds a second WASM client (`getRawMidenClient`) that does
- * not receive `feeFaucetId`. On 0.17 that client cannot be created for `mlcl`.
- * The wallet's own client already has the faucet, so local `executeRequest` is
- * the same fallback as a missing signer.
+ * Missing fee-faucet context can use the same local execution fallback as a
+ * missing signer; the wallet client already has the network's faucet.
  */
 function isSummaryFeeFaucetMissing(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err ?? '');
@@ -264,10 +248,6 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         let summarized: Awaited<ReturnType<typeof executeForSummary>> | undefined;
         let summaryFailure: unknown;
         try {
-          // The high-level `MidenClient` overload needs the RPC endpoint explicitly
-          // (multisig-client 0.17 / SDK 0.16); the raw-WasmWebClient overload is
-          // the one that can omit it.
-          //
           // The anchor this also returns is only useful to a party that has to
           // reproduce the summary later — a cosigner or executor. This dry run
           // displays the summary and discards it, so nothing here wants the
@@ -276,7 +256,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
           // summary branch is the GUARDIAN one, so every confirm dialog a
           // multisig account opens strands another one until the finalizer
           // happens to run (#784).
-          summarized = await executeForSummary(client.client, accountIdHex, request, getEffectiveRpcUrl());
+          summarized = await executeForSummary(client.client, accountIdHex, request);
         } catch (e) {
           summaryFailure = e;
         }
