@@ -1210,6 +1210,98 @@ describe('MidenClientInterface', () => {
     }
   });
 
+  describe('withDelegatedProveTimeout counts foreground time only (#473)', () => {
+    let hidden = false;
+    let stopTracking: (() => void) | null = null;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      hidden = false;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    });
+
+    afterEach(() => {
+      stopTracking?.();
+      stopTracking = null;
+      Reflect.deleteProperty(document, 'hidden');
+      jest.useRealTimers();
+    });
+
+    const setHidden = (value: boolean) => {
+      hidden = value;
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+
+    // One module registry for both, so the deadline reads the tracker these tests drive.
+    async function loadWithTracking() {
+      const backgroundTime = await import('lib/mobile/background-time');
+      const { withDelegatedProveTimeout } = await import('./miden-client-interface');
+      backgroundTime.initBackgroundTimeTracking();
+      stopTracking = backgroundTime.__resetBackgroundTimeForTest;
+      return withDelegatedProveTimeout;
+    }
+
+    function recordOutcome(promise: Promise<unknown>): () => unknown {
+      let outcome: unknown;
+      promise.then(
+        value => {
+          outcome = { value };
+        },
+        (error: unknown) => {
+          outcome = { error };
+        }
+      );
+      return () => outcome;
+    }
+
+    it('a prove that answers after 150 s, 140 s of them in the background, resolves', async () => {
+      const withDelegatedProveTimeout = await loadWithTracking();
+      let answer!: (proof: string) => void;
+      const outcome = recordOutcome(
+        withDelegatedProveTimeout(
+          new Promise<string>(resolve => {
+            answer = resolve;
+          }),
+          'Delegated send prove'
+        )
+      );
+
+      await jest.advanceTimersByTimeAsync(10_000);
+      setHidden(true);
+      // The 120 s wall-clock deadline comes due inside this stretch.
+      await jest.advanceTimersByTimeAsync(140_000);
+      setHidden(false);
+      expect(outcome()).toBeUndefined();
+      answer('proof');
+      // Also drains the zero-delay job a visibilitychange queues from another listener
+      // in this import graph, so the only timer that could be left is the deadline.
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(outcome()).toEqual({ value: 'proof' });
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('rejects with the same message once 120 s of visible time pass', async () => {
+      const withDelegatedProveTimeout = await loadWithTracking();
+      const outcome = recordOutcome(withDelegatedProveTimeout(new Promise<never>(() => {}), 'Delegated send prove'));
+
+      await jest.advanceTimersByTimeAsync(119_999);
+      expect(outcome()).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome()).toEqual({
+        error: new Error('Delegated send prove timed out after 120000ms waiting for the remote prover')
+      });
+    });
+
+    it('a prove that fails before the deadline cancels it', async () => {
+      const withDelegatedProveTimeout = await loadWithTracking();
+      const failure = new Error('prover unavailable');
+
+      await expect(withDelegatedProveTimeout(Promise.reject(failure), 'Delegated send prove')).rejects.toBe(failure);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
   it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
     const staged = stagedExecuteRequest();
     const inner = {

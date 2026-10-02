@@ -44,6 +44,7 @@ import {
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { setForegroundTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { reportProve } from 'lib/telemetry/report-operation';
@@ -2042,20 +2043,24 @@ export const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
  * Timing out abandons only the RESPONSE — the request itself cannot be cancelled — so
  * every call site must be one where re-running the work cannot move funds twice. See each
  * caller for why it qualifies.
+ *
+ * The budget is FOREGROUND time (#473): a mobile WebView is frozen in the background
+ * while the wall clock runs on, so a plain timer expired on resume and threw away a
+ * remote proof that may have arrived during the freeze, for a full local re-prove.
  */
 export function withDelegatedProveTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
+    const cancel = setForegroundTimeout(
       () => reject(new Error(`${label} timed out after ${DELEGATED_PROVE_TIMEOUT_MS}ms waiting for the remote prover`)),
       DELEGATED_PROVE_TIMEOUT_MS
     );
     promise.then(
       value => {
-        clearTimeout(timer);
+        cancel();
         resolve(value);
       },
       error => {
-        clearTimeout(timer);
+        cancel();
         reject(error);
       }
     );
