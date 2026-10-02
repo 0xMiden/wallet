@@ -33,7 +33,6 @@ import {
   guardianRetryAfterSec,
   isGuardianPendingConflict,
   isGuardianRateLimited,
-  isGuardianRequestTimeout,
   recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry
@@ -271,8 +270,9 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
 };
 
 // Cooldown (seconds) applied to a tx requeued on Guardian backpressure (#312): a
-// pending-delta 409, the settlement gate's refusal, or a Guardian request cut off
-// at its deadline. A persistently-busy tx is always the OLDEST Queued row by
+// pending-delta 409 or the settlement gate's refusal. A Guardian request cut off at
+// its deadline is not backpressure: it waits out the unreachable arm's cooldown
+// below. A persistently-busy tx is always the OLDEST Queued row by
 // initiatedAt, so without a backoff it is re-picked every cycle, re-asking the
 // Guardian and starving another account's freshly-queued tx until it ages out at
 // MAX_QUEUED_AGE. Setting `nextEligibleAt = now + this` makes the loop skip it
@@ -302,7 +302,7 @@ const GUARDIAN_UNREACHABLE_REQUEUE_COOLDOWN_SEC = 60;
 // Ceiling (seconds) on the doubling the unreachable, 409 and 429 arms give a row they requeue again (#1223). Four times
 // the unreachable base: once the guardian is back a row waits at most four minutes, under the 300 s a guardian's 429
 // can already ask for, and a 240 s wait still outlasts the laps of up to seven rows that each spend a 30 s gateway
-// timeout, so the rows between them get laps.
+// timeout, or three that each run to the 60 s Guardian request cut-off, so the rows between them get laps.
 const GUARDIAN_REQUEUE_BACKOFF_CAP_SEC = 240;
 
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
@@ -435,14 +435,11 @@ const nextRequeueStreak = (
 
 /**
  * Guardian backpressure (#312): a pending-delta 409 (a paused or released account is not one) or the settlement gate's
- * refusal, both meaning the Guardian is still settling the account's previous delta, or, where `timeoutIsBackpressure`,
- * a Guardian request the fetch boundary cut off. The caller passes that only for a row that failed at a proposal stage,
- * whose pipeline was not abandoned, and that is not a dApp `execute`, whose dApp gives up after five minutes.
+ * refusal, both meaning the Guardian is still settling the account's previous delta. A request the fetch boundary cut
+ * off is not backpressure: it says only that the Guardian did not answer, which `isGuardianOutage` reads as unreachable.
  */
-const isGuardianBackpressure = (error: unknown, timeoutIsBackpressure: boolean): boolean =>
-  isGuardianPendingConflict(error) ||
-  error instanceof GuardianBackpressureError ||
-  (timeoutIsBackpressure && isGuardianRequestTimeout(error));
+const isGuardianBackpressure = (error: unknown): boolean =>
+  isGuardianPendingConflict(error) || error instanceof GuardianBackpressureError;
 
 /**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
@@ -1415,16 +1412,15 @@ const generateTransactionWithProvider = async (
       // (former) abort branch was unreachable with the flag off — its removal
       // cannot change flag-OFF behavior.
       //
-      // Guardian backpressure (#312). Three shapes reach here: a pending-delta 409 and the settlement gate's refusal,
-      // both saying the Guardian is still settling the account's previous delta, and a Guardian request the fetch
-      // boundary cut off at its deadline while the row was at a proposal stage, which says only that the Guardian did
-      // not answer. None is terminal for a VALUE-MOVING op: a candidate settles on its own and the proposal creator is
-      // side-effect-free, so the row goes back to the queue on the first occurrence. Waiting it out here held this
-      // account's lock and the loop's Web Lock for about a minute, which stalled every account's queue. The requeue
-      // clears processingStartedAt (a bare return would leave it GeneratingTransaction for cancelStuckTransactions to
-      // reap), backs the row off with `nextEligibleAt` and arms a wake off the extension. Only the 409 and the gate mark
-      // it `guardianBusy`, whose copy names a previous transaction a silent Guardian may not have. MAX_QUEUED_AGE
-      // remains the terminal cap.
+      // Guardian backpressure (#312): a pending-delta 409 or the settlement gate's refusal, both saying the Guardian is
+      // still settling the account's previous delta. Neither is terminal for a VALUE-MOVING op: a candidate settles on
+      // its own and the proposal creator is side-effect-free, so the row goes back to the queue on the first
+      // occurrence. Waiting it out here held this account's lock and the loop's Web Lock for about a minute, which
+      // stalled every account's queue. The requeue clears processingStartedAt (a bare return would leave it
+      // GeneratingTransaction for cancelStuckTransactions to reap), backs the row off with `nextEligibleAt`, arms a wake
+      // off the extension and marks it `guardianBusy`, whose copy names the previous transaction. A Guardian request
+      // the fetch boundary cut off is not backpressure: it says only that the Guardian did not answer, so it takes the
+      // unreachable arm below. MAX_QUEUED_AGE remains the terminal cap.
       //
       // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): they still wait out a 409 in process, and
       // one that outlasts that wait falls through to cancelTransaction - the user retries.
@@ -1442,28 +1438,15 @@ const generateTransactionWithProvider = async (
       // the pipeline really is dead and the requeue would be legitimate - this is the
       // invariant made local rather than inherited from that adjacency.)
       const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
-      // Both proposal stages are pre-submit; the backpressure arm's timeout, and the 429 and unreachable arms below,
-      // gate on this (see the 429 arm).
+      // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
-      if (
-        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
-        isGuardianBackpressure(
-          error,
-          failedAtProposal && !abandonedWrite && GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type)
-        )
-      ) {
+      if (REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
-        const settling = isGuardianPendingConflict(error) || error instanceof GuardianBackpressureError;
-        console.warn(
-          settling
-            ? `[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`
-            : `[Guardian] Guardian request timed out at the proposal, requeueing in ${cooldown}s`,
-          error
-        );
+        console.warn(`[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`, error);
         await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
           requeueStreak,
-          guardianBusy: settling ? true : undefined
+          guardianBusy: true
         });
         return;
       }

@@ -1580,18 +1580,29 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
   it.each([
     {
       label: 'a 429',
-      error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' })
+      error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' }),
+      arm: 'guardian-rate-limited',
+      cooldownSec: 30
     },
-    { label: 'an unreachable Guardian', error: new TypeError('Failed to fetch') },
-    // A timeout says only that the Guardian did not answer, so the row is not marked busy (#312).
+    {
+      label: 'an unreachable Guardian',
+      error: new TypeError('Failed to fetch'),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
+    },
+    // A timeout says only that the Guardian did not answer: an unreachable Guardian, not a busy one (#312).
     {
       label: 'a Guardian request cut off at its deadline',
-      error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS)
+      error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
     }
-  ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error }) => {
+  ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error, arm, cooldownSec }) => {
+    const requeuedFrom = nowSec();
     await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
     expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Queued, stage: 'creating-proposal' });
-    expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(nowSec());
+    expect(txStore[0]!.requeueStreak).toEqual({ arm, count: 1 });
+    expect(txStore[0]!.nextEligibleAt).toBeGreaterThanOrEqual(requeuedFrom + cooldownSec);
     expect(txStore[0]!.guardianBusy).toBeUndefined();
   });
 

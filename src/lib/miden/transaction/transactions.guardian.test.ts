@@ -348,9 +348,14 @@ jest.mock('../sdk/native-prover-mobile', () => ({
 // would be in the temporal dead zone at that point.
 // eslint-disable-next-line no-var
 var mockPlatformIsMobile = false;
+// jsdom carries a mocked `chrome.runtime.id`, so the real `isExtension()` is TRUE here; a test that needs the
+// off-extension requeue wake flips this.
+// eslint-disable-next-line no-var
+var mockPlatformIsExtension = true;
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isMobile: () => mockPlatformIsMobile
+  isMobile: () => mockPlatformIsMobile,
+  isExtension: () => mockPlatformIsExtension
 }));
 
 jest.mock('shared/logger', () => ({
@@ -1458,16 +1463,15 @@ describe('generateTransaction — Guardian routing', () => {
     jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => ({ id: 'prop-replace', nonce: 7 }));
   const PENDING_DELTA_409 = { status: 409, code: 'conflict_pending_delta' };
   // What a Guardian-backpressure requeue leaves on the row (#312): back in the queue at the proposal stage, marked busy
-  // for the transaction screen unless `busy` is false (a request timeout, which says nothing about a previous
-  // transaction), and backed off by the cooldown its pending-conflict streak earns.
+  // for the transaction screen, and backed off by the cooldown its pending-conflict streak earns.
   const expectBusyRequeue = (
     row: Record<string, unknown>,
-    { cooldownSec, streak, busy = true }: { cooldownSec: number; streak: number; busy?: boolean }
+    { cooldownSec, streak }: { cooldownSec: number; streak: number }
   ) => {
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.processingStartedAt).toBeUndefined();
     expect(row.stage).toBe('creating-proposal');
-    expect(row.guardianBusy).toBe(busy ? true : undefined);
+    expect(row.guardianBusy).toBe(true);
     expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: streak });
     expect(Number(row.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(cooldownSec);
   };
@@ -4746,7 +4750,10 @@ describe('generateTransaction — Guardian routing', () => {
       }
     });
 
-    it('a send whose proposal POST the boundary cuts off at its deadline is requeued without the busy mark', async () => {
+    it('a send whose proposal POST the boundary cuts off at its deadline is requeued as an unreachable Guardian', async () => {
+      // A timeout says only that the Guardian did not answer, so it takes the unreachable arm's 60 s base and streak
+      // rather than retrying the slowest failure fastest on the 409 arm's 15 s.
+      mockPlatformIsExtension = false;
       jest.useFakeTimers();
       try {
         const service = busyService();
@@ -4775,11 +4782,31 @@ describe('generateTransaction — Guardian routing', () => {
         await jest.advanceTimersByTimeAsync(1);
         await pending;
 
-        expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1, busy: false });
+        const requeued = stored(row.id);
+        expect(requeued.requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 1 });
+        expect(Number(requeued.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(60);
+        expect(requeued.status).toBe(ITransactionStatus.Queued);
+        expect(requeued.processingStartedAt).toBeUndefined();
+        expect(requeued.stage).toBe('creating-proposal');
+        expect(requeued.guardianBusy).toBeUndefined();
+        // Off the extension the wake is what drives the requeued row.
+        expect(jest.getTimerCount()).toBe(1);
         expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+
+        // A second consecutive cut-off on the row, picked again as the loop's next lap does, doubles the wait.
+        jest.clearAllTimers();
+        const second = run({ ...stored(row.id) });
+        await jest.advanceTimersByTimeAsync(GUARDIAN_REQUEST_TIMEOUT_MS);
+        await second;
+
+        expect(stored(row.id).requeueStreak).toEqual({ arm: 'guardian-unreachable', count: 2 });
+        expect(Number(stored(row.id).nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(120);
+        expect(service.createSendProposal).toHaveBeenCalledTimes(2);
         expect(service.abandonCandidate).not.toHaveBeenCalled();
       } finally {
+        jest.clearAllTimers();
         jest.useRealTimers();
+        mockPlatformIsExtension = true;
       }
     });
 
