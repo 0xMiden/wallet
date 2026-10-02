@@ -1582,7 +1582,12 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
       label: 'a 429',
       error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' })
     },
-    { label: 'an unreachable Guardian', error: new TypeError('Failed to fetch') }
+    { label: 'an unreachable Guardian', error: new TypeError('Failed to fetch') },
+    // A timeout says only that the Guardian did not answer, so the row is not marked busy (#312).
+    {
+      label: 'a Guardian request cut off at its deadline',
+      error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS)
+    }
   ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error }) => {
     await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
     expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Queued, stage: 'creating-proposal' });
@@ -1590,16 +1595,8 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
     expect(txStore[0]!.guardianBusy).toBeUndefined();
   });
 
-  it.each([
-    {
-      label: 'a pending-delta 409',
-      error: Object.assign(new Error('Conflict'), { status: 409, code: 'conflict_pending_delta' })
-    },
-    {
-      label: 'a Guardian request cut off at its deadline',
-      error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS)
-    }
-  ])('returns requeued, releasing the loop, when $label marks a Guardian send busy (#312)', async ({ error }) => {
+  it('returns requeued, releasing the loop, when a pending-delta 409 marks a Guardian send busy (#312)', async () => {
+    const error = Object.assign(new Error('Conflict'), { status: 409, code: 'conflict_pending_delta' });
     await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
     expect(txStore[0]).toMatchObject({
       status: ITransactionStatus.Queued,
