@@ -23,5 +23,8 @@ export const isNominalUnquotedPriceEnabled = (): boolean => nominalUnquotedPrice
 export const setNominalUnquotedPriceSetting = (enabled: boolean): void =>
   nominalUnquotedPrice.set(enabled ? 'on' : 'off');
 
+/** Called on every change of the switch, in this window or another, for readers outside React. */
+export const subscribeNominalUnquotedPrice = nominalUnquotedPrice.subscribe;
+
 /** Reactive switch state, so the Developer Settings row re-renders when it is tapped. */
 export const useNominalUnquotedPrice = (): boolean => nominalUnquotedPrice.useValue() === 'on';
