@@ -3936,6 +3936,14 @@
     "message": "Fingerprint",
     "englishSource": "Fingerprint"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Face unlock",
+    "englishSource": "Face unlock"
+  },
   "cameraPermissionDenied": {
     "message": "Camera permission denied",
     "englishSource": "Camera permission denied"

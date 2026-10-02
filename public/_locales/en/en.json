@@ -897,6 +897,8 @@
   "continueWithPassword": "Continue with Password",
   "tryBiometricAgain": "Try Biometric Again",
   "fingerprint": "Fingerprint",
+  "faceId": "Face ID",
+  "faceUnlock": "Face unlock",
   "cameraPermissionDenied": "Camera permission denied",
   "noQrCodeFound": "No QR code found",
   "invalidMidenAddress": "Invalid Miden address",
