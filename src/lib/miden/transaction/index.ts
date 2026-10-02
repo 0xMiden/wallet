@@ -982,8 +982,10 @@ const recordLandedTransactionId = async (txId: string, error: unknown): Promise<
  *   switch, completion throws `GuardianSwitchDiscardedError`; a coordinated row
  *   first abandons its proposal's candidate on the outgoing guardian through
  *   `abandonDiscardedCandidate`, the helper the coordinated commit wait shares, with
- *   the nonce the row recorded, then rethrows that error so the caller fails the row
- *   on the node's verdict. Any other rejection is rethrown without the abandon.
+ *   the nonce the row recorded, or, with no outgoing service (a direct row, or a
+ *   rebuild that failed), flags that candidate's record for the next proposal's
+ *   retry instead (#1317), then rethrows that error so the caller fails the row on
+ *   the node's verdict. Any other rejection is rethrown without the abandon.
  * `landed` is what the failure said about the write: the id the receipt shows (#1233).
  */
 async function reconcileStructuralApplyFailure(
@@ -2273,7 +2275,10 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
  * idempotent and best-effort, so a send is never failed by it). The cleanup is
  * bounded regardless of type because it runs inside the FIFO loop's Web Lock,
  * where an unbounded wait stops every account's transactions and disables the
- * stuck-row reaper that would otherwise clean up after it.
+ * stuck-row reaper that would otherwise clean up after it. The abandon retried
+ * before a proposal (`releaseUnabandonedCandidate`, #1317) sits inside a switch
+ * arm's try too, but it is bounded separately, at PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+ * and is never a verdict: its timeout is swallowed like the cleanup's.
  *
  * WHY a deadline is needed at all, when the WASM lock has a watchdog and the fetch
  * boundary cuts every Guardian request off at GUARDIAN_REQUEST_TIMEOUT_MS (#312).
@@ -2364,6 +2369,8 @@ export const LANDED_CONFIRM_POLL_MS = 3_000;
  * Returns only on committed. No id or no verdict throws with nothing abandoned, since the write may
  * still land. A discard abandons the candidate on a cold service, the kind both writes were proposed
  * on, which needs no hot key; a discarded write never lands, so the guardian still accepts the old one.
+ * When no cold service can be built, the candidate's record is flagged for the next proposal's retry
+ * instead (#1317).
  */
 const requireLandedCommit = async (
   tx: ITransaction,
