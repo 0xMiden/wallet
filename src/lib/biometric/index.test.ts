@@ -1,14 +1,13 @@
 /**
  * Unit tests for the biometric authentication service.
  *
- * The module lazy-loads `capacitor-native-biometric` and `@capacitor/preferences`
- * via `require`, memoizes the native module in module scope, and branches on
- * platform (iOS uses the custom `LocalBiometric` plugin, Android uses
- * `NativeBiometric` / `HardwareSecurity`). To exercise every branch cleanly we
- * reset the module registry and re-mock `lib/platform`, `./localBiometricPlugin`,
- * `capacitor-native-biometric` and `@capacitor/preferences` per test, following
- * the `jest.resetModules()` + `jest.doMock` + dynamic `require` pattern used by
- * sibling tests (see `src/lib/mobile/back-handler.test.ts`).
+ * The module lazy-loads `capacitor-native-biometric` via `require`, memoizes the
+ * native module in module scope, and branches on platform (iOS uses the custom
+ * `LocalBiometric` plugin, Android uses `NativeBiometric` / `HardwareSecurity`).
+ * To exercise every branch cleanly we reset the module registry and re-mock
+ * `lib/platform`, `./localBiometricPlugin` and `capacitor-native-biometric` per
+ * test, following the `jest.resetModules()` + `jest.doMock` + dynamic `require`
+ * pattern used by sibling tests (see `src/lib/mobile/back-handler.test.ts`).
  */
 
 // Type-only import of the module-under-test. This has no runtime effect (it is
@@ -23,7 +22,6 @@ type PlatformCfg = {
   mobile: boolean;
   ios: boolean;
   android: boolean;
-  mobileThrows?: boolean;
 };
 
 const IOS: PlatformCfg = { mobile: true, ios: true, android: false };
@@ -37,9 +35,6 @@ function makePlugin(overrides: Record<string, any> = {}): Record<string, any> {
   return {
     isAvailable: jest.fn().mockResolvedValue({ isAvailable: true, biometryType: 2, errorCode: undefined }),
     verifyIdentity: jest.fn().mockResolvedValue(undefined),
-    setCredentials: jest.fn().mockResolvedValue(undefined),
-    getCredentials: jest.fn().mockResolvedValue({ username: 'vault_biometric_key', password: 'secret-pw' }),
-    deleteCredentials: jest.fn().mockResolvedValue(undefined),
     isHardwareSecurityAvailable: jest.fn().mockResolvedValue({ available: true }),
     hasHardwareKey: jest.fn().mockResolvedValue({ exists: true }),
     generateHardwareKey: jest.fn().mockResolvedValue(undefined),
@@ -52,17 +47,6 @@ function makePlugin(overrides: Record<string, any> = {}): Record<string, any> {
   };
 }
 
-// Stateful Preferences mock: get returns whatever set last wrote for the key.
-function makePreferences() {
-  const store: Record<string, string> = {};
-  return {
-    get: jest.fn(async ({ key }: { key: string }) => ({ value: key in store ? store[key] : null })),
-    set: jest.fn(async ({ key, value }: { key: string; value: string }) => {
-      store[key] = value;
-    })
-  };
-}
-
 type LoadOpts = {
   platform?: PlatformCfg;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,22 +55,16 @@ type LoadOpts = {
   hardware?: Record<string, any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   native?: Record<string, any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  preferences?: any;
   nativeThrows?: boolean;
 };
 
 function load(opts: LoadOpts = {}) {
-  const { platform = IOS, local, hardware, native, preferences, nativeThrows = false } = opts;
+  const { platform = IOS, local, hardware, native, nativeThrows = false } = opts;
 
   jest.resetModules();
 
   const platformMock = {
-    isMobile: platform.mobileThrows
-      ? jest.fn(() => {
-          throw new Error('platform boom');
-        })
-      : jest.fn(() => platform.mobile),
+    isMobile: jest.fn(() => platform.mobile),
     isIOS: jest.fn(() => platform.ios),
     isAndroid: jest.fn(() => platform.android)
   };
@@ -107,12 +85,9 @@ function load(opts: LoadOpts = {}) {
     return { NativeBiometric: nativePlugin };
   });
 
-  const prefs = preferences ?? makePreferences();
-  jest.doMock('@capacitor/preferences', () => ({ Preferences: prefs }));
-
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('./index') as typeof BiometricModule;
-  return { mod, platformMock, localPlugin, hardwarePlugin, nativePlugin, prefs };
+  return { mod, platformMock, localPlugin, hardwarePlugin, nativePlugin };
 }
 
 const UNKNOWN_SETUP = { available: false, reason: 'unknown', managedProfile: false };

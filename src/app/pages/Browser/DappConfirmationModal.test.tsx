@@ -1,9 +1,10 @@
 import React from 'react';
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
+import { confirmSensitiveAction } from 'lib/biometric';
 import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
@@ -37,6 +38,15 @@ jest.mock('lib/mobile/haptics', () => ({
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: jest.fn()
+}));
+
+jest.mock('lib/biometric', () => ({
+  confirmSensitiveAction: jest.fn()
+}));
+
+const mockWalletStoreState = { getStrictAuthenticationProtectors: jest.fn() };
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: typeof mockWalletStoreState) => unknown) => selector(mockWalletStoreState)
 }));
 
 jest.mock('framer-motion', () => {
@@ -104,6 +114,24 @@ const limitedTransactionRequest = () =>
       breach: { spent: 8_000_000n, proposedTotal: 13_000_000n, limit: 10_000_000n, overBy: 3_000_000n, resetAt: 200 }
     }
   });
+
+/** A transaction request within the spending limit, so Approve reaches the biometric gate. */
+const plainTransactionRequest = () =>
+  buildRequest({
+    type: 'transaction',
+    sourcePublicKey: FULL_ACCOUNT_ID,
+    transactionMessages: ['Send 5 MIDEN']
+  });
+
+const confirmMock = confirmSensitiveAction as jest.Mock;
+
+const flush = async () => {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+};
 
 describe('DappConfirmationModal', () => {
   // Regression: previously the modal received an already-truncated string
@@ -261,6 +289,156 @@ describe('DappConfirmationModal', () => {
     );
 
     expect(onResolve).toHaveBeenCalledWith({ confirmed: false });
+  });
+});
+
+describe('DappConfirmationModal - dApp transaction biometric confirmation', () => {
+  beforeEach(() => {
+    confirmMock.mockReset();
+    confirmMock.mockResolvedValue(true);
+    mockWalletStoreState.getStrictAuthenticationProtectors.mockReset();
+    mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: false, password: true });
+  });
+
+  it("confirms with the dApp-transaction reason and a probe wired to the store's protector check", async () => {
+    mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+    render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    await flush();
+
+    expect(confirmMock).toHaveBeenCalledWith('confirmDappTransactionReason', expect.any(Function));
+    const probe = confirmMock.mock.calls[0]![1];
+    await expect(probe()).resolves.toBe(true);
+  });
+
+  it('resolves the request once the prompt succeeds', async () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    await flush();
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ confirmed: true, accountPublicKey: FULL_ACCOUNT_ID })
+    );
+  });
+
+  it('does not resolve when the prompt is declined, and allows a later attempt to succeed', async () => {
+    confirmMock.mockResolvedValue(false);
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
+
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+    await flush();
+
+    expect(onResolve).not.toHaveBeenCalled();
+
+    confirmMock.mockResolvedValue(true);
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+    await flush();
+
+    expect(confirmMock).toHaveBeenCalledTimes(2);
+    expect(onResolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a second prompt or resolve twice from a second tap while the first is pending', async () => {
+    let releaseConfirm: (confirmed: boolean) => void = () => {};
+    confirmMock.mockReturnValue(
+      new Promise<boolean>(resolve => {
+        releaseConfirm = resolve;
+      })
+    );
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
+
+    fireEvent.click(confirmBtn);
+    fireEvent.click(confirmBtn);
+    await flush();
+
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseConfirm(true);
+    });
+    await flush();
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not resolve, logs the error, and leaves the modal approvable again when the prompt rejects', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    confirmMock.mockRejectedValueOnce(new Error('protector check failed'));
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+    const confirmBtn = screen.getByRole('button', { name: /confirm/i });
+
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+    await flush();
+
+    expect(onResolve).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(expect.any(Error));
+
+    confirmMock.mockResolvedValue(true);
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+    await flush();
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  it.each([
+    ['connect', buildRequest()],
+    ['sign', buildRequest({ type: 'sign' })]
+  ] as const)('resolves a %s request without calling confirmSensitiveAction', async (_label, request) => {
+    const onResolve = jest.fn();
+    render(<DappConfirmationModal request={request} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /approve|confirm/i }));
+    });
+    await flush();
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(onResolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the spending-limit challenge without calling confirmSensitiveAction', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={limitedTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(onResolve).not.toHaveBeenCalled();
   });
 });
 

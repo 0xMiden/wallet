@@ -442,7 +442,7 @@ const SwapManager: React.FC = () => {
       }
       if (
         !(await confirmSensitiveAction(
-          'Confirm your swap',
+          t('confirmSwapReason'),
           async () => (await getStrictAuthenticationProtectors()).hardware
         ))
       ) {

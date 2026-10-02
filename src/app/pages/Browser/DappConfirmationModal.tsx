@@ -27,6 +27,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
 import { useSprings } from 'lib/animation';
+import { confirmSensitiveAction } from 'lib/biometric';
 import {
   confirmationPromptKey,
   isDetailsConfirmation,
@@ -38,6 +39,7 @@ import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
 
 interface DappConfirmationModalProps {
@@ -75,9 +77,13 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     request.allowedPrivateData
   );
   const allowedPrivateDataList = formatAllowedPrivateData(request.allowedPrivateData);
+  const getStrictAuthenticationProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   const [standingAccessAcknowledged, setStandingAccessAcknowledged] = useState(false);
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   const resolvedRef = useRef(false);
+  // A declined or failed prompt must leave Approve tappable again, so this is its own
+  // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
+  const pendingApprovalRef = useRef(false);
 
   // PR-7: focus management. On mount we store the element that was
   // focused before the modal opened, move focus to the first focusable
@@ -200,11 +206,28 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     });
   }
 
-  function handleApprove() {
-    if (!canApprove || resolvedRef.current) return;
+  async function handleApprove() {
+    if (!canApprove || resolvedRef.current || pendingApprovalRef.current) return;
     if (request.spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
+    }
+    pendingApprovalRef.current = true;
+    if (request.type === 'transaction') {
+      try {
+        const confirmed = await confirmSensitiveAction(
+          t('confirmDappTransactionReason'),
+          async () => (await getStrictAuthenticationProtectors()).hardware
+        );
+        if (!confirmed) {
+          pendingApprovalRef.current = false;
+          return;
+        }
+      } catch (error) {
+        console.error(error);
+        pendingApprovalRef.current = false;
+        return;
+      }
     }
     resolveApproval();
   }

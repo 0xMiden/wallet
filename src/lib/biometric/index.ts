@@ -2,11 +2,9 @@
  * Biometric authentication service for mobile app.
  *
  * This module provides a cross-platform abstraction for biometric authentication
- * (Face ID, Touch ID, fingerprint) and secure credential storage using the
- * device's hardware-backed keystore (iOS Secure Enclave / Android Keystore).
- *
- * The credentials are encrypted with a key that requires biometric authentication
- * to access, providing hardware-level security for the vault decryption key.
+ * (Face ID, Touch ID, fingerprint), plus hardware-backed encryption of the vault
+ * decryption key using the device's secure keystore (iOS Secure Enclave / Android
+ * Keystore).
  */
 
 import { isMobile, isIOS, isAndroid } from 'lib/platform';

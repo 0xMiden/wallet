@@ -429,7 +429,7 @@ export const ReviewTransaction: React.FC = () => {
       }
       if (
         !(await confirmSensitiveAction(
-          'Confirm your send',
+          t('confirmSendReason'),
           async () => (await getStrictAuthenticationProtectors()).hardware
         ))
       ) {

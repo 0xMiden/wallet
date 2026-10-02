@@ -1125,7 +1125,7 @@ describe('SwapFlow / SwapManager', () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
 
-      expect(mockConfirmSensitive).toHaveBeenCalledWith('Confirm your swap', expect.any(Function));
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', expect.any(Function));
       expect(mockInitiateSwap).not.toHaveBeenCalled();
       expect(mockWalletState.setLastCompletedTxHash).not.toHaveBeenCalled();
       expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
@@ -1139,7 +1139,7 @@ describe('SwapFlow / SwapManager', () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
 
-      expect(mockConfirmSensitive).toHaveBeenCalledWith('Confirm your swap', expect.any(Function));
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', expect.any(Function));
       const probe = mockConfirmSensitive.mock.calls[0][1];
       await expect(probe()).resolves.toBe(true);
     });

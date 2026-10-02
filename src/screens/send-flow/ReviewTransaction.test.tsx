@@ -702,7 +702,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send', expect.any(Function));
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
@@ -1040,7 +1040,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send', expect.any(Function));
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1200,7 +1200,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send', expect.any(Function));
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     const probe = confirmMock.mock.calls[0][1];
     await expect(probe()).resolves.toBe(true);
   });
