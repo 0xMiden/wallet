@@ -294,7 +294,7 @@ describe('a transaction that succeeded', () => {
     await Repo.transactions.add(tx);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {});
-    await markBridgedSendFailed(tx.id, 'solver has no liquidity for this route', 12345);
+    await markBridgedSendFailed(tx.id, 'solver has no liquidity for this route');
 
     expect(reported).toEqual([
       { operation: 'tx_bridge', result: 'completed', durationMs: expect.any(Number) },

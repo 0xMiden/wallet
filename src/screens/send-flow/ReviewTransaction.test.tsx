@@ -10,6 +10,7 @@ import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { deserializeError, serializeError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -170,6 +171,10 @@ jest.mock('components/Button', () => ({
 
 jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
+}));
+
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
 }));
 
 jest.mock('lib/agglayer/allowed-faucets', () => ({
@@ -700,7 +705,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
@@ -1038,7 +1043,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1188,6 +1193,28 @@ describe('ReviewTransaction — onSubmit', () => {
     confirmMock.mockResolvedValue(true);
     await clickSubmit();
     expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms with the shared hardware-only protector probe', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', probeHardwareProtector);
+  });
+
+  it("shows the review screen's own error, and sends nothing, when the protector probe rejects", async () => {
+    setValidRoute();
+    confirmMock.mockRejectedValue(new Error('protector check failed'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('protector check failed');
   });
 
   it('logs and resets when transaction creation throws', async () => {

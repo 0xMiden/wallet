@@ -1288,5 +1288,9 @@
   "unhide": "Mostrar",
   "unhideTokenLabel": "Exibir $name$",
   "hiddenTokensError": "Não foi possível atualizar os tokens ocultos. Tente novamente.",
-  "hiddenTokensUnreadable": "Não foi possível carregar os tokens ocultos."
+  "hiddenTokensUnreadable": "Não foi possível carregar os tokens ocultos.",
+  "confirmSendReason": "Confirme seu envio",
+  "confirmSwapReason": "Confirme sua troca",
+  "confirmDappTransactionReason": "Confirme esta transação",
+  "confirmEarnDepositReason": "Confirme seu depósito"
 }

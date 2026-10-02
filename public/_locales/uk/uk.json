@@ -1288,5 +1288,9 @@
   "unhide": "Показати",
   "unhideTokenLabel": "Відкрити $name$",
   "hiddenTokensError": "Не вдалося оновити приховані токени. Спробуйте ще раз.",
-  "hiddenTokensUnreadable": "Приховані токени не вдалося завантажити."
+  "hiddenTokensUnreadable": "Приховані токени не вдалося завантажити.",
+  "confirmSendReason": "Підтвердьте відправлення",
+  "confirmSwapReason": "Підтвердьте обмін",
+  "confirmDappTransactionReason": "Підтвердіть цю транзакцію",
+  "confirmEarnDepositReason": "Підтвердьте свій депозит"
 }
