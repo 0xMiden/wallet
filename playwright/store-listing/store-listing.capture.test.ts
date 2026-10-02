@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
+
 import {
   capturePlan,
   installCaptureShim,
+  installHardwareSecurityShim,
   guardianPubkeyRoute,
+  guardianPubkeyStubCommitment,
   parkCapturePointer,
   settleCaptureMotion,
   validateCapturePlan
@@ -66,6 +70,10 @@ describe('store listing capture plan', () => {
     expect(guardianPubkeyRoute.test('https://guardian.example/pubkey')).toBe(true);
     expect(guardianPubkeyRoute.test('https://guardian.example/pubkey?scheme=ecdsa')).toBe(true);
     expect(guardianPubkeyRoute.test('https://guardian.example/accounts')).toBe(false);
+  });
+
+  it('stubs the operators with a key the Guardian picker accepts', () => {
+    expect(isGuardianKeyCommitment(guardianPubkeyStubCommitment)).toBe(true);
   });
 
   it('waits for the final wallet balance state before dependent captures', () => {
@@ -199,6 +207,70 @@ describe('store listing capture plan', () => {
 
       expect(wrapperCalls).toEqual(['https://example.test/one', 'https://example.test/two']);
       expect(browserCalls).toEqual([]);
+    });
+  });
+
+  describe('hardware security shim', () => {
+    const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+    const pluginFor = { ios: 'LocalBiometric', android: 'HardwareSecurity' } as const;
+
+    beforeEach(() => {
+      Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: jest.fn() });
+    });
+
+    afterEach(() => {
+      if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
+      else Reflect.deleteProperty(globalThis, 'fetch');
+      Reflect.deleteProperty(globalThis, 'Capacitor');
+      Reflect.deleteProperty(globalThis, 'CapacitorCustomPlatform');
+    });
+
+    // The real Capacitor core and biometric module, loaded after the init scripts as the capture page's bundle is.
+    function loadBiometric() {
+      let loaded:
+        | {
+            biometric: typeof import('lib/biometric');
+            plugins: typeof import('lib/biometric/localBiometricPlugin');
+          }
+        | undefined;
+      jest.isolateModules(() => {
+        loaded = {
+          biometric: jest.requireActual<typeof import('lib/biometric')>('lib/biometric'),
+          plugins: jest.requireActual<typeof import('lib/biometric/localBiometricPlugin')>(
+            'lib/biometric/localBiometricPlugin'
+          )
+        };
+        // lib/platform requires Capacitor on its first call. Made later, that require would reach the shared
+        // registry and reuse the core an earlier case built for its own platform.
+        jest.requireActual<typeof import('lib/platform')>('lib/platform').isMobile();
+      });
+      if (!loaded) throw new Error('the biometric module did not load');
+      return loaded;
+    }
+
+    it.each(['ios', 'android'] as const)('makes the %s hardware probe pass', async platform => {
+      installCaptureShim(platform);
+      installHardwareSecurityShim(platform);
+
+      await expect(loadBiometric().biometric.isHardwareSecurityAvailable()).resolves.toBe(true);
+    });
+
+    it.each(['ios', 'android'] as const)(
+      'leaves the %s probe failing without it, as in the wallet contexts',
+      async platform => {
+        installCaptureShim(platform);
+
+        await expect(loadBiometric().biometric.isHardwareSecurityAvailable()).resolves.toBe(false);
+      }
+    );
+
+    it.each(['ios', 'android'] as const)('leaves every other %s plugin method unimplemented', async platform => {
+      installCaptureShim(platform);
+      installHardwareSecurityShim(platform);
+
+      await expect(loadBiometric().plugins[pluginFor[platform]].hasHardwareKey()).rejects.toMatchObject({
+        code: 'UNIMPLEMENTED'
+      });
     });
   });
 });

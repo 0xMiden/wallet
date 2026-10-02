@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
@@ -13,12 +14,14 @@ import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Skeleton } from 'components/ui/Skeleton';
+import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -30,6 +33,7 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -353,6 +357,10 @@ export const ReviewTransaction: React.FC = () => {
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         if (route === 'agglayer') {
+          // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
+          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl()))) {
+            throw new Error(t('agglayerTokenUnsupported'));
+          }
           const txId = await initiateB2AggBridge({
             amount: amountBaseUnits,
             faucetId: token.id,
@@ -400,7 +408,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [amountBaseUnits, goToGeneratingTransaction, openUnpricedChallenge, publicKey, route, signTransaction, to, token]
+    [amountBaseUnits, goToGeneratingTransaction, openUnpricedChallenge, publicKey, route, signTransaction, t, to, token]
   );
 
   const onSubmit = useCallback(async () => {
@@ -419,7 +427,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction('Confirm your send'))) {
+      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector))) {
         setIsSubmitting(false);
         return;
       }
@@ -515,10 +523,14 @@ export const ReviewTransaction: React.FC = () => {
     return rel.charAt(0).toUpperCase() + rel.slice(1);
   })();
 
-  // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
-  // USDC output. Show a skeleton only while the Fast quote is still loading.
+  // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
+  // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
+  // skeleton only while the Fast quote is still loading.
   const youReceiveLoading = isBridge && route !== 'agglayer' && epochQuote.loading;
-  const youReceiveAmount = route === 'agglayer' ? amount : epochQuote.amount;
+  const youReceiveAmount =
+    route === 'agglayer'
+      ? formatMoneyAmount(amount, 'typed')
+      : formatMoneyAmount(epochQuote.amount, 'receives', BRIDGE_OUTPUT_TOKEN_SYMBOL);
   const youReceiveLabel =
     youReceiveAmount != null
       ? `≈ ${youReceiveAmount} ${BRIDGE_OUTPUT_TOKEN_SYMBOL}`.trim()

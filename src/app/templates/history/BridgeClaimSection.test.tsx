@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
@@ -143,6 +143,8 @@ const agglayer = (o: Partial<IHistoryEntry> = {}) =>
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
+    mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
     mockEvm = { provider: null, address: undefined, isConnected: false, connect: jest.fn() };
   });
 
@@ -182,6 +184,180 @@ describe('BridgeClaimSection', () => {
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
     });
+
+    it('offers Reclaim for an unconfirmed failed row from its stamped height and note id (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          isUnconfirmed: true,
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
+        })
+      });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() =>
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+      );
+    });
+
+    it('offers no Reclaim for an unconfirmed row whose submit was never claimed (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          isUnconfirmed: true,
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped'
+        })
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers no Reclaim for a failure before the note was sent, even with the stamped fields (#1250)', () => {
+      renderSection({
+        entry: entry({ bridgeEpochStatus: undefined, outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
+      });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers no Reclaim for a definite failure whose note committed (#1250)', () => {
+      renderSection({ entry: entry({ bridgeEpochStatus: undefined }) });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers no Reclaim for a route-failed row whose note never committed (#1250)', () => {
+      // A row markBridgedSendFailed demoted before its pipeline claimed the submit never sent its
+      // note, so without bridgeSubmitClaimed the stamped id is not read.
+      renderSection({
+        entry: entry({ bridgeEpochStatus: 'failed', outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
+      });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers Reclaim for a row demoted after its pipeline claimed the submit, consuming its stamped note (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          bridgeEpochStatus: 'failed',
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
+        })
+      });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() =>
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+      );
+    });
+
+    it('offers no Reclaim for a definite failure whose pipeline had claimed its submit (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
+        })
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('still offers Reclaim for an allocator-rejected row, consuming its committed note (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+    });
+
+    describe('a completed bridge-out', () => {
+      // Its note committed; whether its intent was ever submitted is told by the intent fields alone.
+      const completed = (o: Partial<IHistoryEntry> = {}) =>
+        entry({ status: 2, bridgeEpochStatus: undefined, bridgeIntentNonce: undefined, ...o });
+      const settle = () => act(async () => await new Promise(resolve => setTimeout(resolve, 0)));
+
+      it('offers Reclaim for a completed bridge-out whose intent was never recorded, once its height passes (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed() });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      });
+
+      it('shows no countdown for a completed bridge-out whose intent is not recorded yet (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(900); // below 1000
+        renderSection({ entry: completed() });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out with its intent recorded (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers Reclaim for a completed bridge-out whose fill failed, once its height passes (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      });
+
+      it('shows the countdown for a completed bridge-out whose fill failed (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(900); // below 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
+        expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out whose fill is still pending (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out whose recorded intent carries no nonce (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a restored completed bridge-out without its intent (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed(), restoredFromBackup: true });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      });
+    });
+
+    it('shows Not confirmed while unconfirmed and pending, then the live fill once it reports confirmed', async () => {
+      mockPollEpochIntentFill.mockResolvedValueOnce({ status: 'confirmed' });
+      renderSection({
+        entry: entry({ isUnconfirmed: true, bridgeEpochStatus: 'pending', bridgeIntentNonce: 'nonce-1' })
+      });
+      expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
+      expect(await screen.findByText(/t:confirmed/)).toBeInTheDocument();
+    });
   });
 
   describe('Agglayer (Slow) claim', () => {
@@ -205,6 +381,39 @@ describe('BridgeClaimSection', () => {
       const claimBtn = await screen.findByText('t:claimAsset');
       fireEvent.click(claimBtn);
       await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalled());
+    });
+
+    // Route evidence has to name the deposit it is bound to, so `updateBridgeClaimStatus` can
+    // tell this row's own claim apart from a sibling's (#1250).
+    it("passes the found deposit's tx hash as the tracker's ready write", async () => {
+      mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+          'tx-1',
+          'ready',
+          { depositReady: true },
+          '0xdeposit-hash'
+        )
+      );
+    });
+
+    it("passes the claimable deposit's tx hash on handleClaim's claiming and claimed writes", async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'claiming', undefined, '0xdeposit-hash')
+      );
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+          'tx-1',
+          'claimed',
+          { claimTxHash: '0xclaimhash' },
+          '0xdeposit-hash'
+        )
+      );
     });
 
     it("looks the deposit up against THIS row's own bridge-out transaction", async () => {
@@ -251,6 +460,55 @@ describe('BridgeClaimSection', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       renderSection({ entry: agglayer({ bridgeClaimStatus: 'claimed' }) });
       expect(screen.getByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    });
+
+    // A Failed agglayer row can still be unconfirmed: the not-confirmed rule wins over
+    // bridgeFailed, and live evidence (a found deposit, a claim, a lookup with no id) wins
+    // over Not confirmed in turn (#1250).
+    describe('an unconfirmed row', () => {
+      it('reads Not confirmed and keeps the claim UI open while no deposit has been found', async () => {
+        const row = agglayer({ status: FAILED, isUnconfirmed: true, externalTxId: '0xrow-origin' });
+        renderSection({ entry: row });
+        await waitFor(() => expect(mockFindClaimable).toHaveBeenCalledWith('0xdead', '0xrow-origin'));
+        expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
+        expect(screen.queryByText(/t:bridgeFailed/)).not.toBeInTheDocument();
+        expect(screen.getByText('t:connectEvmWallet')).toBeInTheDocument();
+      });
+
+      it('reads Claimable over Not confirmed once the tracker finds a deposit', async () => {
+        mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1' });
+        renderSection({
+          entry: agglayer({ status: FAILED, isUnconfirmed: true, externalTxId: '0xrow-origin' })
+        });
+        expect(await screen.findByText(/t:claimable/)).toBeInTheDocument();
+      });
+
+      it('reads Claimed over Not confirmed once bridgeClaimStatus is claimed', () => {
+        renderSection({
+          entry: agglayer({
+            status: FAILED,
+            isUnconfirmed: true,
+            externalTxId: '0xrow-origin',
+            bridgeClaimStatus: 'claimed'
+          })
+        });
+        expect(screen.getByText(/t:claimed/)).toBeInTheDocument();
+      });
+
+      it('reads Not confirmed with no lookup and no claim UI when the row has no transaction id', () => {
+        renderSection({ entry: agglayer({ status: FAILED, isUnconfirmed: true }) });
+        expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
+        expect(mockFindClaimable).not.toHaveBeenCalled();
+        expect(screen.queryByText('t:connectEvmWallet')).not.toBeInTheDocument();
+        expect(screen.queryByText('t:claimPending')).not.toBeInTheDocument();
+      });
+
+      it('keeps the confirmed-failed reading, with no lookup or claim UI, when the row never reports unconfirmed', () => {
+        renderSection({ entry: agglayer({ status: FAILED }) });
+        expect(screen.getByText(/t:bridgeFailed/)).toBeInTheDocument();
+        expect(mockFindClaimable).not.toHaveBeenCalled();
+        expect(screen.queryByText('t:connectEvmWallet')).not.toBeInTheDocument();
+      });
     });
   });
 

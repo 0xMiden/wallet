@@ -97,14 +97,19 @@ describe('Earn page', () => {
     expect(panel).toHaveAttribute('data-total-rewards', String(summary.totalRewardsUsd));
   });
 
-  it('opens with the tab-root title, the page\u2019s one h1, like Send and Receive', () => {
+  it('names the page for assistive tech only, and opens on the summary', () => {
     render(<Earn />);
 
     const title = screen.getByTestId('earn-title');
     expect(title.tagName).toBe('H1');
     expect(title).toHaveTextContent('earnTitle');
-    // The same type style Send's "Send to" and Swap's "You Pay" take.
-    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    // No visible title: "Total earned" is the pane's first line, as Receive opens on its code.
+    expect(title).toHaveClass('sr-only');
+    expect(title).not.toHaveClass('text-title-tab');
+    // The summary follows straight on, with no gap above it of its own.
+    const content = title.nextElementSibling as HTMLElement;
+    expect(content).toContainElement(screen.getByTestId('earn-summary-panel'));
+    expect(content.className).not.toMatch(/\bpt-/);
 
     // One `h1` on the page: the section titles under it are `h2`s.
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
@@ -159,11 +164,11 @@ describe('Earn page', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
   });
 
-  it('keeps the failure said, and the summary gone, while a retry is loading', () => {
-    // SWR keeps the error until a load succeeds and reports the retry as isLoading: the failed state
-    // must not lift and flash "$0" back.
+  it('keeps the failure said, and the summary gone, while a retry is out', () => {
+    // The hook keeps the error through a retry and reports it as not loading: the failed state must not
+    // lift and flash "$0" back.
     const refetch = jest.fn();
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch });
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch });
     render(<Earn />);
     expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
@@ -219,6 +224,8 @@ describe('Earn page', () => {
 
     const empty = screen.getByTestId('earn-positions-empty');
     expect(empty).toHaveClass('border-dashed');
+    // The compact empty state: the slot stays small until a position fills it.
+    expect(empty).toHaveClass('text-center', 'py-4');
     expect(empty).toHaveTextContent('earnNoActivePositionsTitle');
     expect(empty).toHaveTextContent('earnNoActivePositionsBody');
     expect(positionsSection().querySelector('.overflow-x-auto')).toBeNull();

@@ -236,7 +236,7 @@ describe('EarnPositions', () => {
     const empty = screen.getByTestId('earn-positions-empty');
     expect(within(empty).getByText('earnNoActivePositionsTitle')).toBeInTheDocument();
     expect(within(empty).getByText('earnNoActivePositionsBody')).toBeInTheDocument();
-    expect(empty).toHaveClass('border-dashed', 'bg-page');
+    expect(empty).toHaveClass('border-dashed', 'bg-page', 'text-center', 'py-4');
     expect(empty).not.toHaveClass('bg-fill');
     expect(screen.queryByTestId('earn-summary-panel')).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'earnPositionsRegionLabel' })).not.toBeInTheDocument();
@@ -316,12 +316,12 @@ describe('EarnPositions', () => {
       expect(mockRefetch).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps the failure said while a retry is loading (SWR keeps the error until a load succeeds)', () => {
+    it('keeps the failure said while a retry is out (SWR keeps the error until a load succeeds)', () => {
       mockUseEarnPositions.mockReturnValue({
         summary: EARN_DATA.summary,
         positions: [],
         vaults: [],
-        isLoading: true,
+        isLoading: false,
         error: 'positions request failed (503)',
         refetch: mockRefetch
       });

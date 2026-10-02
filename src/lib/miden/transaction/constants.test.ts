@@ -3,8 +3,10 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
   GUARDIAN_UNREACHABLE_ERROR,
+  INVALID_NOTE_ERROR,
   isGuardianOutage,
   isProverProcedureMismatch,
+  isUnconfirmedFailure,
   isVaultShortfallError,
   isVaultShortfallRow,
   resolveTransactionErrorMessage,
@@ -13,6 +15,9 @@ import {
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
@@ -20,7 +25,8 @@ import {
   TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
   TRANSACTION_EXPIRED_ERROR,
-  TRANSACTION_STUCK_ERROR
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
@@ -284,6 +290,111 @@ describe('isVaultShortfallRow', () => {
         error: TRANSACTION_VAULT_SHORTFALL_ERROR
       })
     ).toBe(false);
+  });
+});
+
+// The one predicate the rotation gate (HotKeyRotationGate.selectors) and Activity History both
+// read a failed row through (#1250), so the two never disagree on which rows are unconfirmed.
+describe('isUnconfirmedFailure', () => {
+  type Row = Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<Pick<ITransaction, 'extraInputs'>>;
+  const failed = (extra: Partial<Row> = {}): Row => ({ type: 'send', status: ITransactionStatus.Failed, ...extra });
+
+  it.each<[string, Row]>([
+    ['mayHaveSubmitted', failed({ mayHaveSubmitted: true })],
+    [
+      'a non-rotation row with the vault-shortfall error and mayHaveSubmitted',
+      failed({ error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true })
+    ],
+    ['the engine-recovered copy as error', failed({ error: TRANSACTION_ENGINE_RECOVERED_ERROR })],
+    ['the stuck-reaper reason as error', failed({ error: TRANSACTION_STUCK_ERROR })],
+    [
+      'the stuck-reaper reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_STUCK_ERROR })
+    ],
+    ['the cold-start-sweep reason as error', failed({ error: TRANSACTION_INTERRUPTED_ON_STARTUP })],
+    [
+      'the cold-start-sweep reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_INTERRUPTED_ON_STARTUP })
+    ],
+    ['the not-landed-consume reason as error', failed({ error: TRANSACTION_INTERRUPTED_ERROR })],
+    [
+      'the not-landed-consume reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_INTERRUPTED_ERROR })
+    ],
+    ['the debug force-cancel reason as error', failed({ error: TRANSACTION_FORCE_CANCELLED_ERROR })],
+    [
+      'the debug force-cancel reason as rawError under a classifier prover rewrite',
+      failed({ error: LOCAL_PROVER_FAILED_ERROR, rawError: TRANSACTION_FORCE_CANCELLED_ERROR })
+    ],
+    [
+      'a user cancel the write stamp reached',
+      failed({ error: USER_CANCELLED_TRANSACTION_REASON, processingStartedAt: 1_700_000_000 })
+    ],
+    [
+      'a bridged-send whose fill is still pending, mayHaveSubmitted',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'pending' } })
+    ],
+    [
+      'a bridged-send whose fill confirmed, mayHaveSubmitted',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'confirmed' } })
+    ],
+    [
+      'a send row carrying the discard marker, mayHaveSubmitted',
+      failed({ mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a rotation whose error names the discard but carries no marker, mayHaveSubmitted',
+      failed({
+        type: 'replace-hot-key',
+        error: 'Guardian replace-hot-key 0xabc did not land: the node discarded it.',
+        mayHaveSubmitted: true
+      })
+    ]
+  ])('is true for %s', (_label, row) => {
+    expect(isUnconfirmedFailure(row)).toBe(true);
+  });
+
+  it.each<[string, Row]>([
+    ['a user cancel the write stamp never reached', failed({ error: USER_CANCELLED_TRANSACTION_REASON })],
+    ['the expired-in-queue final reason', failed({ error: TRANSACTION_EXPIRED_ERROR })],
+    ['the invalid-note final reason', failed({ error: INVALID_NOTE_ERROR })],
+    ['an unclassified failure before the submit crossing', failed({ error: 'some other reason' })],
+    ['a row that has not failed', { type: 'send', status: ITransactionStatus.Queued, error: TRANSACTION_STUCK_ERROR }],
+    [
+      'a shortfall rotation row with the vault-shortfall error and mayHaveSubmitted',
+      failed({ type: 'replace-hot-key', error: TRANSACTION_VAULT_SHORTFALL_ERROR, mayHaveSubmitted: true })
+    ],
+    [
+      'a shortfall rotation row with the raw kernel shortfall line as rawError and mayHaveSubmitted',
+      failed({
+        type: 'replace-hot-key',
+        rawError: 'assertion failed with error code: 644413868907058392',
+        mayHaveSubmitted: true
+      })
+    ],
+    [
+      'a bridged-send its own route evidence proves failed, mayHaveSubmitted (#1250)',
+      failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'failed' } })
+    ],
+    [
+      'a rotation row with no extraInputs at all',
+      { type: 'replace-hot-key', status: ITransactionStatus.Failed, error: 'guardian unreachable' }
+    ],
+    [
+      'a switch-guardian row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'switch-guardian', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a replace-hot-key row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'replace-hot-key', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a update-procedure-threshold row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'update-procedure-threshold', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ]
+  ])('is false for %s', (_label, row) => {
+    expect(isUnconfirmedFailure(row)).toBe(false);
   });
 });
 

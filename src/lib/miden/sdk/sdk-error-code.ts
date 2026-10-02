@@ -93,35 +93,41 @@ export function errorMessageParts(err: unknown): string[] {
 }
 
 /**
- * Detect the eventually-consistent guardian canonicalization refusal:
+ * Detect the eventually-consistent guardian canonicalization refusal. The pinned
+ * multisig client (0.17.0) throws it from `syncState` in two forms:
  *
- *   "Refusing to overwrite local state: incoming nonce 0 is not greater
- *    than local nonce 1 for account 0x..."
+ *   "Refusing to overwrite local state: incoming nonce N equals local nonce N but
+ *    commitments differ for account X"
+ *   "Refusing to overwrite local state: incoming commitment does not match
+ *    on-chain commitment for account X"
  *
- * The SDK raises this when asked to import a guardian's view of an account that
- * is NOT ahead of the local one — a nonce no greater than local, or a commitment
- * that does not match the chain. It says something specific: the guardian is
- * behind or holding a diverged blob. It does NOT say the read failed.
+ * The second pattern below, "is not greater than local nonce", is the wording older
+ * clients used; 0.17.0 returns false for a lower nonce instead of throwing.
  *
- * Two callers depend on that distinction. The transaction loop treats it as
- * success (the on-chain tx landed; only the local sync refused, and the next
- * tick reconciles). The guardian self-heal treats it as permission to proceed:
- * a device that had been rotated out would be looking at a guardian holding the
- * NEWER state, so a guardian that is behind is the stale registration the
- * re-register repairs. Both need the same test, so it lives in this leaf rather
- * than in either of them.
+ * The client raises this when asked to import a guardian's view it will not take
+ * over the local one: the local nonce with another commitment, or a commitment
+ * that does not match the chain (a guardian behind local is kept quietly). It
+ * says something specific: the guardian's state diverges from the local one or
+ * from the chain. It does NOT say the read failed.
+ *
+ * It is never a landed shape: every post-submit failure reaches the transaction
+ * loop as `ApplyAfterSubmitError`, so this refusal there was raised before submit
+ * (#1233). The callers that read it treat it as an answer about the guardian's
+ * view. The pre-rotation sync builds on local state. The guardian self-heal treats
+ * it as permission to proceed: a device that had been rotated out would be looking
+ * at a guardian holding the NEWER state, so a guardian that is behind is the stale
+ * registration the re-register repairs. They need the same test, so it lives in
+ * this leaf rather than in any of them.
  */
 export function isGuardianCanonicalizationError(error: unknown): boolean {
-  // Same ordering rationale as the two classifiers below, and the stakes are the
-  // higher of the three: an eviction's `message` is a closed wallet set but its
-  // `cause` carries the raw realm error verbatim, and this walks the chain. The
-  // transaction loop's verdict on this classifier is "mark the row Completed
-  // with a success message" for ANY type, send and swap included — so a trap
-  // whose cause happened to be an SDK canonicalization refusal (the guardian
-  // sync that raises that refusal runs fire-and-forget on a 3s tick, and an
-  // uncaught realm rejection is precisely what the recovery listener evicts on)
-  // would report an ABANDONED pipeline as landed money. Poison is never a
-  // statement about the guardian's view of the account.
+  // Same ordering rationale as the two classifiers below: an eviction's `message`
+  // is a closed wallet set but its `cause` carries the raw realm error verbatim,
+  // and this walks the chain. A trap whose cause happened to be an SDK
+  // canonicalization refusal (the guardian sync that raises it runs
+  // fire-and-forget on a 3s tick, and an uncaught realm rejection is precisely
+  // what the recovery listener evicts on) would read an abandoned hold as the
+  // guardian's answer, and the self-heal would re-register on it. Poison is never
+  // a statement about the guardian's view of the account.
   if (isWasmClientPoisonedError(error)) return false;
   return errorMessageParts(error).some(
     part => /Refusing to overwrite local state/i.test(part) || /is not greater than local nonce/i.test(part)
@@ -170,6 +176,19 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
 }
 
 /**
+ * What a landed write's failure knows about its transaction (#1233): the executed transaction's id, how
+ * many private user output notes it produced and its final account commitment, each only when it could
+ * be read. One object from the throw to the row, on both realms, so no layer can carry one fact and drop
+ * the other.
+ */
+export interface LandedTransaction {
+  transactionId?: string;
+  privateOutputNotes?: number;
+  /** The executed transaction's final account commitment, which the node's account commitment equals once it commits. */
+  finalAccountCommitment?: string;
+}
+
+/**
  * A local store update that failed after the wallet's own `submitProven` resolved,
  * which is the moment the node accepted the transaction (#945).
  *
@@ -181,11 +200,46 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
  */
 export class ApplyAfterSubmitError extends Error {
   readonly code = 'ApplyTransactionAfterSubmitFailed';
+  /** What could still be read about the executed transaction: a landed row's only record of it (#1233). */
+  readonly landed: LandedTransaction;
 
-  constructor(cause: unknown) {
+  constructor(cause: unknown, landed: LandedTransaction = {}) {
     super("This transaction was accepted into the node's mempool but the local store update failed", { cause });
     this.name = 'ApplyAfterSubmitError';
+    this.landed = landed;
   }
+}
+
+/**
+ * Guarded like `errorMessageParts`: the property can be an accessor, and a throw here would cost the
+ * verdict.
+ */
+const readGuarded = (value: unknown, key: string): unknown => {
+  if (!value || typeof value !== 'object') return undefined;
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
+ * rebuilds from an offscreen reply, keeping only a string id, a non-negative integer count and a string
+ * final commitment.
+ */
+export function extractLanded(err: unknown): LandedTransaction {
+  const landed = readGuarded(err, 'landed');
+  const transactionId = readGuarded(landed, 'transactionId');
+  const privateOutputNotes = readGuarded(landed, 'privateOutputNotes');
+  const finalAccountCommitment = readGuarded(landed, 'finalAccountCommitment');
+  return {
+    ...(typeof transactionId === 'string' ? { transactionId } : {}),
+    ...(typeof privateOutputNotes === 'number' && Number.isInteger(privateOutputNotes) && privateOutputNotes >= 0
+      ? { privateOutputNotes }
+      : {}),
+    ...(typeof finalAccountCommitment === 'string' ? { finalAccountCommitment } : {})
+  };
 }
 
 /**

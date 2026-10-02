@@ -40,10 +40,10 @@
  * from what the flow LOOKS like it should be:
  *
  *  1. There is no "choose protection" screen here. `biometricProtectionSupported()`
- *     is `isMobile()`, so on the extension `protectionStepRoute()`
- *     resolves straight to '/#create-password' and `onboarding-choose-protection`
- *     never renders. The spec asserts that skip rather than waiting for a screen
- *     that will never come.
+ *     is true only on mobile with the vault's hardware probe passing, so on the
+ *     extension `protectionStepRoute()` resolves straight to '/#create-password'
+ *     and `onboarding-choose-protection` never renders. The spec asserts that skip
+ *     rather than waiting for a screen that will never come.
  *
  *  2. There is no seed-backup and no seed-verify screen. `OnboardingStep.BackupSeedPhrase`
  *     / `VerifySeedPhrase` exist in `screens/onboarding/navigator.tsx`, but

@@ -230,7 +230,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
           // Per-iteration, and the count is dApp-controlled — one guard before
           // the loop only covers the first import.
           assertWasmHoldCurrent(hold, 'before the note import');
-          await client.importNoteBytes(b64ToU8(noteB64));
+          await client.importNoteBytes(b64ToU8(noteB64), hold);
         }
         assertWasmHoldCurrent(hold, 'after the note imports');
         await client.syncState();

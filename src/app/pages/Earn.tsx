@@ -18,16 +18,22 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 const Earn: FC = () => {
   const { t } = useTranslation();
   const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
-  // SWR keeps the error until a load succeeds, and a first load has none: a retry (which SWR reports
-  // as isLoading) must not lift the failure and flash the empty state back.
+  // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
+  // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
 
   return (
     // The shared home-group pane (HomeGroupPane): the page margin, the offset to the title, the
     // scroll and gesture contract and the clearance over the tab bar, the same as Send, Receive
     // and Swap. 20px between sections is this page's own.
-    <HomeGroupPane paneTestId="earn-page" title={t('earnTitle')} titleTestId="earn-title">
-      <div className="flex flex-col gap-5 pt-5">
+    <HomeGroupPane paneTestId="earn-page">
+      {/* No visible title: the summary's "Total earned" is the pane's first line, at the height Send's
+          and Swap's first lines sit, so nothing moves as you swipe between them. The page is still
+          named for assistive tech, as Receive's is. */}
+      <h1 data-testid="earn-title" className="sr-only">
+        {t('earnTitle')}
+      </h1>
+      <div className="flex flex-col gap-5">
         {/* No summary until positions have loaded: an empty fallback, in flight or failed, would read as "$0". */}
         {!(positions.length === 0 && (isLoading || loadFailed)) && (
           <EarnSummaryPanel summary={summary} titleId="earn-summary-title" />
@@ -54,6 +60,7 @@ const Earn: FC = () => {
           ) : positions.length === 0 && isLoading ? null : positions.length === 0 ? (
             <EmptyState
               surface="dashed"
+              size="compact"
               icon={IconName.Earn}
               title={t('earnNoActivePositionsTitle')}
               description={t('earnNoActivePositionsBody')}

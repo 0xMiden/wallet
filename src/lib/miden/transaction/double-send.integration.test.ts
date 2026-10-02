@@ -34,10 +34,15 @@ import {
 } from './cancel';
 import { markMayHaveSubmitted, setTransactionStage, updateTransactionStatus } from './helper';
 import { isUnverifiableSendRetryError, requeueFailedTransaction } from './retry';
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from '../back/background-notification';
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 
 jest.mock('../back/background-notification', () => ({
-  notifyBackgroundTransactionFailed: jest.fn()
+  notifyBackgroundTransactionFailed: jest.fn(),
+  notifyBackgroundTransactionNotConfirmed: jest.fn()
 }));
 
 jest.mock('../back/miden-client-proxy', () => ({
@@ -71,6 +76,7 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/mobile/background-time', () => ({
+  ...jest.requireActual('lib/mobile/background-time'),
   hiddenSecondsSince: () => globalThis.__testHiddenSeconds ?? 0
 }));
 
@@ -526,6 +532,9 @@ describe('the stuck reaper does not pin the request of a send it reaps for good'
     await markMayHaveSubmitted('reaped-submitted');
 
     await cancelStuckTransactions();
+    // A reaped row that may have landed is announced as not confirmed, not as failed (#1250).
+    expect(notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
+    expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
     await lapseMarker('reaped-submitted');
     await requeueFailedTransaction('reaped-submitted');
 

@@ -116,7 +116,11 @@ export async function createBridgeP2IDENote(
   } = args;
   try {
     console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
-    const requestBytes = await buildEpochCollateralRequestBytes({
+    const {
+      requestBytes,
+      reclaimHeight,
+      noteId: reclaimNoteId
+    } = await buildEpochCollateralRequestBytes({
       senderAccountId,
       allocatorId,
       faucetId,
@@ -138,7 +142,9 @@ export async function createBridgeP2IDENote(
       {
         recipientId: ifHextoBech32(allocatorId),
         noteType: NoteTypeEnum.Public,
-        recallBlocks
+        recallBlocks,
+        reclaimHeight,
+        reclaimNoteId
       },
       spendingLimitAuthorization
     );

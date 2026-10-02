@@ -1,7 +1,6 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
 import { formatUnits } from 'viem';
 
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 
@@ -19,22 +18,19 @@ import { getEpochReadOnlySdk } from './sdk';
 import type { CrossChainIntentParams } from './types';
 
 export interface EpochQuoteOutput {
-  /** Estimated EVM output, human-formatted (18 decimals). */
+  /** Estimated EVM output as an exact human decimal; the screens that show it round it down. */
   amount: string;
   /** Output token symbol (USDC). */
   symbol: string;
 }
 
 /**
- * Format an Epoch quote amount (18-decimal base units, or an already-human
- * decimal) to a display string with the standard 2-decimal precision, expanding
- * for small non-zero values that would otherwise appear as zero.
+ * An Epoch quote amount (18-decimal base units, or an already-human decimal) as an exact human
+ * decimal. Never rounded: the row stores it and every screen formats it when it shows it.
  */
-function formatQuoteAmount(raw: string, decimals: number): string {
-  if (!raw || raw === '0') return '0.00';
+function exactQuoteAmount(raw: string, decimals: number): string {
   try {
-    const human = /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
-    return toAdaptiveFixed(human);
+    return /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
   } catch {
     return raw;
   }
@@ -97,7 +93,7 @@ export async function quoteEpochSendOutput(args: {
 
   const raw = quote.quoteResult.tokenOut != null ? String(quote.quoteResult.tokenOut) : '0';
   return {
-    amount: formatQuoteAmount(raw, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS),
+    amount: exactQuoteAmount(raw, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS),
     symbol: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
   };
 }
@@ -189,11 +185,15 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   if (intent.error) {
     // The `createMidenP2IDENote` callback already committed the P2IDE note and the
     // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'
-    // BEFORE the allocator rejected the intent here. Demote that false success to
-    // Failed so the user isn't told the bridge succeeded while their funds sit in
-    // an unconsumed, recallable note.
+    // BEFORE the allocator rejected the intent here. Or the note's 5-minute wait
+    // gave up while its row was still in flight, which markBridgedSendFailed
+    // records on the row so a note that commits later can still be reclaimed.
+    // Demote that false success to Failed so the user isn't told the bridge
+    // succeeded while their funds sit in an unconsumed, recallable note. A row the
+    // note pipeline already failed for its own reason keeps that failure instead -
+    // markBridgedSendFailed leaves an already-Failed row untouched (#1250).
     if (bridgeTxId) {
-      await markBridgedSendFailed(bridgeTxId, intent.error, params.midenReclaimHeight);
+      await markBridgedSendFailed(bridgeTxId, intent.error);
     }
     throw new Error(intent.error);
   }
@@ -205,7 +205,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   const evmTxHash = intent.solveResult?.hash;
   const intentNonce = intent.intentNonce ?? intent.solveResult?.nonce;
   const rawTokenOut = quote.quoteResult.tokenOut != null ? String(quote.quoteResult.tokenOut) : '0';
-  const outputAmount = formatQuoteAmount(rawTokenOut, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
+  const outputAmount = exactQuoteAmount(rawTokenOut, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
   if (bridgeTxId) {
     await updateBridgeClaimStatus(bridgeTxId, 'not-applicable', {
       evmTxHash,

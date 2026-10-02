@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "檢索您的交易紀錄與notes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "兌換",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "跨鏈轉出",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "賺取存款",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian 已修改",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "裝置金鑰已輪替",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "帳戶已受保障",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "已執行",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "從 $operator$ 恢復歷史紀錄。$count$筆交易已還原。",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "交易紀錄的還原已中斷，原因是網路或 Guardian 營運商無法提供該資料。系統不會自動重新嘗試還原。",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ 交易已恢復。部分 Guardian 來源無法讀取。下次解鎖錢包時，系統將重新嘗試恢復。",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "有效載荷",
     "englishSource": "Payload"
@@ -362,8 +419,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "已賺取的獎勵總額",
-    "englishSource": "Total Earned Rewards"
+    "message": "總收益",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "賺取$apy$的綜合年化收益率（APY）",
@@ -467,34 +524,6 @@
     "message": "建立帳戶",
     "englishSource": "Create Account"
   },
-  "importAccount": {
-    "message": "匯入帳戶",
-    "englishSource": "Import account"
-  },
-  "accountName": {
-    "message": "帳戶名稱",
-    "englishSource": "Account name"
-  },
-  "accountNameInputPlaceholder": {
-    "message": "例如：儲蓄",
-    "englishSource": "e.g. Savings"
-  },
-  "accountNameInputInvalid": {
-    "message": "請輸入 1 至 16 個字元，且不要以空格或連字號開頭。",
-    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
-  },
-  "privateKeyInputDescription": {
-    "message": "要匯入的帳戶私鑰。",
-    "englishSource": "The private key of the account you want to import."
-  },
-  "privateKeyInputPlaceholder": {
-    "message": "例如：APrivateKey1zkp...",
-    "englishSource": "e.g. APrivateKey1zkp..."
-  },
-  "privateKeyClipboardNotCleared": {
-    "message": "您的私鑰無法從剪貼簿中移除。請在繼續之前自行清除。",
-    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
-  },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"
@@ -588,6 +617,14 @@
   "cancelled": {
     "message": "已取消",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "未確認",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "錢包無法確認此筆交易是否已成功完成。交易仍有可能送達，因此請在錢包同步完成後檢查餘額，再決定是否重新發送。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
   },
   "showFullError": {
     "message": "顯示完整錯誤訊息",
@@ -856,6 +893,14 @@
   "transactionStepSyncingGuardian": {
     "message": "與 Guardian 同步",
     "englishSource": "Syncing with Guardian"
+  },
+  "guardianBusyStep": {
+    "message": "等待您的 Guardian",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "您的 Guardian 仍在處理您之前的交易。這筆交易將自動繼續進行。",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ sec",
@@ -2138,6 +2183,50 @@
     "message": "此裝置不支援生物辨識解鎖功能。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "請先在「設定」中為工作裝置啟用「指紋」或「臉部解鎖」，才能在此處使用該功能。",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "請在「設定」中設定指紋或臉部辨識，以啟用生物辨識解鎖功能。",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "為工作設定的臉部或指紋解鎖功能，安全性不足以保護錢包。請在「設定」中為工作設定指紋功能，以便在此處使用。",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "本裝置設定的臉部或指紋解鎖功能，安全性不足以保護錢包。請前往「設定」中設定指紋，以啟用生物辨識解鎖功能。",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "此裝置的生物識別功能無法保護錢包。請改用密碼。",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "目前無法使用生物辨識感測器。請稍後重試，或使用通行碼。",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID 或 Touch ID 目前無法使用。若此應用程式已關閉該功能，請前往「設定」開啟，或使用通行碼。",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "請安裝最新的安全性更新，以啟用生物辨識解鎖功能。",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "請在「設定」中設定裝置密碼，以使用生物辨識解鎖功能。",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "生物辨識解鎖功能在輸入錯誤次數過多後會被鎖定。請先解鎖裝置，然後再試一次。",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "開啟「設定」",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "選擇您的Guardian",
     "englishSource": "Choose your Guardian"
@@ -2655,6 +2744,22 @@
     "message": "切換已提交，但本裝置無法確認它已在鏈上生效。錢包無法為你確認——無論結果如何，Guardian 設定與該交易的活動記錄都會顯示新的 Guardian。如果後續交易因無法聯合簽署而遭拒，請重新執行切換。",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "尚未儲存於此裝置上。",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Guardian 切換已送達網路，但此裝置尚未能儲存你帳戶的新狀態。錢包會持續在背景嘗試，在成功之前，來自此裝置的交易可能無法完成。你無需再次執行 Guardian 切換。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "未儲存於此裝置上。",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Guardian 切換已送達網路，但此裝置無法儲存你帳戶的新狀態，也無法自行還原。請勿再次執行 Guardian 切換。請聯絡技術支援。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "本裝置也未能儲存新 Guardian 的位址，因此仍顯示上一個位址。錢包會請你重新輸入——該提示不會啟動另一次切換。",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
@@ -2752,8 +2857,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "在輪替您的日常金鑰時發生了錯誤。",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "在輪替您的日常金鑰時發生了錯誤。您的資金是安全的，現在可以重試。",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "每日金鑰輪替尚未確認",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "錢包無法確認輪替是否成功。您的資金是安全的，但可能已支付網路手續費。請等待錢包同步一分鐘後再重新嘗試。",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "重試",
@@ -2799,6 +2912,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "您收到的 MIDEN 無法被領取。",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "錢包無法確認您收到的 MIDEN 是否已被領取。請讓錢包同步一分鐘後再試一次。",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "請重新嘗試",
@@ -2964,6 +3081,10 @@
   "insufficientFeeAsset": {
     "message": "您需要 MIDEN 來支付網路手續費。請領取一些 MIDEN 以繼續操作。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "金額必須小於餘額",
@@ -3407,6 +3528,22 @@
   "slow": {
     "message": "緩慢",
     "englishSource": "Slow"
+  },
+  "unavailable": {
+    "message": "不可用",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "檢查此代幣是否支援「慢速」路徑……",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "此代幣不支援「慢速」路徑。",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "無法驗證此代幣。請返回並重新嘗試。",
+    "englishSource": "Could not check this token. Go back and try again."
   },
   "seconds": {
     "message": "秒",
@@ -3855,6 +3992,14 @@
     "message": "指紋",
     "englishSource": "Fingerprint"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "臉部解鎖",
+    "englishSource": "Face unlock"
+  },
   "cameraPermissionDenied": {
     "message": "相機權限遭拒絕",
     "englishSource": "Camera permission denied"
@@ -3922,6 +4067,14 @@
   "transactionFailedNotificationBody": {
     "message": "交易無法完成。請開啟錢包進行檢視。",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "交易尚未確認",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "錢包無法確認交易是否已成功完成。請在再次發送前開啟錢包。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
   },
   "noteReceivedTapToClaim": {
     "message": "點擊此處接受",
@@ -4348,8 +4501,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "約 6 小時",
-    "englishSource": "~6 hours"
+    "message": "約 30 分鐘",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "您正在存入款項",
@@ -4695,6 +4848,10 @@
     "message": "儲存並繼續",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "無法儲存這些端點。請重試。",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "重設為預設值",
     "englishSource": "Reset to defaults"
@@ -4702,6 +4859,10 @@
   "devEndpointResetAndReonboard": {
     "message": "重設為預設值並重新完成註冊流程",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "重設未完成。請重試。",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "網路端點",
@@ -4890,6 +5051,38 @@
   "helpImproveWalletDecline": {
     "message": "現在還不行",
     "englishSource": "Not now"
+  },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
   },
   "activityAcceptTransfer": {
     "message": "接受轉帳",
@@ -5231,6 +5424,39 @@
     "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
     "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
   },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
+  },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
     "englishSource": "This transaction's value cannot be checked right now. Authenticate to send it anyway."
@@ -5429,5 +5655,67 @@
   "revealRecoveryPhrase": {
     "message": "顯示恢復短語",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "隱藏代幣",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "取消隱藏代幣",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "隱藏於「主錢包」之外。它仍保留在您的錢包中，且其轉帳仍可被領取。",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "隱藏資產",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "隱藏資產（$count$）",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "取消隱藏",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "取消隱藏 $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "無法更新隱藏代幣。請重試。",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "無法載入隱藏代幣。",
+    "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "確認您的轉帳",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "確認您的更換操作",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "確認此筆交易",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "確認您的存款",
+    "englishSource": "Confirm your deposit"
   }
 }

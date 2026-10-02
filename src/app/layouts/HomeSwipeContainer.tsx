@@ -78,7 +78,6 @@ function isTextInput(target: EventTarget | null): boolean {
 
 const HomeSwipeContainer: FC = () => {
   const { pathname } = useLocation();
-  const layerActive = usePageActive();
   const containerRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
@@ -133,6 +132,9 @@ const HomeSwipeContainer: FC = () => {
   const lastHomeIdxRef = useRef(0);
   const shownAgain = useTabShownAgain();
   const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
+  // Every page stays mounted in the track, so only the centred one, on a shown and uncovered tab, is
+  // on screen; the others pause their display-only work as a hidden tab's pages do.
+  const parentActive = usePageActive();
 
   // A page can keep its focused input after it moves out of view because the carousel keeps
   // every page mounted. Release that focus when the route selects another page so the mobile
@@ -227,8 +229,10 @@ const HomeSwipeContainer: FC = () => {
     // Any other route change outranks a release still in flight.
     endRelease(true);
     // The pane was hidden until now, so this is a tab change, which swaps rather than slides across
-    // every page in between. Read, not a dependency: the route change that shows the tab runs this
-    // effect, and a later render must not re-run it mid-gesture.
+    // every page in between. Read, not a dependency: TabLayout shows this pane only on Home's own routes
+    // and keeps it mounted, hidden, on every other tab's route, so `onHome` is false exactly while the
+    // pane is hidden and rises in the commit that shows it again, which runs this effect; a later render
+    // must not re-run it mid-gesture.
     if (shownAgain) {
       x.set(-activeIdx * width);
       return;
@@ -484,14 +488,14 @@ const HomeSwipeContainer: FC = () => {
         onDragEnd={handleDragEnd}
         onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
-        {pages.map(page => (
+        {pages.map((page, index) => (
           <div
             key={page.id}
             data-home-page={page.id}
             className="h-full shrink-0"
             style={{ width: `${100 / pages.length}%` }}
           >
-            <PageActiveContext.Provider value={layerActive && onHome && page.id === selectedPageId}>
+            <PageActiveContext.Provider value={parentActive && index === activeIdx}>
               {page.node}
             </PageActiveContext.Provider>
           </div>

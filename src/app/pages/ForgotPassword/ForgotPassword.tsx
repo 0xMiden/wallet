@@ -139,9 +139,18 @@ const ForgotPassword: FC = () => {
         );
         return 'ok';
       } catch (e) {
-        // The wipe and registerWallet can each fail here; a failure usually
-        // comes after the wipe, so it surfaces the reason and stays put so
-        // Retry is reachable (#630).
+        // The wipe and registerWallet can each fail here, and what a failure
+        // leaves depends on the platform. On DESKTOP the platform key-value
+        // store is localStorage (`DesktopStorage`), so clearClientStorage()
+        // above removes the stored wallet, and a failure after it, the usual
+        // case, leaves none. On the extension and on mobile the wallet lives in
+        // browser.storage.local / Capacitor Preferences, which clearClientStorage()
+        // cannot reach, so it goes with `Vault.spawn`'s clearStorage(), and a
+        // failure can come before or after that clear and leave it or not.
+        // Swallowing the error into console.error (and then navigating away
+        // regardless) showed an empty wallet with no explanation,
+        // indistinguishable from data loss, so on every platform the page shows
+        // the error and stays put so Retry is reachable (#630).
         console.error(e);
         setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
@@ -164,6 +173,8 @@ const ForgotPassword: FC = () => {
   const onAction = useCallback(
     async (action: OnboardingAction) => {
       switch (action.id) {
+        // The Welcome step's Get started emits choose-protection; this page has no protection picker.
+        case 'choose-protection':
         case 'create-wallet':
           discardGuardianProbe();
           setSeedPhrase(generateMnemonic().split(' '));
@@ -199,7 +210,7 @@ const ForgotPassword: FC = () => {
           setStep(OnboardingStep.VerifySeedPhrase);
           break;
         case 'create-password':
-          setStep(OnboardingStep.CreatePassword);
+          setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           break;
         case 'create-password-submit':
           setPassword(action.payload.password);
@@ -221,7 +232,7 @@ const ForgotPassword: FC = () => {
           setStep(OnboardingStep.Confirmation);
           break;
         case 'setup-passcode-submit':
-          // Passcode IS the vault password (mobile import path).
+          // Passcode IS the vault password (mobile create and import paths).
           setPassword(action.payload);
           setStep(
             onboardingType === OnboardingType.Import
@@ -268,7 +279,9 @@ const ForgotPassword: FC = () => {
           } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
             setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           } else if (step === OnboardingStep.SetupPasscode) {
-            setStep(OnboardingStep.ImportFromSeed);
+            setStep(
+              onboardingType === OnboardingType.Create ? OnboardingStep.VerifySeedPhrase : OnboardingStep.ImportFromSeed
+            );
           } else if (step === OnboardingStep.ImportFromSeed) {
             // Back to the reset screen's own welcome step — out of the recovery.
             settleRecoverFlow(handle => handle.cancel());

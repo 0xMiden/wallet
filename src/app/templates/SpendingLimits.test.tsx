@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { SpendingLimitConfiguration } from 'lib/miden/spending-limits/types';
 
@@ -21,7 +21,10 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, options?: { amount?: string }) =>
+      options?.amount === undefined ? key : `${key}:${options.amount}`
+  })
 }));
 
 jest.mock('components/Button', () => ({
@@ -140,6 +143,82 @@ describe('SpendingLimits', () => {
     expect(screen.getByText('spendingLimitCoverage')).toBeInTheDocument();
   });
 
+  it('lays the disclosures out as the three "how limits work" facts, each under its own title', async () => {
+    renderScreen();
+
+    await screen.findByLabelText('spendingLimitUsdCap');
+    expect(screen.getByRole('heading', { name: 'spendingLimitHowItWorks' })).toBeInTheDocument();
+    const facts: ReadonlyArray<readonly [string, string]> = [
+      ['spendingLimitStoredOnDevice', 'spendingLimitLocalDisclosure'],
+      ['spendingLimitLocalSafetyCheck', 'spendingLimitNotOnChain'],
+      ['spendingLimitPricedAssetsOnly', 'spendingLimitCoverage']
+    ];
+    for (const [title, description] of facts) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+      expect(screen.getByText(description)).toBeInTheDocument();
+    }
+  });
+
+  it('shows the saved limit in a pill, or that none is set', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    const { unmount } = renderScreen();
+
+    expect(await screen.findByText('spendingLimitCurrent:$20')).toBeInTheDocument();
+    expect(screen.queryByText('spendingLimitNone')).not.toBeInTheDocument();
+    unmount();
+
+    mockReadSpendingLimit.mockResolvedValue(undefined);
+    renderScreen();
+
+    expect(await screen.findByText('spendingLimitNone')).toBeInTheDocument();
+  });
+
+  it('shows a fractional saved limit with its cents (#1279)', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration({ limit: 20_500_000n }));
+    renderScreen();
+
+    expect(await screen.findByText('spendingLimitCurrent:$20.50')).toBeInTheDocument();
+  });
+
+  it('offers whole-dollar presets that fill the field, and none is selected for a typed amount', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
+
+    const field = await screen.findByLabelText('spendingLimitUsdCap');
+    const presets = screen.getByRole('radiogroup', { name: 'spendingLimitPresets' });
+    const choices = within(presets).getAllByRole('radio');
+    expect(choices.map(choice => choice.textContent)).toEqual(['$100', '$500', '$1,000', '$5,000']);
+    // The saved $20 is not a preset, so nothing reads as chosen.
+    expect(choices.every(choice => choice.getAttribute('aria-checked') !== 'true')).toBe(true);
+
+    fireEvent.click(within(presets).getByRole('radio', { name: '$500' }));
+
+    expect(field).toHaveValue('500');
+    expect(within(presets).getByRole('radio', { name: '$500' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('saves a preset like a typed amount: raising the cap still asks for authentication', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
+
+    await screen.findByLabelText('spendingLimitUsdCap');
+    fireEvent.click(screen.getByRole('radio', { name: '$1,000' }));
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
+
+    expect(await screen.findByTestId('strict-authentication')).toBeInTheDocument();
+    // The presets give way to the authentication prompt while it is up.
+    expect(screen.queryByRole('radiogroup', { name: 'spendingLimitPresets' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
+
+    await waitFor(() =>
+      expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: 'account-a', limit: 1_000_000_000n }),
+        'revision-1',
+        true
+      )
+    );
+  });
+
   it('requires strict authentication to raise the cap', async () => {
     mockReadSpendingLimit.mockResolvedValue(configuration());
     renderScreen();
@@ -161,6 +240,30 @@ describe('SpendingLimits', () => {
     );
   });
 
+  it('keeps the amount read-only while strict authentication is open (#1279)', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    renderScreen();
+
+    const field = await screen.findByLabelText('spendingLimitUsdCap');
+    fireEvent.change(field, { target: { value: '25' } });
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
+
+    await screen.findByTestId('strict-authentication');
+    // Authentication saves the draft captured at Save, so the field must not show another amount.
+    expect(screen.getByLabelText('spendingLimitUsdCap')).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate' }));
+
+    await waitFor(() =>
+      expect(mockSaveSpendingLimit).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 25_000_000n }),
+        'revision-1',
+        true
+      )
+    );
+    await waitFor(() => expect(screen.getByLabelText('spendingLimitUsdCap')).toBeEnabled());
+  });
+
   it('saves a lowered cap without authentication', async () => {
     mockReadSpendingLimit.mockResolvedValue(configuration());
     renderScreen();
@@ -176,6 +279,32 @@ describe('SpendingLimits', () => {
       )
     );
     expect(screen.queryByTestId('strict-authentication')).not.toBeInTheDocument();
+  });
+
+  it('keeps the presets read-only while a save is in flight (#1279)', async () => {
+    mockReadSpendingLimit.mockResolvedValue(configuration());
+    let resolveSave!: (value: SpendingLimitConfiguration) => void;
+    mockSaveSpendingLimit.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolveSave = resolve;
+        })
+    );
+    renderScreen();
+
+    fireEvent.change(await screen.findByLabelText('spendingLimitUsdCap'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'spendingLimitSave' }));
+
+    const presets = screen.getByRole('radiogroup', { name: 'spendingLimitPresets' });
+    await waitFor(() => expect(mockSaveSpendingLimit).toHaveBeenCalledTimes(1));
+    for (const radio of within(presets).getAllByRole('radio')) expect(radio).toBeDisabled();
+    fireEvent.click(within(presets).getByRole('radio', { name: '$500' }));
+    expect(screen.getByLabelText('spendingLimitUsdCap')).toHaveValue('10');
+
+    resolveSave(configuration({ limit: 10_000_000n, revision: 'saved-revision' }));
+    await waitFor(() => {
+      for (const radio of within(presets).getAllByRole('radio')) expect(radio).toBeEnabled();
+    });
   });
 
   it('rejects an amount with more than two decimal places', async () => {

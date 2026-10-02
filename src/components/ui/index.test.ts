@@ -29,6 +29,7 @@ import { CopyLabel } from './CopyLabel';
 import { DappOrigin } from './DappOrigin';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
+import { ErrorDetails } from './ErrorDetails';
 import { ErrorLine } from './ErrorLine';
 import { FactRow, IconCircle } from './FactRow';
 import { HeaderRule } from './HeaderRule';
@@ -134,6 +135,7 @@ describe('components/ui barrel', () => {
     TextAction,
     SubPageLayout,
     ErrorLine,
+    ErrorDetails,
     SeedPhraseGrid,
     DappOrigin
   } as const;

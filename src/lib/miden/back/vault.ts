@@ -18,7 +18,8 @@ import { generateMnemonic, validateMnemonic } from '@miden/hd-key';
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
-import { PublicError } from 'lib/miden/back/defaults';
+import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from 'lib/miden/back/defaults';
+import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
   encryptAndSaveMany,
   fetchAndDecryptOneWithLegacyFallBack,
@@ -310,6 +311,19 @@ async function persistEvmKey(vaultKey: CryptoKey, evmAddress: Hex, privateKeyHex
   await encryptAndSaveMany([[accEvmSecretKeyStrgKey(evmAddress.toLowerCase()), privateKeyHex]], vaultKey);
 }
 
+/**
+ * The pre-wipe guard: a spawn that failed before its opening wipe ran never touched a
+ * profile that may still hold a wallet, so only `retire` undoes it. Once the wipe has run,
+ * delegates to the shared `undoFailedSetup`.
+ */
+async function undoRejectedSpawn(spawned: Vault | undefined, protectorInstalled: boolean, caller: string) {
+  if (protectorInstalled) {
+    await undoFailedSetup(spawned, `Vault.${caller}`);
+  } else {
+    spawned?.retire();
+  }
+}
+
 export class Vault {
   // Where the SDK hands this vault's new account secrets. Three transitions move
   // the realm's slot: the constructor installs this sink (a spawn inserts before
@@ -414,9 +428,10 @@ export class Vault {
     }
     clearRecoveryAuthorizations();
     const keys = [mnemonicStrgKey];
-    await withWasmClientLock(async () => {
+    await withWasmClientLock(async hold => {
       this.assertRealmSinkIsMine();
       const client = await getMidenClient();
+      assertWasmHoldCurrent(hold, 'in removeSeedPhrase after the client build');
       for (const publicKeyHex of record.recoveryPublicKeys) {
         const bytes = Buffer.from(publicKeyHex, 'hex');
         const framed = new Uint8Array(bytes.length + 1);
@@ -427,8 +442,10 @@ export class Vault {
         try {
           keys.push(accAuthSecretKeyStrgKey(Buffer.from(commitment.serialize()).toString('hex')));
           await client.client.keystore.remove(commitment);
+          assertWasmHoldCurrent(hold, 'in removeSeedPhrase after a keystore removal');
           // A missing secret causes an SDK storage error. Check the public mapping instead.
           const retainedAccountId = await client.client.keystore.getAccountId(commitment);
+          assertWasmHoldCurrent(hold, 'in removeSeedPhrase after the mapping lookup');
           if (retainedAccountId) {
             retainedAccountId.free();
             throw new PublicError(getMessage('seedRemovalFailed'));
@@ -504,8 +521,9 @@ export class Vault {
             Array.from({ length: RECOVERY_SEED_HD_INDEX_LIMIT }, (_, hdIndex) => ({ hdIndex, keyDerivation }))
           );
     const deriveColdSeed = makeColdSeedDeriver(phrase, account.type);
-    await withWasmClientLock(async () => {
+    await withWasmClientLock(async hold => {
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+      assertWasmHoldCurrent(hold, 'in provideRecoverySeed after the account read');
       if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
       const { commitment } = await getSignerDetailsFromAccount(sdkAccount, true);
       const onChainCommitment = normalizeHex(commitment);
@@ -849,6 +867,9 @@ export class Vault {
     guardianEndpoint?: string
   ): Promise<Vault> {
     console.log('Spawning new vault with wallet type', walletType);
+    let spawned: Vault | undefined;
+    // Set once the opening wipe is done: from there a rejection has a protector, and possibly more, to undo.
+    let protectorInstalled = false;
     return withError('Failed to create wallet', async (): Promise<Vault> => {
       console.log('[Vault.spawn] Step 1: generating vault key...');
       // Generate random vault key (256-bit)
@@ -857,7 +878,7 @@ export class Vault {
       console.log('[Vault.spawn] Step 2: vault key generated');
       // Constructed as soon as the key exists: the constructor installs the realm's
       // insert-key sink, and the recovery and creation below already insert secrets (#878).
-      const spawned = new Vault(vaultKey);
+      spawned = new Vault(vaultKey);
 
       if (!mnemonic) {
         mnemonic = generateMnemonic();
@@ -879,6 +900,8 @@ export class Vault {
       // If no password (hardware-only mode), use hardware protection
       const useHardwareOnly = !password;
       const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+
+      protectorInstalled = true;
 
       if (useHardwareOnly && hardwareAvailable) {
         // Try hardware-only mode (user chose biometric authentication)
@@ -1243,6 +1266,9 @@ export class Vault {
 
       // The instance constructed when its key was made, so the caller need not unlock() separately.
       return spawned;
+    }).catch(async error => {
+      await undoRejectedSpawn(spawned, protectorInstalled, 'spawn');
+      throw error;
     });
   }
 
@@ -1265,6 +1291,9 @@ export class Vault {
     keyPairPayload: string,
     guardianEndpoint?: string
   ): Promise<Vault> {
+    let spawned: Vault | undefined;
+    // As in `spawn`: set once the opening wipe is done, so a paste refused before it wipes nothing.
+    let protectorInstalled = false;
     return withError('Failed to import wallet from key', async (): Promise<Vault> => {
       const pair = parsePrivateKeyPair(keyPairPayload);
       if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
@@ -1272,15 +1301,15 @@ export class Vault {
       const evmAccount = privateKeyToAccount(evmPrivateKey);
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
-      const spawned = new Vault(vaultKey);
+      spawned = new Vault(vaultKey);
 
       // PRECONDITION: no wallet exists. Like `spawn`, this wipes storage before
-      // the protector setup and before the guardian lookup, so a failure after
-      // that point leaves no wallet behind. Today that is safe because the only
+      // the protector setup and before the guardian lookup, and a rejection
+      // after the wipe undoes what this attempt wrote, so a failure after that
+      // point leaves no wallet behind. Today that is safe because the only
       // caller is onboarding (Welcome.tsx), which `resolveRootView` reaches only
-      // when no vault is present, and the next attempt's own `clearStorage()`
-      // clears the half-written protector. A caller that ran this over a live
-      // wallet WOULD destroy it - stage the lookup before the wipe first.
+      // when no vault is present. A caller that ran this over a live wallet
+      // WOULD destroy it - stage the lookup before the wipe first.
       //
       // Validate + canonicalize the pasted key BEFORE the storage wipe or any
       // network work, so a junk paste can never destroy an existing wallet.
@@ -1329,6 +1358,7 @@ export class Vault {
       // encrypt the vault key under an empty string.
       const useHardwareOnly = !password;
       const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+      protectorInstalled = true;
       if (useHardwareOnly && hardwareAvailable) {
         const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
         if (!hardwareSetupSuccess) {
@@ -1404,6 +1434,9 @@ export class Vault {
       await savePlain(ownMnemonicStrgKey, true);
 
       return spawned;
+    }).catch(async error => {
+      await undoRejectedSpawn(spawned, protectorInstalled, 'spawnFromHotKey');
+      throw error;
     });
   }
 
@@ -1691,17 +1724,7 @@ export class Vault {
 
       return spawned;
     }).catch(async error => {
-      spawned?.retire();
-      // Returns the profile to what the restore started from. This clearStorage
-      // is the same call the restore opens with, so it takes the protector and any
-      // other plain key this attempt wrote and leaves the transactions table alone.
-      // Guarded, so a failure before the protector existed cannot wipe a profile
-      // this restore never touched; a failed undo is logged, never thrown over the restore's error.
-      if (protectorInstalled) {
-        await clearStorage(false).catch(undoError =>
-          console.error('[Vault.spawnFromMidenClient] could not undo a failed restore:', undoError)
-        );
-      }
+      await undoRejectedSpawn(spawned, protectorInstalled, 'spawnFromMidenClient');
       throw error;
     });
   }
@@ -2110,13 +2133,31 @@ export class Vault {
    * On mobile we release the SE/StrongBox wrapper key for the old ciphertext
    * via secureHotKey.deleteHotKey — best-effort, not fatal if it fails (the
    * JS fallback's deleteHotKey is a no-op anyway).
+   *
+   * `expectedHotPubKey` is the hot key the caller read before it decided to swap. Omitted, nothing is
+   * checked. A string must equal the stored `hotPublicKey`, and null requires a record with none (a
+   * keyless pending activation). Any other record is refused with a `PublicError` coded
+   * `HOT_KEY_CHANGED`, and nothing is written or released.
    */
-  async swapHotKey(accountPublicKey: string, newHotPubKey: string) {
+  async swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
     return withError('Failed to swap hot key', async () => {
       const allAccounts = await this.fetchAccounts();
       const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
+      }
+      // Checked here, inside the caller's accounts-write-queue turn, because a background heal in
+      // another realm shares no lock with the rotation pipeline. Ahead of the stored-key check, whose
+      // code closes the heal's budget for good, so a moved pointer is never reported as a missing key.
+      if (expectedHotPubKey !== undefined && (account.hotPublicKey ?? null) !== expectedHotPubKey) {
+        throw Object.assign(new PublicError('The account hot key changed'), { code: HOT_KEY_CHANGED });
+      }
+      // Before the pointer: a swap to a key this vault lacks points the account at nothing, and an
+      // encrypted-file restore keeps the rotation rows without necessarily keeping their keys.
+      if (!(await isStored(accAuthSecretKeyStrgKey(newHotPubKey)))) {
+        throw Object.assign(new PublicError('The new hot key is not stored in this wallet'), {
+          code: HOT_KEY_NOT_STORED
+        });
       }
 
       const oldHotPubKey = account.hotPublicKey;

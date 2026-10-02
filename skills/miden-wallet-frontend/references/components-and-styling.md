@@ -25,7 +25,7 @@ Use the design-system tokens from `tailwind.config.ts` and `src/main.css`: `bg-p
 
 Text actions (Copy, Edit, See all, a header's text action) are `text-accent-tint-ink`, never `text-accent-primary`: #E77537 is 2.64:1 on `fill` and 3.0:1 on white.
 
-The old surfaces (`gray-25`, `gray-50`, `surface-input`, `surface-interactive`, `surface-nav-button`, `button-secondary`) and `heading-gray` are gone. `black` remains only for overlays (`bg-black/50`) and resolves to `ink`; write text as `text-ink`.
+The old surfaces (`gray-25`, `gray-50`, `surface-input`, `surface-interactive`, `surface-nav-button`, `button-secondary`) and `heading-gray` are gone. `black` resolves to `ink`, which is white in dark theme, so an overlay that must stay dark uses `pure-black/NN` (or `scrim`), and a `dark:` override never uses `white`, which is the surface colour; write text as `text-ink`.
 
 Fixed palettes (`grey.*`, `pure-white`, `pure-black`) and SVG `fill` values need explicit theme treatment. Prefer `currentColor` for icons. Existing literal colors are migration debt, not a template for new code.
 

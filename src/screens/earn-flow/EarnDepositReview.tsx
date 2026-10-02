@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -11,8 +12,10 @@ import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
+import { confirmSensitiveAction } from 'lib/biometric';
 import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -185,6 +188,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         setIsSubmitting(false);
         return;
       }
+      if (!(await confirmSensitiveAction(t('confirmEarnDepositReason'), probeHardwareProtector))) {
+        setIsSubmitting(false);
+        return;
+      }
       await runOpenPosition();
     } catch (error) {
       // See `runOpenPosition`: guard against `openUnpricedChallenge` itself throwing, or a
@@ -257,7 +264,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
             <EarnHero
               labelId="earn-deposit-review-amount"
-              value={toAdaptiveFixed(amountValue)}
+              value={formatMoneyAmount(amount, 'typed')}
               unit={<EarnAmountUnit symbol={depositSymbol} />}
               label={t('earnDepositAmountTitle')}
             />

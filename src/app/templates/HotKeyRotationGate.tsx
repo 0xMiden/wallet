@@ -8,6 +8,7 @@ import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
+import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { Spinner } from 'components/ui/Spinner';
 import { canHandoffToSidePanel, ONBOARDING_HANDOFF_ROUTES } from 'lib/extension/side-panel-handoff';
 import {
@@ -20,7 +21,7 @@ import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/m
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
-import { isVaultShortfallRow, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
 import {
   hotKeyRotationLockName,
   isLiveRotationFundingRow,
@@ -39,10 +40,12 @@ import { useTransactionRow } from 'screens/generating-transaction/useTransaction
 
 import { RotationFundingPanel, useRotationFundingClaim, useRotationGateRows } from './HotKeyRotationFunding';
 import {
+  describeRotationFailure,
   isBelowBaseFee,
   newestRow,
   resolveRotationGateView,
-  rotationFundingMinimum
+  rotationFundingMinimum,
+  type RotationFailure
 } from './HotKeyRotationGate.selectors';
 
 /**
@@ -172,6 +175,29 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
   return txId;
 };
 
+/**
+ * The terminal failure. `w-full` on the column and `wrap-anywhere` on the text: in this centred
+ * flex column a box otherwise sizes to its widest unbreakable token, and the overlay only scrolls
+ * vertically, so a long id in a raw error ran off both sides of the screen (#1250).
+ */
+const RotationFailedPanel: FC<{ failure: RotationFailure; onRetry: () => void }> = ({ failure, onRetry }) => {
+  const { t } = useTranslation();
+  return (
+    <div data-testid="hot-key-rotation-failed" className="flex w-full flex-col items-center gap-4">
+      <h1 className="text-lg font-semibold text-ink">
+        {t(failure.unconfirmed ? 'hotKeyRotationUnconfirmedTitle' : 'hotKeyRotationFailedTitle')}
+      </h1>
+      <p data-testid="hot-key-rotation-failed-message" className="w-full text-sm text-ink wrap-anywhere select-text">
+        {failure.message ?? t(failure.unconfirmed ? 'hotKeyRotationUnconfirmedBody' : 'hotKeyRotationFailedGeneric')}
+      </p>
+      <ErrorDetails details={failure.details} className="w-full items-center" />
+      <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
+        {t('hotKeyRotationRetry')}
+      </Button>
+    </div>
+  );
+};
+
 const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
@@ -293,6 +319,8 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     return <RecoverySeedPrompt transaction={row} onClose={() => Woozie.navigate('/')} />;
   }
 
+  const claimFailure = describeRotationFailure(gate.view === 'funding' ? gate.failedClaim : undefined, null);
+
   return (
     // A translucent scrim: the wallet stays visible
     // behind the overlay, just dimmed, blurred, and inert. `hot-key-rotation-gate`
@@ -301,7 +329,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     // overlay unmounting IS the "rotation complete" signal.
     <div
       data-testid="hot-key-rotation-gate"
-      className="fixed inset-0 z-[9999] flex flex-col items-center overflow-y-auto px-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
+      className="fixed inset-0 z-[9999] flex flex-col items-center overflow-y-auto px-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-center bg-pure-white/10 dark:bg-pure-black/50 [backdrop-filter:blur(24px)_saturate(1.5)] [-webkit-backdrop-filter:blur(24px)_saturate(1.5)]"
     >
       {/* `my-auto` centres the content and lets a taller one scroll from its top instead of clipping. */}
       <div className="my-auto flex w-full flex-col items-center gap-4">
@@ -314,25 +342,16 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
               baseFee,
               balances.find(balance => balance.tokenId === feeFaucetId)
             )}
-            claimError={gate.failedClaim?.error}
+            claimMessage={claimFailure.message ?? undefined}
+            claimDetails={claimFailure.details}
+            claimUnconfirmed={claimFailure.unconfirmed}
             onRetryClaim={() => {
               if (gate.failedClaim) retryClaim(gate.failedClaim);
             }}
             onCheckAgain={onRetry}
           />
         ) : gate.view === 'failed' ? (
-          <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
-            <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
-            <p className="text-sm text-ink break-words select-text">
-              {/* An old-format shortfall row still carries the raw kernel line as its error. */}
-              {initError ??
-                (row && isVaultShortfallRow(row) ? TRANSACTION_VAULT_SHORTFALL_ERROR : row?.error) ??
-                t('hotKeyRotationFailedGeneric')}
-            </p>
-            <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
-              {t('hotKeyRotationRetry')}
-            </Button>
-          </div>
+          <RotationFailedPanel failure={describeRotationFailure(row, initError)} onRetry={onRetry} />
         ) : (
           <>
             <Spinner />

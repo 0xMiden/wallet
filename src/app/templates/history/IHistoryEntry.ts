@@ -31,6 +31,8 @@ export interface IHistoryExtraAmount {
 }
 
 export interface IHistoryEntry {
+  guardianRecovered?: boolean;
+  guardianReclaimed?: boolean;
   key: string;
   address: string;
   timestamp: number;
@@ -47,6 +49,8 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
+  /** A failed row whose outcome is unknown rather than confirmed-failed (`isUnconfirmedFailure`). */
+  isUnconfirmed?: boolean;
   /**
    * `tx.noteDelivery` — whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
@@ -130,6 +134,13 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+  /** epoch: id of the bridge's P2IDE note, stamped when it was built; read only while the note may exist. */
+  bridgeReclaimNoteId?: string;
+  /**
+   * epoch: the bridge's pipeline claimed its submit, so its note may be on chain under bridgeReclaimNoteId although
+   * no committed id was recorded.
+   */
+  bridgeSubmitClaimed?: boolean;
   /**
    * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
    * detail view can withhold affordances that turn a row back into work —
@@ -148,6 +159,11 @@ export interface IHistoryEntry {
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;
+  /**
+   * A bridge-in `consume` row that delivered an Earn withdrawal (`bridgeIn.earnWithdrawTxId`), whose
+   * source amount is what the withdrawal redeemed rather than a deposit the wallet paid.
+   */
+  bridgeInFromEarnWithdraw?: boolean;
 
   // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
   earnWithdrawPhase?: IEarnWithdrawPhase;

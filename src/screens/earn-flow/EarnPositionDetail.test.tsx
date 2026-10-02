@@ -24,6 +24,8 @@ import EarnPositionDetail from './EarnPositionDetail';
 // A load that did not fully succeed is driven per test; the default is a clean load.
 let mockLoadState: { isLoading: boolean; error?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
+// Whether pos-normal is a position the latest read did not load.
+let mockStale = false;
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
@@ -186,6 +188,7 @@ jest.mock('./useEarnPositions', () => ({
         yearlyEstimate: '+$53.68 / yr',
         withdrawTime: '~30 sec no lockup',
         route: 'Miden -> Aave (Ethereum)',
+        stale: mockStale,
         // varying values -> (max - min) * 0.18 is truthy.
         chartData: [
           { label: 'A', value: 10 },
@@ -524,6 +527,7 @@ describe('EarnPositionDetail', () => {
 describe('EarnPositionDetail after a failed load', () => {
   afterEach(() => {
     mockLoadState = { isLoading: false };
+    mockStale = false;
   });
 
   it('says a per-owner positions failure too, which is not a request failure', () => {
@@ -544,8 +548,8 @@ describe('EarnPositionDetail after a failed load', () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom' };
+  it('keeps the failure said while a retry is out, and names only the route in the header', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
     renderDetail('no-such-position');
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -567,7 +571,20 @@ describe('EarnPositionDetail after a failed load', () => {
     renderDetail('pos-normal');
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
+  });
+
+  it('disables Withdraw for a position the latest read did not load, under the notice with Retry', () => {
+    mockLoadState = { isLoading: false, error: 'boom' };
+    mockStale = true;
+    renderDetail('pos-normal');
+
+    expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
+    expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Aave' })).toBeInTheDocument();
+    expect(screen.getByTestId('area-chart')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'earnDepositMore' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'withdraw' })).toBeDisabled();
   });
 });
 

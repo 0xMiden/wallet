@@ -421,6 +421,7 @@ describe('VerifySeedPhraseFlow', () => {
     clickText('continue');
     const auth = screen.getByTestId('verify-seed-auth');
     expect(auth.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+    expect(screen.getByRole('heading', { name: 'enterPassword' })).toHaveClass('text-row-title');
     expect(screen.getByLabelText('password')).toHaveAttribute('id', 'verify-seed-phrase-password');
 
     fireEvent.change(screen.getByLabelText('password'), { target: { value: 'pw' } });
@@ -431,6 +432,14 @@ describe('VerifySeedPhraseFlow', () => {
     expect(screen.getByTestId('seed-word-0').closest('.bg-fill')).not.toBeNull();
     expect(screen.getByTestId('verify-seed-copy')).toHaveClass('rounded-full');
     expect(review.querySelector('[data-slot="footer"]')).toContainElement(screen.getByText('continue'));
+  });
+
+  it('labels the mobile passcode step with the 16px section title (#1279)', async () => {
+    mockIsMobile = true;
+    await renderFlow();
+    clickText('continue');
+
+    expect(screen.getByRole('heading', { name: 'enterYourPasscode' })).toHaveClass('text-row-title');
   });
 
   it('exits from the warning header back button', async () => {

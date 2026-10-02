@@ -68,6 +68,7 @@ import {
   type OffscreenStageEvent
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
@@ -87,7 +88,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { extractLanded, extractSdkErrorCode, type LandedTransaction } from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -220,8 +221,8 @@ setConnectivityReporter(postConnectivityEvent);
 // Memoized so the storage read happens once per realm. The memo is deliberately a
 // NEVER-REJECTING shadow of the load: it is awaited on the client-creation path, and
 // a permanently-rejected slot there would fail every later `getOrCreateClient()`.
-// (`loadEndpointOverrides` already swallows its own storage errors — falling back to
-// "no override" — so the catch only covers the unexpected.)
+// (`loadEndpointOverrides` already swallows its own storage errors, so the catch only covers
+// the unexpected.)
 let endpointOverridesPromise: Promise<void> | null = null;
 
 function ensureEndpointOverrides(): Promise<void> {
@@ -688,8 +689,8 @@ const DISPATCH: Record<string, DispatchFn> = {
   // Import serialized note bytes into THIS (offscreen) client's store — a store
   // WRITE so the offscreen realm (which syncs + consumes) can see the note. Ships the
   // imported note id / details-commitment string back as UTF-8 bytes.
-  importNoteBytes: async (_context, client, noteBytes: Uint8Array) => {
-    const id = await client.importNoteBytes(noteBytes);
+  importNoteBytes: async (context, client, noteBytes: Uint8Array) => {
+    const id = await client.importNoteBytes(noteBytes, context.hold);
     return new TextEncoder().encode(id);
   },
 
@@ -700,8 +701,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
-  importRecoveryNoteBytes: async (_context, client, encodedProposalNotes: string[]) => {
-    const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes));
+  decodeGuardianHistory: async (context, client, encoded: string) => {
+    return new TextEncoder().encode(JSON.stringify(await client.decodeGuardianHistory(encoded, context.hold)));
+  },
+  getGuardianResultCommitment: async (context, client, encoded: string) => {
+    return new TextEncoder().encode(await client.getGuardianResultCommitment(b64ToBytes(encoded), context.hold));
+  },
+  importRecoveryNoteBytes: async (context, client, encodedProposalNotes: string[]) => {
+    const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes), context.hold);
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
@@ -839,9 +846,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     } as unknown as SwapTransaction;
     const result = await client.swapTransaction(tx);
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
-    // applied) by the time it returns, through the delegated leg's all-in-one
-    // `transactions.submit` or the local leg's staged `submitProven`, so the PSWAP
-    // note may already be on the network. Post-submit, completing beats aborting.
+    // applied) by the time it returns, through its staged submit (in this realm, or
+    // `submitProven` for a worker proof), so the PSWAP note may already be on the
+    // network. Post-submit, completing beats aborting.
     return result.serialize() as Uint8Array;
   },
 
@@ -976,7 +983,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     } else {
       try {
-        // Explicit remote prover rather than `prove({})`, and BOUNDED — the same fix
+        // Explicit remote prover rather than `prove({})`, and BOUNDED: the same fix
         // the inline `runGuardianPipeline` (transaction/index.ts) and
         // `MidenClientInterface.newTransaction` already carry. It was missed here, and
         // here is the copy that actually runs on Chrome: the service-worker bundle
@@ -994,6 +1001,10 @@ const DISPATCH: Record<string, DispatchFn> = {
         // Safe to bound here in the strongest sense available, exactly as inline: this
         // pipeline drives execute/prove/submit itself, so the deadline provably
         // expires BEFORE any submit and the local re-prove cannot broadcast twice.
+        // Unlike those two, this copy calls `withDelegatedProveTimeout` directly, without
+        // `proveDelegated`'s freeze retry: the extension never starts the running-time
+        // clock (`initBackgroundTimeTracking` runs only at mobile startup), so `frozenMs()`
+        // never grows in this realm and a retry could never fire.
         const delegatedProver = remoteProver();
         recordProveTiming(`guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`);
         const provenTx = await withDelegatedProveTimeout(
@@ -1011,6 +1022,8 @@ const DISPATCH: Record<string, DispatchFn> = {
         // ownership is re-checked BEFORE the re-prove, not only after it. Still
         // pre-submit — nothing has been broadcast.
         assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
+        // A trap is not a prover failure: the dispatch's lock retires it, and a re-prove would run on the trapped client.
+        if (proveError instanceof WebAssembly.RuntimeError) throw proveError;
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
         // Marked HERE, in the realm that watched the prove fail, and not left to
         // the worker's catch. That catch gates its own `markConnectivityIssue`
@@ -1042,7 +1055,17 @@ const DISPATCH: Record<string, DispatchFn> = {
     postStageEvent(context, 'submitting');
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
-    await submittedTx.apply();
+    // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
+    // the write, so a failed local apply is retried in this hold while that is safe, and one that
+    // outlasts the retries crosses back as submitted. Its code survives the crossing and its cause
+    // does not, so each failed attempt names the store's reason on the harness's own record.
+    await applyAfterSubmit({
+      apply: () => submittedTx.apply(),
+      result: txResult,
+      readLocalAccount: accountId => client.client.accounts.get(accountId),
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+      onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
+    });
     recordProveTiming('guardianPipeline apply returned');
     return executedTx.result.serialize() as Uint8Array;
   },
@@ -1506,9 +1529,13 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // owed. A placeholder string is worth strictly more than that.
     let error = 'offscreen call failed (error details unreadable)';
     let errorCode: string | undefined;
+    let errorLanded: LandedTransaction | undefined;
     try {
       error = String((err as { message?: string })?.message ?? err);
       errorCode = extractSdkErrorCode(err);
+      // What a landed apply failure knows about its transaction, which only this reply can carry across (#1233).
+      const landed = extractLanded(err);
+      errorLanded = Object.keys(landed).length > 0 ? landed : undefined;
     } catch {
       /* unreadable error object — the reply below still carries the class */
     }
@@ -1517,6 +1544,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       op_id: msg?.op_id,
       error,
       errorCode,
+      errorLanded,
       // The error CLASS, for the classifications that key off it rather than off
       // a code — today `WasmClientPoisonedError` from this realm's own lock
       // recovery (issue #775). Without it the SW rebuilds a bare `Error` and
@@ -1578,9 +1606,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const response: OffscreenReloadEndpointsResponse = { ok: true };
         sendResponse(response);
       } catch (err) {
-        // `loadEndpointOverrides` swallows its own storage failures (falling back to
-        // "no override"), so reaching here means something unexpected. Answer ok:false
-        // rather than dropping the response, which would leave the SW's await hanging.
+        // `loadEndpointOverrides` swallows its own storage errors, so reaching here means
+        // something unexpected. Answer ok:false rather than dropping the response, which would
+        // leave the SW's await hanging.
         console.error(`${TAG} endpoint-override reload failed:`, err);
         const response: OffscreenReloadEndpointsResponse = {
           ok: false,

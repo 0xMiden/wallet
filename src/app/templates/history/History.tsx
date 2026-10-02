@@ -7,6 +7,7 @@ import {
   getCompletedTransactions,
   getUncompletedTransactions,
   isCancellableTransaction,
+  isUnconfirmedFailure,
   isUserCancelledTransaction,
   supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
@@ -27,9 +28,11 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
+import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
 import { isPendingActivityEntry } from './activityGroups';
+import { guardianHistoryIcon } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -63,6 +66,10 @@ type HistoryProps = {
    * their activity" from this; the loading state lives here, so nothing above can derive it.
    */
   onInitialLoad?: () => void;
+  onLoadingChange?: (loading: boolean) => void;
+  externalLoading?: boolean;
+  /** Set by a host that draws its own loading bar over the list, so the list draws no spinner of its own. */
+  hideLoadingSpinner?: boolean;
   /**
    * Narrows the list further, after the search and the filter. The Groups view's own page hands
    * one group's matcher down here, so that page IS this list - paging, the in-flight rows and the
@@ -134,7 +141,10 @@ const History = memo<HistoryProps>(
     renderEntries,
     pendingItems,
     drawnPendingItems,
-    renderPendingItem
+    renderPendingItem,
+    onLoadingChange,
+    externalLoading = false,
+    hideLoadingSpinner = false
   }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
@@ -228,6 +238,11 @@ const History = memo<HistoryProps>(
     // The list is the reads that run together, so either failing is a failed load; Retry re-runs whichever runs.
     // Under Pending the settled read holds a null key, so it holds no error either.
     const loadError = Boolean(latestError || pendingError);
+    const historyLoading = onScreen && (initialLoading || isLoading);
+    useEffect(() => {
+      onLoadingChange?.(historyLoading);
+    }, [historyLoading, onLoadingChange]);
+    useEffect(() => () => onLoadingChange?.(false), [onLoadingChange]);
     useEffect(() => {
       if (initialLoading) return;
       onInitialLoad?.();
@@ -419,7 +434,8 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
-        initialLoading={initialLoading}
+        initialLoading={externalLoading || initialLoading}
+        hideLoadingSpinner={hideLoadingSpinner}
         loadError={loadError}
         onRetry={onRetry}
         loadMore={loadMore}
@@ -440,18 +456,6 @@ const History = memo<HistoryProps>(
 
 export default History;
 
-/**
- * The data a read shows: its live data while it runs, and the last data it received for this same key while it does
- * not (a retained page off screen stays visible behind the page above it). Never data from another key.
- */
-function useLastData<T>(key: unknown[], running: boolean, live: T | undefined): T | undefined {
-  const last = useRef<{ id: string; data: T } | null>(null);
-  const id = JSON.stringify(key);
-  if (running && live !== undefined) last.current = { id, data: live };
-  const kept = last.current?.id === id ? last.current.data : undefined;
-  return running ? (live ?? kept) : kept;
-}
-
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {
   return txType === 'send' || txType === 'bridged-send';
@@ -467,12 +471,14 @@ async function fetchTransactionsAsHistoryEntries(
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
+    const isUnconfirmed = isUnconfirmedFailure(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
         : tx.displayMessage;
-    const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
+    const icon =
+      tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
@@ -494,6 +500,8 @@ async function fetchTransactionsAsHistoryEntries(
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
+      guardianRecovered: tx.recovered === true,
+      guardianReclaimed: tx.recovery?.reclaimed,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
       // detail view renders. A terminal row is not guaranteed to carry
       // `completedAt`, and the day grouping builds a Date from this with no
@@ -545,6 +553,7 @@ async function fetchTransactionsAsHistoryEntries(
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       errorMessage: tx.error,
       isCancelled,
+      isUnconfirmed,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,

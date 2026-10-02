@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { createListenerSet } from 'lib/listener-set';
+import { onStorageCleared } from 'lib/storage-cleared';
 
 import { ACTIVITY_READ_MAX_IDS, ACTIVITY_READ_STORAGE_KEY } from './constants';
 
@@ -56,6 +57,46 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
  * would loop forever on a getter that parses fresh JSON into a new object every call.
  */
 let cached: ActivityReadState | undefined;
+
+/** Both copies' reads: the later mark, and every id at the later of its two read times. */
+function merge(a: ActivityReadState, b: ActivityReadState): ActivityReadState {
+  const ids: Record<string, number> = { ...a.ids };
+  for (const [id, at] of Object.entries(b.ids)) ids[id] = Math.max(ids[id] ?? at, at);
+  return compact({ seenBefore: Math.max(a.seenBefore, b.seenBefore), ids });
+}
+
+/** Value equality, so a merge that changed nothing keeps the cached identity and wakes nobody. */
+function sameState(a: ActivityReadState, b: ActivityReadState): boolean {
+  if (a.seenBefore !== b.seenBefore) return false;
+  const keys = Object.keys(a.ids);
+  return keys.length === Object.keys(b.ids).length && keys.every(id => b.ids[id] === a.ids[id]);
+}
+
+function forget() {
+  cached = undefined;
+  notify();
+}
+
+// Every extension window (popup, side panel, full-page tab) keeps its own cache over one shared
+// localStorage value, so each merges the others' writes as they land. Another window's removal or
+// clear (a wallet reset) drops the cache instead, and the next read takes the device's value again;
+// the window that clears learns of it through reset.ts's announcement below. A value that does not
+// parse is ignored: this window keeps its copy, and its next mark writes over it.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', event => {
+    if (event.key !== null && event.key !== ACTIVITY_READ_STORAGE_KEY) return;
+    if (event.newValue === null) return forget();
+    const incoming = parse(event.newValue);
+    if (!incoming) return;
+    const next = cached ? merge(cached, incoming) : undefined;
+    if (next && cached && sameState(next, cached)) return;
+    cached = next;
+    notify();
+  });
+}
+
+// A clear in this document (a reset) fires no storage event here; reset.ts announces it instead.
+onStorageCleared(forget);
 
 function parse(raw: string | null): ActivityReadState | undefined {
   if (!raw) return undefined;
@@ -114,13 +155,31 @@ export function isActivityRead(state: ActivityReadState, id: string, timestamp: 
 
 /** Marks one activity read. `timestamp` is its own, not the current time. */
 export function markActivityRead(id: string, timestamp: number): void {
-  const current = getActivityReadState();
-  if (isActivityRead(current, id, timestamp)) return;
+  markActivitiesRead([{ id, timestamp }]);
+}
+
+/**
+ * Marks several activities read with one write, so every other window takes one storage event and
+ * re-renders once for the batch. Each `timestamp` is the activity's own, not the current time.
+ */
+export function markActivitiesRead(entries: readonly { id: string; timestamp: number }[]): void {
+  let stored: ActivityReadState | undefined;
+  try {
+    stored = parse(localStorage.getItem(ACTIVITY_READ_STORAGE_KEY));
+  } catch {}
+  // Another window may have written since this one last read: write the union, never this
+  // window's copy alone.
+  const current = stored ? merge(getActivityReadState(), stored) : getActivityReadState();
+  const unread = entries.filter(({ id, timestamp }) => !isActivityRead(current, id, timestamp));
+  if (unread.length === 0) return;
   // Only entries strictly ABOVE the mark survive compaction, so a row with no usable timestamp
   // (an incoming transfer that never carried a `receivedAt`) is recorded just past it rather than
-  // at a `now` the mark may already have reached — otherwise the read would be dropped on write.
-  const at = Number.isFinite(timestamp) ? timestamp : Math.max(nowSeconds(), current.seenBefore + 1);
-  persist(compact({ seenBefore: current.seenBefore, ids: { ...current.ids, [id]: at } }));
+  // at a `now` the mark may already have reached, where the write would drop it.
+  const ids = { ...current.ids };
+  for (const { id, timestamp } of unread) {
+    ids[id] = Number.isFinite(timestamp) ? timestamp : Math.max(nowSeconds(), current.seenBefore + 1);
+  }
+  persist(compact({ seenBefore: current.seenBefore, ids }));
   notify();
 }
 

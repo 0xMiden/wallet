@@ -15,7 +15,7 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from './guardian-manager';
-import { bumpWasmClientGeneration } from '../sdk/wasm-client-poison';
+import { bumpWasmClientGeneration, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('./storage', () => ({
@@ -107,7 +107,8 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         // The resolved per-account endpoint is now passed through to init.
-        'https://default.guardian.test'
+        'https://default.guardian.test',
+        { label: 'guardian-service-init' }
       );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
@@ -167,7 +168,8 @@ describe('guardian-manager', () => {
         `0x${HOT_PK}`,
         '0xabc',
         provider.signWord,
-        'https://per-account.guardian'
+        'https://per-account.guardian',
+        { label: 'guardian-service-init' }
       );
       // The per-account field short-circuits the global-key lookup.
       expect(mockFetchFromStorage).not.toHaveBeenCalled();
@@ -193,6 +195,60 @@ describe('guardian-manager', () => {
 
       resolveInit(service);
       await expect(Promise.all([first, second])).resolves.toEqual([service, service]);
+    });
+
+    // The init is pre-write, so a pipeline caller that inherits the idle loop's ceiling pays at
+    // most a retry; splitting the coalescing per flag would reopen the duplicate-init race.
+    it("a pipeline caller joining the idle loop's in-flight build inherits its sync-ceiling init", async () => {
+      const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'shared' };
+      let resolveInit!: (value: unknown) => void;
+      mockMultisigServiceInit.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveInit = resolve;
+        })
+      );
+      const provider = makeProvider([guardianAccount]);
+
+      const idleLoop = getOrCreateMultisigService(GUARDIAN_PK, provider, true);
+      const pipeline = getOrCreateMultisigService(GUARDIAN_PK, provider);
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
+      expect(mockMultisigServiceInit.mock.calls[0][5]).toEqual({
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'guardian-service-init'
+      });
+
+      resolveInit(service);
+      await expect(Promise.all([idleLoop, pipeline])).resolves.toEqual([service, service]);
+    });
+
+    it('bounds the service init at the sync ceiling only for the idle loop, and labels it either way', async () => {
+      const provider = makeProvider([guardianAccount]);
+      mockMultisigServiceInit.mockResolvedValue({ guardianEndpoint: 'https://default.guardian.test' });
+
+      await getOrCreateMultisigService(GUARDIAN_PK, provider, true);
+      expect(mockMultisigServiceInit).toHaveBeenLastCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        'https://default.guardian.test',
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+      );
+
+      clearGuardianCache();
+      await getOrCreateMultisigService(GUARDIAN_PK, provider);
+      expect(mockMultisigServiceInit).toHaveBeenLastCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        'https://default.guardian.test',
+        { label: 'guardian-service-init' }
+      );
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 
     // Issue #775: lock recovery replaces the WASM client under a cached service.

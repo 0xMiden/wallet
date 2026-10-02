@@ -37,6 +37,16 @@ describe('TransactionHeroIcon size', () => {
     expect(glyph).toHaveAttribute('height', '44');
   });
 
+  it('renders the not-confirmed state on the pending tone with the glyph scaled to the size', () => {
+    const { container } = render(<TransactionHeroIcon state="unconfirmed" />);
+
+    const circle = container.querySelector('.rounded-full')!;
+    expect(circle).toHaveClass('bg-status-pending');
+    expect(circle).not.toHaveClass('bg-status-negative');
+    expect(circle.querySelector('svg')).toHaveAttribute('width', '30');
+    expect(screen.queryByTestId('flow-spinner')).not.toBeInTheDocument();
+  });
+
   it('scales the processing spinner ring with the icon size', () => {
     const { rerender } = render(<TransactionHeroIcon state="processing" />);
 

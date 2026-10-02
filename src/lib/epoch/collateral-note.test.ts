@@ -23,7 +23,20 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ),
   Note: {
     createP2IDNote: jest.fn((...args: any[]) => ({ kind: 'p2id', args })),
-    createP2IDENote: jest.fn((...args: any[]) => ({ kind: 'p2ide', args }))
+    createP2IDENote: jest.fn((...args: any[]) => {
+      let taken = false;
+      return {
+        kind: 'p2ide',
+        args,
+        take: () => {
+          taken = true;
+        },
+        id: () => {
+          if (taken) throw new Error('null pointer passed to rust');
+          return { toString: () => 'note-p2ide-id' };
+        }
+      };
+    })
   },
   NoteAssets: jest.fn(function (this: any, assets: any) {
     this.assets = assets;
@@ -31,7 +44,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteAttachment: jest.fn(function (this: any, felts: any) {
     this.felts = felts;
   }),
+  // Takes each note by value, as the browser build's glue does, so a later `note.id()` throws.
   NoteArray: jest.fn(function (this: any, notes: any) {
+    for (const note of notes) note.take();
     this.notes = notes;
   }),
   NoteType: { Private: 'Private', Public: 'Public' },
@@ -157,7 +172,11 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockGetAccount.mockResolvedValue(accountHolding());
 
-    await expect(build()).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    await expect(build()).resolves.toEqual({
+      requestBytes: new Uint8Array([1, 2, 3]),
+      reclaimHeight: 3016,
+      noteId: 'note-p2ide-id'
+    });
 
     expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
@@ -168,7 +187,11 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockGetAccount.mockResolvedValue(null);
 
-    await expect(build()).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    await expect(build()).resolves.toEqual({
+      requestBytes: new Uint8Array([1, 2, 3]),
+      reclaimHeight: 3016,
+      noteId: 'note-p2ide-id'
+    });
 
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
@@ -218,6 +241,13 @@ describe('the rest of the allocator contract is unchanged', () => {
     expect(timelock).toBeNull();
     // Private would be "not found on-chain" to the allocator.
     expect(noteType).toBe('Public');
+  });
+
+  it("returns the note's own reclaim height and id with the request bytes (#1250)", async () => {
+    const result = await build();
+
+    expect(result).toEqual({ requestBytes: new Uint8Array([1, 2, 3]), reclaimHeight: 3016, noteId: 'note-p2ide-id' });
+    expect(result.reclaimHeight).toBe((Note.createP2IDENote as jest.Mock).mock.calls[0][3]);
   });
 
   it('writes the mandate-binding felts verbatim', async () => {

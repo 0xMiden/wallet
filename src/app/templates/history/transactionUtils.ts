@@ -2,7 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -91,10 +91,13 @@ export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHi
   // to re-discriminate them — which is how the scale check first went wrong,
   // testing a property (`name`) that a legitimate metadata record may omit.
   const offeredRegistry = getSwapTokenByFaucetId(tx.faucetId);
-  const offeredMetadata = offeredRegistry === undefined ? await getTokenMetadata(tx.faucetId ?? null) : undefined;
+  const offeredMetadata =
+    offeredRegistry === undefined && tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
   const requestedRegistry = getSwapTokenByFaucetId(extra.requestedFaucetId);
   const requestedMetadata =
-    requestedRegistry === undefined ? await getTokenMetadata(extra.requestedFaucetId ?? null) : undefined;
+    requestedRegistry === undefined && extra.requestedFaucetId
+      ? await getTokenMetadata(extra.requestedFaucetId)
+      : undefined;
   // A registry token declares its own decimals, so a registry hit is always
   // scalable. Off the registry, `getTokenMetadata` hands back the unknown-token
   // placeholder for a faucet it could not resolve, and its 6 decimals are a
@@ -162,22 +165,63 @@ export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | un
   return undefined;
 };
 
+/** What a displayed Bridge or Earn amount means, which decides how it may be rounded. */
+export type MoneyKind = 'receives' | 'pays' | 'typed';
+
 /**
- * Round a bridge's (USDC) destination output to the standard 2 decimals for
- * display, expanding for small non-zero values. Passes non-numeric input
- * through unchanged.
- *
- * Rounds DOWN, never half-up: this now formats the bridge hero's IN side too,
- * which is the user's own sent amount, and half-up there displays MORE than was
- * sent (1.239999… → "1.24"). Rounding down also matches the two sibling money
- * formatters — `formatEarnWithdrawAmount` and the activity row — so the same
- * value cannot read differently depending on the surface.
+ * Minimum decimals by displayed symbol, for an asset whose amounts need more than the default two.
+ * Six is the typed-amount input cap (`AmountInput`), so a Slow ETH amount reads the same in flight
+ * and once credited. Metadata `decimals` is the on-chain scale, not a display precision.
  */
-export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
-  if (amount === undefined) return undefined;
-  const n = new BigNumber(amount);
-  return n.isFinite() ? toAdaptiveFixed(n, undefined, BigNumber.ROUND_DOWN) : amount;
-};
+const DISPLAY_PRECISION = new Map([
+  ['ETH', 6],
+  ['WETH', 6]
+]);
+const DEFAULT_DISPLAY_PRECISION = 2;
+
+/**
+ * The decimal text of a stored amount. A restore keeps a row's `extraInputs` as the dump recorded
+ * them, so a hand-edited backup can leave a number or a BigInt where a string is declared; any
+ * other shape is not an amount.
+ */
+const amountText = (stored: unknown): string | undefined =>
+  typeof stored === 'string' || typeof stored === 'number' || typeof stored === 'bigint' ? String(stored) : undefined;
+
+/**
+ * The one display rule for Bridge and Earn amounts. `receives` rounds down, so a screen never
+ * promises more than arrives; `pays` rounds up, so it never shows less than leaves the account;
+ * `typed` shows the exact decimal the user typed, without grouping, a trailing separator or
+ * trailing zeros, and reads an empty or non-numeric value as 0. Rounded kinds keep at least the
+ * asset's minimum decimals, expand for a small value and never pad. A non-numeric rounded value
+ * (a legacy or restored string) and `undefined` pass through unchanged. A value outside the display
+ * window (`DISPLAY_EXPONENT_LIMIT`) reads as non-numeric: 0 when typed, passed through when rounded.
+ */
+export function formatMoneyAmount(value: string, kind: MoneyKind, symbol?: string): string;
+export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined;
+export function formatMoneyAmount(value: string | undefined, kind: MoneyKind, symbol?: string): string | undefined {
+  if (value === undefined) return undefined;
+  const text = amountText(value);
+  if (text === undefined) return kind === 'typed' ? '0' : value;
+  if (kind === 'typed') {
+    const typed = new BigNumber(text.replace(/,/g, ''));
+    return isDisplayable(typed) ? typed.toFixed() : '0';
+  }
+  const amount = new BigNumber(text);
+  if (!isDisplayable(amount)) return value;
+  const minimum = (symbol === undefined ? undefined : DISPLAY_PRECISION.get(symbol)) ?? DEFAULT_DISPLAY_PRECISION;
+  const places = getAdaptiveDecimalPlaces(amount, minimum);
+  return amount.decimalPlaces(places, kind === 'pays' ? BigNumber.ROUND_UP : BigNumber.ROUND_DOWN).toFixed();
+}
+
+/**
+ * A received amount as the wallet credited it: the row's own base-unit `amount` scaled by the
+ * delivered faucet, then rounded down at that asset's precision. Withheld when there is no amount or
+ * the faucet's scale is a guess, since scaling by a guess misreports what arrived.
+ */
+export const creditedAmount = (amount: bigint | undefined, metadata: AssetMetadata | undefined): string | undefined =>
+  amount !== undefined && hasKnownScale(metadata)
+    ? formatMoneyAmount(formatAmount(amount, metadata?.decimals), 'receives', metadata?.symbol)
+    : undefined;
 
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
 
@@ -209,7 +253,11 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
-  /** Quoted destination output, falling back to the input amount for legacy/in-flight rows. */
+  /**
+   * What the destination side receives, ready to show. Bridge-out: the stored quote rounded down,
+   * or the typed send amount for a row without a quote (Slow). Bridge-in: the typed "you receive"
+   * while in flight, then the credited amount rounded down once received.
+   */
   outAmount?: string;
   providerLabel: string;
   network: string;
@@ -224,7 +272,8 @@ export interface BridgeRowDisplay {
 export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
   const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
-  const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? entry.amount?.toString();
+  // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
+  const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
@@ -251,14 +300,15 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
-  // Fast (Epoch) quotes are rounded for display; a Slow (Agglayer) route's output is what was
-  // typed (at most 6 decimals), so it is shown as stored.
+  // Once received (a consume row always is) the row's own amount is what was credited. In flight
+  // the stored "you receive" amount is what was typed, on either route; a row without one shows its
+  // own amount, which is the typed amount on Slow and the quote's tokenOut on any other route.
+  const fallbackKind = entry.bridgeInProvider === 'agglayer' ? 'typed' : 'receives';
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
-      ? entry.amount?.toString()
-      : entry.bridgeInProvider === 'epoch'
-        ? (formatBridgeOutputAmount(entry.bridgeInOutputAmount) ?? entry.amount?.toString())
-        : (entry.bridgeInOutputAmount ?? entry.amount?.toString());
+      ? formatMoneyAmount(entry.amount, 'receives', outSymbol)
+      : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
+        formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
 };
@@ -266,18 +316,18 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */
 export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txType === 'earn-withdraw';
 
-/** Trim a human decimal amount to 2 places, expanding when needed to preserve a small non-zero value. */
-export const formatEarnWithdrawAmount = (human: string): string => {
-  const n = new BigNumber(human);
-  if (!n.isFinite()) return human;
-  return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
-};
-
 /** The amount/symbol pair an `earn-withdraw` row (and its detail hero) displays. */
 export interface EarnWithdrawAmountFields {
   amount?: string;
   token?: string;
 }
+
+/**
+ * Whether a Smart Withdraw shows its redeemed source side rather than the credited amount: until the
+ * credit lands, and on a received row that recorded no amount. The estimate prices the same side.
+ */
+export const earnWithdrawShowsSource = (extra: IEarnWithdrawExtraInputs, rowAmount: bigint | undefined): boolean =>
+  !(extra.phase === 'received' && rowAmount !== undefined);
 
 /**
  * Which side of a Smart Withdraw the activity shows.
@@ -287,7 +337,8 @@ export interface EarnWithdrawAmountFields {
  * `amount`. Once the bridged note is consumed (`phase === 'received'`) the
  * consume path patches the row with the amount that actually arrived,
  * denominated in `faucetId`'s asset — so the row must switch to its own amount
- * scaled by that faucet's metadata. The consume row is suppressed from Activity
+ * scaled by that faucet's metadata. Both sides round down: each is what the
+ * withdrawal delivers at most. The consume row is suppressed from Activity
  * (this row is the single trace), so keeping the source side would let the row
  * claim "+10 USDC" when a different amount of a different asset landed.
  */
@@ -296,17 +347,19 @@ export const earnWithdrawAmountFields = (
   rowAmount: bigint | undefined,
   destinationMetadata: AssetMetadata | undefined
 ): EarnWithdrawAmountFields => {
-  if (extra.phase === 'received' && rowAmount !== undefined) {
+  if (!earnWithdrawShowsSource(extra, rowAmount)) {
     return {
       // The whole point of this branch is that the received leg is denominated
       // in the DESTINATION faucet's asset, so its decimals are load-bearing. If
       // that faucet never resolved, scaling by the placeholder's guess reports a
-      // withdrawal the user did not receive; the asset is still named.
-      amount: hasKnownScale(destinationMetadata) ? formatAmount(rowAmount, destinationMetadata?.decimals) : undefined,
-      token: destinationMetadata?.symbol ?? extra.outputSymbol
+      // withdrawal the user did not receive. The token is that faucet's own
+      // symbol, a placeholder's included; the stored output symbol is the bridged
+      // note's source token (the EVM side), so it never names what arrived.
+      amount: creditedAmount(rowAmount, destinationMetadata),
+      token: destinationMetadata?.symbol
     };
   }
-  return { amount: formatEarnWithdrawAmount(extra.sourceAmount), token: extra.sourceSymbol };
+  return { amount: formatMoneyAmount(extra.sourceAmount, 'receives', extra.sourceSymbol), token: extra.sourceSymbol };
 };
 
 /** Settlement state of a Smart Deposit's Sepolia lending leg (`extraInputs.epochStatus`). */
