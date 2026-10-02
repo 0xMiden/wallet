@@ -84,6 +84,11 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   // A declined or failed prompt must leave Approve tappable again, so this is its own
   // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
   const pendingApprovalRef = useRef(false);
+  // The id of the request this mounted modal currently shows. `requestConfirmation`
+  // replaces a still-pending entry for the same session before this component's
+  // props catch up, so a confirm awaited for an earlier request must not resolve
+  // whatever request now sits at that slot - null once unmounted.
+  const currentRequestIdRef = useRef<string | null>(request.id);
 
   // PR-7: focus management. On mount we store the element that was
   // focused before the modal opened, move focus to the first focusable
@@ -97,7 +102,12 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
   useEffect(() => {
     resolvedRef.current = false;
+    pendingApprovalRef.current = false;
+    currentRequestIdRef.current = request.id;
     setShowSpendingLimitChallenge(false);
+    return () => {
+      currentRequestIdRef.current = null;
+    };
   }, [request.id]);
 
   useEffect(() => {
@@ -212,6 +222,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
       setShowSpendingLimitChallenge(true);
       return;
     }
+    const requestId = request.id;
     pendingApprovalRef.current = true;
     if (request.type === 'transaction') {
       try {
@@ -219,13 +230,20 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           t('confirmDappTransactionReason'),
           async () => (await getStrictAuthenticationProtectors()).hardware
         );
+        // This request may have been superseded (a new one replaced it at the same
+        // session slot) or the modal may have unmounted while the prompt was open -
+        // either way `currentRequestIdRef` no longer names it, and resolving now
+        // would hand this approval to whatever request sits there instead.
+        if (currentRequestIdRef.current !== requestId) return;
         if (!confirmed) {
           pendingApprovalRef.current = false;
           return;
         }
       } catch (error) {
         console.error(error);
-        pendingApprovalRef.current = false;
+        if (currentRequestIdRef.current === requestId) {
+          pendingApprovalRef.current = false;
+        }
         return;
       }
     }

@@ -412,6 +412,79 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     consoleSpy.mockRestore();
   });
 
+  it('never resolves a stale approval superseded by a new request, and still resolves the new one normally', async () => {
+    const requestA = plainTransactionRequest();
+    const requestB = buildRequest({
+      id: 'req-2',
+      type: 'transaction',
+      sourcePublicKey: FULL_ACCOUNT_ID,
+      transactionMessages: ['Send 2 MIDEN']
+    });
+    let releaseA: (confirmed: boolean) => void = () => {};
+    confirmMock.mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        releaseA = resolve;
+      })
+    );
+    const onResolve = jest.fn();
+    const { rerender } = render(
+      <DappConfirmationModal request={requestA} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    await flush();
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+
+    rerender(<DappConfirmationModal request={requestB} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+
+    await act(async () => {
+      releaseA(true);
+    });
+    await flush();
+
+    expect(onResolve).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    await flush();
+
+    expect(confirmMock).toHaveBeenCalledTimes(2);
+    expect(confirmMock.mock.calls[1]![0]).toBe('confirmDappTransactionReason');
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed: true }));
+  });
+
+  it('never resolves an approval once the modal has unmounted', async () => {
+    let release: (confirmed: boolean) => void = () => {};
+    confirmMock.mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        release = resolve;
+      })
+    );
+    const onResolve = jest.fn();
+    const { unmount } = render(
+      <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    await flush();
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    await act(async () => {
+      release(true);
+    });
+    await flush();
+
+    expect(onResolve).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['connect', buildRequest()],
     ['sign', buildRequest({ type: 'sign' })]
