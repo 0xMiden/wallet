@@ -616,11 +616,12 @@ describe('syncGuardianAccounts', () => {
     });
     await syncGuardianAccounts();
 
-    // …and past the 429's own rate-limit cooldown, which otherwise skips the next lap at
-    // the cooldown gate and makes this test vacuous.
+    // …and past the 429's own rate-limit cooldown (timed on performance.now), which otherwise
+    // skips the next lap at the cooldown gate and makes this test vacuous.
     let nowMs = Date.now();
     jest.spyOn(Date, 'now').mockImplementation(() => nowMs);
     nowMs += SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 1_000;
+    jest.spyOn(performance, 'now').mockReturnValue(performance.now() + SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 1_000);
 
     // …so the next eviction cannot be the fourth CONSECUTIVE one. Without the report the
     // chain was never broken and this lap lights the fuse.
@@ -1791,12 +1792,14 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect(storeState.swapHotKey).not.toHaveBeenCalled();
     });
 
-    const lapsAt = async (times: number[]) => {
+    // Each clock from its own base at the same offsets, as in a live realm, so a cooldown stamped on
+    // one clock and compared on the other is an epoch off rather than invisible.
+    const lapsAt = async ({ t0, p0 }: { t0: number; p0: number }, offsets: number[]) => {
       const nowSpy = jest.spyOn(Date, 'now');
       const perfSpy = jest.spyOn(performance, 'now');
-      for (const at of times) {
-        nowSpy.mockReturnValue(at);
-        perfSpy.mockReturnValue(at);
+      for (const offset of offsets) {
+        nowSpy.mockReturnValue(t0 + offset);
+        perfSpy.mockReturnValue(p0 + offset);
         await syncGuardianAccounts();
       }
       nowSpy.mockRestore();
@@ -1806,24 +1809,24 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     it('checks a pending account with no Failed rotation at most once per cooldown, counting no attempt (#1233)', async () => {
       storeState.accounts = [pendingAccount] as never;
       mockFindFailedHotKeyRotations.mockResolvedValue([]);
-      const t0 = Date.now();
+      const clocks = { t0: Date.now(), p0: performance.now() };
 
-      await lapsAt([t0, t0 + 3_000, t0 + SELF_HEAL_COOLDOWN_MS]);
+      await lapsAt(clocks, [0, 3_000, SELF_HEAL_COOLDOWN_MS]);
       expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(2);
 
       mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-act', newHotPublicKey: 'new-hot-pub' }]);
-      await lapsAt([t0 + 2 * SELF_HEAL_COOLDOWN_MS]);
+      await lapsAt(clocks, [2 * SELF_HEAL_COOLDOWN_MS]);
       expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     });
 
     it('checks a pending account whose heal fuse is lit at most once per cooldown (#1233)', async () => {
       storeState.accounts = [pendingAccount] as never;
-      const t0 = Date.now();
-      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(t0);
+      const clocks = { t0: Date.now(), p0: performance.now() };
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(clocks.p0);
       noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
       perfSpy.mockRestore();
 
-      await lapsAt([t0, t0 + 3_000]);
+      await lapsAt(clocks, [0, 3_000]);
 
       expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(1);
       expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
@@ -1834,9 +1837,9 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       storeState.swapHotKey.mockRejectedValue(
         Object.assign(new Error('The new hot key is not stored in this wallet'), { code: 'HOT_KEY_NOT_STORED' })
       );
-      const t0 = Date.now();
+      const clocks = { t0: Date.now(), p0: performance.now() };
 
-      await lapsAt([t0, t0 + SELF_HEAL_COOLDOWN_MS, t0 + 3 * SELF_HEAL_COOLDOWN_MS]);
+      await lapsAt(clocks, [0, SELF_HEAL_COOLDOWN_MS, 3 * SELF_HEAL_COOLDOWN_MS]);
       expect(mockReRegister).toHaveBeenCalledTimes(1);
       expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
 
@@ -1844,19 +1847,19 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { id: 'row-act', newHotPublicKey: 'new-hot-pub' },
         { id: 'row-act-2', newHotPublicKey: 'new-hot-pub' }
       ]);
-      await lapsAt([t0 + 5 * SELF_HEAL_COOLDOWN_MS]);
+      await lapsAt(clocks, [5 * SELF_HEAL_COOLDOWN_MS]);
       expect(mockReRegister).toHaveBeenCalledTimes(2);
     });
 
     it('checks a pending account whose rows cannot be read at most once per cooldown (#1233)', async () => {
       storeState.accounts = [pendingAccount] as never;
       mockFindFailedHotKeyRotations.mockRejectedValue(new Error('rows unreadable'));
-      const t0 = Date.now();
+      const clocks = { t0: Date.now(), p0: performance.now() };
 
-      await lapsAt([t0, t0 + 3_000]);
+      await lapsAt(clocks, [0, 3_000]);
       expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(1);
 
-      await lapsAt([t0 + SELF_HEAL_COOLDOWN_MS]);
+      await lapsAt(clocks, [SELF_HEAL_COOLDOWN_MS]);
       expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(2);
     });
   });
