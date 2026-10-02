@@ -15,6 +15,7 @@ import { Account } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
@@ -83,6 +84,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // indistinguishable, and the guardian sync is the wallet's DEFAULT account type's
 // idle sync (#777).
 let currentWasmHold: object | null = null;
+let wasmLockTail: Promise<void> = Promise.resolve();
 // Set by the one test that needs the watchdog to land mid-build.
 let evictDuringClientBuild = false;
 const wasmLockOptionsSeen: unknown[] = [];
@@ -107,12 +109,19 @@ jest.mock('../sdk/miden-client', () => {
     },
     withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
       wasmLockOptionsSeen.push(options);
+      const previous = wasmLockTail;
+      let release = () => {};
+      wasmLockTail = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      await previous;
       const hold = {};
       currentWasmHold = hold;
       try {
         return await fn(hold);
       } finally {
         if (currentWasmHold === hold) currentWasmHold = null;
+        release();
       }
     }
   };
@@ -305,7 +314,9 @@ describe('MultisigService', () => {
     // A leaked hold/eviction flag from a prior test would flip an unrelated
     // test's ownership re-checks.
     currentWasmHold = null;
+    wasmLockTail = Promise.resolve();
     evictDuringClientBuild = false;
+    mockTransactionRequestDeserialize.mockReset();
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
     // Default: AccountInspector reads an empty signer set unless a test overrides it.
     mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
@@ -512,6 +523,185 @@ describe('MultisigService', () => {
   });
 
   describe('signing helpers', () => {
+    it.each([
+      { name: 'standalone signing', run: (service: MultisigService) => service.signProposal('p') },
+      { name: 'sign and execute', run: (service: MultisigService) => service.signAndExecuteProposal('p') },
+      {
+        name: 'sign and prepare a request',
+        run: (service: MultisigService) => service.signAndCreateTransactionRequest('p')
+      }
+    ])('serializes $name with account creation on the shared client', async ({ run }) => {
+      let finishSigning = () => {};
+      const signGate = new Promise<void>(resolve => {
+        finishSigning = resolve;
+      });
+      let enteredSigning = () => {};
+      const signingStarted = new Promise<void>(resolve => {
+        enteredSigning = resolve;
+      });
+      let signingBorrowed = false;
+      let accountCreationEntered = false;
+      const multisig = makeMultisig({
+        signProposal: async () => {
+          signingBorrowed = true;
+          enteredSigning();
+          await signGate;
+          signingBorrowed = false;
+          return { metadata: { proposalType: 'send' } };
+        }
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const signing = run(service);
+      await signingStarted;
+      const accountCreation = withWasmClientLock(async () => {
+        accountCreationEntered = true;
+        if (signingBorrowed) throw new Error('Keystore already mutably borrowed during account creation');
+        return 'created-account';
+      });
+      const creationResult = accountCreation.then(
+        value => value,
+        error => error
+      );
+      try {
+        for (let tick = 0; tick < 5; tick++) await Promise.resolve();
+        expect(accountCreationEntered).toBe(false);
+      } finally {
+        finishSigning();
+        await signing;
+      }
+      await expect(creationResult).resolves.toBe('created-account');
+    });
+
+    it('keeps signing and normal request preparation under the same live hold', async () => {
+      let signingHold: object | null = null;
+      const multisig = makeMultisig({
+        signProposal: async () => {
+          signingHold = currentWasmHold;
+          return { metadata: { proposalType: 'send' } };
+        },
+        createTransactionProposalRequest: async () => {
+          if (signingHold === null || currentWasmHold !== signingHold) {
+            throw new Error('normal request preparation lost the signing hold');
+          }
+          return 'owned-request';
+        }
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      await expect(service.signAndCreateTransactionRequest('p')).resolves.toBe('owned-request');
+    });
+
+    it('keeps custom advice preparation and Rust request access under the signing hold', async () => {
+      let signingHold: object | null = null;
+      const advice = { kind: 'co-signatures' };
+      const request = { kind: 'extended-request' };
+      const checkOwner = () => {
+        if (signingHold === null || currentWasmHold !== signingHold) {
+          throw new Error('custom request preparation lost the signing hold');
+        }
+      };
+      const multisig = makeMultisig({
+        signProposal: async () => {
+          signingHold = currentWasmHold;
+          return { metadata: { proposalType: 'custom' } };
+        },
+        prepareCustomExecution: async () => {
+          checkOwner();
+          return advice;
+        }
+      });
+      mockTransactionRequestDeserialize.mockImplementationOnce(() => {
+        checkOwner();
+        return {
+          extendAdviceMap: (received: unknown) => {
+            checkOwner();
+            if (received !== advice) throw new Error('custom request lost its co-signatures');
+            return request;
+          }
+        };
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      await expect(service.signAndCreateTransactionRequest('p', new Uint8Array([1]))).resolves.toBe(request);
+    });
+
+    it.each([
+      {
+        name: 'standalone signing',
+        proposalType: 'send',
+        run: (service: MultisigService) => service.signProposal('p')
+      },
+      {
+        name: 'sign and execute',
+        proposalType: 'send',
+        run: (service: MultisigService) => service.signAndExecuteProposal('p')
+      },
+      {
+        name: 'normal request preparation',
+        proposalType: 'send',
+        run: (service: MultisigService) => service.signAndCreateTransactionRequest('p')
+      },
+      {
+        name: 'custom request preparation',
+        proposalType: 'custom',
+        run: (service: MultisigService) => service.signAndCreateTransactionRequest('p', new Uint8Array([1]))
+      }
+    ])('stops $name when ownership is evicted during signing', async ({ run, proposalType }) => {
+      const readMetadata = jest.fn(() => ({ proposalType }));
+      const prepareCustomExecution = jest.fn(async () => ({ kind: 'advice' }));
+      mockTransactionRequestDeserialize.mockImplementation(() => ({
+        extendAdviceMap: () => ({ kind: 'request' })
+      }));
+      const multisig = makeMultisig({
+        signProposal: async () => {
+          currentWasmHold = null;
+          return {
+            get metadata() {
+              return readMetadata();
+            }
+          };
+        },
+        prepareCustomExecution
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      await expect(run(service)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(readMetadata).not.toHaveBeenCalled();
+      expect(multisig.executeProposal).not.toHaveBeenCalled();
+      expect(multisig.createTransactionProposalRequest).not.toHaveBeenCalled();
+      expect(prepareCustomExecution).not.toHaveBeenCalled();
+      expect(mockTransactionRequestDeserialize).not.toHaveBeenCalled();
+    });
+
+    it('stops before deserializing Rust request bytes when custom advice preparation loses its hold', async () => {
+      mockTransactionRequestDeserialize.mockImplementation(() => ({
+        extendAdviceMap: () => ({ kind: 'request' })
+      }));
+      const multisig = makeMultisig({
+        signProposal: async () => ({ metadata: { proposalType: 'custom' } }),
+        prepareCustomExecution: async () => {
+          currentWasmHold = null;
+          return { kind: 'advice-from-abandoned-client' };
+        }
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      await expect(service.signAndCreateTransactionRequest('p', new Uint8Array([1]))).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(mockTransactionRequestDeserialize).not.toHaveBeenCalled();
+    });
+
+    it('rejects a normal request returned after its preparation hold was evicted', async () => {
+      const multisig = makeMultisig({
+        signProposal: async () => ({ metadata: { proposalType: 'send' } }),
+        createTransactionProposalRequest: async () => {
+          currentWasmHold = null;
+          return { kind: 'request-from-abandoned-client' };
+        }
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      await expect(service.signAndCreateTransactionRequest('p')).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+    });
+
     it('signAndExecuteProposal signs then executes a given proposal', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
@@ -1641,6 +1831,7 @@ describe('MultisigService', () => {
       const second = service.sync();
       expect(first).toBe(second); // second tick reuses the in-flight promise
 
+      await Promise.resolve();
       resolveSync();
       await first;
       expect(syncState).toHaveBeenCalledTimes(1);
@@ -1648,6 +1839,7 @@ describe('MultisigService', () => {
       // After settling, a fresh call starts a new run.
       const third = service.sync();
       expect(third).not.toBe(first);
+      await Promise.resolve();
       resolveSync();
       await third;
       expect(syncState).toHaveBeenCalledTimes(2);

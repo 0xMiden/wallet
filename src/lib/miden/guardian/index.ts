@@ -364,9 +364,7 @@ export class MultisigService {
   }
 
   async signAndExecuteProposal(id: string): Promise<void> {
-    // `signProposal` is signing + guardian HTTP (no shared-client access); only
-    // `executeProposal` touches the WASM client and needs the mutex.
-    await this.multisig.signProposal(id);
+    await this.signProposal(id);
     await withWasmClientLock(() => this.multisig.executeProposal(id));
   }
 
@@ -420,7 +418,11 @@ export class MultisigService {
    * Sigs accumulate on the Guardian server keyed by proposal id.
    */
   async signProposal(id: string): Promise<void> {
-    await this.multisig.signProposal(id);
+    // Signing syncs and previews with the same shared client as account creation.
+    await withWasmClientLock(async hold => {
+      await this.multisig.signProposal(id);
+      assertWasmHoldCurrent(hold, 'guardian proposal signing');
+    });
   }
 
   /**
@@ -435,16 +437,22 @@ export class MultisigService {
   }
 
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
-    const proposal = await this.multisig.signProposal(id);
-    if (proposal.metadata.proposalType === 'custom') {
-      if (!requestBytes) {
-        throw new Error('Request Bytes are required for custom execution');
+    return withWasmClientLock(async hold => {
+      const proposal = await this.multisig.signProposal(id);
+      assertWasmHoldCurrent(hold, 'guardian request: after proposal signing');
+      if (proposal.metadata.proposalType === 'custom') {
+        if (!requestBytes) {
+          throw new Error('Request Bytes are required for custom execution');
+        }
+        const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+        assertWasmHoldCurrent(hold, 'guardian request: after custom advice preparation');
+        const request = TransactionRequest.deserialize(requestBytes);
+        return request.extendAdviceMap(advice);
       }
-      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-      const request = TransactionRequest.deserialize(requestBytes);
-      return request.extendAdviceMap(advice);
-    }
-    return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
+      const request = await this.multisig.createTransactionProposalRequest(id);
+      assertWasmHoldCurrent(hold, 'guardian request: after proposal request preparation');
+      return request;
+    });
   }
 
   /**
