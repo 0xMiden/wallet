@@ -245,11 +245,7 @@ function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefine
         controller.signal.addEventListener('abort', () => reject(cutOffReason), { once: true });
         start().then(resolve, (error: unknown) => {
           const pastDeadline = monotonicNowMs() - startedAt >= GUARDIAN_REQUEST_TIMEOUT_MS;
-          reject(
-            pastDeadline && callerSignal?.aborted !== true
-              ? new GuardianRequestTimeoutError(url, GUARDIAN_REQUEST_TIMEOUT_MS)
-              : error
-          );
+          reject(pastDeadline ? new GuardianRequestTimeoutError(url, GUARDIAN_REQUEST_TIMEOUT_MS) : error);
         });
       }),
     release: (): void => {
