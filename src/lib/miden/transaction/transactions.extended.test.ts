@@ -1188,7 +1188,7 @@ describe('initiateConsumeTransaction reuse path', () => {
 
       const row = txStore.find(t => t.id === 'bs-fail-1')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.displayMessage).toBe('Bridge failed — funds reclaimable');
+      expect(row.displayMessage).toBe('Bridge failed - funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
       // Stamped when the note was built; the demotion keeps both (#1250).

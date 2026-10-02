@@ -1666,7 +1666,7 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
     committed = tx.status === ITransactionStatus.Completed;
     const noteMayExist = committed || ei.submitClaimed === true;
     tx.status = ITransactionStatus.Failed;
-    tx.displayMessage = noteMayExist ? 'Bridge failed — funds reclaimable' : 'Bridge failed';
+    tx.displayMessage = noteMayExist ? 'Bridge failed - funds reclaimable' : 'Bridge failed';
     tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
     demoted = tx;
     return undefined;
