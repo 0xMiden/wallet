@@ -405,6 +405,54 @@ describe('the Guardian request deadline (#312)', () => {
     });
   });
 
+  // The signal the boundary hands the original fetch, which is what ends the request itself off mobile.
+  const forwardedSignal = (): unknown => mockWebFetch.mock.calls[0]?.[1]?.signal;
+
+  it('aborts the signal it hands the original fetch at the deadline, off mobile', async () => {
+    jest.useFakeTimers();
+    const offMobile = loadOffMobile();
+    mockWebFetch.mockReturnValue(new Promise(() => undefined));
+    offMobile.registerGuardianOrigin(CUSTOM);
+
+    track(globalThis.fetch(`${CUSTOM}/delta/proposal`, { method: 'POST' }));
+    const signal = forwardedSignal();
+    expect(signal).toBeInstanceOf(AbortSignal);
+    await jest.advanceTimersByTimeAsync(offMobile.GUARDIAN_REQUEST_TIMEOUT_MS - 1);
+    expect(signal).toHaveProperty('aborted', false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(signal).toHaveProperty('aborted', true);
+  });
+
+  it('aborts the signal it hands the original fetch when the caller aborts, off mobile', () => {
+    const offMobile = loadOffMobile();
+    mockWebFetch.mockReturnValue(new Promise(() => undefined));
+    offMobile.registerGuardianOrigin(CUSTOM);
+    const caller = new AbortController();
+
+    track(globalThis.fetch(`${CUSTOM}/state`, { signal: caller.signal }));
+    const signal = forwardedSignal();
+    expect(signal).toHaveProperty('aborted', false);
+    caller.abort(new Error('the caller gave up'));
+
+    expect(signal).toHaveProperty('aborted', true);
+  });
+
+  it('cuts off a response whose body never arrives at the deadline, off mobile', async () => {
+    // guardian-client reads the body after fetch resolves, so a deadline that ended at the headers would leave it hung.
+    jest.useFakeTimers();
+    const offMobile = loadOffMobile();
+    mockWebFetch.mockResolvedValue({ ...webResponse(200, '{}'), arrayBuffer: () => new Promise(() => undefined) });
+    offMobile.registerGuardianOrigin(CUSTOM);
+
+    const request = track(globalThis.fetch(`${CUSTOM}/state`));
+    await jest.advanceTimersByTimeAsync(offMobile.GUARDIAN_REQUEST_TIMEOUT_MS - 1);
+    expect(request.settled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(request.error).toBeInstanceOf(offMobile.GuardianRequestTimeoutError);
+  });
+
   it('asks native HTTP for the same deadline, so the request itself ends too', async () => {
     nativeHttp.registerGuardianOrigin(CUSTOM);
 
