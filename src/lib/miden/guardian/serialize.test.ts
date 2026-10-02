@@ -443,6 +443,16 @@ describe('isGuardianRequestTimeout (#312)', () => {
     first.cause = { name: 'Error', cause: first };
     expect(isGuardianRequestTimeout(first)).toBe(false);
   });
+
+  it('answers false, without throwing, when a cause getter throws (#1313)', () => {
+    const err = Object.defineProperty(new Error('proposal failed'), 'cause', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    expect(() => isGuardianRequestTimeout(err)).not.toThrow();
+    expect(isGuardianRequestTimeout(err)).toBe(false);
+  });
 });
 
 describe('GuardianBackpressureError (#312)', () => {

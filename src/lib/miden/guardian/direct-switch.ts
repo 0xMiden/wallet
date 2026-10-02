@@ -31,7 +31,6 @@ import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operato
 import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk, sameWalletAccountId } from '../sdk/helpers';
@@ -41,7 +40,7 @@ import {
   withWasmClientLock,
   type WasmClientLockOptions
 } from '../sdk/miden-client';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isKilledPipeline } from '../sdk/sdk-error-code';
 import { syncBeforeVerdict } from '../sync-lock';
 
 /**
@@ -174,8 +173,9 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
   // The two are classified together on purpose: `WasmClientPoisonedError` keeps
   // foreign text off its message precisely so text heuristics can't reach it,
   // so it does NOT match today, and this pins that asymmetry shut rather than
-  // leaving it to the wording of a message.
-  if (isOperationAbortedError(err) || isWasmClientPoisonedError(err)) return false;
+  // leaving it to the wording of a message. Read at any depth: a caller's wrapper
+  // can carry the same `abort` token in its own message (#1313).
+  if (isKilledPipeline(err)) return false;
 
   // A numeric `status` means the guardian ANSWERED, so the answer decides and
   // the message is never consulted: any 5xx counts as effectively down (a

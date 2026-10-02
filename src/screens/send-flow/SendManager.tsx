@@ -126,12 +126,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
   // Hide the floating BottomNav once the user moves past recipient selection,
-  // so the step CTAs can sit at the actual bottom of the screen. Gated on the
-  // pathname because SendManager stays mounted inside HomeSwipeContainer even
-  // when another home-group page is centered — without the gate, a send flow
-  // left mid-step would hide the navbar on Overview too.
+  // so the step CTAs can sit at the actual bottom of the screen. SendManager
+  // stays mounted inside HomeSwipeContainer while another home-group page is
+  // centred; the hook releases the hold while this page is not active.
   const currentStep = cardStack[cardStack.length - 1]?.name;
-  const pastRecipientStep = pathname === '/send' && currentStep !== SendFlowStep.SelectRecipient;
+  const pastRecipientStep = currentStep !== SendFlowStep.SelectRecipient;
   useHideNavbarWhileOpen(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {

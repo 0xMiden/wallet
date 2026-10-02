@@ -128,12 +128,24 @@ const HomeSwipeContainer: FC = () => {
   // than sliding to Overview out of sight, which is what the pane showed on the
   // way back before it slid to the page the action bar named.
   const onHome = routeIdx !== -1;
+  const selectedPageId = pages[routeIdx]?.id;
   const lastHomeIdxRef = useRef(0);
   const shownAgain = useTabShownAgain();
   const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
   // Every page stays mounted in the track, so only the centred one, on a shown and uncovered tab, is
   // on screen; the others pause their display-only work as a hidden tab's pages do.
   const parentActive = usePageActive();
+
+  // A page can keep its focused input after it moves out of view because the carousel keeps
+  // every page mounted. Release that focus when the route selects another page so the mobile
+  // keyboard closes and its navbar hold can end.
+  useLayoutEffect(() => {
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLElement)) return;
+    const focusedPage = focused.closest('[data-home-page]');
+    if (!focusedPage || focusedPage.getAttribute('data-home-page') === selectedPageId) return;
+    focused.blur();
+  }, [selectedPageId]);
 
   // Measure container width — drives both the snap positions and the
   // drag constraints. Set synchronously on mount so the first render
@@ -477,7 +489,12 @@ const HomeSwipeContainer: FC = () => {
         onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
         {pages.map((page, index) => (
-          <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>
+          <div
+            key={page.id}
+            data-home-page={page.id}
+            className="h-full shrink-0"
+            style={{ width: `${100 / pages.length}%` }}
+          >
             <PageActiveContext.Provider value={parentActive && index === activeIdx}>
               {page.node}
             </PageActiveContext.Provider>

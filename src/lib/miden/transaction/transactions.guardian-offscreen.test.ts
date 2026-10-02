@@ -762,6 +762,33 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(stored.nextEligibleAt).toBeUndefined();
   });
 
+  it('an execution-scoped "unauthorized" whose cause is a deadline kill is NOT requeued (#1313)', async () => {
+    // The killed pipeline may still submit, so a requeue would build and co-sign a second send.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}',
+        { cause: new OperationAbortedError('op-1', 'deadline') }
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-wrapped-kill', row);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-wrapped-kill', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-wrapped-kill') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+    expect(stored.unauthorizedRetryUntil).toBeUndefined();
+  });
+
   it('off-extension, an unauthorized requeue arms a wake to drive the row', async () => {
     // Off-extension there is no service worker polling the queue: the only driver
     // is the generating-transaction screen's interval, which the user cancels by
@@ -3596,4 +3623,29 @@ describe('switch-guardian hands the outgoing guardian its delta (#1233)', () => 
     expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
     expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
   });
+
+  it.each([
+    { flag: 'off', on: false },
+    { flag: 'on', on: true }
+  ])(
+    'treats a commit wait the watchdog evicted under another error the same way (flag $flag, #1313)',
+    async ({ on }) => {
+      if (on) {
+        process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+        mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+      }
+      const id = `wait-wrapped-eviction-${on}`;
+      const { service, provider: sp } = arrangeStructural(id, switchRow);
+      mockProxyWaitForCommit.mockRejectedValueOnce(
+        new Error('commit wait failed', { cause: new WasmClientPoisonedError('watchdog') })
+      );
+
+      await generateTransaction(buildTx(id, switchRow) as never, signCallback, false, sp as never);
+
+      expect(mockProxyGetCommitState).not.toHaveBeenCalled();
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      expect(mockComplete.switchGuardian).not.toHaveBeenCalled();
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Failed);
+    }
+  );
 });
