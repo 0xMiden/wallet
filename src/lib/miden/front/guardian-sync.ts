@@ -305,9 +305,10 @@ export function getGuardianLastSyncAt(accountPublicKey: string): number | undefi
  * needed no sustained fault, just one header.
  *
  * The slack on top covers the sync that ENDS the cooldown: the stamp is only
- * refreshed once that round trip completes, and `service.sync()` has no client
- * deadline, so a healthy-but-slow account must not flap either. Still a statement
- * about the present rather than about the session.
+ * refreshed once that round trip completes, and the fetch boundary lets each
+ * Guardian request in `service.sync()` run up to GUARDIAN_REQUEST_TIMEOUT_MS, so a
+ * healthy-but-slow account must not flap either. Still a statement about the
+ * present rather than about the session.
  */
 export const GUARDIAN_SYNC_STAMP_FRESH_MS = SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 30_000;
 
@@ -543,7 +544,7 @@ async function adoptFromPreviousGuardian(
   if (!account.hotPublicKey) return undefined;
   const unsaved = await findUnsavedSwitchRow(account.publicKey, endpoint).catch(() => undefined);
   // A direct switch fled that operator, so it never received the switch delta, and it may take the
-  // connection and go silent until the watchdog.
+  // connection and go silent until the fetch boundary cuts each request off a minute in.
   if (!unsaved || unsaved.switchedDirectly) return undefined;
   // An adopt that parked the realm's WASM lock would park it again on the next lap.
   const fuseKey = guardianAdoptFuseKey(account.publicKey, unsaved.previousGuardianEndpoint);
@@ -1346,10 +1347,10 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
 
 /**
  * Coalesces overlapping runs onto the in-flight one. The extension's 3s tick
- * fires `syncGuardianAccounts()` without awaiting it (`useSyncTrigger`), and a
- * guardian request has no client-side deadline, so a slow or hanging operator
- * lets runs stack — and two of this function's own invariants are per-run, not
- * per-account:
+ * fires `syncGuardianAccounts()` without awaiting it (`useSyncTrigger`), and the
+ * fetch boundary lets a guardian request run up to GUARDIAN_REQUEST_TIMEOUT_MS
+ * (a minute), so a slow or hanging operator lets runs stack, and two of this
+ * function's own invariants are per-run, not per-account:
  *
  *  - `consecutiveServerFailures` would count CALLERS rather than attempts.
  *    `MultisigService.sync()` returns one shared in-flight promise, so N
@@ -1381,9 +1382,9 @@ let syncGeneration = 0;
  * May this pass still record what it just learned about `endpoint`?
  *
  * Checked AFTER the long awaits, because everything before them was decided from
- * a snapshot: the pass reads the account list once, then spends an unbounded
- * amount of time in drift reconciliation and `service.sync()` (a guardian
- * request with no client-side deadline). A user rotation committing during that
+ * a snapshot: the pass reads the account list once, then spends minutes at worst
+ * in drift reconciliation and `service.sync()` (guardian requests the fetch
+ * boundary cuts off only after a minute each). A user rotation committing during that
  * window replaces the endpoint the pass is talking to, and the verdict in hand
  * is then about an operator this account no longer uses — most visibly a
  * SUCCESS, which would stamp `lastGuardianSyncAt` and report the new guardian as

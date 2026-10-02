@@ -97,17 +97,18 @@ const GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG
  * {@link MultisigService.finalizeGuardianSwitch} — its `GET /pubkey` and each
  * `registerOnGuardian` attempt.
  *
- * `GuardianHttpClient` calls bare `fetch` with no `AbortSignal` (the reason
+ * `GuardianHttpClient` passes no `AbortSignal` (the reason
  * `withOutgoingGuardianDeadline` exists for the arms that talk to the OUTGOING
- * operator), and these two calls sit PAST the on-chain commit. An operator that
- * accepts the connection and then goes silent therefore produces no error at all,
- * the retry budget below never advances on silence, and
- * `completeSwitchGuardianTransaction` never reaches its terminal status write —
- * parking a committed rotation at `GeneratingTransaction`, which the routed UI
- * observes and never dismisses, and never recording `registerFailed`, the very
- * flag whose self-heal exists to finish this registration later. The direct path
- * bounds its counterparts for exactly this reason; the coordinated path had the
- * same hole (F-144 bounded only the endpoint persist beside it).
+ * operator), so an operator that accepts the connection and then goes silent
+ * produces no error until the fetch boundary cuts the request off at
+ * GUARDIAN_REQUEST_TIMEOUT_MS, and these two calls sit PAST the on-chain commit:
+ * every attempt spent in silence keeps `completeSwitchGuardianTransaction` from
+ * its terminal status write, parking a committed rotation at
+ * `GeneratingTransaction`, which the routed UI observes, and leaving
+ * `registerFailed`, the very flag whose self-heal exists to finish this
+ * registration later, unrecorded. The direct path bounds its counterparts more
+ * tightly for exactly this reason (F-144 bounded only the endpoint persist beside
+ * it).
  *
  * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` and to the shared
  * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS` (./serialize), which bounds the pre-sign
@@ -463,7 +464,8 @@ export class MultisigService {
 
   /**
    * Read this guardian's state for the account over HTTP only, never under the WASM lock (#1233): a
-   * caller asks before an adopt, whose hold a silent guardian would park until the watchdog evicts it.
+   * caller asks before an adopt, whose hold a silent guardian would park until the fetch boundary cuts
+   * each request off a minute in.
    */
   async probeGuardianState(): Promise<void> {
     await this.client.guardianClient.getState(this.accountId);
@@ -568,11 +570,11 @@ export class MultisigService {
     let realignAttempted = false;
     for (;;) {
       try {
-        // Bounded like every other pure-sync hold (#777): this is a guardian
-        // HTTP round-trip with no deadline of its own, and it is reached from the
-        // idle loop, so on the default 5-minute backstop one unresponsive
-        // guardian parked the whole app's WASM access — and did it once per
-        // retry in this loop.
+        // Bounded like every other pure-sync hold (#777): it is reached from the
+        // idle loop, and the fetch boundary lets each guardian request in it run up
+        // to GUARDIAN_REQUEST_TIMEOUT_MS, so one unresponsive guardian holds the
+        // whole app's WASM access for that minute once per retry in this loop; the
+        // ceiling bounds the hold as a whole.
         await withWasmClientLock(() => this.multisig.syncState(), {
           watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
           label: 'guardian-sync'

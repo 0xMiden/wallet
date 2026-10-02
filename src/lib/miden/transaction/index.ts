@@ -2265,23 +2265,22 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
  * where an unbounded wait stops every account's transactions and disables the
  * stuck-row reaper that would otherwise clean up after it.
  *
- * WHY a deadline is needed at all, when the WASM lock already has a watchdog.
- * The guardian transport carries no client-side deadline (`GuardianHttpClient`
- * calls bare `fetch` with no `AbortSignal`), and the service load happens INSIDE
- * `withWasmClientLock`. So an operator that accepts the connection and then goes
- * silent — the wedged-operator outage this whole path exists to escape — never
- * produced a classifiable error at all: the hold ran out the 5-minute watchdog,
- * the eviction arrived as `WasmClientPoisonedError`, and that is deliberately
- * NOT unreachable (it is a local kill), so the fallback never fired and the row
- * failed terminally with no requeue and no Retry. The single outage shape most
- * likely to need the direct switch was the one shape that could not reach it.
+ * WHY a deadline is needed at all, when the WASM lock has a watchdog and the fetch
+ * boundary cuts every Guardian request off at GUARDIAN_REQUEST_TIMEOUT_MS (#312).
+ * The service load happens INSIDE `withWasmClientLock`, so an operator that
+ * accepts the connection and then goes silent (the wedged-operator outage this
+ * whole path exists to escape) holds the lock until that cut-off, and a hold the
+ * watchdog evicts instead fails as `WasmClientPoisonedError`, which is
+ * deliberately NOT unreachable (it is a local kill), so the fallback never fires
+ * and the row fails terminally with no requeue and no Retry. The deadline gives
+ * the caller an unreachable verdict whatever the hold does.
  *
- * The deadline does not cancel the request or release the lock — nothing can, the
- * fetch has no abort — so the abandoned hold still waits out the watchdog. What
- * it changes is that the CALLER gets an unreachable verdict at 30s and commits to
- * the direct path; that path's own `withWasmClientLock` then queues behind the
- * wedged holder and is admitted when the watchdog evicts it onto a fresh client.
- * Slow, but it completes, where before it could not.
+ * The deadline does not cancel the request or release the lock (`GuardianHttpClient`
+ * passes no signal), so the abandoned hold runs on until the fetch boundary cuts
+ * its request off a minute in. What it changes is that the CALLER gets an
+ * unreachable verdict at 30s and commits to the direct path; that path's own
+ * `withWasmClientLock` then queues behind the abandoned holder and is admitted
+ * once that hold ends. Slow, but it completes.
  */
 const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
@@ -3237,11 +3236,10 @@ const generateGuardianTransaction = async (
       // Deadline-bounded like the calls above it, and for a sharper reason: one
       // of the two verdicts that reach here is that this operator is unreachable,
       // and the shape that most often produces that verdict is one that accepts
-      // the connection and never replies. An unbounded best-effort call against it
-      // does not merely delay the fallback, it replaces it — the row sits at
-      // `signing-proposal` forever, and `switch-guardian` has no requeue and no
-      // Retry. A cleanup step must not be able to cost more than the thing it
-      // cleans up.
+      // the connection and never replies. Left to the fetch boundary's minute per
+      // request, a best-effort call against it holds the row at `signing-proposal`
+      // ahead of the fallback, and `switch-guardian` has no requeue and no Retry.
+      // A cleanup step must not be able to cost more than the thing it cleans up.
       try {
         await withOutgoingGuardianDeadline(
           () => service.abandonCandidate(proposalResult.nonce),
@@ -3280,20 +3278,20 @@ const generateGuardianTransaction = async (
   // already in the mempool trigger a SECOND, unilateral `update_guardian`.
   let guardianCoSignReturned = false;
   try {
-    // The LAST outgoing-guardian round trip, and until now the only unbounded
-    // one — the three calls above it are deadline-bounded precisely because a
-    // silent operator wedges the row at `signing-proposal`, and this call reaches
-    // the same operator over the same connection. A rotation that survived the
-    // bounded calls could still hang here forever, which is the one outcome
-    // `switch-guardian` cannot absorb: it has no requeue and no Retry, so a hung
-    // row is a guardian the user can never rotate away from.
+    // The LAST outgoing-guardian round trip. The three calls above it carry the
+    // 30s outgoing deadline precisely because a silent operator wedges the row at
+    // `signing-proposal`, and this call reaches the same operator over the same
+    // connection. Without it a rotation that survived the bounded calls would
+    // wait here on the fetch boundary's GUARDIAN_REQUEST_TIMEOUT_MS per request,
+    // which `switch-guardian` absorbs worst: it has no requeue and no Retry.
     //
-    // Bounded for `switch-guardian` ONLY, deliberately. For a send the same hang
-    // is a stall, not a trap — sends requeue and retry — and imposing a 30s
-    // ceiling there would fail transactions on a merely slow-but-healthy operator
-    // that would otherwise have completed. The asymmetry is the point: the
-    // deadline buys an escape hatch for the type that has none, and buys the
-    // other types nothing but a new way to fail.
+    // Bounded for `switch-guardian` ONLY, deliberately. For a send the same
+    // silence is a stall, not a trap: the fetch boundary cuts it off at a minute
+    // and sends requeue and retry, while imposing a 30s ceiling there would fail
+    // transactions on a merely slow-but-healthy operator that would otherwise
+    // have completed. The asymmetry is the point: the deadline buys an escape
+    // hatch for the type that has none, and buys the other types nothing but a
+    // new way to fail.
     //
     // KNOWN IMPRECISION: this call is not purely a guardian round trip.
     // `signAndCreateTransactionRequest` POSTs to the operator and THEN builds the

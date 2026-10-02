@@ -4,9 +4,9 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
 
 /**
  * Regression guard (design plan guard #16): a transient guardian
- * `conflict_pending_delta` (409) must NOT fail a co-signed transaction — the
- * wallet's `withGuardianConflictRetry` waits it out and the transaction
- * completes.
+ * `conflict_pending_delta` (409) must NOT fail a co-signed transaction: a send
+ * goes back to the queue on the 409 (#312) and lands on a later attempt once
+ * the conflict clears.
  *
  * A real guardian returns `409 conflict_pending_delta` while a prior delta is
  * still canonicalizing; it clears on its own moments later. The fault
@@ -17,7 +17,7 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *
  * The guardian HTTP calls run in the extension service worker; this fault uses
  * the `context.route` seam (guardian-fault.ts), which is proven to reach them
- * (guardian-fault.smoke.spec.ts). Falsifiability: if the conflict-retry path
+ * (guardian-fault.smoke.spec.ts). Falsifiability: if the requeue path
  * regressed, the faulted send would fail and B would never be credited.
  */
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';

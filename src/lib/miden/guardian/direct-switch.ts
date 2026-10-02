@@ -307,15 +307,15 @@ export const createDirectSwitchGuardianRequest = async (
 
   // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
   const { commitment, pubkey, newGuardianPubkey } = await withGuardianProbe(newGuardianEndpoint, async () => {
-    // Bounded, like every other guardian call on this path. `GuardianHttpClient`
-    // uses bare `fetch` with no `AbortSignal`, so an endpoint that accepts the
-    // connection and then goes silent produces no error at all, and this is the
-    // FIRST network call of the fallback, reached precisely because a guardian just
-    // failed to answer. Unbounded, a silent NEW endpoint parks the row at
-    // `signing-locally` forever while holding the per-account guardian lock, and
-    // `switch-guardian` is in no requeue set and has no user Retry, so nothing ever
-    // frees it. The coordinated arms wrap their outgoing-guardian calls in
-    // `withOutgoingGuardianDeadline` for the same reason; this one had nothing.
+    // Bounded, like every other guardian call on this path, and more tightly than
+    // the fetch boundary's GUARDIAN_REQUEST_TIMEOUT_MS. `GuardianHttpClient` passes
+    // no `AbortSignal`, so an endpoint that accepts the connection and then goes
+    // silent produces no error until that cut-off, and this is the FIRST network
+    // call of the fallback, reached precisely because a guardian just failed to
+    // answer. A silent NEW endpoint parks the row at `signing-locally` while holding
+    // the per-account guardian lock, and `switch-guardian` is in no requeue set and
+    // has no user Retry. The coordinated arms wrap their outgoing-guardian calls in
+    // `withOutgoingGuardianDeadline` for the same reason.
     const answer = await withTimeout(
       new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa'),
       NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
@@ -888,15 +888,15 @@ export const finalizeDirectGuardianSwitch = async (
   for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
     try {
       // Bounded, for the same reason every call to the OUTGOING guardian is
-      // (`withOutgoingGuardianDeadline`): `GuardianHttpClient` calls bare `fetch`
-      // with no `AbortSignal`, so an operator that accepts the connection and
-      // then goes silent produces no error at all. The retry budget below bounds
-      // REJECTIONS and never advances on silence, and this call sits PAST the
-      // on-chain commit — so an unbounded wait here parks the row before its
-      // terminal status write, leaving the rotation screen spinning forever and
-      // never recording `registerFailed`, the very flag whose self-heal exists to
-      // finish this registration later. A deadline converts silence into an
-      // attempt failure the loop can consume.
+      // (`withOutgoingGuardianDeadline`): `GuardianHttpClient` passes no
+      // `AbortSignal`, so an operator that accepts the connection and then goes
+      // silent produces no error until the fetch boundary cuts the request off at
+      // GUARDIAN_REQUEST_TIMEOUT_MS. This call sits PAST the on-chain commit, so
+      // every attempt spent in silence holds the row before its terminal status
+      // write, with the rotation screen spinning and `registerFailed`, the very
+      // flag whose self-heal exists to finish this registration later, unrecorded.
+      // The tighter deadline converts silence into an attempt failure the loop can
+      // consume sooner.
       const response = await withTimeout(
         guardian.configure({
           accountId: accountIdHex,

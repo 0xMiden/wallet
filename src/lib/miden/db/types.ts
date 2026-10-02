@@ -628,9 +628,10 @@ export interface ITransaction {
   requeueStreak?: IRequeueStreak;
   /**
    * Set while this Queued row waits for its Guardian to settle the account's previous delta (#312): a pending-delta
-   * 409, the settlement gate, or a Guardian request cut off at a proposal stage requeued it. The pickup that runs the
-   * row again clears it, as do any other requeue and a user's retry. GeneratingTransaction reads it to say the
-   * Guardian is busy instead of showing the row as in flight.
+   * 409 or the settlement gate requeued it. A Guardian request timeout requeues without it. The pickup that runs the
+   * row again clears it, as do any other requeue and a user's retry, but it can stay set on a row that ends Failed
+   * (MAX_QUEUED_AGE expiry, the wake ceiling, a user cancel), so readers gate on Queued. GeneratingTransaction reads it
+   * to say the Guardian is busy instead of showing the row as in flight.
    */
   guardianBusy?: true;
   /**

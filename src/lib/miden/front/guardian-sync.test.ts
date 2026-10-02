@@ -781,10 +781,10 @@ describe('syncGuardianAccounts', () => {
     expect(storeState.checkGuardianDrift).not.toHaveBeenCalledWith('pk2');
   });
 
-  // The ~3s tick fires this without awaiting it, and a guardian request has no
-  // client-side deadline, so overlapping runs would each count the SAME shared
-  // rejection toward the outage threshold and would each read the 429 cooldown
-  // before any of them wrote it.
+  // The ~3s tick fires this without awaiting it, and a guardian request can run a
+  // minute before the fetch boundary cuts it off, so overlapping runs would each
+  // count the SAME shared rejection toward the outage threshold and would each
+  // read the 429 cooldown before any of them wrote it.
   it('coalesces an overlapping tick onto the in-flight run', async () => {
     storeState.accounts = [{ publicKey: 'coalesce-pk', type: WalletType.Guardian, hotPublicKey: 'hot' }] as never;
     const sync = jest.fn(async () => {});
@@ -2572,7 +2572,7 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     });
 
     // Everything a pass decides comes from one snapshot of the account list, and
-    // `service.sync()` is a guardian request with no client-side deadline. A
+    // `service.sync()` is a guardian request that can stay open for a minute. A
     // rotation committing while that request is open makes the result a
     // statement about an operator the account no longer points at — and a
     // SUCCESS would stamp it, reporting the new guardian as Online because the
@@ -3540,7 +3540,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     });
 
     // The direct path fled that operator: it never received the switch delta, and an init against it
-    // can hold the realm's WASM lock until the watchdog.
+    // can hold the realm's WASM lock until the fetch boundary cuts each request off a minute in.
     it('never contacts the previous guardian for a switch that took the direct path', async () => {
       mockFindUnsavedSwitchRow.mockResolvedValue({
         id: 'switch-row',
