@@ -76,6 +76,7 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/mobile/background-time', () => ({
+  ...jest.requireActual('lib/mobile/background-time'),
   hiddenSecondsSince: () => globalThis.__testHiddenSeconds ?? 0
 }));
 

@@ -138,7 +138,7 @@ import {
   withWasmClientLock,
   withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
-import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
+import { getRealmReaderClient, proveDelegated } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
@@ -2198,11 +2198,12 @@ const runGuardianPipeline = async (
         // Explicit remote prover rather than `prove({})`: the empty form selects the
         // SDK's default-prover fallback, which "requires an initialized client" and so
         // never dispatches from a prover-only realm — the write then hangs until the
-        // deadline below rather than proving in seconds (#718).
-        const delegatedProver = remoteProver();
-        provenTx = await withDelegatedProveTimeout(
-          executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
-          'Delegated guardian prove'
+        // deadline below rather than proving in seconds (#718). A prove a freeze broke is
+        // re-proved remotely once, and never once this hold is gone (#473).
+        provenTx = await proveDelegated(
+          delegatedProver => executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+          'Delegated guardian prove',
+          () => assertStillHoldingLock(hold, 'before the remote re-prove')
         );
         reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {

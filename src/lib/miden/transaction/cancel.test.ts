@@ -48,7 +48,10 @@ jest.mock('../back/background-notification', () => ({
 }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
 jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => true) }));
-jest.mock('lib/mobile/background-time', () => ({ hiddenSecondsSince: jest.fn(() => 0) }));
+jest.mock('lib/mobile/background-time', () => ({
+  ...jest.requireActual('lib/mobile/background-time'),
+  hiddenSecondsSince: jest.fn(() => 0)
+}));
 jest.mock('./get', () => ({ getTransactionsInProgress: jest.fn() }));
 jest.mock('./helper', () => ({
   updateTransactionStatus: jest.fn(),

@@ -1,3 +1,5 @@
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
+
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { WasmLockHold } from './miden-client';
 
@@ -1208,6 +1210,299 @@ describe('MidenClientInterface', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe('withDelegatedProveTimeout counts running time only (#473)', () => {
+    let doc: HiddenDocument;
+    let stopTracking: (() => void) | null = null;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      doc = installHiddenDocument();
+    });
+
+    afterEach(() => {
+      stopTracking?.();
+      stopTracking = null;
+      doc.restore();
+      jest.useRealTimers();
+    });
+
+    // One module registry for both, so the deadline reads the tracker these tests drive.
+    async function loadWithTracking() {
+      const backgroundTime = await import('lib/mobile/background-time');
+      const { withDelegatedProveTimeout } = await import('./miden-client-interface');
+      backgroundTime.initBackgroundTimeTracking();
+      stopTracking = backgroundTime.__resetBackgroundTimeForTest;
+      return withDelegatedProveTimeout;
+    }
+
+    function recordOutcome(promise: Promise<unknown>): () => unknown {
+      let outcome: unknown;
+      promise.then(
+        value => {
+          outcome = { value };
+        },
+        (error: unknown) => {
+          outcome = { error };
+        }
+      );
+      return () => outcome;
+    }
+
+    it('a prove that answers after 150 s, 140 s of them frozen in the background, resolves', async () => {
+      const withDelegatedProveTimeout = await loadWithTracking();
+      let answer!: (proof: string) => void;
+      const outcome = recordOutcome(
+        withDelegatedProveTimeout(
+          new Promise<string>(resolve => {
+            answer = resolve;
+          }),
+          'Delegated send prove'
+        )
+      );
+
+      await jest.advanceTimersByTimeAsync(10_000);
+      doc.setHidden(true);
+      // The deadline's 120 s timer comes due inside the freeze.
+      doc.freezeFor(140_000);
+      doc.setHidden(false);
+      expect(outcome()).toBeUndefined();
+      answer('proof');
+      // Also drains the zero-delay job a visibilitychange queues from another listener
+      // in this import graph, so the only timer that could be left is the deadline.
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(outcome()).toEqual({ value: 'proof' });
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('rejects with the same message once 120 s of visible time pass', async () => {
+      const withDelegatedProveTimeout = await loadWithTracking();
+      const outcome = recordOutcome(withDelegatedProveTimeout(new Promise<never>(() => {}), 'Delegated send prove'));
+
+      await jest.advanceTimersByTimeAsync(119_999);
+      expect(outcome()).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome()).toEqual({
+        error: new Error('Delegated send prove timed out after 120000ms waiting for the remote prover')
+      });
+    });
+
+    it('a prove that fails before the deadline cancels it', async () => {
+      const withDelegatedProveTimeout = await loadWithTracking();
+      const failure = new Error('prover unavailable');
+
+      await expect(withDelegatedProveTimeout(Promise.reject(failure), 'Delegated send prove')).rejects.toBe(failure);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe('proveDelegated re-proves remotely once across a freeze (#473)', () => {
+    const LABEL = 'Delegated send prove';
+    const RETRY_LOG = `[${LABEL}] failed across a frozen stretch; retrying the remote prover once`;
+    let doc: HiddenDocument;
+    let stopTracking: (() => void) | null = null;
+    let warnSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      doc = installHiddenDocument();
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      stopTracking?.();
+      stopTracking = null;
+      doc.restore();
+      warnSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    // Each `newRemoteProver` call returns a distinct handle, so a retry's fresh prover is visible.
+    async function loadProveDelegated() {
+      let made = 0;
+      const newRemoteProver = jest.fn(() => ({ remote: ++made }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newRemoteProver, newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+        getEffectiveNetworkName: () => 'localnet',
+        getEffectiveRpcUrl: () => 'rpc-local',
+        getEffectiveProverUrl: () => 'https://prover.example',
+        getEffectiveNoteTransportUrl: () => undefined
+      }));
+      const backgroundTime = await import('lib/mobile/background-time');
+      const { proveDelegated } = await import('./miden-client-interface');
+      backgroundTime.initBackgroundTimeTracking();
+      stopTracking = backgroundTime.__resetBackgroundTimeForTest;
+      return { proveDelegated, newRemoteProver };
+    }
+
+    /** A prove that stays in flight until the test fails it. */
+    function pendingProve() {
+      let fail!: (error: unknown) => void;
+      const promise = new Promise<never>((_, reject) => {
+        fail = reject;
+      });
+      return { promise, fail };
+    }
+
+    function freezeFor(ms: number) {
+      doc.setHidden(true);
+      doc.freezeFor(ms);
+      doc.setHidden(false);
+    }
+
+    it('a prove that fails across a freeze is re-proved once with a fresh remote prover', async () => {
+      const { proveDelegated, newRemoteProver } = await loadProveDelegated();
+      const first = pendingProve();
+      const prove = jest.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce('proof');
+      const beforeRetry = jest.fn();
+      const proving = proveDelegated(prove, LABEL, beforeRetry);
+
+      freezeFor(140_000);
+      const failure = new Error('DeadlineExceeded: Request timed out');
+      first.fail(failure);
+
+      await expect(proving).resolves.toBe('proof');
+      expect(prove).toHaveBeenCalledTimes(2);
+      expect(prove.mock.calls[0]?.[0]).toEqual({ remote: 1 });
+      expect(prove.mock.calls[1]?.[0]).toEqual({ remote: 2 });
+      expect(newRemoteProver).toHaveBeenCalledTimes(2);
+      expect(beforeRetry).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(RETRY_LOG, failure);
+      // Drains the zero-delay job a visibilitychange queues from another listener in this import
+      // graph, so a timer left now is a deadline that was not cancelled.
+      await jest.advanceTimersByTimeAsync(0);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('a prove that fails across a 40 s freeze is re-proved once remotely', async () => {
+      const { proveDelegated, newRemoteProver } = await loadProveDelegated();
+      const first = pendingProve();
+      const prove = jest.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce('proof');
+      const settled = proveDelegated(prove, LABEL, jest.fn()).then(
+        value => ({ value }),
+        (error: unknown) => ({ error })
+      );
+
+      freezeFor(40_000);
+      first.fail(new Error('DeadlineExceeded: Request timed out'));
+      const outcome = await settled;
+
+      expect(newRemoteProver).toHaveBeenCalledTimes(2);
+      expect(outcome).toEqual({ value: 'proof' });
+      expect(prove).toHaveBeenCalledTimes(2);
+    });
+
+    it('a failure with no frozen time does not retry', async () => {
+      const { proveDelegated } = await loadProveDelegated();
+      const failure = new Error('prover unavailable');
+      const prove = jest.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce('proof');
+      const beforeRetry = jest.fn();
+
+      await expect(proveDelegated(prove, LABEL, beforeRetry)).rejects.toBe(failure);
+      expect(prove).toHaveBeenCalledTimes(1);
+      expect(beforeRetry).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('a second failure propagates, the retry having run under a fresh 120 s deadline', async () => {
+      const { proveDelegated } = await loadProveDelegated();
+      const first = pendingProve();
+      const prove = jest
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(new Promise<never>(() => {}));
+      let outcome: unknown = 'pending';
+      proveDelegated(prove, LABEL, jest.fn()).then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error;
+        }
+      );
+
+      freezeFor(140_000);
+      first.fail(new Error('DeadlineExceeded: Request timed out'));
+      // The first attempt's deadline had 115 s left; the retry gets a whole one.
+      await jest.advanceTimersByTimeAsync(119_999);
+      expect(prove).toHaveBeenCalledTimes(2);
+      expect(outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(outcome).toEqual(new Error(`${LABEL} timed out after 120000ms waiting for the remote prover`));
+      expect(prove).toHaveBeenCalledTimes(2);
+    });
+
+    it('a trap across a freeze is never retried', async () => {
+      const { proveDelegated } = await loadProveDelegated();
+      const first = pendingProve();
+      const prove = jest.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce('proof');
+      const beforeRetry = jest.fn();
+      const proving = proveDelegated(prove, LABEL, beforeRetry);
+
+      freezeFor(140_000);
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      first.fail(trap);
+
+      await expect(proving).rejects.toBe(trap);
+      expect(prove).toHaveBeenCalledTimes(1);
+      expect(beforeRetry).not.toHaveBeenCalled();
+    });
+
+    it('a throwing beforeRetry propagates and no second prove starts', async () => {
+      const { proveDelegated } = await loadProveDelegated();
+      const first = pendingProve();
+      const prove = jest.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce('proof');
+      const holdGone = new Error('hold lost');
+      const proving = proveDelegated(prove, LABEL, () => {
+        throw holdGone;
+      });
+
+      freezeFor(140_000);
+      first.fail(new Error('DeadlineExceeded: Request timed out'));
+
+      await expect(proving).rejects.toBe(holdGone);
+      expect(prove).toHaveBeenCalledTimes(1);
+    });
+
+    it('a consume whose client was retired during the freeze starts no remote re-prove', async () => {
+      const first = pendingProve();
+      const staged = stagedExecuteRequest();
+      staged.prove.mockReturnValueOnce(first.promise);
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } });
+      mockStagedSdk();
+      const backgroundTime = await import('lib/mobile/background-time');
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      backgroundTime.initBackgroundTimeTracking();
+      stopTracking = backgroundTime.__resetBackgroundTimeForTest;
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      let outcome: unknown = 'pending';
+      client
+        .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true } as any)
+        .then(
+          () => {
+            outcome = 'resolved';
+          },
+          (error: unknown) => {
+            outcome = error;
+          }
+        );
+      await jest.advanceTimersByTimeAsync(0);
+      expect(staged.prove).toHaveBeenCalledTimes(1);
+
+      freezeFor(140_000);
+      client.markPoisoned();
+      first.fail(new Error('DeadlineExceeded: Request timed out'));
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(staged.prove).toHaveBeenCalledTimes(1);
+      expect(outcome).toMatchObject({ name: 'WasmClientPoisonedError' });
+    });
   });
 
   it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
