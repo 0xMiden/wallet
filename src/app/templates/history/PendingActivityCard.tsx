@@ -182,7 +182,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               <dl className="border-t border-hairline divide-y divide-hairline text-sm">
                 {rows.map(row => (
                   <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
-                    <dt className="text-text-secondary-token">{row.label}</dt>
+                    <dt className="font-heading text-text-secondary-token">{row.label}</dt>
                     <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
                       {row.value}
                     </dd>
@@ -225,12 +225,14 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
             for what is present when that `AnimatePresence` FIRST mounts. Switching the Activity
             filter renders a different list, so every card remounted and the width tween replayed
             from zero on each tab change, reflowing the whole footer. */}
-        <div className="flex gap-2.5 px-4 pb-3">
+        {/* The actions run edge to edge along the card's foot, square-cornered, under a hairline:
+            the card's own rounded clip shapes the outer corners. */}
+        <div className="flex border-t border-hairline">
           {onReject && status !== 'claiming' && (
             <Button
-              variant={ButtonVariant.Secondary}
+              variant={ButtonVariant.Ghost}
               size="sm"
-              className="w-2/5 whitespace-nowrap"
+              className="h-12 w-2/5 whitespace-nowrap rounded-none border-0"
               title={t('activityRejectTransfer')}
               disabled={!canAccept}
               onClick={() => onReject(note)}
@@ -241,7 +243,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               NOT `disabled`, which would grey the one action in progress. */}
           <Button
             size="sm"
-            className="min-w-0 flex-1"
+            className="h-12 min-w-0 flex-1 rounded-none"
             title={actionLabel}
             disabled={!canAccept && status !== 'claiming'}
             isLoading={status === 'claiming'}

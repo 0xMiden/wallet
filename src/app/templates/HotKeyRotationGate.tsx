@@ -329,7 +329,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     // overlay unmounting IS the "rotation complete" signal.
     <div
       data-testid="hot-key-rotation-gate"
-      className="fixed inset-0 z-[9999] flex flex-col items-center overflow-y-auto px-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-center bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150"
+      className="fixed inset-0 z-[9999] flex flex-col items-center overflow-y-auto px-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-center bg-pure-white/10 dark:bg-pure-black/50 [backdrop-filter:blur(24px)_saturate(1.5)] [-webkit-backdrop-filter:blur(24px)_saturate(1.5)]"
     >
       {/* `my-auto` centres the content and lets a taller one scroll from its top instead of clipping. */}
       <div className="my-auto flex w-full flex-col items-center gap-4">

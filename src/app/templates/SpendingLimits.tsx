@@ -1,13 +1,19 @@
-import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
+import { AmountInput } from 'components/AmountInput';
 import { Button } from 'components/Button';
 import { StrictActionAuthentication } from 'components/StrictActionAuthentication';
 import { ErrorLine } from 'components/ui/ErrorLine';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { ListGroup } from 'components/ui/ListGroup';
 import { Notice } from 'components/ui/Notice';
+import { Pill } from 'components/ui/Pill';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
-import { TextField } from 'components/ui/TextField';
+import { formatUsd } from 'lib/i18n/numbers';
 import { classifySpendingLimitChange } from 'lib/miden/spending-limits/change';
 import type { SpendingLimitConfiguration, SpendingLimitDraft } from 'lib/miden/spending-limits/types';
 import { useWalletStore } from 'lib/store';
@@ -56,6 +62,13 @@ export function formatUsdLimitInput(value: bigint): string {
   const trimmedFraction = fraction.replace(/0+$/, '');
   return trimmedFraction === '' ? integerPart : `${integerPart}.${trimmedFraction}`;
 }
+
+/** Whole-dollar limits offered as one-tap choices; typing any other amount leaves none selected. */
+const PRESET_LIMITS = ['100', '500', '1000', '5000'] as const;
+
+/** A limit as the page shows it: whole dollars without cents ("$1,000"), a fractional one with them. */
+const formatLimitUsd = (amount: string): string =>
+  amount.includes('.') ? formatUsd(Number(amount)) : `$${Number(amount).toLocaleString('en-US')}`;
 
 interface PendingSave {
   draft: SpendingLimitDraft;
@@ -157,6 +170,16 @@ const SpendingLimits: FC = () => {
 
   const dirty = value !== initialValue(configuration?.limit);
 
+  const presetItems = useMemo<SegmentedControlItem[]>(
+    () => PRESET_LIMITS.map(preset => ({ id: preset, label: formatLimitUsd(preset) })),
+    []
+  );
+  // With every item disabled the control still shows its value, read-only.
+  const presetControlItems = useMemo(
+    () => (saving ? presetItems.map(item => ({ ...item, disabled: true })) : presetItems),
+    [presetItems, saving]
+  );
+
   const prepareSave = useCallback(() => {
     if (!dirty || savingRef.current || accountId === undefined) return;
     const expectedAccount = accountId;
@@ -191,15 +214,24 @@ const SpendingLimits: FC = () => {
     [persist]
   );
 
+  const ready = !loading && !loadError;
+  const currentLimit = configuration === undefined ? undefined : formatLimitUsd(initialValue(configuration.limit));
+
   return (
-    <SubPageLayout data-testid="spending-limits-settings">
-      <Notice tone="neutral">
-        <span className="flex flex-col gap-2">
-          <span>{t('spendingLimitLocalDisclosure')}</span>
-          <span>{t('spendingLimitNotOnChain')}</span>
-          <span>{t('spendingLimitCoverage')}</span>
-        </span>
-      </Notice>
+    <SubPageLayout
+      data-testid="spending-limits-settings"
+      footer={
+        ready && !authenticating ? (
+          <Button
+            title={t('spendingLimitSave')}
+            className="max-w-none"
+            disabled={!dirty || saving}
+            isLoading={saving}
+            onClick={prepareSave}
+          />
+        ) : undefined
+      }
+    >
       {loading ? (
         <Notice variant="inline" role="status">
           {t('loading')}
@@ -208,33 +240,81 @@ const SpendingLimits: FC = () => {
         <ErrorLine>{t('spendingLimitLoadFailed')}</ErrorLine>
       ) : (
         <SubPageSection className="gap-4">
-          <TextField
-            type="text"
-            inputMode="decimal"
-            label={t('spendingLimitUsdCap')}
+          <AmountInput
+            align="center"
+            showDivider={false}
+            className="pt-4"
+            prefix="$"
+            placeholder="0"
             aria-label={t('spendingLimitUsdCap')}
-            leading="$"
+            helper={<span className="text-body-sm text-muted">{t('spendingLimitUsdCap')}</span>}
             value={value}
-            disabled={saving}
-            onChange={event => {
-              setValue(event.target.value);
+            invalid={!!error}
+            // Save captured the draft: authentication persists that one, so the field cannot move on.
+            disabled={saving || authenticating}
+            onValueChange={next => {
+              setValue(next ?? '');
               setError(null);
             }}
           />
           <ErrorLine>{error}</ErrorLine>
+          <Pill
+            className="self-center"
+            tone={currentLimit !== undefined ? 'positive' : 'neutral'}
+            icon={currentLimit !== undefined && <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />}
+          >
+            {currentLimit !== undefined ? t('spendingLimitCurrent', { amount: currentLimit }) : t('spendingLimitNone')}
+          </Pill>
           {authenticating ? (
             <StrictActionAuthentication
               reason={t('spendingLimitAuthenticationReason')}
               onResult={handleAuthentication}
             />
           ) : (
-            <Button
-              title={t('spendingLimitSave')}
-              disabled={!dirty || saving}
-              isLoading={saving}
-              onClick={prepareSave}
+            <SegmentedControl
+              aria-label={t('spendingLimitPresets')}
+              layout="fill"
+              items={presetControlItems}
+              value={value}
+              onChange={preset => {
+                setValue(preset);
+                setError(null);
+              }}
             />
           )}
+        </SubPageSection>
+      )}
+      {!authenticating && (
+        <SubPageSection title={t('spendingLimitHowItWorks')} titleSize="md">
+          <ListGroup surface="plain" insetHairlines>
+            <FactRow
+              leading={
+                <IconCircle>
+                  <Icon name={IconName.Lock} size="xs" fill="currentColor" />
+                </IconCircle>
+              }
+              title={t('spendingLimitStoredOnDevice')}
+              description={t('spendingLimitLocalDisclosure')}
+            />
+            <FactRow
+              leading={
+                <IconCircle>
+                  <Icon name={IconName.Key} size="xs" fill="currentColor" />
+                </IconCircle>
+              }
+              title={t('spendingLimitLocalSafetyCheck')}
+              description={t('spendingLimitNotOnChain')}
+            />
+            <FactRow
+              leading={
+                <IconCircle>
+                  <Icon name={IconName.Coins} size="xs" fill="currentColor" />
+                </IconCircle>
+              }
+              title={t('spendingLimitPricedAssetsOnly')}
+              description={t('spendingLimitCoverage')}
+            />
+          </ListGroup>
         </SubPageSection>
       )}
     </SubPageLayout>

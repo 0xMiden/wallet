@@ -441,6 +441,12 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('ai-error')).toHaveTextContent('amountTooHigh');
     });
 
+    it('keeps the field invalid but drops its message with hideErrorText, for a caller that draws it', () => {
+      renderComponent({ amount: '', error: 'insufficientFeeAsset', hideErrorText: true });
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-invalid', 'true');
+      expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
+    });
+
     it('renders no error row when error is undefined', () => {
       renderComponent({ error: undefined });
       expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
