@@ -310,6 +310,22 @@ async function persistEvmKey(vaultKey: CryptoKey, evmAddress: Hex, privateKeyHex
   await encryptAndSaveMany([[accEvmSecretKeyStrgKey(evmAddress.toLowerCase()), privateKeyHex]], vaultKey);
 }
 
+/**
+ * Puts the profile back as a rejected spawn's opening wipe left it: the key-value store is cleared again,
+ * keeping what every setup keeps, so the protector and every other plain key the attempt wrote go. Only when
+ * that wipe has run, since a spawn that failed before it never touched a profile that may still hold a wallet.
+ * The device's hardware key stays, as no reset removes it: it is one per install, not per vault,
+ * `setupHardwareProtector` reuses it, and without the wrapped key it opens nothing. A failed undo is logged,
+ * never thrown over the spawn's own error.
+ */
+async function undoRejectedSpawn(spawned: Vault | undefined, protectorInstalled: boolean, caller: string) {
+  spawned?.retire();
+  if (!protectorInstalled) return;
+  await clearStorage(false).catch(undoError =>
+    console.error(`[Vault.${caller}] could not undo a failed setup:`, undoError)
+  );
+}
+
 export class Vault {
   // Where the SDK hands this vault's new account secrets. Three transitions move
   // the realm's slot: the constructor installs this sink (a spawn inserts before
@@ -853,6 +869,9 @@ export class Vault {
     guardianEndpoint?: string
   ): Promise<Vault> {
     console.log('Spawning new vault with wallet type', walletType);
+    let spawned: Vault | undefined;
+    // Set once the opening wipe is done: from there a rejection has a protector, and possibly more, to undo.
+    let protectorInstalled = false;
     return withError('Failed to create wallet', async (): Promise<Vault> => {
       console.log('[Vault.spawn] Step 1: generating vault key...');
       // Generate random vault key (256-bit)
@@ -861,7 +880,7 @@ export class Vault {
       console.log('[Vault.spawn] Step 2: vault key generated');
       // Constructed as soon as the key exists: the constructor installs the realm's
       // insert-key sink, and the recovery and creation below already insert secrets (#878).
-      const spawned = new Vault(vaultKey);
+      spawned = new Vault(vaultKey);
 
       if (!mnemonic) {
         mnemonic = generateMnemonic();
@@ -883,6 +902,8 @@ export class Vault {
       // If no password (hardware-only mode), use hardware protection
       const useHardwareOnly = !password;
       const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+
+      protectorInstalled = true;
 
       if (useHardwareOnly && hardwareAvailable) {
         // Try hardware-only mode (user chose biometric authentication)
@@ -1247,6 +1268,9 @@ export class Vault {
 
       // The instance constructed when its key was made, so the caller need not unlock() separately.
       return spawned;
+    }).catch(async error => {
+      await undoRejectedSpawn(spawned, protectorInstalled, 'spawn');
+      throw error;
     });
   }
 
@@ -1269,6 +1293,9 @@ export class Vault {
     keyPairPayload: string,
     guardianEndpoint?: string
   ): Promise<Vault> {
+    let spawned: Vault | undefined;
+    // As in `spawn`: set once the opening wipe is done, so a paste refused before it wipes nothing.
+    let protectorInstalled = false;
     return withError('Failed to import wallet from key', async (): Promise<Vault> => {
       const pair = parsePrivateKeyPair(keyPairPayload);
       if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
@@ -1276,15 +1303,15 @@ export class Vault {
       const evmAccount = privateKeyToAccount(evmPrivateKey);
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
-      const spawned = new Vault(vaultKey);
+      spawned = new Vault(vaultKey);
 
       // PRECONDITION: no wallet exists. Like `spawn`, this wipes storage before
-      // the protector setup and before the guardian lookup, so a failure after
-      // that point leaves no wallet behind. Today that is safe because the only
+      // the protector setup and before the guardian lookup, and a rejection
+      // after the wipe undoes what this attempt wrote, so a failure after that
+      // point leaves no wallet behind. Today that is safe because the only
       // caller is onboarding (Welcome.tsx), which `resolveRootView` reaches only
-      // when no vault is present, and the next attempt's own `clearStorage()`
-      // clears the half-written protector. A caller that ran this over a live
-      // wallet WOULD destroy it - stage the lookup before the wipe first.
+      // when no vault is present. A caller that ran this over a live wallet
+      // WOULD destroy it - stage the lookup before the wipe first.
       //
       // Validate + canonicalize the pasted key BEFORE the storage wipe or any
       // network work, so a junk paste can never destroy an existing wallet.
@@ -1333,6 +1360,7 @@ export class Vault {
       // encrypt the vault key under an empty string.
       const useHardwareOnly = !password;
       const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+      protectorInstalled = true;
       if (useHardwareOnly && hardwareAvailable) {
         const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
         if (!hardwareSetupSuccess) {
@@ -1408,6 +1436,9 @@ export class Vault {
       await savePlain(ownMnemonicStrgKey, true);
 
       return spawned;
+    }).catch(async error => {
+      await undoRejectedSpawn(spawned, protectorInstalled, 'spawnFromHotKey');
+      throw error;
     });
   }
 
@@ -1695,17 +1726,7 @@ export class Vault {
 
       return spawned;
     }).catch(async error => {
-      spawned?.retire();
-      // Returns the profile to what the restore started from. This clearStorage
-      // is the same call the restore opens with, so it takes the protector and any
-      // other plain key this attempt wrote and leaves the transactions table alone.
-      // Guarded, so a failure before the protector existed cannot wipe a profile
-      // this restore never touched; a failed undo is logged, never thrown over the restore's error.
-      if (protectorInstalled) {
-        await clearStorage(false).catch(undoError =>
-          console.error('[Vault.spawnFromMidenClient] could not undo a failed restore:', undoError)
-        );
-      }
+      await undoRejectedSpawn(spawned, protectorInstalled, 'spawnFromMidenClient');
       throw error;
     });
   }
