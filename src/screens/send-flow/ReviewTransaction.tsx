@@ -14,6 +14,7 @@ import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Skeleton } from 'components/ui/Skeleton';
+import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -31,6 +32,7 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -354,6 +356,10 @@ export const ReviewTransaction: React.FC = () => {
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         if (route === 'agglayer') {
+          // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
+          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl()))) {
+            throw new Error(t('agglayerTokenUnsupported'));
+          }
           const txId = await initiateB2AggBridge({
             amount: amountBaseUnits,
             faucetId: token.id,
@@ -401,7 +407,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [amountBaseUnits, goToGeneratingTransaction, openUnpricedChallenge, publicKey, route, signTransaction, to, token]
+    [amountBaseUnits, goToGeneratingTransaction, openUnpricedChallenge, publicKey, route, signTransaction, t, to, token]
   );
 
   const onSubmit = useCallback(async () => {

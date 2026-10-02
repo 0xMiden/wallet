@@ -3457,6 +3457,22 @@
     "message": "Langsam",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "Nicht verfügbar",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Überprüfung, ob dieses Token den Slow-Weg unterstützt…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Dieses Token unterstützt den Slow-Weg nicht.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Dieses Token konnte nicht überprüft werden. Gehen Sie zurück und versuchen Sie es erneut.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "Sekunden",
     "englishSource": "Seconds"
@@ -4405,8 +4421,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "ca. 6 Stunden",
-    "englishSource": "~6 hours"
+    "message": "ca. 30 Minuten",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Sie tätigen eine Einzahlung",

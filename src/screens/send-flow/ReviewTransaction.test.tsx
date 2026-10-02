@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
@@ -63,6 +64,7 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 // stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => 'https://rpc.review.example',
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -168,6 +170,10 @@ jest.mock('components/Button', () => ({
 
 jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
+}));
+
+jest.mock('lib/agglayer/allowed-faucets', () => ({
+  isAgglayerFaucetAllowed: jest.fn()
 }));
 
 jest.mock('lib/agglayer/b2agg', () => ({
@@ -355,6 +361,7 @@ beforeEach(() => {
   stringToBigIntMock.mockReturnValue(12345n);
   initiateMock.mockResolvedValue('tx-abc');
   initiateB2AggBridgeMock.mockResolvedValue('tx-bridge');
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
   bridgeEpochSendMock.mockResolvedValue({ txId: 'tx-epoch' });
   dateTimeToRecallBlocksMock.mockReturnValue(999);
   isExtensionMock.mockReturnValue(false);
@@ -875,6 +882,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
+    expect(isAgglayerFaucetAllowed).toHaveBeenCalledWith('tok1', 'https://rpc.review.example');
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 12345n,
@@ -883,6 +891,34 @@ describe('ReviewTransaction — onSubmit', () => {
         senderPublicKey: 'pubkey-1'
       })
     );
+  });
+
+  it('refuses a Slow bridge-out of a token the registry does not list (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(false);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('agglayerTokenUnsupported');
+  });
+
+  it('refuses a Slow bridge-out when the registry cannot be read (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockRejectedValue(new Error('registry down'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('registry down');
   });
 
   it('uses strict authentication before building an Agglayer bridge request', async () => {
