@@ -14,7 +14,7 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
-import { MultisigService, PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
+import { GUARDIAN_CANDIDATE_HOLD_MS, MultisigService, PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
@@ -2714,17 +2714,25 @@ const resolveRotationHotKey = async (
  * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
  * quarantine; refused for any reason, it stays for the next attempt and the proposal goes ahead. A record from another
- * Guardian (a switch since) is dropped unasked. Never throws: a cleanup must not fail the write it precedes. Bounded
- * at PRIOR_CANDIDATE_CHECK_TIMEOUT_MS, since it runs inside the FIFO loop's Web Lock: the bound cancels nothing and the
+ * Guardian (a switch since) is dropped unasked. A mark one Guardian hold old (GUARDIAN_CANDIDATE_HOLD_MS) turns plain
+ * unretried: the Guardian has released that candidate itself, and an abandon at its nonce could only reach another
+ * device's live candidate on the account. Never throws: a cleanup must not fail the write it precedes. Bounded at
+ * PRIOR_CANDIDATE_CHECK_TIMEOUT_MS, since it runs inside the FIFO loop's Web Lock: the bound cancels nothing and the
  * next proposal retries idempotently, so a shorter one than the outgoing deadline loses nothing and shortens each stall
  * against a silent Guardian.
  */
 const releaseUnabandonedCandidate = async (transaction: ITransaction, service: MultisigService): Promise<void> => {
   const accountId = canonicalWalletAccountId(transaction.accountId);
   const prior = getGuardianCandidate(accountId);
-  if (prior === undefined || prior.abandon !== true) return;
+  const markedAt = prior?.abandonMarkedAt;
+  if (prior === undefined || markedAt === undefined) return;
   if (!sameGuardianEndpoint(prior.endpoint, service.guardianEndpoint)) {
     clearGuardianCandidate(accountId, prior.nonce);
+    return;
+  }
+  const plain = { endpoint: prior.endpoint, nonce: prior.nonce };
+  if (Date.now() - markedAt >= GUARDIAN_CANDIDATE_HOLD_MS) {
+    recordGuardianCandidate(accountId, plain);
     return;
   }
   try {
@@ -2739,9 +2747,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
   }
   console.warn(`[Guardian] abandoned candidate ${prior.nonce}, which a failed write had left on its Guardian`);
   // A later write may have recorded its own candidate meanwhile, and that one stands.
-  if (getGuardianCandidate(accountId) === prior) {
-    recordGuardianCandidate(accountId, { endpoint: prior.endpoint, nonce: prior.nonce });
-  }
+  if (getGuardianCandidate(accountId) === prior) recordGuardianCandidate(accountId, plain);
 };
 
 /**
@@ -2783,7 +2789,7 @@ const recordUnabandonedCandidate = (accountId: string, service: MultisigService,
   recordGuardianCandidate(canonicalWalletAccountId(accountId), {
     endpoint: service.guardianEndpoint,
     nonce,
-    abandon: true
+    abandonMarkedAt: Date.now()
   });
 
 /**
@@ -2793,7 +2799,7 @@ const recordUnabandonedCandidate = (accountId: string, service: MultisigService,
 const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
   const key = canonicalWalletAccountId(accountId);
   const recorded = getGuardianCandidate(key);
-  if (recorded?.nonce === nonce) recordGuardianCandidate(key, { ...recorded, abandon: true });
+  if (recorded?.nonce === nonce) recordGuardianCandidate(key, { ...recorded, abandonMarkedAt: Date.now() });
 };
 
 /**

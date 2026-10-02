@@ -128,6 +128,9 @@ export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
  */
 export const PRIOR_CANDIDATE_CHECK_TIMEOUT_MS = 10_000;
 
+/** The Guardian's own hold on a candidate that never settles (600 s): past it the Guardian has released it (#1317). */
+export const GUARDIAN_CANDIDATE_HOLD_MS = 600_000;
+
 /** Where the delta a previous write left stands: still a `candidate`, `settled`, or `unknown`. */
 export type PriorCandidateState = 'candidate' | 'settled' | 'unknown';
 

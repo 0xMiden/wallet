@@ -52,14 +52,16 @@ export function withGuardianAccountLock<T>(accountId: string, fn: () => Promise<
  * The candidate a Guardian write left on its Guardian: the Guardian (`endpoint`,
  * spelled as the service that proposed it spells it) and the delta's `nonce`.
  * The next proposal on the account asks the Guardian about it before proposing
- * (#312). `abandon` marks a candidate whose transaction never landed and whose
- * abandon the Guardian has not accepted; the next proposal retries that abandon
- * first (#1317).
+ * (#312). `abandonMarkedAt` marks a candidate whose transaction never landed and
+ * whose abandon the Guardian has not accepted, so the next proposal retries that
+ * abandon first (#1317). It is the wall-clock time (`Date.now()`) the mark was
+ * set, since the Guardian's hold runs in real time even while a mobile app is
+ * frozen.
  */
 export interface GuardianCandidate {
   endpoint: string;
   nonce: number;
-  abandon?: true;
+  abandonMarkedAt?: number;
 }
 
 // Per realm, keyed like the lock chains above (the canonical account id), and dropped with them.
