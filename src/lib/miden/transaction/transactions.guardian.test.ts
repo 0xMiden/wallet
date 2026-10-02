@@ -8926,9 +8926,9 @@ describe('generateTransaction — Guardian routing', () => {
     const abandonCandidate = jest.fn(async (_nonce: number) => {});
     const { run, row, service } = startDiscardedLandedSwitch('switch-discarded-outgoing-offline', abandonCandidate);
     // The outgoing guardian goes offline once it holds the delta, so the reconcile cannot rebuild its service.
-    service.pushSwitchDeltaBounded.mockImplementation(async () => {
+    service.pushSwitchDeltaBounded.mockImplementation(async (): Promise<'pushed'> => {
       mockGetOrCreateMultisigService.mockRejectedValueOnce(new TypeError('Failed to fetch'));
-      return 'pushed' as const;
+      return 'pushed';
     });
     await run;
 
