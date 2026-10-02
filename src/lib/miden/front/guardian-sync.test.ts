@@ -1851,6 +1851,41 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect(mockReRegister).toHaveBeenCalledTimes(2);
     });
 
+    // Past the finisher's widest backoff by a margin, so a fractional performance.now() base cannot round a
+    // gap to just under it.
+    const dueLaps = (first: number, count: number) =>
+      Array.from({ length: count }, (_, lap) => (first + lap) * (FUSED_SYNC_PROBE_INTERVAL_MS + 1_000));
+
+    it('stops pushing for a rotation whose swap keeps failing once the push budget is spent (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = { t0: Date.now(), p0: performance.now() };
+
+      await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 2));
+
+      expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+      expect(storeState.swapHotKey).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+      expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    });
+
+    it('reopens the push budget for a new Failed rotation (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = { t0: Date.now(), p0: performance.now() };
+      await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+      const spent = mockReRegister.mock.calls.length;
+
+      mockFindFailedHotKeyRotations.mockResolvedValue([
+        { id: 'row-act', newHotPublicKey: 'new-hot-pub' },
+        { id: 'row-act-2', newHotPublicKey: 'new-hot-pub' }
+      ]);
+      await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1));
+      expect(mockReRegister).toHaveBeenCalledTimes(spent + 1);
+
+      await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 2, SELF_HEAL_MAX_ATTEMPTS - 1));
+      expect(mockReRegister).toHaveBeenCalledTimes(spent + SELF_HEAL_MAX_ATTEMPTS);
+    });
+
     it('checks a pending account whose rows cannot be read at most once per cooldown (#1233)', async () => {
       storeState.accounts = [pendingAccount] as never;
       mockFindFailedHotKeyRotations.mockRejectedValue(new Error('rows unreadable'));

@@ -122,8 +122,10 @@ const consecutiveAuthFailures = new Map<string, number>();
 const selfHealState = new Map<string, SelfHealAttemptState>();
 // When the pending-activation finisher last checked each rotation-pending account, and the heals it ran (#1233).
 const pendingActivationState = new Map<string, SelfHealAttemptState>();
-// The Failed rotation rows a permanent refusal answered, per account, as sorted ids (#1233).
+// The Failed rotation rows a permanent refusal answered or SELF_HEAL_MAX_ATTEMPTS pushes spent, per account,
+// as sorted ids, and the pushes the finisher spent on the account's current rows (#1233).
 const refusedActivations = new Map<string, string>();
+const activationPushes = new Map<string, { rowSet: string; pushes: number }>();
 
 // Missing-registration self-heal state, mirroring the pair above because the
 // write it guards is strictly more dangerous than a cold re-register:
@@ -481,6 +483,7 @@ export function __resetGuardianSyncOutageForTest(): void {
   selfHealState.clear();
   pendingActivationState.clear();
   refusedActivations.clear();
+  activationPushes.clear();
   rateLimitedUntil.clear();
   hardeningChecked.clear();
   missingRegistrationState.clear();
@@ -945,7 +948,8 @@ async function findOwnRotation(accountPublicKey: string, onChainCommitment: stri
  * sign as the chain's hot signer. Both are matched on the code, which the extension port carries,
  * never on the message. Any other failure (a locked vault, the intercom, storage) returns
  * 'attempted', since the push ran and is booked like every push: the row stays Failed, the next due
- * heal re-verifies and swaps, and three failures in a row still bound the `/configure` writes.
+ * heal re-verifies and swaps, and SELF_HEAL_MAX_ATTEMPTS pushes bound the `/configure` writes in both
+ * callers: the 401 arm's budget, and the pending-activation finisher's per Failed rotation set.
  */
 async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation): Promise<SelfHealOutcome> {
   try {
@@ -1292,7 +1296,10 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
         continue;
       }
       const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey, true);
-      if (outcome === 'refused-permanently') {
+      const spent = activationPushes.get(account.publicKey);
+      const pushes = (spent?.rowSet === rowSet ? spent.pushes : 0) + (outcome === 'attempted' ? 1 : 0);
+      activationPushes.set(account.publicKey, { rowSet, pushes });
+      if (outcome === 'refused-permanently' || pushes >= SELF_HEAL_MAX_ATTEMPTS) {
         refusedActivations.set(account.publicKey, rowSet);
       } else {
         refusedActivations.delete(account.publicKey);
