@@ -7860,6 +7860,24 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row()?.error).toMatch(/did not land: the node discarded it/);
   });
 
+  it('Guardian replace-hot-key: a discarded rotation whose abandon fails records the abandon for the next proposal (#1317)', async () => {
+    const { tx, row, coldService, provider } = arrangeRotation(proposalFor(), timedOutCommitWait());
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+    coldService.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(coldService.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+    expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: 'https://old.guardian', nonce: 7, abandon: true });
+  });
+
   // swapHotKey deletes the old hot key and its native wrapper, so a rotation that may never land
   // must not complete on no evidence.
   it('Guardian replace-hot-key: a commit wait that times out with no verdict fails the row and swaps nothing', async () => {
@@ -8461,6 +8479,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     const finalizeGuardianSwitch = jest.fn(async () => {});
     const service = {
+      guardianEndpoint: 'https://old.guardian',
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch', nonce: 41 },
         newEndpoint: 'https://new.guardian'
@@ -8589,6 +8608,12 @@ describe('generateTransaction — Guardian routing', () => {
 
     expect(row().status).toBe(ITransactionStatus.Failed);
     expect(row().error).toMatch(/: Guardian switch exec-tx-hash did not land: the node discarded it\.$/);
+    // The account's next proposal retries it (#1317).
+    expect(getGuardianCandidate('guardian-acc')).toEqual({
+      endpoint: 'https://old.guardian',
+      nonce: 41,
+      abandon: true
+    });
   });
 
   it('bounds the abandon of a discarded switch by the outgoing deadline', async () => {
@@ -9005,6 +9030,21 @@ describe('generateTransaction — Guardian routing', () => {
       expect(type === 'replace-hot-key' && describeRotationFailure(row() as never, null).unconfirmed).toBe(false);
     }
   );
+
+  it('replace-hot-key landed: a discarded rotation whose abandon fails records the abandon for the next proposal (#1317)', async () => {
+    const { run, row, coldService } = arrangeLandedRotation();
+    Object.assign(coldService, { guardianEndpoint: 'https://old.guardian' });
+    coldService.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await run();
+
+    expect(coldService.abandonCandidate).toHaveBeenCalledWith(3);
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+    expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: 'https://old.guardian', nonce: 3, abandon: true });
+  });
 
   // When the record gives no verdict, the node's commitment for the account confirms a landed write
   // equal to the executed transaction's final one (#1233). The poll runs on timers, so these drive it.

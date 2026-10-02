@@ -1070,7 +1070,7 @@ async function reconcileStructuralApplyFailure(
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
     const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
     if (isGuardianSwitchDiscardedError(error) && service && typeof nonce === 'number') {
-      await abandonDiscardedCandidate(service, nonce);
+      await abandonDiscardedCandidate(tx.accountId, service, nonce);
     }
     throw error;
   }
@@ -2332,9 +2332,10 @@ const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, propo
 /**
  * Abandon the candidate a discarded structural write left on its guardian (#1233), deadline-bounded and
  * best-effort like the other outgoing-guardian cleanups. Safe although the submit resolved: a discarded
- * transaction has left the mempool and never lands, and the guardian refuses the abandon if it did.
+ * transaction has left the mempool and never lands, and the guardian refuses the abandon if it did. A failed
+ * abandon is recorded under `accountId`, so the account's next proposal retries it (#1317).
  */
-const abandonDiscardedCandidate = async (service: MultisigService, nonce: number): Promise<void> => {
+const abandonDiscardedCandidate = async (accountId: string, service: MultisigService, nonce: number): Promise<void> => {
   try {
     await withOutgoingGuardianDeadline(
       () => service.abandonCandidate(nonce),
@@ -2342,6 +2343,7 @@ const abandonDiscardedCandidate = async (service: MultisigService, nonce: number
     );
   } catch (abandonError) {
     console.warn(`[Guardian] could not abandon the discarded candidate at nonce ${nonce}:`, abandonError);
+    recordUnabandonedCandidate(accountId, service, nonce);
   }
 };
 
@@ -2392,7 +2394,7 @@ const requireLandedCommit = async (
         () => buildColdServiceForAccount(tx.accountId, guardianProvider),
         'loading the cold service to abandon a discarded candidate'
       );
-      await abandonDiscardedCandidate(service, nonce);
+      await abandonDiscardedCandidate(tx.accountId, service, nonce);
     } catch (buildError) {
       console.warn(
         `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
@@ -2440,7 +2442,8 @@ const waitForStructuralCommit = async (
   id: string,
   service: MultisigService,
   nonce: number,
-  type: ITransactionType
+  type: ITransactionType,
+  accountId: string
 ): Promise<void> => {
   try {
     await midenClientProxy.waitForTransactionCommit(id);
@@ -2456,7 +2459,7 @@ const waitForStructuralCommit = async (
       return;
     }
     if (landed === undefined) throw waitError;
-    await abandonDiscardedCandidate(service, nonce);
+    await abandonDiscardedCandidate(accountId, service, nonce);
     throw new GuardianWriteDiscardedError(`Guardian ${type} ${id} did not land: the node discarded it.`, {
       cause: waitError
     });
@@ -3594,7 +3597,7 @@ const generateGuardianTransaction = async (
     // structural completion below (e.g. leaving replace-hot-key's chain rotation done
     // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
     // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-    await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type);
+    await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type, transaction.accountId);
   }
 
   // Sync the cached hot service so the next consumer sees post-tx state.
