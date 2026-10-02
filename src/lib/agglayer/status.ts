@@ -122,7 +122,7 @@ const BRIDGE_SERVICE_URL = AGGLAYER_BRIDGE_API.replace(/\/bridges$/, '');
 
 // Origin and claim hashes come back from the indexer with inconsistent `0x`
 // prefixing and casing, so compare them normalized.
-function sameTxHash(left: string, right: string): boolean {
+export function sameTxHash(left: string, right: string): boolean {
   const normalize = (hash: string) => hash.trim().toLowerCase().replace(/^0x/, '');
   return normalize(left) === normalize(right);
 }
@@ -140,9 +140,9 @@ function sameTxHash(left: string, right: string): boolean {
  * indexer echoes as the deposit's `tx_hash` — the same match
  * `reconcileBridgedReceives` makes for the EVM→Miden direction.
  *
- * A row that completed through the apply-after-submit path never recorded a
- * transaction id (see `isApplyAfterSubmitError` in `transaction/index.ts`), so an
- * unbound lookup is still answered — but only while the answer is unambiguous.
+ * A row that completed through the apply-after-submit path records the id its
+ * failure carried (#1233), but one whose id could not be read has none, so an
+ * unbound lookup is still answered - but only while the answer is unambiguous.
  * With two claimable deposits and nothing to tell them apart, null is the only
  * safe answer: the wallet would otherwise pick one at random and call it this
  * row's.

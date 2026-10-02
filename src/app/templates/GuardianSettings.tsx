@@ -7,10 +7,12 @@ import {
   guardianOptionForEndpoint,
   useCurrentGuardianEndpoint
 } from 'app/hooks/useCurrentGuardianEndpoint';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { Pill } from 'components/ui/Pill';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import {
@@ -20,7 +22,6 @@ import {
   isGuardianUnrepairable,
   subscribeGuardianSyncOutage
 } from 'lib/miden/front/guardian-sync';
-import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { GuardianInfoDrawer } from 'screens/onboarding/common/GuardianInfoDrawer';
@@ -240,25 +241,26 @@ const GuardianSettings: FC = () => {
       <SubPageSection
         title={t('about')}
         titleAs="h3"
+        titleSize="md"
         description={
           <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="text-body-strong text-ink" /> }} />
         }
       >
-        {/* accent-tint-ink, not accent: accent is 3.0:1 on the page, short of AA for 14px text. */}
-        <button
-          type="button"
-          onClick={() => {
-            hapticLight();
-            setIsInfoOpen(true);
-          }}
-          className="self-start px-1 text-action text-accent-tint-ink"
+        {/* The same full-width info pill as Home's network pill: brand dot, the line, the info glyph. */}
+        <Pill
+          onClick={() => setIsInfoOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={isInfoOpen}
+          className="w-full"
+          icon={<span aria-hidden="true" className="h-2 w-2 rounded-full bg-accent-primary" />}
+          trailingIcon={<Icon name={IconName.Information} size="xs" fill="currentColor" className="text-muted" />}
         >
           {t('learnMoreAboutGuardian')}
-        </button>
+        </Pill>
       </SubPageSection>
 
-      <SubPageSection title={t('details')} titleAs="h3">
-        <DetailCard>
+      <SubPageSection title={t('details')} titleAs="h3" titleSize="md">
+        <DetailCard surface="outline">
           <DetailRow label={t('guardianProvider')}>{provider}</DetailRow>
           <DetailRow label={t('guardianEndpointLabel')} stacked>
             {endpoint}

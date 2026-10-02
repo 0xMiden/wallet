@@ -100,6 +100,7 @@ jest.mock('../send-flow/SelectAmount', () => ({
         data-amount={props.amount}
         data-valid={String(props.isValidAmount)}
         data-error={props.error}
+        data-hide-error-text={String(Boolean(props.hideErrorText))}
         data-logo={props.logoSymbol}
         data-token={JSON.stringify(props.token)}
       >
@@ -244,6 +245,38 @@ describe('SwapAmounts', () => {
     });
   });
 
+  describe('missing fee asset', () => {
+    it('keeps the pay field red but draws the message itself, under the token', () => {
+      renderComponent({ feeAssetMissing: true, offerAmount: '' });
+
+      const pay = screen.getByTestId('select-amount-youPay');
+      expect(pay).toHaveAttribute('data-error', 'insufficientFeeAsset');
+      expect(pay).toHaveAttribute('data-hide-error-text', 'true');
+      const notice = screen.getByTestId('swap-fee-notice');
+      // After the field (whose last row is the token selector), not between the amount and token.
+      expect(pay.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The shared error line, as a standing condition rather than an alert.
+      expect(notice).toHaveAttribute('role', 'note');
+      expect(notice).toHaveClass('text-negative-ink');
+      expect(notice).not.toHaveClass('text-red-500');
+      expect(notice).toHaveTextContent('insufficientFeeAssetShort');
+    });
+
+    it('is the note alone, with no link or button', () => {
+      renderComponent({ feeAssetMissing: true, offerAmount: '' });
+
+      const notice = screen.getByTestId('swap-fee-notice');
+      expect(notice.querySelector('button, a')).toBeNull();
+    });
+
+    it('shows no notice, and lets the field draw its own errors, when the fee asset is there', () => {
+      renderComponent({ offerAmount: '150', offerBalance: 100 });
+
+      expect(screen.queryByTestId('swap-fee-notice')).not.toBeInTheDocument();
+      expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-hide-error-text', 'false');
+    });
+  });
+
   describe('request amount validation', () => {
     it('is valid when the request amount is positive', () => {
       renderComponent({ requestAmount: '3' });
@@ -291,6 +324,15 @@ describe('SwapAmounts', () => {
 
       expect(hapticLight).toHaveBeenCalledTimes(1);
       expect(onSwapDirection).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps one pay side and one receive side however many times it flips', () => {
+      renderComponent();
+
+      for (let i = 0; i < 3; i += 1) fireEvent.click(screen.getByLabelText('swapDirection'));
+
+      expect(screen.getAllByTestId('swap-pay-side')).toHaveLength(1);
+      expect(screen.getAllByTestId('swap-receive-side')).toHaveLength(1);
     });
   });
 

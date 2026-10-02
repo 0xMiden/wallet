@@ -3,6 +3,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { ITransactionStatus } from 'lib/miden/db/types';
+import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
 import { WalletType } from 'screens/onboarding/types';
 
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
@@ -102,7 +104,9 @@ jest.mock('lib/miden/activity', () => ({
   isUnverifiableSendRetryError: (...a: any[]) => isUnverifiableSendRetryErrorMock(...a),
   // Real helper: the retry gate reads the provider off the row's `extraInputs`,
   // and an Epoch (Fast) bridged-send must not be offered a Retry.
-  bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf
+  bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf,
+  // Real predicate: which failed rows read as not confirmed is what the failure tests assert.
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row
@@ -478,6 +482,70 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  const stepStates = (container: HTMLElement) =>
+    Object.fromEntries(
+      Array.from(container.querySelectorAll('[data-transaction-step]')).map(el => [
+        el.getAttribute('data-transaction-step'),
+        el.getAttribute('data-state')
+      ])
+    );
+
+  // The same rule Activity and the rotation gate apply (#1250): a row whose outcome is unknown
+  // is not titled failed, and its classifier copy is not shown as the reason.
+  it.each([
+    ['a row that may have been submitted', { mayHaveSubmitted: true, error: REMOTE_PROVER_FAILED_ERROR }],
+    ['a row the reaper failed', { error: TRANSACTION_STUCK_ERROR }]
+  ])('reads %s as not confirmed, not failed', async (_label, fields) => {
+    mockRowState = { row: makeTx({ status: 3, stage: 'proving', ...fields }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(container.textContent).toContain('transactionNotConfirmedHint');
+    expect(container.textContent).not.toContain('transactionFailed');
+    expect(container.textContent).not.toContain(fields.error);
+    expect(container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+    expect(container.querySelector('.bg-status-negative')).toBeNull();
+    expect(stepStates(container)).toEqual({
+      'guardian-approving': 'complete',
+      'generating-proof': 'pending',
+      submitting: 'pending',
+      'syncing-guardian': 'pending'
+    });
+    act(() => root.unmount());
+  });
+
+  it('keeps the failed title, row error, hero and step for a definite failure', async () => {
+    mockRowState = { row: makeTx({ status: 3, stage: 'proving', error: REMOTE_PROVER_FAILED_ERROR }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain(REMOTE_PROVER_FAILED_ERROR);
+    expect(container.textContent).not.toContain('transactionNotConfirmedHint');
+    expect(container.textContent).not.toContain('showFullError');
+    expect(container.querySelector('.size-16 > .bg-status-negative')).not.toBeNull();
+    expect(container.querySelector('.bg-status-pending')).toBeNull();
+    expect(stepStates(container)['generating-proof']).toBe('failed');
+    act(() => root.unmount());
+  });
+
+  it("keeps a not-confirmed row's own error one tap away behind Show full error", async () => {
+    mockRowState = { row: makeTx({ status: 3, mayHaveSubmitted: true, error: 'Error: 503' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.textContent).toContain('transactionNotConfirmedHint');
+    expect(container.textContent).not.toContain('Error: 503');
+    const showFullError = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'showFullError');
+    expect(showFullError).toBeTruthy();
+    await act(async () => {
+      showFullError!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(container.textContent).toContain('Error: 503');
+    act(() => root.unmount());
+  });
+
   it('picks the step set from the tracked tx account, not the current account', async () => {
     // Current account is standard, but the row's account (acc-1) is a Guardian
     // account — the step set must follow the tx, not the globally-current account.
@@ -695,6 +763,59 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(stepStates()).toEqual(['complete', 'complete', 'active', 'pending']);
     // The spin is a CSS transform animation on the HTML wrapper, so WebKit runs it on the GPU.
     expect(activeSpinner()?.className).toContain('animate-[spin_0.9s_linear_infinite]');
+    act(() => root.unmount());
+  });
+
+  it('a Queued row waiting on a busy Guardian says so, and its first step waits instead of spinning (#312)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="creating-proposal"
+        activeType="send"
+        activeTransaction={
+          makeTx({ status: ITransactionStatus.Queued, stage: 'creating-proposal', guardianBusy: true }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['pending', 'pending', 'pending', 'pending']);
+    expect(rows[0]?.textContent).toContain('guardianBusyStep');
+    expect(container.querySelector('[data-transaction-step] [data-testid="flow-spinner"]')).toBeNull();
+    const helper = Array.from(container.querySelectorAll('p')).find(paragraph =>
+      paragraph.classList.contains('font-bold')
+    );
+    expect(helper?.textContent).toBe('guardianBusyDescription');
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toContain('guardianBusyDescription');
+    expect(container.textContent).not.toContain('generatingTransactionDescription');
+    act(() => root.unmount());
+  });
+
+  it('a row being processed shows the working step and the usual copy, whatever its busy mark says (#312)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="creating-proposal"
+        activeType="send"
+        activeTransaction={
+          makeTx({
+            status: ITransactionStatus.GeneratingTransaction,
+            stage: 'creating-proposal',
+            guardianBusy: true
+          }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['active', 'pending', 'pending', 'pending']);
+    expect(rows[0]?.textContent).toContain('transactionStepGuardianApproved');
+    expect(container.textContent).toContain('generatingTransactionDescription');
+    expect(container.textContent).not.toContain('guardianBusy');
     act(() => root.unmount());
   });
 

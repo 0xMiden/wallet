@@ -1,9 +1,11 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
@@ -97,9 +99,11 @@ jest.mock('lib/woozie', () => ({
 
 const mockHapticSelection = jest.fn();
 const mockHapticLight = jest.fn();
+const mockHapticMedium = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: (...args: unknown[]) => mockHapticSelection(...args),
-  hapticLight: (...args: unknown[]) => mockHapticLight(...args)
+  hapticLight: (...args: unknown[]) => mockHapticLight(...args),
+  hapticMedium: (...args: unknown[]) => mockHapticMedium(...args)
 }));
 
 jest.mock('components/PageHeader', () => ({
@@ -232,6 +236,20 @@ jest.mock('lib/token-list/useTokenVerification', () => ({
   useTokenVerification: (id: string) => mockVerifyToken(id)
 }));
 
+let mockNativeFaucetId: string | null = 'mtst1native';
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
+
+// The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  onStorageChanged: jest.fn(() => () => {}),
+  registerStorageReread: jest.fn()
+}));
+const mockReadStorage = jest.mocked(fetchFromStorage);
+const mockWriteStorage = jest.mocked(putToStorage);
+
 const mockOpenExternalUrl = jest.fn();
 jest.mock('lib/mobile/external-browser', () => ({
   openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
@@ -293,6 +311,14 @@ const renderPage = (o?: Overrides, tokenId: string = TOKEN_ID) => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockTokenPrices = {};
+  mockNativeFaucetId = 'mtst1native';
+  resetHiddenTokens();
+  mockReadStorage.mockReset();
+  // Unread by default: most cases never look at the row, and a read settling after a synchronous
+  // case ends would update the page outside act().
+  mockReadStorage.mockImplementation(() => new Promise(() => {}));
+  mockWriteStorage.mockReset();
+  mockWriteStorage.mockResolvedValue(undefined);
 });
 
 describe('TokenDetail', () => {
@@ -708,9 +734,14 @@ describe('TokenDetail', () => {
       const option = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
       const bubbleIn = (tf: string) => option(tf).querySelector('[data-slot="motion-highlight"]');
 
-      // Equal-width segments across the chart, 32px tall.
-      expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-      expect(option('1D')).toHaveClass('flex-1', 'h-10');
+      // Equal-width segments across the chart: the columns of the group's grid, 40px tall.
+      expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass(
+        'grid',
+        'w-full',
+        'grid-flow-col',
+        'auto-cols-fr'
+      );
+      expect(option('1D')).toHaveClass('min-w-0', 'h-10');
 
       expect(option('1D')).toHaveAttribute('role', 'radio');
       expect(option('1D')).toHaveAttribute('aria-checked', 'true');
@@ -837,6 +868,185 @@ describe('TokenDetail', () => {
       expect(Array.from(mark.children)).toEqual([pill, notice]);
 
       expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
+    });
+  });
+
+  describe('hiding the token', () => {
+    const KEY = 'hidden-tokens:v1:testnet:pk-123';
+    const toggle = () => screen.getByTestId('token-detail-hide-toggle');
+    const renderReady = async (stored: string[] = []) => {
+      mockReadStorage.mockResolvedValue(stored);
+      renderPage();
+      await waitFor(() => expect(toggle()).toBeEnabled());
+    };
+
+    it("offers Hide token with the eye-off glyph, in the explorer row's text-action style", async () => {
+      await renderReady();
+
+      expect(within(screen.getByTestId('token-detail-info')).getByTestId('token-detail-hide-toggle')).toBe(toggle());
+      expect(toggle()).toHaveTextContent('hideToken');
+      expect(toggle()).toHaveClass('text-action', 'text-accent-tint-ink');
+      const glyph = toggle().querySelector('svg');
+      expect(glyph).toHaveAttribute('name', 'eye-off');
+      expect(glyph).toHaveAttribute('aria-hidden', 'true');
+      expect(screen.queryByTestId('token-detail-hidden-notice')).toBeNull();
+      expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
+    });
+
+    it('hides the token on tap, stays on the page, and flips the row to Unhide with a note', async () => {
+      await renderReady();
+
+      fireEvent.click(toggle());
+
+      await waitFor(() => expect(toggle()).toHaveTextContent('unhideToken'));
+      expect(mockWriteStorage).toHaveBeenCalledWith(KEY, [normalizedFaucetId(TOKEN_ID)]);
+      expect(mockHapticMedium).toHaveBeenCalledTimes(1);
+      expect(toggle().querySelector('svg')).toHaveAttribute('name', 'eye');
+      const notice = screen.getByTestId('token-detail-hidden-notice');
+      expect(notice).toHaveTextContent('tokenHiddenNotice');
+      expect(notice).toHaveAttribute('data-variant', 'inline');
+      expect(notice).toHaveAttribute('role', 'status');
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(mockGoBack).not.toHaveBeenCalled();
+    });
+
+    it('unhides a hidden token from the same row and drops the note', async () => {
+      await renderReady([TOKEN_ID]);
+      expect(toggle()).toHaveTextContent('unhideToken');
+      expect(screen.getByTestId('token-detail-hidden-notice')).toBeInTheDocument();
+
+      fireEvent.click(toggle());
+
+      await waitFor(() => expect(toggle()).toHaveTextContent('hideToken'));
+      expect(mockWriteStorage).toHaveBeenCalledWith(KEY, []);
+      expect(screen.queryByTestId('token-detail-hidden-notice')).toBeNull();
+    });
+
+    it('offers no row for the native token', () => {
+      mockNativeFaucetId = TOKEN_ID;
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-hide-toggle')).toBeNull();
+      expect(screen.getByTestId('token-detail-explorer')).toBeInTheDocument();
+    });
+
+    it('offers no row before the native token is known', () => {
+      mockNativeFaucetId = null;
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-hide-toggle')).toBeNull();
+    });
+
+    it.each([
+      ['the native token', () => TOKEN_ID],
+      ['a page before the native token is known', () => null]
+    ])('shows no unreadable note for %s, which offers no row', async (_label, nativeId) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockNativeFaucetId = nativeId();
+        mockReadStorage.mockRejectedValue(new Error('Read unavailable'));
+        renderPage();
+
+        // The store marks the set unreadable right after this warning.
+        await waitFor(() => expect(warn).toHaveBeenCalled());
+        expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
+        expect(screen.queryByTestId('token-detail-hide-toggle')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('keeps the row disabled while the hidden set is being read', () => {
+      renderPage();
+
+      expect(toggle()).toBeDisabled();
+      expect(toggle()).toHaveTextContent('hideToken');
+      expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+    });
+
+    it('keeps the row disabled and shows a note, not the alert, when the hidden set cannot be read', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockReadStorage.mockRejectedValue(new Error('Read unavailable'));
+      renderPage();
+
+      const note = await screen.findByTestId('token-detail-hidden-unreadable');
+      expect(note).toHaveTextContent('hiddenTokensUnreadable');
+      expect(note).toHaveAttribute('role', 'note');
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+      expect(toggle()).toBeDisabled();
+      warn.mockRestore();
+    });
+
+    it('keeps the row usable after a failed save, so a retry stores it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+      await renderReady();
+
+      fireEvent.click(toggle());
+      expect(await screen.findByTestId('token-detail-hidden-error')).toHaveTextContent('hiddenTokensError');
+      expect(screen.queryByTestId('token-detail-hidden-unreadable')).toBeNull();
+      expect(toggle()).toHaveTextContent('hideToken');
+      expect(toggle()).toBeEnabled();
+
+      fireEvent.click(toggle());
+      await waitFor(() => expect(toggle()).toHaveTextContent('unhideToken'));
+      expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+      warn.mockRestore();
+    });
+
+    // The page stays mounted across an account switch; only TokenInfo's key keeps a save result on its own account.
+    const switchAccount = (view: ReturnType<typeof render>) => {
+      mockUseAccount.mockReturnValue({ publicKey: 'pk-456' });
+      view.rerender(<TokenDetail tokenId={TOKEN_ID} />);
+    };
+
+    it("does not show one account's failed save on the next account's page", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockReadStorage.mockResolvedValue([]);
+        const view = renderPage();
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        mockWriteStorage.mockRejectedValueOnce(new Error('Storage unavailable'));
+        fireEvent.click(toggle());
+        expect(await screen.findByTestId('token-detail-hidden-error')).toBeInTheDocument();
+
+        switchAccount(view);
+
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('lands a save still pending at an account switch on no page', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockReadStorage.mockResolvedValue([]);
+        const view = renderPage();
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        let failWrite!: (error: Error) => void;
+        mockWriteStorage.mockImplementationOnce(
+          () =>
+            new Promise<void>((_resolve, reject) => {
+              failWrite = reject;
+            })
+        );
+        fireEvent.click(toggle());
+        await waitFor(() => expect(mockWriteStorage).toHaveBeenCalledTimes(1));
+
+        switchAccount(view);
+        await waitFor(() => expect(toggle()).toBeEnabled());
+        await act(async () => {
+          failWrite(new Error('Storage unavailable'));
+        });
+
+        expect(screen.queryByTestId('token-detail-hidden-error')).toBeNull();
+        expect(toggle()).toHaveTextContent('hideToken');
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 });

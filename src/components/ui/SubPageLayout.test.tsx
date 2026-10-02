@@ -72,6 +72,7 @@ describe('SubPageLayout', () => {
     expect(pinned.className).toContain('var(--keyboard-height,0px)');
     expect(pinned.getAttribute('data-navbar-cushion')).toBe('true');
     expect(pinned).not.toHaveClass('flex-col');
+    expect(pinned).not.toHaveClass('[&>*]:flex-none');
     expect(within(pinned).getByRole('button', { name: 'Rotate' })).toBeInTheDocument();
   });
 
@@ -108,13 +109,13 @@ describe('SubPageLayout', () => {
     expect(pinned).not.toHaveAttribute('data-navbar-cushion');
   });
 
-  it('stacks the footer on request and renders none without one', () => {
+  it('stacks the footer on request, each child at its own height, and renders none without one', () => {
     const { rerender } = render(
       <SubPageLayout title="Keys" data-testid="page" footer={<button type="button">a</button>} footerLayout="stack">
         <p>content</p>
       </SubPageLayout>
     );
-    expect(footer(screen.getByTestId('page'))).toHaveClass('flex-col');
+    expect(footer(screen.getByTestId('page'))).toHaveClass('flex-col', '[&>*]:flex-none');
 
     rerender(
       <SubPageLayout title="Keys" data-testid="page">
@@ -207,6 +208,14 @@ describe('SubPageSection', () => {
     render(<SubPageSection title="Details" titleAs="h3" />);
 
     expect(screen.getByRole('heading', { level: 3, name: 'Details' })).toBeInTheDocument();
+  });
+
+  it('draws the label as the 16px section title on request', () => {
+    render(<SubPageSection title="Account" titleSize="md" />);
+
+    const heading = screen.getByRole('heading', { level: 2, name: 'Account' });
+    expect(heading).toHaveClass('text-row-title', 'text-muted');
+    expect(heading).not.toHaveClass('text-label');
   });
 
   it('renders only what it is given', () => {

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -79,8 +80,10 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   // feels like a press there.
   const [flips, setFlips] = useState(0);
   const flipTransition = resolveTransition(reduceMotion, tabBarMotion.highlight);
-  const sideMotion = (from: number) => ({
-    key: flips,
+  // Each side's key names the side (0 pay, 1 receive) as well as the flip: the two are siblings,
+  // and a key they shared left every earlier pair mounted on a flip, stacking the forms down the page.
+  const sideMotion = (side: 0 | 1, from: number) => ({
+    key: `${side}-${flips}`,
     initial: flips === 0 ? false : { y: from, opacity: 0 },
     animate: { y: 0, opacity: 1 },
     transition: flipTransition
@@ -122,7 +125,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       }
     >
       <div className="flex flex-col gap-5">
-        <motion.div {...sideMotion(-24)} data-testid="swap-pay-side">
+        <motion.div {...sideMotion(0, -24)} data-testid="swap-pay-side">
           <SelectAmount
             embedded
             label={fieldLabel(t('youPay'))}
@@ -132,9 +135,16 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             amount={offerAmount}
             isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
             error={offerAmountError}
+            // The fee shortfall keeps the amount red but says so under the token.
+            hideErrorText={feeAssetMissing}
             onAmountChange={onOfferAmountChange}
             onSelectToken={onSelectOfferToken}
           />
+          {feeAssetMissing && (
+            <ErrorLine role="note" data-testid="swap-fee-notice" className="mt-3">
+              {t('insufficientFeeAssetShort')}
+            </ErrorLine>
+          )}
         </motion.div>
 
         <div className="flex items-center gap-3">
@@ -165,7 +175,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
         </div>
 
-        <motion.div {...sideMotion(24)} data-testid="swap-receive-side">
+        <motion.div {...sideMotion(1, 24)} data-testid="swap-receive-side">
           <SelectAmount
             embedded
             // "You Receive" is the swap output — the user's balance of that token

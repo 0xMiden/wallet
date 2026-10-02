@@ -9,6 +9,9 @@
  * error subscription).
  */
 
+import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
+import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import { isLockedError } from './helper';
@@ -19,6 +22,8 @@ import {
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
+  isQueuedRowReady,
+  safeGenerateTransactionsLoop,
   buildSignCallbackError
 } from './index'; // eslint-disable-line import/order
 
@@ -169,8 +174,10 @@ jest.mock('../sdk/helpers', () => ({
 
 // The guardian branch wraps generateGuardianTransaction in a per-account lock;
 // run the callback straight through so the branch is exercised without the real
-// navigator.locks-backed serializer.
+// navigator.locks-backed serializer. The error classifiers stay real, so the
+// guardian catch reads a 409 or a 429 as it does in production.
 jest.mock('lib/miden/guardian/serialize', () => ({
+  ...jest.requireActual('lib/miden/guardian/serialize'),
   withGuardianAccountLock: (_key: string, fn: () => Promise<unknown>) => fn(),
   withGuardianConflictRetry: (fn: () => Promise<unknown>) => fn()
 }));
@@ -209,6 +216,9 @@ beforeEach(() => {
   txStore.length = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });
+
+// The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
+afterEach(() => clearGuardianAccountLocks());
 
 describe('completeSendTransaction', () => {
   function makeSendTx(overrides: Partial<SendTransaction> = {}): SendTransaction {
@@ -308,7 +318,7 @@ describe('completeSendTransaction', () => {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
       expect(txStore[0]!.noteDelivery).toBe('undelivered');
-      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent - the private note could not be delivered');
       // The landed tx id is still recorded: the transaction is on chain regardless.
       expect(txStore[0]!.transactionId).toBeTruthy();
     } finally {
@@ -384,7 +394,7 @@ describe('completeSendTransaction', () => {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
       expect(txStore[0]!.noteDelivery).toBe('undelivered');
-      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent - the private note could not be delivered');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;
@@ -853,9 +863,17 @@ describe('waitForTransactionCompletion — error subscription', () => {
     // INSIDE dexie's `next` callback, after `cleanup()` has cleared the 5-minute
     // timeout. The promise then settles as neither success nor timeout and the
     // awaiting Epoch bridge/earn note builder blocks forever.
-    txStore.push({ id: 'tx-no-result', status: ITransactionStatus.Completed, transactionId: '0xabc' });
+    txStore.push({ id: 'tx-no-result', status: ITransactionStatus.Completed });
     const result = await waitForTransactionCompletion('tx-no-result');
     expect(result).toEqual({ errorMessage: 'Transaction completed without a transaction result' });
+  });
+
+  it('tells the dApp a landed row with no resultBytes was accepted, naming its transaction id (#1233)', async () => {
+    txStore.push({ id: 'tx-landed', status: ITransactionStatus.Completed, transactionId: '0xabc' });
+    const result = await waitForTransactionCompletion('tx-landed');
+    expect(result).toEqual({
+      errorMessage: 'Transaction 0xabc was accepted by the network, but its result is not available'
+    });
   });
 
   it('resolves with the error message when deserializing the result throws', async () => {
@@ -881,6 +899,13 @@ describe('waitForTransactionCompletion — error subscription', () => {
 
 describe('generateTransactionsLoop error paths', () => {
   const dummySign = jest.fn(async () => new Uint8Array([1]));
+  // Each test below restores the lock it stubs only after its assertions, so a failing one would
+  // hand its throwing stub to every later test in the file.
+  const lockSdk = require('../sdk/miden-client');
+  const realLock = lockSdk.withWasmClientLock;
+  afterEach(() => {
+    lockSdk.withWasmClientLock = realLock;
+  });
 
   it('returns void when there are no queued transactions', async () => {
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
@@ -940,6 +965,7 @@ describe('generateTransactionsLoop error paths', () => {
     // offer a retry for a consume that already happened. Accepting either
     // terminal status here made the test's own name unfalsifiable.
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.displayMessage).toBe('Received');
 
     sdk.withWasmClientLock = origLock;
   });
@@ -978,6 +1004,136 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  const runEpochBridgeLeafFailing = async (id: string, error: Error) => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw error;
+      return fn();
+    });
+    txStore.push({
+      id,
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        recallBlocks: 1200,
+        reclaimNoteId: 'note-stamped'
+      }
+    });
+    try {
+      expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    } finally {
+      sdk.withWasmClientLock = origLock;
+    }
+    return txStore.find(t => t.id === id);
+  };
+
+  it('records the landed note of an Epoch bridged-send whose apply failed after submit (#1250)', async () => {
+    // Nothing else records it: the bridge's own failure handling runs in the realm driving it, which may be gone.
+    const row = await runEpochBridgeLeafFailing('tx-bridge-landed', new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE));
+
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.outputNoteIds).toEqual(['note-stamped']);
+    expect(row.extraInputs.epochStatus).toBe('failed');
+    expect(row.extraInputs.claimStatus).toBe('failed');
+  });
+
+  it('records nothing for an Epoch bridged-send that failed before submit (#1250)', async () => {
+    const row = await runEpochBridgeLeafFailing('tx-bridge-pre-submit', new Error('tx-execution-failed'));
+
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(row.extraInputs.epochStatus).toBeUndefined();
+    expect(row.extraInputs.claimStatus).toBe('not-applicable');
+  });
+
+  it('records the landed id on the result-awaiting row it fails (#1233)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { landed: { transactionId: '0xbridge' } });
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-bridge-apply-id',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { provider: 'epoch', recallBlocks: 1200 }
+    });
+
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+
+    const row = txStore.find(t => t.id === 'tx-bridge-apply-id');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    // Its receipt names the transaction the Epoch caller stopped waiting for.
+    expect(row.transactionId).toBe('0xbridge');
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('still fails the result-awaiting row when its landed id cannot be recorded (#1233)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw Object.assign(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE), { landed: { transactionId: '0xbridge' } });
+      }
+      return fn();
+    });
+    // The store that failed the apply fails the id's write too; every other write lands.
+    const repo = require('lib/miden/repo');
+    const whereImpl = repo.transactions.where.getMockImplementation();
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = whereImpl(query);
+      return {
+        ...handle,
+        modify: async (fn: (tx: Record<string, unknown>) => void) => {
+          const probe: Record<string, unknown> = {};
+          fn(probe);
+          if (Object.keys(probe).length === 1 && probe.transactionId === '0xbridge') throw new Error('store closed');
+          return handle.modify(fn);
+        }
+      };
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    txStore.push({
+      id: 'tx-bridge-apply-id-lost',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { provider: 'epoch', recallBlocks: 1200 }
+    });
+
+    try {
+      await expect(generateTransactionsLoop(dummySign, true, stubGuardianProvider)).resolves.toBe(false);
+
+      const row = txStore.find(t => t.id === 'tx-bridge-apply-id-lost');
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.transactionId).toBeUndefined();
+    } finally {
+      repo.transactions.where.mockImplementation(whereImpl);
+      warnSpy.mockRestore();
+      sdk.withWasmClientLock = origLock;
+    }
+  });
+
   it('marks an AGGLAYER bridged-send Completed (never Failed) on the apply-after-submit error', async () => {
     // The route matters, not the type. An Agglayer (Slow) bridge-out is queued by
     // `initiateB2AggBridge`, which returns the txId immediately and never awaits the
@@ -1013,9 +1169,59 @@ describe('generateTransactionsLoop error paths', () => {
     const row = txStore.find(t => t.id === 'tx-agglayer-apply-fail');
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.status).not.toBe(ITransactionStatus.Failed);
+    expect(row.displayMessage).toBe('Bridged to EVM');
 
     sdk.withWasmClientLock = origLock;
   });
+
+  // The loop catch has no result to label from, so a landed row takes the label its type's normal
+  // completion writes, the one the Guardian catch gives it too (#1233).
+  it.each([
+    ['self-reclaim consume', { type: 'consume', secondaryAccountId: 'acc-1' }, 'Reclaimed'],
+    [
+      'swap',
+      {
+        type: 'swap',
+        faucetId: 'faucet-1',
+        amount: '5',
+        requestBytes: new Uint8Array([7]),
+        extraInputs: { requestedFaucetId: 'faucet-2', requestedAmount: '10' }
+      },
+      'Swapped'
+    ],
+    ['execute', { type: 'execute', requestBytes: new Uint8Array([8]) }, 'Executed']
+  ])(
+    'labels a landed %s as its completion handler would on the apply-after-submit error (#1233)',
+    async (_label, fields, label) => {
+      const sdk = require('../sdk/miden-client');
+      const origLock = sdk.withWasmClientLock;
+      let callCount = 0;
+      sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+        callCount++;
+        if (callCount >= 2) {
+          throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+        }
+        return fn();
+      });
+      txStore.push({
+        id: 'tx-landed-label',
+        status: ITransactionStatus.Queued,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        accountId: 'acc-1',
+        ...fields
+      });
+
+      try {
+        const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+        expect(result).toBe(false);
+      } finally {
+        sdk.withWasmClientLock = origLock;
+      }
+      const row = txStore.find(t => t.id === 'tx-landed-label');
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe(label);
+    }
+  );
 
   it('cancels when errorCode is InputNoteAlreadyConsumedOnChain', async () => {
     const sdk = require('../sdk/miden-client');
@@ -1285,6 +1491,47 @@ describe('generateTransactionsLoop error paths', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore[0]!.requestBytes).toBe(earnBytes);
   });
+
+  it('a requeue drops the bridge submit claim of its attempt (#1250)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    const extraInputs = {
+      provider: 'epoch',
+      claimStatus: 'not-applicable',
+      epochStatus: 'pending',
+      recallBlocks: 1200,
+      reclaimNoteId: 'note-stamped'
+    };
+    let claimedAtSign: unknown;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        claimedAtSign = txStore.find(t => t.id === 'tx-bridge-claim-requeued')?.extraInputs.submitClaimed;
+        throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' });
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-bridge-claim-requeued',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { ...extraInputs }
+    });
+
+    try {
+      expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    } finally {
+      sdk.withWasmClientLock = origLock;
+    }
+
+    expect(claimedAtSign).toBe(true);
+    const row = txStore.find(t => t.id === 'tx-bridge-claim-requeued');
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.extraInputs).toStrictEqual(extraInputs);
+  });
 });
 
 describe('generateTransactionsLoop — head-of-line fairness', () => {
@@ -1293,7 +1540,7 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
   it("skips a cooling-down requeued tx and runs another account's eligible tx that cycle", async () => {
     // Regression for the guardian pending-delta requeue starving other accounts:
     // a persistently-conflicting tx is always the OLDEST by initiatedAt, so after
-    // it is requeued it would be re-picked every cycle and burn the retry budget
+    // it is requeued it would be re-picked every cycle and re-ask the Guardian
     // while a second account's freshly-queued tx never runs — until it ages out at
     // MAX_QUEUED_AGE (~30 min). The backoff (nextEligibleAt) makes it yield the slot.
     const now = Math.floor(Date.now() / 1000);
@@ -1345,6 +1592,150 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
     const row = txStore.find(t => t.id === 'tx-cooldown-expired');
     // Cooldown elapsed → eligible again → selected and processed (left the queue).
     expect(row!.status).not.toBe(ITransactionStatus.Queued);
+  });
+});
+// #1266: the extension processor skips its 5 s wait only after a `processed` pass, and only toward a row
+// `isQueuedRowReady` calls ready, so the predicate has to agree with the loop's own pick.
+describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)', () => {
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+  // A recovery row still waiting for its seed: `generateTransaction` returns without touching the row, so the pass
+  // that picks it reports `processed` and the row stays Queued exactly as pushed.
+  const seedWaitingProvider = {
+    ...stubGuardianProvider,
+    prepareRecoveryTransaction: jest.fn(async (_transactionId: string) => ({ ready: false }))
+  };
+  const nowSec = () => Math.floor(Date.now() / 1000);
+  const queued = (id: string, extra: { nextEligibleAt?: number; awaitingRecoverySeed?: boolean } = {}) => ({
+    id,
+    type: 'send',
+    accountId: 'acc-1',
+    status: ITransactionStatus.Queued,
+    initiatedAt: nowSec(),
+    ...extra
+  });
+
+  it.each([
+    { label: 'a Queued row with no cooldown', row: { status: ITransactionStatus.Queued }, ready: true },
+    {
+      label: 'a Queued row whose cooldown ends this second',
+      row: { status: ITransactionStatus.Queued, nextEligibleAt: 1_000 },
+      ready: true
+    },
+    {
+      label: 'a Queued row still cooling down',
+      row: { status: ITransactionStatus.Queued, nextEligibleAt: 1_001 },
+      ready: false
+    },
+    {
+      label: 'a Queued row awaiting its recovery seed',
+      row: { status: ITransactionStatus.Queued, awaitingRecoverySeed: true },
+      ready: false
+    },
+    { label: 'a row in flight', row: { status: ITransactionStatus.GeneratingTransaction }, ready: false },
+    { label: 'a Completed row', row: { status: ITransactionStatus.Completed }, ready: false }
+  ])('isQueuedRowReady calls $label ready: $ready', ({ row, ready }) => {
+    expect(isQueuedRowReady(row, 1_000)).toBe(ready);
+  });
+
+  it('returns processed when the pass ran a row', async () => {
+    txStore.push(queued('ready'));
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('processed');
+    expect(seedWaitingProvider.prepareRecoveryTransaction).toHaveBeenCalledWith('ready');
+  });
+
+  // Jest 30 keeps a queued one-shot across clearAllMocks, so a case that stops before its one-shots run drops them
+  // rather than handing them to the next case.
+  const dropOneShots = (mock: jest.Mock): void => {
+    const base = mock.getMockImplementation();
+    mock.mockReset();
+    if (base) mock.mockImplementation(base);
+  };
+
+  // A Guardian send whose multisig service rejects, which happens once its stage reaches creating-proposal.
+  const runGuardianSendRejecting = async (error: unknown) => {
+    const gm = require('lib/miden/front/guardian-manager');
+    gm.isGuardianAccount.mockImplementationOnce(async () => true);
+    gm.getOrCreateMultisigService.mockImplementationOnce(async () => {
+      throw error;
+    });
+    txStore.push(queued('guardian-send'));
+    try {
+      return await safeGenerateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    } finally {
+      dropOneShots(gm.isGuardianAccount);
+      dropOneShots(gm.getOrCreateMultisigService);
+    }
+  };
+
+  it.each([
+    {
+      label: 'a 429',
+      error: Object.assign(new Error('Too Many Requests'), { status: 429, code: 'rate_limit_exceeded' }),
+      arm: 'guardian-rate-limited',
+      cooldownSec: 30
+    },
+    {
+      label: 'an unreachable Guardian',
+      error: new TypeError('Failed to fetch'),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
+    },
+    // A timeout says only that the Guardian did not answer: an unreachable Guardian, not a busy one (#312).
+    {
+      label: 'a Guardian request cut off at its deadline',
+      error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
+    }
+  ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error, arm, cooldownSec }) => {
+    const requeuedFrom = nowSec();
+    await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
+    expect(txStore[0]).toMatchObject({ status: ITransactionStatus.Queued, stage: 'creating-proposal' });
+    expect(txStore[0]!.requeueStreak).toEqual({ arm, count: 1 });
+    expect(txStore[0]!.nextEligibleAt).toBeGreaterThanOrEqual(requeuedFrom + cooldownSec);
+    expect(txStore[0]!.guardianBusy).toBeUndefined();
+  });
+
+  it('returns requeued, releasing the loop, when a pending-delta 409 marks a Guardian send busy (#312)', async () => {
+    const error = Object.assign(new Error('Conflict'), { status: 409, code: 'conflict_pending_delta' });
+    await expect(runGuardianSendRejecting(error)).resolves.toBe('requeued');
+    expect(txStore[0]).toMatchObject({
+      status: ITransactionStatus.Queued,
+      stage: 'creating-proposal',
+      guardianBusy: true
+    });
+  });
+
+  it('returns processed when a Guardian send whose submit landed ends Completed', async () => {
+    await expect(runGuardianSendRejecting(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE))).resolves.toBe('processed');
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('returns idle when nothing is queued', async () => {
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('idle');
+  });
+
+  it('returns idle while another row is in flight, without picking the ready one', async () => {
+    txStore.push({
+      ...queued('in-flight'),
+      status: ITransactionStatus.GeneratingTransaction,
+      processingStartedAt: nowSec()
+    });
+    txStore.push(queued('ready'));
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe('idle');
+    expect(seedWaitingProvider.prepareRecoveryTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'a ready row', extra: {}, outcome: 'processed' },
+    { label: 'a row still cooling down', extra: { nextEligibleAt: nowSec() + 600 }, outcome: 'idle' },
+    { label: 'a row awaiting its recovery seed', extra: { awaitingRecoverySeed: true }, outcome: 'idle' }
+  ])('picks $label exactly when isQueuedRowReady calls it ready', async ({ extra, outcome }) => {
+    const row = queued('only', extra);
+    txStore.push(row);
+    const ready = isQueuedRowReady(row, nowSec());
+    await expect(safeGenerateTransactionsLoop(dummySign, true, seedWaitingProvider)).resolves.toBe(outcome);
+    expect(ready).toBe(outcome === 'processed');
   });
 });
 describe('buildSignCallbackError', () => {

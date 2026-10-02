@@ -9,14 +9,17 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 
 import { type SignCallbackReason } from './sign-callback';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
+import { compareAccountIds } from '../activity/utils';
 import {
+  IBridgedSendExtraInputs,
   INoteDeliveryState,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
   TransactionOutput
 } from '../db/types';
-import { errorMessageParts } from '../sdk/sdk-error-code';
+import { isPrivateNoteType } from '../helpers';
+import { errorMessageParts, type LandedTransaction } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
@@ -29,17 +32,18 @@ export { buildSignCallbackError, buildSdkSignCallback, type SignCallbackError } 
 export type { SignCallbackReason };
 
 /**
- * Detect the eventually-consistent Guardian canonicalization error:
+ * Detect the Guardian canonicalization refusal, which the pinned multisig client
+ * (0.17.0) throws from `syncState` when the guardian's view of an account has the
+ * local nonce with another commitment, or does not match the chain (a guardian
+ * behind local is kept quietly):
  *
- *   "Refusing to overwrite local state: incoming nonce 0 is not greater
- *    than local nonce 1 for account 0x..."
+ *   "Refusing to overwrite local state: incoming nonce N equals local nonce N
+ *    but commitments differ for account X"
+ *   "Refusing to overwrite local state: incoming commitment does not match
+ *    on-chain commitment for account X"
  *
- * Thrown by the WASM SDK when it's asked to sync a stale view of an account
- * the local client has already advanced past. For Guardian accounts this
- * happens because guardian canonicalization runs asynchronously after the
- * tx is accepted on-chain — by the time we try to sync, the local nonce has
- * already moved forward and the guardian's reply looks stale. The transaction
- * itself is fine; the next sync tick will reconcile. Treat as success.
+ * An answer about the guardian's view, never a landed write: a post-submit failure
+ * arrives as the apply-after-submit error (#1233). See `sdk/sdk-error-code.ts`.
  */
 export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 
@@ -338,6 +342,52 @@ export const setTransactionStage = async (
   });
 };
 
+const UNDELIVERED_SEPARATOR = ' - ';
+// 1.16.2 and earlier joined the wording with an em dash, and the sweep still delivers those rows.
+const LEGACY_UNDELIVERED_SEPARATOR = ' \u2014 ';
+
+const undeliveredLabel = (base: string, notes: number | undefined, separator: string): string => {
+  const phrase = notes === undefined ? 'the private note' : notes === 1 ? 'a private note' : `${notes} private notes`;
+  return `${base}${separator}${phrase} could not be delivered`;
+};
+
+/**
+ * The label of a landed row whose private notes could not be delivered: `base` plus the wording.
+ * Omit `notes` for a send, whose single note is "the private note"; pass the count where a row
+ * can carry several. {@link recordNoteDelivery} takes the wording off again once they arrive.
+ */
+export const undeliveredDisplayMessage = (base: string, notes?: number): string =>
+  undeliveredLabel(base, notes, UNDELIVERED_SEPARATOR);
+
+/**
+ * The private notes a row owes the relay, which its single `noteDelivery` covers. A send's one output
+ * note is its private note; a custom row records them apart from its public notes in `relayNoteIds`.
+ */
+export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>): string[] =>
+  row.relayNoteIds ?? row.outputNoteIds ?? [];
+
+/**
+ * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
+ * row records it apart with its `relayNoteIds`, because reading its result as a consume puts the input note's
+ * sender there instead. So a custom row whose dApp named no recipient has none, never that sender.
+ */
+export const relayRecipientOf = (
+  row: Pick<ITransaction, 'relayNoteIds' | 'relayRecipientId' | 'secondaryAccountId'>
+): string | undefined => (row.relayNoteIds ? row.relayRecipientId : row.secondaryAccountId);
+
+/** `label`'s base when {@link undeliveredDisplayMessage} built it, now or before 1.16.3, else `label` unchanged. */
+const withoutUndeliveredWording = (label: string): string => {
+  for (const separator of [UNDELIVERED_SEPARATOR, LEGACY_UNDELIVERED_SEPARATOR]) {
+    const at = label.lastIndexOf(separator);
+    if (at < 0) continue;
+    const base = label.slice(0, at);
+    const count = Number(label.slice(at + separator.length).split(' ', 1)[0]);
+    // Rebuilding and comparing makes this the exact inverse, so no near miss loses its text.
+    if ([undefined, 1, count].some(notes => undeliveredLabel(base, notes, separator) === label)) return base;
+  }
+  return label;
+};
+
 /**
  * Record the delivery state of this row's private output note, plus the evidence
  * needed to reason about it after the fact.
@@ -370,7 +420,91 @@ export const recordNoteDelivery = async (
     tx.noteDelivery = noteDelivery;
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
+    // History renders the label, not `noteDelivery`, so a delivered note retires its warning there too, but only
+    // on a row owing at most one private note: the row's single state cannot speak for several.
+    const delivered = noteDelivery === 'relayed' || noteDelivery === 'confirmed';
+    if (delivered && relayNoteIdsOf(tx).length <= 1 && tx.displayMessage) {
+      tx.displayMessage = withoutUndeliveredWording(tx.displayMessage);
+    }
   });
+};
+
+/**
+ * Activity label for a row, Guardian or not, whose submit LANDED on chain but whose
+ * local reconcile failed. There is no `TransactionResult` here, so the label is the one
+ * the type's normal completion writes, derived from the row alone:
+ * `completeConsumeTransaction` writes "Reclaimed" when the note's sender (the row's
+ * `secondaryAccountId`) is the account itself and "Received" otherwise, as the
+ * kill-verified consume derives it; `completeSwapTransaction` writes "Swapped",
+ * `completeBridgedSendTransaction` "Bridged to EVM" and `completeSendTransaction` "Sent".
+ * `completeCustomTransaction` reads its label off the result, so a landed execute takes
+ * the one it writes when the result shows no single direction, "Executed".
+ */
+export const applyLandedDisplayMessage = (
+  tx: Pick<ITransaction, 'type' | 'accountId' | 'secondaryAccountId'>
+): string => {
+  switch (tx.type) {
+    case 'consume':
+      return compareAccountIds(tx.accountId, tx.secondaryAccountId ?? '') ? 'Reclaimed' : 'Received';
+    case 'swap':
+      return 'Swapped';
+    case 'bridged-send':
+      return 'Bridged to EVM';
+    case 'execute':
+      return 'Executed';
+    default:
+      return 'Sent';
+  }
+};
+
+/**
+ * What a landed reconcile knows about a write whose submit resolved and whose local apply failed
+ * (#1233): no `TransactionResult`, only the facts the apply-after-submit error carried.
+ */
+export type LandedWithoutResult = LandedTransaction;
+
+/** The landed id as row fields, so the receipt names the transaction; empty when there is none. */
+export const landedTransactionIdFields = (landed: LandedWithoutResult | undefined): { transactionId?: string } =>
+  landed?.transactionId === undefined ? {} : { transactionId: landed.transactionId };
+
+/**
+ * The Completed fields for a value-moving row whose submit landed and whose local reconcile did not,
+ * on either catch or on Retry's landed reconcile (#1233). A PRIVATE send's note reaches its
+ * recipient only through `completeSendTransaction`'s relay, which never ran and which no sync
+ * repairs, so the row says the note was not delivered. `isPrivateNoteType` and not a string
+ * compare, since a row can hold the SDK's numeric note type; an unreadable one counts as private,
+ * because under-reporting costs the funds while over-reporting costs a stale warning.
+ *
+ * An execute's private notes are relayed only by `completeCustomTransaction`, so the same holds for
+ * the `privateOutputNotes` its failure counted. Without a count (a refusal, Retry, an unreadable
+ * transaction) the recipient its request named says notes were owed, and an 'undelivered' the row
+ * already recorded is kept under a label that says so.
+ */
+export const landedValueRowFields = (
+  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>,
+  privateOutputNotes?: number
+): { displayMessage: string; noteDelivery?: 'undelivered' } => {
+  const displayMessage = applyLandedDisplayMessage(tx);
+  if (tx.type === 'execute') {
+    const owed =
+      tx.noteDelivery === 'undelivered' ||
+      (privateOutputNotes === undefined ? Boolean(tx.secondaryAccountId) : privateOutputNotes > 0);
+    const notes = privateOutputNotes !== undefined && privateOutputNotes > 0 ? privateOutputNotes : undefined;
+    return owed
+      ? { displayMessage: undeliveredDisplayMessage(displayMessage, notes), noteDelivery: 'undelivered' }
+      : { displayMessage };
+  }
+  let privateSend = tx.type === 'send';
+  if (privateSend) {
+    try {
+      privateSend = isPrivateNoteType(tx.noteType);
+    } catch {
+      privateSend = true;
+    }
+  }
+  return privateSend
+    ? { displayMessage: undeliveredDisplayMessage(displayMessage), noteDelivery: 'undelivered' }
+    : { displayMessage };
 };
 
 /**
@@ -389,42 +523,67 @@ export const recordNoteDelivery = async (
  * an ambiguous post-submit abort and a second payment — so it gets its own
  * narrow door rather than a hole in that one. Refuses to touch an
  * already-Completed row, which needs no reconciling.
+ *
+ * `otherValues` may be a function of the row as the write finds it, for fields that
+ * depend on state another writer can record while the caller awaits the node.
  */
 export const completeVerifiedLandedTransaction = async (
   id: string,
-  otherValues: Partial<ITransaction> = {}
+  otherValues: Partial<ITransaction> | ((fresh: ITransaction) => Partial<ITransaction>) = {}
 ): Promise<void> => {
   let reconciled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.Failed) return;
-    Object.assign(tx, otherValues);
-    tx.status = ITransactionStatus.Completed;
-    tx.stage = 'complete';
-    // The failure is no longer the row's story; leaving it behind renders a
-    // completed transaction with an error on it.
-    tx.error = undefined;
-    tx.rawError = undefined;
+    applyVerifiedLanding(tx, typeof otherValues === 'function' ? otherValues(tx) : otherValues);
     reconciled = tx;
   });
 
-  // The row already reported `errored` when it was failed, and that report was
-  // true at the time — the wallet genuinely could not tell whether the money had
-  // moved. Reporting the success as well leaves both, which is the honest
-  // record: one operation that failed and was later reconciled from node
-  // evidence. Suppressing the failure is not an option, since it was reported
-  // from a realm that may no longer exist, and suppressing this one would leave
-  // the ambiguous post-submit abort — the case this whole function exists for —
-  // permanently counted as a failure and never as a success.
-  //
-  // Deliberately without a duration. The only caller is `requeueFailedTransaction`,
-  // which runs when the user taps Retry — possibly days after `initiatedAt`. That
-  // interval is "how long until somebody came back", and putting it in the field
-  // a reader uses to watch for latency regressions would let a handful of them
-  // own the tail of every send's distribution. There is no honest interval to
-  // report here, so none is.
   if (reconciled !== undefined) {
-    reportOperation({ operation: operationOfType(reconciled.type), result: 'completed' });
+    reportVerifiedLanding(reconciled);
   }
+};
+
+/**
+ * The write `completeVerifiedLandedTransaction` applies to a Failed row inside
+ * its `.modify`, pulled out so a caller that must promote a row INSIDE an
+ * existing `.modify` of its own can do so without a second write after it -
+ * `updateBridgeClaimStatus` (#1250), whose bridge evidence and the status it
+ * proves must land in the same Dexie write, never a write recording the
+ * evidence followed by a second one settling the row.
+ */
+export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITransaction> = {}): void => {
+  Object.assign(tx, otherValues);
+  tx.status = ITransactionStatus.Completed;
+  tx.stage = 'complete';
+  // The failure is no longer the row's story; leaving it behind renders a
+  // completed transaction with an error on it.
+  tx.error = undefined;
+  tx.rawError = undefined;
+};
+
+/**
+ * Report the reconciliation `applyVerifiedLanding` just wrote onto `tx`.
+ *
+ * The row already reported `errored` when it was failed, and that report was
+ * true at the time - the wallet genuinely could not tell whether the money had
+ * moved. Reporting the success as well leaves both, which is the honest
+ * record: one operation that failed and was later reconciled from node
+ * evidence. Suppressing the failure is not an option, since it was reported
+ * from a realm that may no longer exist, and suppressing this one would leave
+ * the ambiguous post-submit abort - the case this reconciliation exists for -
+ * permanently counted as a failure and never as a success.
+ *
+ * Deliberately without a duration. A landed row can be reported through here
+ * arbitrarily long after `initiatedAt` - `completeVerifiedLandedTransaction`
+ * when the user taps Retry, and `updateBridgeClaimStatus` when a bridge claim
+ * or fill write reconciles a row days later (#1250) - so that interval means
+ * "how long until somebody came back", and putting it in the field a reader
+ * uses to watch for latency regressions would let a handful of them own the
+ * tail of every send's distribution. There is no honest interval to report
+ * here, so none is.
+ */
+export const reportVerifiedLanding = (tx: ITransaction): void => {
+  reportOperation({ operation: operationOfType(tx.type), result: 'completed' });
 };
 
 /**
@@ -449,6 +608,58 @@ export const completeVerifiedLandedTransaction = async (
 export const markMayHaveSubmitted = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.mayHaveSubmitted = true;
+  });
+};
+
+/**
+ * Claim the submit point of an Epoch bridged-send, in the same write that checks
+ * the row is not Failed. A `markBridgedSendFailed` that already abandoned the
+ * bridge stops the pipeline here (the claim returns false and writes nothing),
+ * and one that comes later finds the claim recorded, so it knows the collateral
+ * note may exist. Bridge-only: it says nothing to the retry and
+ * unconfirmed-outcome readers of `mayHaveSubmitted`, which a claim made before
+ * execute and prove would turn every definite pre-submit failure into an
+ * unknown outcome.
+ */
+export const claimBridgeSubmit = async (id: string): Promise<boolean> => {
+  let claimed = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status === ITransactionStatus.Failed) return false;
+    tx.extraInputs = { ...(tx.extraInputs ?? {}), submitClaimed: true };
+    claimed = true;
+    return undefined;
+  });
+  return claimed;
+};
+
+/**
+ * Record the collateral note of an Epoch bridged-send whose submit is proven to
+ * have landed: its local apply or canonicalization failed after it. It acts only
+ * on a row whose pipeline claimed its submit (`claimBridgeSubmit`), which is
+ * what makes such a failure post-submit; a canonicalization refusal can also be
+ * raised while the proposal is created, before any claim. The stamped
+ * `reclaimNoteId` is that note's id, computed from the bytes that were submitted,
+ * and the pipeline failing the row means the intent never went out, so the row
+ * is recorded as a route-failed bridge with a committed note, the shape the
+ * reclaim gate reads.
+ *
+ * The pipeline writes this itself rather than leaving the route to
+ * `markBridgedSendFailed`, which runs only in the realm driving the bridge; on
+ * the extension that is the page, which may be closed by then. Guard-free as to
+ * status, like `markMayHaveSubmitted`: a demotion may already have failed the
+ * row, and the note landed all the same. It never overwrites a recorded note or
+ * route, and never touches the row's status or error.
+ */
+export const recordBridgeNoteLanded = async (id: string): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    const noteId = ei?.reclaimNoteId;
+    if (tx.type !== 'bridged-send' || ei?.provider !== 'epoch' || !noteId) return false;
+    if (ei.submitClaimed !== true) return false;
+    if (tx.outputNoteIds?.length) return false;
+    tx.outputNoteIds = [noteId];
+    if (ei.epochStatus === undefined) tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
+    return undefined;
   });
 };
 
@@ -584,7 +795,14 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // to a result-less Completed row.
           try {
             if (!tx.resultBytes) {
-              resolve({ errorMessage: 'Transaction completed without a transaction result' });
+              // A landed write (#1233) reaches here with its id recorded: the network accepted it and
+              // only the local apply failed. It stays an error, since no output exists to return, but
+              // says so, or a dApp reading "not sent" asks the user to sign and pay again.
+              resolve({
+                errorMessage: tx.transactionId
+                  ? `Transaction ${tx.transactionId} was accepted by the network, but its result is not available`
+                  : 'Transaction completed without a transaction result'
+              });
               return;
             }
             const txResult = TransactionResult.deserialize(tx.resultBytes);

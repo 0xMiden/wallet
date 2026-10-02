@@ -139,16 +139,14 @@ describe('EarnFlowHeader', () => {
     expect(screen.queryByTestId('token-logo')).toBeNull();
   });
 
-  it('renders the protocol • asset title and the asset mark', () => {
+  it('titles the page with the protocol, the asset and network on the line under it, and the asset mark', () => {
     render(<EarnFlowHeader subject={VAULT} />);
 
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Aave');
-    expect(heading).toHaveTextContent('USDC');
-    // The bullet separator is rendered between protocol and asset.
-    expect(heading.textContent).toContain('•');
-
-    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
+    // One line each: together at the title's size they wrapped beside the back and the mark.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
+    const subtitle = screen.getAllByText('earnAssetOnNetwork').find(el => !el.classList.contains('sr-only'));
+    expect(subtitle).toHaveClass('text-muted', 'truncate');
+    expect(screen.getByTestId('token-logo')).toBeInTheDocument();
   });
 
   it('wires the back button to goBack with the ArrowLeft icon and Back label', () => {
@@ -180,22 +178,44 @@ describe('EarnFlowHeader', () => {
     render(<EarnFlowHeader subject={VAULT} />);
 
     // The pill was a 32px `bg-fill` capsule wide enough to spell "{asset} on {network}"; the mark
-    // is the token avatar, and the name it used to show is now screen-reader-only.
-    expect(screen.queryByText('earnAssetOnNetwork')).toHaveClass('sr-only');
-    expect(screen.getByRole('banner')).toContainElement(screen.getByTestId('token-logo'));
+    // is the token avatar, and the subtitle under the title now says the name it used to show.
+    const banner = screen.getByRole('banner');
+    expect(banner).toContainElement(screen.getByTestId('token-logo'));
+    expect(screen.getByTestId('token-logo').parentElement).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('names the asset and network once in the banner: the subtitle says it, so the mark does not', () => {
+    render(<EarnFlowHeader subject={VAULT} />);
+
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getAllByText('earnAssetOnNetwork')).toHaveLength(1);
+    expect(within(banner).queryByText('earnAssetOnNetwork', { selector: '.sr-only' })).toBeNull();
   });
 
   it('reflects a different vault protocol/asset/network', () => {
     render(<EarnFlowHeader subject={{ ...VAULT, protocol: 'Compound', asset: 'ETH', network: 'Base' }} />);
 
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Compound');
-    expect(heading).toHaveTextContent('ETH');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Compound$/);
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
   });
 });
 
 describe('EarnHero', () => {
+  it('puts the caption over the figure and draws meta as given with layout="label-first"', () => {
+    const { container } = render(
+      <EarnHero layout="label-first" labelId="l" value="$1" label="Total" meta={<span data-testid="meta">pill</span>} />
+    );
+
+    const section = container.querySelector('section') as HTMLElement;
+    expect(section.textContent).toBe('Total$1pill');
+    // Meta is the caller's own element, not wrapped in the default rate line's positive text.
+    expect(screen.getByTestId('meta').closest('p')).toBeNull();
+    expect(screen.getByText('Total')).toHaveAttribute('id', 'l');
+    // The 16px label, not the 13px caption the figure-first hero takes.
+    expect(screen.getByText('Total')).toHaveClass('text-row-title', 'text-muted');
+    expect(screen.getByText('Total')).not.toHaveClass('text-label');
+  });
+
   it('leads with the figure, then its caption, then the change line', () => {
     const { container } = render(<EarnHero labelId="hero-label" value="5.24%" label="Current APY" meta="+0.02%" />);
 
@@ -277,17 +297,45 @@ describe('MetricCard', () => {
 });
 
 describe('EarnSummaryPanel', () => {
-  it('leads with the figure, then the caption and the blended APY line', () => {
+  it('leads with the caption, then the figure, then the blended APY as a positive pill', () => {
     const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" showMetrics={false} />);
 
     // Both figures are `AnimatedNumber`s, so the type is on the slot the hero renders around them.
-    expect(screen.getByText('$218.32').closest('div')).toHaveClass('text-display', 'text-ink');
-    expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-label', 'text-muted');
-    expect(screen.getByText('earnEarningBlendedApy').closest('p')).toHaveClass('text-value', 'text-positive-tint-ink');
-    // The figure precedes its caption — the same order the vault page's APY hero takes.
-    expect((container.querySelector('section') as HTMLElement).textContent).toBe(
-      '$218.32earnTotalEarnedRewardsearnEarningBlendedApy'
-    );
+    expect(screen.getByText('$218.32').closest('.text-display')).toHaveClass('text-ink');
+    expect(screen.getByText('earnTotalEarnedRewards')).toHaveClass('text-row-title', 'text-muted');
+    const apy = screen.getByTestId('earn-summary-apy');
+    expect(apy).toHaveTextContent('earnPositionsApy');
+    expect(apy).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
+    // Caption over the figure, the APY under it: the tab root's total reads with no page title above.
+    const section = container.querySelector('section') as HTMLElement;
+    const caption = screen.getByText('earnTotalEarnedRewards');
+    const figure = section.querySelector('.text-display') as HTMLElement;
+    expect(caption.compareDocumentPosition(figure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(figure.compareDocumentPosition(apy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('sets the whole summary in Nunito, pill and metric figures included', () => {
+    const { container } = render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" className="panel-class" />);
+
+    const section = container.querySelector('section') as HTMLElement;
+    expect(section).toHaveClass('face-heading', 'panel-class');
+    expect(section).toContainElement(screen.getByTestId('earn-summary-apy'));
+    expect(section).toContainElement(screen.getByText('$4,218.32'));
+  });
+
+  it('draws the figure in one colour, and both metric values in ink alike', () => {
+    render(<EarnSummaryPanel summary={SUMMARY} titleId="earn-title" />);
+
+    // One element, one colour: no muted cents.
+    const figure = screen.getByText('$218.32');
+    expect(figure.closest('.text-display')).toHaveClass('text-ink');
+    expect(figure.closest('.text-muted')).toBeNull();
+    // The two tiles read as a pair: neither value takes its own colour.
+    for (const value of ['$4,218.32', '+$24.50']) {
+      const slot = screen.getByText(value).closest('.text-value') as HTMLElement;
+      expect(slot).toHaveClass('text-ink');
+      expect(slot).not.toHaveClass('text-positive-tint-ink');
+    }
   });
 
   it('links the section to the caption via titleId, and leaves the h1 to the page', () => {
@@ -347,10 +395,11 @@ describe('EarnSummaryPanel', () => {
 
       expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
       expect(screen.queryByText('+$0.00')).not.toBeInTheDocument();
+      // One each for the total, the deposits and the estimate: the split figure draws one, not two.
       expect(screen.getAllByText(EARN_PLACEHOLDER)).toHaveLength(3);
-      expect(screen.getByText('earnEarningBlendedApy')).toBeInTheDocument();
+      expect(screen.getByTestId('earn-summary-apy')).toHaveTextContent('earnPositionsApy');
       expect((container.querySelector('section') as HTMLElement).textContent).toMatch(
-        new RegExp(`^${EARN_PLACEHOLDER}earnTotalEarnedRewards`)
+        new RegExp(`^earnTotalEarnedRewards${EARN_PLACEHOLDER}`)
       );
     });
 

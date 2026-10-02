@@ -6,12 +6,12 @@ import { dismissTelemetryConsent } from '../e2e/helpers/telemetry-consent';
 import { expect, test } from '../fixtures/extension';
 
 /**
- * The wallet names its test network on a ribbon across the bottom nav's lower-right corner (it used
- * to be a banner above every page). The ribbon is drawn over the bar: the tabs keep their layout and
- * the Settings tab stays tappable under it. Its explanation sheet (#875) must fit the 360x600 popup:
- * DrawerContent caps at 80vh, so the notice rows scroll and the CTA stays pinned inside the viewport.
+ * The wallet names its test network in a full-width pill above Home's balance card (it used to be a
+ * ribbon across the tab bar's corner, and before that a banner above every page). Its explanation
+ * sheet (#875) must fit the 360x600 popup: DrawerContent caps at 80vh, so the notice rows scroll and
+ * the CTA stays pinned inside the viewport.
  *
- * The ribbon lives in the tab bar, so this needs a wallet: import one through fullpage onboarding,
+ * The pill lives on Home, so this needs a wallet: import one through fullpage onboarding,
  * then open popup.html in a tab at the popup's size, reporting the tab as the popup view so the
  * app keeps it and lays out as the popup.
  */
@@ -66,25 +66,25 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
     await page.addInitScript(value => localStorage.setItem('locale', value), locale);
   }
   await page.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: 'domcontentloaded' });
-  const ribbon = page.getByTestId('network-mode-ribbon');
+  const pill = page.getByTestId('network-mode-pill');
   const unlock = page.getByTestId('unlock-password');
-  await ribbon.or(unlock).first().waitFor({ timeout: 30_000 });
+  await pill.or(unlock).first().waitFor({ timeout: 30_000 });
   if (await unlock.isVisible().catch(() => false)) {
     await page.locator('#unlock-password').fill(PASSWORD);
     await page.locator('#unlock-password').press('Enter');
   }
-  await ribbon.waitFor({ timeout: 30_000 });
+  await pill.waitFor({ timeout: 30_000 });
   return page;
 }
 
-test.describe('Network corner ribbon', () => {
+test.describe('Network pill', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
 
   for (const [locale, ctaText] of [
     ['en', 'I understand'],
     ['de', 'Ich habe verstanden']
   ] as const) {
-    test(`sits in the tab bar's corner and opens a sheet that fits a 360x600 popup (${locale})`, async ({
+    test(`sits above the balance card and opens a sheet that fits a 360x600 popup (${locale})`, async ({
       extensionContext,
       extensionId
     }) => {
@@ -93,9 +93,9 @@ test.describe('Network corner ribbon', () => {
       // 30s + notice 30s (wait, then click) + select-type 15s + seed-phrase 15s + create-password
       // 10s + recovery-method 15s + confirmation 30s + telemetry-consent 40s (wait, decline,
       // detach) + open-wallet 30s = 215s; openPopup's two 30s waits = 60s; banner 10s +
-      // ribbon-in-corner 10s + sheet CTA 15s + CTA text 10s + aria-expanded-true 10s + poll
-      // ctaBottom 5s + poll lastRow 10s + sheet-closed 10s + aria-expanded-false 10s = 90s; total
-      // 370s.
+      // pill-above-card 10s + sheet CTA 15s + CTA text 10s + aria-expanded-true 10s + poll
+      // ctaBottom 5s + poll lastRow 10s + sheet-closed 10s + aria-expanded-false 10s = 90s;
+      // total 370s.
       test.setTimeout(390_000);
 
       // Start as a returning user: the one-time "Pin Bread" tooltip (fixed, z-9999, top-right) can
@@ -117,58 +117,22 @@ test.describe('Network corner ribbon', () => {
       // No banner tops the wallet any more.
       await expect(page.getByTestId('network-mode-banner')).toHaveCount(0);
 
-      // The ribbon is drawn inside the bar's corner, over the tabs, and inside the popup. The word is
-      // a button on a band rotated -45deg, so its axis-aligned box overhangs the corner by design and
-      // the corner box clips it: check that the word's centre sits in the corner's 44px square (the
-      // floating bar's c = 44 in NetworkModeRibbon), that the ribbon is inside the clip, and that the
-      // clip covers the whole bar and matches its rounding.
-      const ribbon = page.getByTestId('network-mode-ribbon');
-      const nav = page.locator('[data-tabbar-footer] nav');
-      const ribbonBox = (await ribbon.boundingBox())!;
-      const navBox = (await nav.boundingBox())!;
-      const navRight = navBox.x + navBox.width;
-      const navBottom = navBox.y + navBox.height;
-      expect(navRight).toBeLessThanOrEqual(360.5);
-      const wordCentre = { x: ribbonBox.x + ribbonBox.width / 2, y: ribbonBox.y + ribbonBox.height / 2 };
-      expect(wordCentre.x).toBeGreaterThan(navRight - 44);
-      expect(wordCentre.x).toBeLessThan(navRight);
-      expect(wordCentre.y).toBeGreaterThan(navBottom - 44);
-      expect(wordCentre.y).toBeLessThan(navBottom);
-      const corner = nav.locator('[data-slot="bottom-nav-corner"]');
-      await expect(corner.getByTestId('network-mode-ribbon')).toHaveCount(1);
-      expect(await corner.evaluate(el => getComputedStyle(el).overflow)).toMatch(/^(hidden|clip)$/);
-      const navRadius = await nav.evaluate(el => getComputedStyle(el).borderRadius);
-      expect(navRadius).not.toBe('0px');
-      expect(await corner.evaluate(el => getComputedStyle(el).borderRadius)).toBe(navRadius);
-      expect(await corner.boundingBox()).toEqual(navBox);
+      // The pill sits above the balance card, edge to edge with it.
+      const pill = page.getByTestId('network-mode-pill');
+      const pillBox = (await pill.boundingBox())!;
+      const cardLabelBox = (await page.getByTestId('balance-card-label').boundingBox())!;
+      const cardFooterBox = (await page.getByTestId('balance-card-footer').boundingBox())!;
+      expect(pillBox.y + pillBox.height).toBeLessThanOrEqual(cardLabelBox.y);
+      expect(pillBox.x).toBeCloseTo(cardFooterBox.x, 0);
+      expect(pillBox.width).toBeCloseTo(cardFooterBox.width, 0);
 
-      // It takes no layout space: every tab is the same width, as without it. Settings is the last.
-      const tabs = await nav.locator('button:not([data-testid="network-mode-ribbon"])').all();
-      const widths = await Promise.all(tabs.map(async tab => Math.round((await tab.boundingBox())!.width)));
-      expect(new Set(widths).size).toBe(1);
-      const settings = tabs[tabs.length - 1]!;
-
-      // Taps land where they look like they land: the word opens the sheet, the Settings tab's
-      // centre still hits the Settings tab.
-      const settingsBox = (await settings.boundingBox())!;
-      const hitsSettings = await page.evaluate(
-        ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('aria-label') ?? null,
-        { x: settingsBox.x + settingsBox.width / 2, y: settingsBox.y + settingsBox.height / 2 }
-      );
-      expect(hitsSettings).toBe(await settings.getAttribute('aria-label'));
-      const hitsRibbon = await page.evaluate(
-        ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('data-testid') ?? null,
-        { x: ribbonBox.x + ribbonBox.width / 2, y: ribbonBox.y + ribbonBox.height / 2 }
-      );
-      expect(hitsRibbon).toBe('network-mode-ribbon');
-
-      await ribbon.click();
+      await pill.click();
       // A test id, not a role: DrawerHeader carries its own close button.
       const cta = page.getByTestId('network-mode-sheet-cta');
       await cta.waitFor({ state: 'visible', timeout: 15_000 });
       // A locale switch that silently fails would run the long-locale case in English.
       await expect(cta).toHaveText(ctaText);
-      await expect(ribbon).toHaveAttribute('aria-expanded', 'true');
+      await expect(pill).toHaveAttribute('aria-expanded', 'true');
       // vaul slides the sheet in over 0.5 s; take the baseline only once it rests.
       await page.getByTestId('network-mode-sheet').evaluate(el => {
         const drawer = el.closest('[data-slot="drawer-content"]');
@@ -198,7 +162,7 @@ test.describe('Network corner ribbon', () => {
 
       await cta.click();
       await expect(page.getByTestId('network-mode-sheet')).toHaveCount(0);
-      await expect(ribbon).toHaveAttribute('aria-expanded', 'false');
+      await expect(pill).toHaveAttribute('aria-expanded', 'false');
     });
   }
 });

@@ -5,7 +5,7 @@
  *
  * The module has no exports — everything happens as a side effect of import:
  * it hoists `React` onto `globalThis`, calls `initTheme()` and
- * `installGuardianCorsBypass()` at top level, then kicks off the async
+ * `installGuardianFetchBoundary()` at top level, then kicks off the async
  * `initMobile()` bootstrap (which is fire-and-forget with a trailing
  * `.catch`). We therefore drive it by (re)loading the module under a fresh
  * registry with every collaborator mocked, then assert on the observable
@@ -21,7 +21,7 @@ import React from 'react';
 // consts are initialised.
 // ---------------------------------------------------------------------------
 const mockInitTheme = jest.fn();
-const mockInstallGuardianCorsBypass = jest.fn();
+const mockInstallGuardianFetchBoundary = jest.fn();
 const mockInitMobileBackHandler = jest.fn<Promise<void>, []>();
 const mockInitKeyboardInset = jest.fn<Promise<void>, []>();
 const mockAdapterInit = jest.fn<Promise<void>, []>();
@@ -47,7 +47,7 @@ jest.mock('lib/intercom/mobile-adapter', () => ({
   getMobileIntercomAdapter: (...args: unknown[]) => mockGetMobileIntercomAdapter(...(args as []))
 }));
 jest.mock('lib/miden/guardian/native-http', () => ({
-  installGuardianCorsBypass: (...args: unknown[]) => mockInstallGuardianCorsBypass(...(args as []))
+  installGuardianFetchBoundary: (...args: unknown[]) => mockInstallGuardianFetchBoundary(...(args as []))
 }));
 jest.mock('lib/mobile/back-handler', () => ({
   initMobileBackHandler: (...args: unknown[]) => mockInitMobileBackHandler(...(args as []))
@@ -105,10 +105,10 @@ afterEach(() => {
 });
 
 describe('mobile-app entry point — top-level side effects', () => {
-  it('installs theme + guardian CORS bypass on import (before render)', async () => {
+  it('installs theme + the Guardian fetch boundary on import (before render)', async () => {
     await loadModule();
     expect(mockInitTheme).toHaveBeenCalledTimes(1);
-    expect(mockInstallGuardianCorsBypass).toHaveBeenCalledTimes(1);
+    expect(mockInstallGuardianFetchBoundary).toHaveBeenCalledTimes(1);
   });
 
   it('hoists React onto globalThis when not already present', async () => {

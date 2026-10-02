@@ -127,10 +127,6 @@ jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
-jest.mock('app/pages/ImportAccount', () => ({
-  __esModule: true,
-  default: () => <div data-testid="import-account" />
-}));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
@@ -287,8 +283,8 @@ beforeEach(() => {
 });
 
 describe('app/PageRouter — no network banner', () => {
-  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout); only the dApp
-  // confirm window keeps the full-width banner.
+  // The wallet names its test network in a pill above Home's balance card (NetworkModePill); only the
+  // dApp confirm window keeps the full-width banner.
   it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
     expect(screen.getByTestId('explore')).toBeInTheDocument();
@@ -594,12 +590,6 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
   it('/receive renders Receive inside TabLayout', () => {
     renderAt('/receive', ready);
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('receive'));
-  });
-
-  it('/import-account renders private-key import inside FullScreenPage', () => {
-    renderAt('/import-account', ready);
-
-    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('import-account'));
   });
 
   it('sends the retired /pending-notes to the Activity tab with its Pending filter chosen', () => {

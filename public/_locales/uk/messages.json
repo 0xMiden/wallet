@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "Отримання історії транзакцій та «notes»",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Обмін",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Переказ через міст",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Заробіток на депозиті",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian змінено",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Ключ пристрою оновлено",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Рахунок захищений",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Виконано",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "Відновлення історії з $operator$. Транзакції $count$ відновлено.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "Відновлення історії транзакцій зупинилося, оскільки мережа або оператор Guardian не можуть її надати. Система не буде автоматично повторювати спробу відновлення.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ Транзакції відновлено. Деякі джерела Guardian не вдалося прочитати. Відновлення буде повторено під час наступного розблокування гаманця.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Корисне навантаження",
     "englishSource": "Payload"
@@ -179,18 +236,6 @@
   "unlockBrandName": {
     "message": "Хліб",
     "englishSource": "Bread"
-  },
-  "earnPositionHeaderTitle": {
-    "message": "Моя позиція щодо $protocol$ • $asset$",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
   },
   "earnAssetOnNetwork": {
     "message": "$asset$ на сайті $network$",
@@ -374,8 +419,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Загальна сума зароблених винагород",
-    "englishSource": "Total Earned Rewards"
+    "message": "Загальна сума заробленого",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "Отримання комбінованої річної процентної ставки (APY) від «$apy$»",
@@ -479,34 +524,6 @@
     "message": "Створити обліковий запис",
     "englishSource": "Create Account"
   },
-  "importAccount": {
-    "message": "Імпортувати обліковий запис",
-    "englishSource": "Import account"
-  },
-  "accountName": {
-    "message": "Назва облікового запису",
-    "englishSource": "Account name"
-  },
-  "accountNameInputPlaceholder": {
-    "message": "наприклад, Заощадження",
-    "englishSource": "e.g. Savings"
-  },
-  "accountNameInputInvalid": {
-    "message": "Використовуйте від 1 до 16 символів. Назва не повинна починатися з пробілу чи дефіса.",
-    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
-  },
-  "privateKeyInputDescription": {
-    "message": "Приватний ключ облікового запису, який ви хочете імпортувати.",
-    "englishSource": "The private key of the account you want to import."
-  },
-  "privateKeyInputPlaceholder": {
-    "message": "наприклад, APrivateKey1zkp...",
-    "englishSource": "e.g. APrivateKey1zkp..."
-  },
-  "privateKeyClipboardNotCleared": {
-    "message": "Ваш приватний ключ не вдалося видалити з буфера обміну. Очистіть його самостійно, перш ніж продовжувати.",
-    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
-  },
   "settings": {
     "message": "Налаштування",
     "englishSource": "Settings"
@@ -600,6 +617,14 @@
   "cancelled": {
     "message": "Скасовано",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "Не підтверджено",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Гаманець не зміг підтвердити, чи пройшла ця операція. Можливо, вона ще надійде, тому перевірте свій баланс після синхронізації гаманця, перш ніж надсилати її знову.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
   },
   "showFullError": {
     "message": "Показати повний текст помилки",
@@ -868,6 +893,14 @@
   "transactionStepSyncingGuardian": {
     "message": "Синхронізація з Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "guardianBusyStep": {
+    "message": "Очікування вашого «Guardian»",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Ваш «Guardian» все ще завершує вашу попередню транзакцію. Ця транзакція продовжується автоматично.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ сек",
@@ -1878,12 +1911,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Перевірте свою фразу відновлення",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Створіть резервну копію вашого гаманця",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Запишіть свою фразу відновлення та переконайтеся, що знаєте її перше та останнє слова, щоб згодом мати змогу відновити цей гаманець.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Збережіть фразу відновлення, щоб відновити цей гаманець на новому пристрої.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Безпечне підписання недоступне",
@@ -2150,6 +2183,50 @@
     "message": "На цьому пристрої функція розблокування за допомогою біометричних даних недоступна.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Налаштуйте розблокування за відбитком пальця або обличчям для роботи в «Налаштуваннях», щоб використовувати цю функцію тут.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "Налаштуйте відбиток пальця або розпізнавання обличчя в «Налаштуваннях», щоб використовувати біометричне розблокування.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "Розблокування за допомогою розпізнавання обличчя або відбитка пальця, налаштоване для роботи, недостатньо безпечне для захисту гаманця. Налаштуйте «Відбиток пальця» для роботи в «Налаштуваннях», щоб використовувати його тут.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "Розблокування за допомогою розпізнавання обличчя або відбитка пальця, налаштоване на цьому пристрої, не є достатньо безпечним для захисту гаманця. Налаштуйте відбиток пальця в розділі «Налаштування», щоб використовувати біометричне розблокування.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "Біометричні дані цього пристрою не можуть захистити гаманець. Замість цього використовуйте пароль.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "Біометричний датчик наразі недоступний. Спробуйте ще раз або скористайтеся паролем.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID або Touch ID недоступні. Якщо ці функції вимкнені для цього додатка, увімкніть їх у налаштуваннях або використовуйте пароль.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Встановіть останнє оновлення безпеки, щоб використовувати біометричне розблокування.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Встановіть пароль пристрою в налаштуваннях, щоб використовувати біометричний розблокування.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "Біометричне розблокування блокується після занадто великої кількості спроб. Розблокуйте пристрій, а потім спробуйте ще раз.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Відкрити налаштування",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Оберіть свій «Guardian»",
     "englishSource": "Choose your Guardian"
@@ -2190,31 +2267,6 @@
     "message": "«Guardian» зберігає стан вашого рахунку та допомагає його відновити. Уявіть це як сервер, який створює резервну копію ваших даних, але він ніколи не має доступу до ваших коштів.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "Наразі найшвидший оператор із $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Оператор цієї мережі",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian не може самостійно переміщувати ваші кошти",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian створює резервну копію стану вашого облікового запису",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "За допомогою фрази відновлення ви можете змінити Guardian",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Перевіряємо, який оператор відповідає найшвидше…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2226,30 +2278,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Я б краще створив повністю приватний обліковий запис",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Оберіть інший Guardian",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Незалежний оператор Guardian на Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "Компанія OpenZeppelin, що спеціалізується на безпеці blockchain, створила широко використовувані бібліотеки смарт-контрактів для Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm створює та підтримує інфраструктуру blockchain для мереж та рол-апів.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass — це інженерна компанія, що розробляє передові криптографічні рішення та інфраструктуру для блокчейнів (blockchain).",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) — це регульований зберігач цифрових активів у Південній Кореї.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Дізнайтеся більше про «Guardian»",
@@ -2294,6 +2322,19 @@
   "meetGuardianYourGuardian": {
     "message": "Ваш Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Змінити",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ зберігає резервну копію вашого акаунта. Він ніколи не зможе перемістити ваші кошти, а змінити його можна будь-коли.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
@@ -2703,6 +2744,22 @@
     "message": "Зміну надіслано, але цей пристрій не зміг підтвердити, що вона пройшла в мережі. Гаманець не може підтвердити це за вас — і налаштування Guardian, і запис цієї транзакції в Активності в будь-якому разі покажуть нового Guardian. Якщо пізніша транзакція буде відхилена через відсутність співпідпису, виконайте зміну ще раз.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "Ще не збережено на цьому пристрої.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Зміна Guardian дійшла до мережі, але цей пристрій ще не зміг зберегти новий стан вашого облікового запису. Гаманець продовжує спроби у фоновому режимі, і доки вони не вдадуться, транзакції з цього пристрою можуть не проходити. Повторно виконувати зміну Guardian не потрібно.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "Не збережено на цьому пристрої.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Зміна Guardian дійшла до мережі, але цей пристрій не зміг зберегти новий стан вашого облікового запису і не може самостійно його відновити. Не виконуйте зміну Guardian повторно. Зверніться до служби підтримки.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Цей пристрій також не зміг зберегти адресу нового Guardian, тому досі показує попередню. Гаманець попросить ввести її знову — цей запит не починає нову зміну.",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
@@ -2800,8 +2857,16 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Під час ротації вашого повсякденного ключа сталася помилка.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Під час ротації вашого повсякденного ключа сталася помилка. Ваші кошти в безпеці, і ви можете спробувати ще раз.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Щоденна ротація ключів не підтверджена",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Гаманець не зміг підтвердити, чи відбулася ротація. Ваші кошти в безпеці, хоча, можливо, була сплачена мережева комісія. Дайте гаманцю хвилину на синхронізацію, перш ніж спробувати ще раз.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Спробувати ще раз",
@@ -2847,6 +2912,10 @@
   "hotKeyRotationFundingClaimFailed": {
     "message": "MIDEN, який ви отримали, не вдалося активувати.",
     "englishSource": "The MIDEN you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Гаманець не зміг підтвердити, чи було заявлено право на отриманий вами MIDEN. Дайте гаманцю хвилину на синхронізацію, перш ніж спробувати ще раз.",
+    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Спробуйте ще раз",
@@ -3012,6 +3081,10 @@
   "insufficientFeeAsset": {
     "message": "Для сплати комісії мережі вам потрібен MIDEN. Отримайте трохи MIDEN, щоб продовжити.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Сума повинна бути меншою за залишок на рахунку",
@@ -3455,6 +3528,22 @@
   "slow": {
     "message": "Повільно",
     "englishSource": "Slow"
+  },
+  "unavailable": {
+    "message": "Недоступно",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Перевірка, чи підтримує цей токен маршрут Slow…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Цей токен не підтримує маршрут Slow.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Не вдалося перевірити цей токен. Поверніться назад і спробуйте ще раз.",
+    "englishSource": "Could not check this token. Go back and try again."
   },
   "seconds": {
     "message": "Секунди",
@@ -3903,6 +3992,14 @@
     "message": "Відбиток пальця",
     "englishSource": "Fingerprint"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Розблокування за допомогою розпізнавання обличчя",
+    "englishSource": "Face unlock"
+  },
   "cameraPermissionDenied": {
     "message": "Дозвіл на використання камери відхилено",
     "englishSource": "Camera permission denied"
@@ -3970,6 +4067,14 @@
   "transactionFailedNotificationBody": {
     "message": "Операцію не вдалося завершити. Відкрийте гаманець, щоб перевірити.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Транзакція не підтверджена",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Гаманець не зміг підтвердити, чи пройшла транзакція. Відкрийте гаманець, перш ніж надіслати її знову.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
   },
   "noteReceivedTapToClaim": {
     "message": "Натисніть тут, щоб прийняти",
@@ -4315,6 +4420,10 @@
     "message": "Поділитися",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Надіслати адресу",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Копіювати",
     "englishSource": "Copy"
@@ -4392,8 +4501,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "~6 годин",
-    "englishSource": "~6 hours"
+    "message": "~30 хвилин",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Ви здійснюєте внесок",
@@ -4739,6 +4848,10 @@
     "message": "Зберегти та продовжити",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Ці кінцеві точки не вдалося зберегти. Спробуйте ще раз.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Скинути до заводських налаштувань",
     "englishSource": "Reset to defaults"
@@ -4746,6 +4859,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Скинути налаштування до заводських та пройти реєстрацію заново",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Скидання не завершилося. Спробуйте ще раз.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Кінцеві точки мережі",
@@ -4935,6 +5052,38 @@
     "message": "Не зараз",
     "englishSource": "Not now"
   },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
+  },
   "activityAcceptTransfer": {
     "message": "Прийняти переказ",
     "englishSource": "Accept Transfer"
@@ -5033,14 +5182,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — про цю мережу",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Токени не мають реальної цінності",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Відновити",
@@ -5271,6 +5424,39 @@
     "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
     "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
   },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
+  },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
     "englishSource": "This transaction's value cannot be checked right now. Authenticate to send it anyway."
@@ -5469,5 +5655,67 @@
   "revealRecoveryPhrase": {
     "message": "Розкрити фразу відновлення",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Приховати токен",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Показати токен",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Приховано від Home. Воно залишається у вашому гаманці, і його перекази все ще можна отримати.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Приховані активи",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Приховані активи ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Показати",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "Відкрити $name$",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Не вдалося оновити приховані токени. Спробуйте ще раз.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Приховані токени не вдалося завантажити.",
+    "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "Підтвердьте відправлення",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "Підтвердьте обмін",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "Підтвердіть цю транзакцію",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "Підтвердьте свій депозит",
+    "englishSource": "Confirm your deposit"
   }
 }

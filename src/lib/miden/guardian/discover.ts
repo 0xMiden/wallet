@@ -49,7 +49,7 @@ import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 import { EcdsaSigner } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
+import { probeGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { DEFAULT_NETWORK, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
 import { sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
@@ -122,6 +122,14 @@ export const GUARDIAN_PROBE_CONCURRENCY = 6;
  */
 export const GUARDIAN_PROBE_REQUEST_ATTEMPTS = 2;
 
+/**
+ * Wall-clock ceiling on one round trip to the OUTGOING guardian of a switch, after which the wallet
+ * stops waiting and treats the operator as unreachable. Generous: this is a backstop against an
+ * operator that has stopped answering, not a latency target, and expiring early costs the user a
+ * coordinated switch they could have had. Every outgoing-guardian wait shares it (#1233).
+ */
+export const OUTGOING_GUARDIAN_DEADLINE_MS = 30_000;
+
 export class GuardianProbeTimeoutError extends Error {
   constructor(message: string) {
     super(message);
@@ -131,11 +139,14 @@ export class GuardianProbeTimeoutError extends Error {
 
 /**
  * Reject with {@link GuardianProbeTimeoutError} if `promise` hasn't settled in
- * `timeoutMs`. The underlying request keeps running (no abort in the guardian
- * client) and its late result is dropped: harmless for a read, and a caller that
+ * `timeoutMs`. The underlying request keeps running (the guardian client has no
+ * abort) and its late result is dropped: harmless for a read, and a caller that
  * wraps a write makes a late landing safe itself, by retrying it idempotently
  * (the registration loops count `account_already_exists` as success) or by
- * recording it for reconciliation (the transaction's endpoint persist).
+ * recording it for reconciliation (the transaction's endpoint persist). Inside a
+ * WASM lock hold, use it only when the abandoned tail makes no WASM call after its
+ * first suspension except on objects the flow built itself from plain inputs (such
+ * as a signer key from a seed), never the client or any object a client call returned.
  */
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -210,6 +221,25 @@ function readNumericStatus(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null || !('status' in error)) return undefined;
   const status: unknown = error.status;
   return typeof status === 'number' ? status : undefined;
+}
+
+/**
+ * The fields of a probe rejection worth printing. A `GuardianHttpError` carries
+ * `status`, `code` and `body`; a fetch failure carries only a message and a
+ * `cause`. Read them off the object so the log names the operator's answer,
+ * not just the error class.
+ */
+function describeProbeError(error: unknown): Record<string, unknown> {
+  if (typeof error !== 'object' || error === null) return { error };
+  const details: Record<string, unknown> = {
+    name: error instanceof Error ? error.name : undefined,
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined
+  };
+  for (const key of ['status', 'statusText', 'code', 'body', 'cause']) {
+    if (key in error) details[key] = Reflect.get(error, key);
+  }
+  return details;
 }
 
 /** Classify a probe rejection so the UI can say something useful without leaking internals. */
@@ -405,25 +435,49 @@ export async function discoverGuardianForHotKey(
 }
 
 /**
- * Shared probe body: `makeKey` must return a FRESH `AuthSecretKey` handle per
- * call (one per task) — sharing a WASM handle across concurrent `sign` calls is
- * the "recursive use of an object … unsafe aliasing" hazard. The handle is
- * freed here after the task settles.
+ * Shared entry of both discovery flows. On mobile each endpoint's origin routes
+ * through native HTTP while it is probed, and stays routed only for an operator
+ * that holds the account.
  */
 async function discoverGuardianForKeys(
   makeKey: (hdIndex: number, keyDerivation: KeyDerivation) => AuthSecretKey,
   keyDerivations: readonly KeyDerivation[],
   options: GuardianDiscoveryOptions = {}
 ): Promise<GuardianDiscoveryResult> {
-  const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
-
   const targets = resolveTargets(options);
-  const probedEndpoints = targets.map(target => target.endpoint);
-  for (const endpoint of probedEndpoints) {
-    // Built-ins are pre-seeded for the mobile CORS bypass; register defensively
-    // so an overridden/custom endpoint also routes through native HTTP.
-    registerGuardianOrigin(endpoint);
+  const probes = targets.map(({ endpoint }) => ({ endpoint, settle: probeGuardianOrigin(endpoint) }));
+  try {
+    const result = await probeTargets(targets, makeKey, keyDerivations, options);
+    for (const probe of probes) {
+      if (result.matches.some(match => match.endpoint === probe.endpoint)) probe.settle(true);
+    }
+    return result;
+  } finally {
+    for (const probe of probes) probe.settle(false);
   }
+}
+
+/**
+ * Shared probe body: `makeKey` must return a FRESH `AuthSecretKey` handle per
+ * call (one per task) — sharing a WASM handle across concurrent `sign` calls is
+ * the "recursive use of an object … unsafe aliasing" hazard. The handle is
+ * freed here after the task settles.
+ */
+async function probeTargets(
+  targets: readonly ProbeTarget[],
+  makeKey: (hdIndex: number, keyDerivation: KeyDerivation) => AuthSecretKey,
+  keyDerivations: readonly KeyDerivation[],
+  options: GuardianDiscoveryOptions
+): Promise<GuardianDiscoveryResult> {
+  const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
+  const probedEndpoints = targets.map(target => target.endpoint);
+  console.info('[guardian/discover] Probing guardians', {
+    network: options.network ?? DEFAULT_NETWORK,
+    endpoints: probedEndpoints,
+    hdIndices: maxHdIndex,
+    timeoutMs,
+    attempts: GUARDIAN_PROBE_REQUEST_ATTEMPTS
+  });
 
   const tasks: { target: ProbeTarget; hdIndex: number; keyDerivation: KeyDerivation }[] = [];
   for (const target of targets) {
@@ -445,6 +499,11 @@ async function discoverGuardianForKeys(
       const signer = new EcdsaSigner(secretKey);
       const client = new GuardianHttpClient(target.endpoint);
       client.setSigner(signer);
+      // The commitment is the public key digest the operator indexes accounts
+      // by, so it is safe to print and is what to compare against the operator.
+      console.info(`[guardian/discover] Lookup at ${target.endpoint} for hd index ${hdIndex}`, {
+        commitment: signer.commitment
+      });
 
       // Retry the lookup too, not just getState: a transient lookup failure of
       // the CURRENT operator drops it from `matches` entirely, leaving a stale
@@ -459,7 +518,11 @@ async function discoverGuardianForKeys(
       const hits: ProbeHit[] = [];
       // An operator that doesn't hold the account answers `{ accounts: [] }` —
       // a miss, not an error.
-      for (const account of lookup?.accounts ?? []) {
+      const found = lookup?.accounts ?? [];
+      console.info(`[guardian/discover] Lookup at ${target.endpoint} answered with ${found.length} account(s)`, {
+        accountIds: found.map(account => account.accountId)
+      });
+      for (const account of found) {
         if (signal?.aborted) break;
         // The lookup already PROVED this operator holds the account; a state
         // fetch that fails even after a retry must not throw that certainty away.
@@ -495,6 +558,10 @@ async function discoverGuardianForKeys(
     const { endpoint } = tasks[index]!.target;
     if (result.status === 'rejected') {
       const { reason, message } = classifyProbeError(result.reason);
+      console.error(`[guardian/discover] Operator ${endpoint} could not be probed (${reason})`, {
+        ...describeProbeError(result.reason),
+        hdIndex: tasks[index]!.hdIndex
+      });
       // One entry per endpoint, not per HD index — the user cares about the
       // operator, not the derivation index that happened to fail first.
       if (!failures.some(failure => failure.endpoint === endpoint)) {
@@ -528,6 +595,17 @@ async function discoverGuardianForKeys(
   }
 
   matches.sort((a, b) => compareMatches(a, b, probedEndpoints));
+  const best = selectBest(matches);
+  console.info('[guardian/discover] Probe finished', {
+    best: best?.endpoint,
+    matches: matches.map(match => ({
+      endpoint: match.endpoint,
+      accountIds: match.accountIds,
+      nonce: match.nonce?.toString(),
+      updatedAt: match.updatedAt
+    })),
+    failures
+  });
 
-  return { best: selectBest(matches), matches, probedEndpoints, failures };
+  return { best, matches, probedEndpoints, failures };
 }

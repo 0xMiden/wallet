@@ -166,7 +166,7 @@ describe('SelectAmount', () => {
       // Token logo defaults its symbol to token.name.
       const logo = screen.getByTestId('token-logo');
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
-      expect(logo).toHaveAttribute('data-size', 'md');
+      expect(logo).toHaveAttribute('data-size', 'sm');
 
       // Token name chip + chevron icon.
       expect(screen.getByText('USDC')).toBeInTheDocument();
@@ -439,6 +439,12 @@ describe('SelectAmount', () => {
     it('translates and renders the error when present', () => {
       renderComponent({ error: 'amountTooHigh' });
       expect(screen.getByTestId('ai-error')).toHaveTextContent('amountTooHigh');
+    });
+
+    it('keeps the field invalid but drops its message with hideErrorText, for a caller that draws it', () => {
+      renderComponent({ amount: '', error: 'insufficientFeeAsset', hideErrorText: true });
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-invalid', 'true');
+      expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
     });
 
     it('renders no error row when error is undefined', () => {

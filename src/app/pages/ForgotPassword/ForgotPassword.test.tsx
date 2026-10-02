@@ -89,6 +89,12 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
   postOnboardingRoute: () => mockPostOnboardingRoute()
 }));
 
+// False (the extension and desktop path) unless a case sets it.
+const mockIsMobile = jest.fn(() => false);
+jest.mock('lib/platform', () => ({
+  isMobile: () => mockIsMobile()
+}));
+
 // Store the latest handler closure so tests can invoke the mobile back handler
 // directly with the component's current `step` / `isLoading` captured in scope.
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -200,6 +206,7 @@ beforeEach(() => {
   mockClassifyError.mockReturnValue('unknown');
   mockFetchFromStorage.mockResolvedValue(null);
   mockPostOnboardingRoute.mockReturnValue('/');
+  mockIsMobile.mockReturnValue(false);
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
   captured.backHandler = undefined;
@@ -227,6 +234,17 @@ describe('ForgotPassword', () => {
   it('create-wallet: generates a seed phrase and moves to BackupSeedPhrase (Create)', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'create-wallet' });
+    const el = flow(container);
+    expect(mockGenerateMnemonic).toHaveBeenCalledTimes(1);
+    expect(el.getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
+    expect(el.getAttribute('data-type')).toBe(OnboardingType.Create);
+    expect(el.getAttribute('data-step')).toBe(OnboardingStep.BackupSeedPhrase);
+  });
+
+  // The onboarding Welcome step's Get started emits choose-protection, not create-wallet.
+  it('choose-protection: generates a seed phrase and moves to BackupSeedPhrase (Create)', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'choose-protection' });
     const el = flow(container);
     expect(mockGenerateMnemonic).toHaveBeenCalledTimes(1);
     expect(el.getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
@@ -285,6 +303,33 @@ describe('ForgotPassword', () => {
     const { container } = renderPage();
     await dispatch({ id: 'create-password' });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+  });
+
+  it('mobile: the create path asks for a passcode, backs out to VerifySeedPhrase and confirms', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const { container } = renderPage();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'verify-seed-phrase' });
+    await dispatch({ id: 'create-password' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.VerifySeedPhrase);
+
+    await dispatch({ id: 'create-password' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+  });
+
+  it('mobile: the import path asks for a passcode and backs out to ImportFromSeed', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
   });
 
   it('create-password-submit: stores the password and moves to Confirmation', async () => {

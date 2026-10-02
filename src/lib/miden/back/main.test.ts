@@ -192,6 +192,7 @@ jest.mock('lib/miden/back/actions', () => ({
   processDApp: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
+  swapHotKey: jest.fn(),
   checkGuardianDrift: jest.fn(),
   applyUserGuardianEndpoint: jest.fn(),
   handleReportTelemetryEvent: jest.fn(),
@@ -730,6 +731,27 @@ describe('processRequest', () => {
     });
     expect(Actions.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'commitment-hex');
     expect(res.type).toBe(WalletMessageType.SetGuardianOperatorCommitmentResponse);
+  });
+
+  it('forwards a SwapHotKeyRequest with its expectation (#1233)', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SwapHotKeyRequest,
+      accountPublicKey: 'acc',
+      newHotPubKey: 'new-pub',
+      expectedHotPubKey: 'old-pub'
+    });
+    expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+  });
+
+  it('forwards a SwapHotKeyRequest without an expectation as none (#1233)', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.SwapHotKeyRequest,
+      accountPublicKey: 'acc',
+      newHotPubKey: 'new-pub'
+    });
+    expect(res.type).toBe(WalletMessageType.SwapHotKeyResponse);
+    expect(Actions.swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
   });
 
   it('SetGuardianSyncStatusRequest forwards to Actions', async () => {

@@ -16,10 +16,10 @@ const RETRY_INTERVAL_MS = 5_000;
  * a `vault.fetchAccounts()` — a storage read plus an AES-GCM decrypt — per
  * eligible account, per realm (popup and full page both mount this). A refusal
  * that persists means either a long recovery already running or a failed pass
- * the backend will only retry on its next start, and neither is worth paying
- * that every 5s for minutes. Backing off rather than stopping keeps the offer
- * alive for the case that matters: the service worker dying mid-recovery and
- * restarting with an empty started-set.
+ * the backend will only retry after the next unlock or on its next start, and
+ * neither is worth paying that every 5s for minutes. Backing off rather than
+ * stopping keeps the offer alive for the case that matters: the service worker
+ * dying mid-recovery and restarting with an empty started-set.
  */
 const MAX_RETRY_INTERVAL_MS = 60_000;
 

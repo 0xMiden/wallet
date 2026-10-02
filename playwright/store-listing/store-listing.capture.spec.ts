@@ -6,7 +6,9 @@ import path from 'node:path';
 import {
   capturePlan,
   installCaptureShim,
+  installHardwareSecurityShim,
   guardianPubkeyRoute,
+  guardianPubkeyStubCommitment,
   parkCapturePointer,
   settleCaptureMotion,
   type CapturePlanEntry,
@@ -96,7 +98,11 @@ async function preparePage(page: Page): Promise<void> {
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
 }
 
-async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEntry): Promise<BrowserContext> {
+async function newMobileContext(
+  platform: 'ios' | 'android',
+  item: CapturePlanEntry,
+  options?: { hardwareSecurity?: boolean }
+): Promise<BrowserContext> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: item.viewport,
@@ -106,11 +112,12 @@ async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEn
     reducedMotion: 'reduce'
   });
   await context.addInitScript(installCaptureShim, platform);
+  if (options?.hardwareSecurity) await context.addInitScript(installHardwareSecurityShim, platform);
   await context.route(guardianPubkeyRoute, route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ commitment: 'deterministic-store-listing-guardian' })
+      body: JSON.stringify({ commitment: guardianPubkeyStubCommitment })
     })
   );
   return context;
@@ -230,7 +237,8 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   const guardian = planEntry(platform, 'guardian');
   const protectionScene = flag === 'ios' ? 'ios-protection' : 'android-protection';
   const protection = planEntry(platform, protectionScene);
-  const onboardingContext = await newMobileContext(flag, protection);
+  // The protection chooser renders only where the vault's hardware probe passes.
+  const onboardingContext = await newMobileContext(flag, protection, { hardwareSecurity: true });
   const onboarding = await onboardingContext.newPage();
   await onboarding.goto(mobileBaseUrl, { waitUntil: 'domcontentloaded' });
   await preparePage(onboarding);
@@ -305,7 +313,7 @@ async function captureChrome(): Promise<void> {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ commitment: 'deterministic-store-listing-guardian' })
+        body: JSON.stringify({ commitment: guardianPubkeyStubCommitment })
       })
     );
 

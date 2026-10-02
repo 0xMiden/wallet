@@ -454,7 +454,19 @@ describe('MobileIntercomAdapter', () => {
         newHotPubKey: 'new-pub'
       } as any);
 
-      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub');
+      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', undefined);
+      expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
+    });
+
+    it('handles SwapHotKeyRequest with its expectation (#1233)', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'pub-key-123',
+        newHotPubKey: 'new-pub',
+        expectedHotPubKey: 'old-pub'
+      } as any);
+
+      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', 'old-pub');
       expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
     });
 

@@ -3,7 +3,12 @@ import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/d
 import { hasNoFeeAsset, ROTATION_FUNDING_MIN_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
+import {
+  isUnconfirmedFailure,
+  isVaultShortfallRow,
+  isWalletFailureReason,
+  TRANSACTION_VAULT_SHORTFALL_ERROR
+} from 'lib/miden/transaction/constants';
 
 export type RotationGateView = 'recovery-seed' | 'funding' | 'failed' | 'rotating';
 export type RotationFundingStatus = 'claiming' | 'activating' | 'claim-failed' | 'too-small' | 'waiting';
@@ -17,11 +22,13 @@ export type GateRow = Pick<
   | 'status'
   | 'error'
   | 'rawError'
+  | 'mayHaveSubmitted'
   | 'awaitingRecoverySeed'
   | 'initiatedAt'
   | 'queuedSeq'
   | 'completedAt'
   | 'noteIds'
+  | 'processingStartedAt'
 >;
 
 export interface RotationGateViewInput {
@@ -118,3 +125,64 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
   if (input.initError !== null || trackedRow?.status === ITransactionStatus.Failed) return { view: 'failed' };
   return { view: 'rotating' };
 }
+
+/** The parts of a failed gate row its failure message reads. */
+export type RotationFailureRow = Pick<
+  ITransaction,
+  'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'
+> &
+  Partial<Pick<ITransaction, 'extraInputs'>>;
+
+export interface RotationFailure {
+  /** The row may have reached the network, so its outcome is unknown rather than failed. */
+  unconfirmed: boolean;
+  /** The row's own user-facing copy, or `null` for the gate's translated message. */
+  message: string | null;
+  /** The raw error behind "Show full error". */
+  details?: string;
+}
+
+const nonEmpty = (text: string | undefined) => (text ? text : undefined);
+
+/**
+ * What the gate says about its failed rotation row, or about the funding panel's failed claim (with a `null`
+ * init error): a short message, and the raw error kept for "Show full error". The latest thing that went wrong
+ * wins: an init error means Retry could not even enqueue.
+ */
+export const describeRotationFailure = (
+  row: RotationFailureRow | undefined,
+  initError: string | null
+): RotationFailure => {
+  if (initError !== null) return { unconfirmed: false, message: null, details: nonEmpty(initError) };
+  if (row === undefined) return { unconfirmed: false, message: null };
+  if (isVaultShortfallRow(row)) {
+    // An old-format shortfall row still carries the raw kernel line as its error.
+    const raw = row.rawError ?? row.error;
+    return {
+      unconfirmed: false,
+      message: TRANSACTION_VAULT_SHORTFALL_ERROR,
+      details: raw === TRANSACTION_VAULT_SHORTFALL_ERROR ? undefined : nonEmpty(raw)
+    };
+  }
+  // The reason the wallet itself wrote, whatever `cancelTransaction` did to `error`: a classifier rewrite for the
+  // user keeps the real reason in `rawError`, so that is read first, falling back to `error` for a row it never
+  // rewrote.
+  const reason = row.rawError ?? row.error;
+  // Stamped at the submit crossing, so a failure after it may have landed. Read before classified copy: on the
+  // extension the rotation leaf runs offscreen (`OFFSCREEN_ROUTABLE_GUARDIAN_TYPES`), whose replayed stage stamps
+  // never author `stage` (`stageStampFor`), so the row stays 'sending' and a submit timeout is classified as a
+  // prover failure (`PROVING_STAGES`). `isUnconfirmedFailure` is the one predicate both this gate and Activity
+  // History read a failed row through, so the two never disagree on which rows are unconfirmed (#1250).
+  if (isUnconfirmedFailure(row)) {
+    return { unconfirmed: true, message: null, details: nonEmpty(row.rawError ?? row.error) };
+  }
+  // A final wallet reason is copy the wallet wrote itself, verbatim, whatever the row's stage: user cancel on a
+  // row the write stamp never reached, a Queued row that expired, or a note that can never be consumed. Shown as
+  // the message itself, with no details.
+  if (reason !== undefined && isWalletFailureReason(reason)) return { unconfirmed: false, message: reason };
+  // `cancelTransaction` keeps `rawError` only when a classifier rewrote a THROWN error for the user.
+  if (row.rawError !== undefined) {
+    return { unconfirmed: false, message: nonEmpty(row.error) ?? null, details: nonEmpty(row.rawError) };
+  }
+  return { unconfirmed: false, message: null, details: nonEmpty(row.error) };
+};
