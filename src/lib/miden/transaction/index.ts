@@ -434,10 +434,10 @@ const nextRequeueStreak = (
 ): IRequeueStreak => ({ arm, count: row?.requeueStreak?.arm === arm ? row.requeueStreak.count + 1 : 1 });
 
 /**
- * Guardian backpressure (#312): the Guardian is still settling the account's previous delta. A pending-delta 409 (a
- * paused or released account is not one), the settlement gate's refusal, or, where `timeoutIsBackpressure`, a Guardian
- * request the fetch boundary cut off. The caller passes that only for a row that failed at a proposal stage, whose
- * pipeline was not abandoned, and that is not a dApp `execute`, whose dApp gives up after five minutes.
+ * Guardian backpressure (#312): a pending-delta 409 (a paused or released account is not one) or the settlement gate's
+ * refusal, both meaning the Guardian is still settling the account's previous delta, or, where `timeoutIsBackpressure`,
+ * a Guardian request the fetch boundary cut off. The caller passes that only for a row that failed at a proposal stage,
+ * whose pipeline was not abandoned, and that is not a dApp `execute`, whose dApp gives up after five minutes.
  */
 const isGuardianBackpressure = (error: unknown, timeoutIsBackpressure: boolean): boolean =>
   isGuardianPendingConflict(error) ||
@@ -1417,15 +1417,16 @@ const generateTransactionWithProvider = async (
       // (former) abort branch was unreachable with the flag off — its removal
       // cannot change flag-OFF behavior.
       //
-      // Guardian backpressure (#312): the Guardian is still settling the account's previous delta. Three shapes reach
-      // here: a pending-delta 409, the settlement gate's refusal, and a Guardian request the fetch boundary cut off at
-      // its deadline while the row was at a proposal stage. None is terminal for a VALUE-MOVING op: the candidate
-      // settles on its own and the proposal creator is side-effect-free, so the row goes back to the queue on the
-      // first occurrence. Waiting it out here held this account's lock and the loop's Web Lock for about a minute,
-      // which stalled every account's queue. The requeue clears processingStartedAt (a bare return would leave it
-      // GeneratingTransaction for cancelStuckTransactions to reap), backs the row off with `nextEligibleAt`, arms a
-      // wake off the extension, and marks it `guardianBusy` for the transaction screen. MAX_QUEUED_AGE remains the
-      // terminal cap.
+      // Guardian backpressure (#312). Three shapes reach here: a pending-delta 409 and the settlement gate's refusal,
+      // both saying the Guardian is still settling the account's previous delta, and a Guardian request the fetch
+      // boundary cut off at its deadline while the row was at a proposal stage, which says only that the Guardian did
+      // not answer. None is terminal for a VALUE-MOVING op: a candidate settles on its own and the proposal creator is
+      // side-effect-free, so the row goes back to the queue on the first occurrence. Waiting it out here held this
+      // account's lock and the loop's Web Lock for about a minute, which stalled every account's queue. The requeue
+      // clears processingStartedAt (a bare return would leave it GeneratingTransaction for cancelStuckTransactions to
+      // reap), backs the row off with `nextEligibleAt` and arms a wake off the extension. Only the 409 and the gate mark
+      // it `guardianBusy`, whose copy names a previous transaction a silent Guardian may not have. MAX_QUEUED_AGE
+      // remains the terminal cap.
       //
       // Structural ops are gated OUT (see REQUEUEABLE_ON_PENDING_CONFLICT): they still wait out a 409 in process, and
       // one that outlasts that wait falls through to cancelTransaction - the user retries.
@@ -1448,14 +1449,23 @@ const generateTransactionWithProvider = async (
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
-        isGuardianBackpressure(error, failedAtProposal && !abandonedWrite && transaction.type !== 'execute')
+        isGuardianBackpressure(
+          error,
+          failedAtProposal && !abandonedWrite && GUARDIAN_UNREACHABLE_REQUEUEABLE.has(transaction.type)
+        )
       ) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
-        console.warn(`[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`, error);
+        const settling = isGuardianPendingConflict(error) || error instanceof GuardianBackpressureError;
+        console.warn(
+          settling
+            ? `[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`
+            : `[Guardian] Guardian request timed out at the proposal, requeueing in ${cooldown}s`,
+          error
+        );
         await requeueWithWake(transaction.id, transaction.type, cooldown, signCallback, guardianProvider, {
           requeueStreak,
-          guardianBusy: true
+          guardianBusy: settling ? true : undefined
         });
         return;
       }

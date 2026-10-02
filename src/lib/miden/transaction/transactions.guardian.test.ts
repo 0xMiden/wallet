@@ -1458,15 +1458,16 @@ describe('generateTransaction — Guardian routing', () => {
     jest.fn(async (_account: unknown, _newHotCommitmentHex: string) => ({ id: 'prop-replace', nonce: 7 }));
   const PENDING_DELTA_409 = { status: 409, code: 'conflict_pending_delta' };
   // What a Guardian-backpressure requeue leaves on the row (#312): back in the queue at the proposal stage, marked busy
-  // for the transaction screen, and backed off by the cooldown its pending-conflict streak earns.
+  // for the transaction screen unless `busy` is false (a request timeout, which says nothing about a previous
+  // transaction), and backed off by the cooldown its pending-conflict streak earns.
   const expectBusyRequeue = (
     row: Record<string, unknown>,
-    { cooldownSec, streak }: { cooldownSec: number; streak: number }
+    { cooldownSec, streak, busy = true }: { cooldownSec: number; streak: number; busy?: boolean }
   ) => {
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.processingStartedAt).toBeUndefined();
     expect(row.stage).toBe('creating-proposal');
-    expect(row.guardianBusy).toBe(true);
+    expect(row.guardianBusy).toBe(busy ? true : undefined);
     expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: streak });
     expect(Number(row.nextEligibleAt) - Math.floor(Date.now() / 1000)).toBe(cooldownSec);
   };
@@ -4745,7 +4746,7 @@ describe('generateTransaction — Guardian routing', () => {
       }
     });
 
-    it('a send whose proposal POST the boundary cuts off at its deadline is requeued as busy, not Failed', async () => {
+    it('a send whose proposal POST the boundary cuts off at its deadline is requeued without the busy mark', async () => {
       jest.useFakeTimers();
       try {
         const service = busyService();
@@ -4774,7 +4775,7 @@ describe('generateTransaction — Guardian routing', () => {
         await jest.advanceTimersByTimeAsync(1);
         await pending;
 
-        expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
+        expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1, busy: false });
         expect(service.createSendProposal).toHaveBeenCalledTimes(1);
         expect(service.abandonCandidate).not.toHaveBeenCalled();
       } finally {
