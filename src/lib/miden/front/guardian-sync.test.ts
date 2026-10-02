@@ -1905,6 +1905,60 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       expect(mockReRegister).toHaveBeenCalledTimes(spent + SELF_HEAL_MAX_ATTEMPTS);
     });
 
+    it('reopens the push budget on a different guardian (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        mockResolveGuardianEndpoint.mockResolvedValue('https://other.guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
+    it('reopens the push budget when the account returns to a guardian it already spent on (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        mockResolveGuardianEndpoint.mockResolvedValue('https://other.guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+
+        mockResolveGuardianEndpoint.mockResolvedValue('https://guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 2, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 2);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
+    it('keeps a permanent refusal closed on a different guardian (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(
+        Object.assign(new Error('The new hot key is not stored in this wallet'), { code: 'HOT_KEY_NOT_STORED' })
+      );
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+        mockResolveGuardianEndpoint.mockResolvedValue('https://other.guardian.test');
+        await lapsAt(clocks, dueLaps(1, SELF_HEAL_MAX_ATTEMPTS));
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
     it('checks a pending account whose rows cannot be read at most once per cooldown (#1233)', async () => {
       storeState.accounts = [pendingAccount] as never;
       mockFindFailedHotKeyRotations.mockRejectedValue(new Error('rows unreadable'));
