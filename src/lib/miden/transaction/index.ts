@@ -2710,6 +2710,38 @@ const resolveRotationHotKey = async (
 };
 
 /**
+ * Retry, before the account's next proposal, the abandon a failed Guardian write could not get through (#1317): until
+ * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
+ * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
+ * quarantine; refused for any reason, it stays for the next attempt and the proposal goes ahead. A record from another
+ * Guardian (a switch since) is dropped unasked. Bounded, since it runs inside the FIFO loop's Web Lock, and never
+ * throws: a cleanup must not fail the write it precedes.
+ */
+const releaseUnabandonedCandidate = async (transaction: ITransaction, service: MultisigService): Promise<void> => {
+  const accountId = canonicalWalletAccountId(transaction.accountId);
+  const prior = getGuardianCandidate(accountId);
+  if (prior === undefined || prior.abandon !== true) return;
+  if (!sameGuardianEndpoint(prior.endpoint, service.guardianEndpoint)) {
+    clearGuardianCandidate(accountId, prior.nonce);
+    return;
+  }
+  try {
+    await withOutgoingGuardianDeadline(
+      () => service.abandonCandidate(prior.nonce),
+      'retrying the abandon of a failed write on its guardian'
+    );
+  } catch (abandonError) {
+    console.warn(`[Guardian] could not abandon candidate ${prior.nonce} yet; proposing anyway:`, abandonError);
+    return;
+  }
+  console.warn(`[Guardian] abandoned candidate ${prior.nonce}, which a failed write had left on its Guardian`);
+  // A later write may have recorded its own candidate meanwhile, and that one stands.
+  if (getGuardianCandidate(accountId) === prior) {
+    recordGuardianCandidate(accountId, { endpoint: prior.endpoint, nonce: prior.nonce });
+  }
+};
+
+/**
  * The settlement gate (#312). This realm's lock on the account ends at submit, not when the Guardian settles the
  * delta, so the next proposal usually met a pending-delta 409. Before a value-moving proposal, ask the Guardian about
  * the candidate the last write here left: still a candidate throws GuardianBackpressureError, which requeues the row
@@ -2804,13 +2836,15 @@ const generateGuardianTransaction = async (
   // providers, keep `withGuardianConflictRetry`, which waits out a transient 409 in process: a requeue of a structural
   // op could mint a second key or register a duplicate delta, and a bridged-send is not requeueable, so a gate refusal
   // or a 409 that reached the loop would fail it. It wraps proposal creation only; replace-hot-key resolves its key
-  // outside it, so its retries propose the same key.
+  // outside it, so its retries propose the same key. Every type first runs `releaseUnabandonedCandidate` once its
+  // service is resolved, so an abandon a failed write could not get through is retried before this proposal (#1317).
   let service: MultisigService;
 
   switch (transaction.type) {
     case 'send': {
       const sendTx = transaction as SendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       const recallBlocks = sendTx.extraInputs?.recallBlocks;
       if (recallBlocks) {
@@ -2865,6 +2899,7 @@ const generateGuardianTransaction = async (
       const consumeTx = transaction as ConsumeTransaction;
       const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
       service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
       break;
@@ -2887,6 +2922,7 @@ const generateGuardianTransaction = async (
           () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
           'loading the outgoing guardian service'
         );
+        await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
         const { proposal } = await withGuardianConflictRetry(() =>
           withOutgoingGuardianDeadline(
@@ -2963,6 +2999,7 @@ const generateGuardianTransaction = async (
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
         t.extraInputs = rTx.extraInputs;
       });
+      await releaseUnabandonedCandidate(transaction, service);
       // The key is resolved once, outside the retried call, so every attempt proposes
       // the same one. After a seed recovery the 409 this waits out is usually the old
       // device's last transaction still settling (#904).
@@ -3007,6 +3044,7 @@ const generateGuardianTransaction = async (
     case 'bridged-send': {
       const bridgeTx = transaction as BridgedSendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
       // Discriminate on the provider, NOT on `requestBytes` presence: the Epoch
       // branch persists the P2IDE bytes it builds, so a retry would otherwise be
       // mistaken for the Agglayer (pre-built request) path.
@@ -3079,12 +3117,14 @@ const generateGuardianTransaction = async (
       // were built. Checked before the service load, which can reach the guardian.
       const requestBytes = await requireEarnDepositRequestBytes(transaction);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       proposalResult = await service.createCustomProposal(requestBytes, 'earn_deposit');
       break;
     }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       const swapTx = transaction as SwapTransaction;
       // PSWAP notes carry a randomly-generated serial number, so the request
@@ -3173,6 +3213,7 @@ const generateGuardianTransaction = async (
       // replace-hot-key): cold + guardian satisfies it on-chain.
       const uptTx = transaction as UpdateProcedureThresholdTransaction;
       service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
       proposalResult = await withGuardianConflictRetry(() =>
         service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
       );
@@ -3191,6 +3232,7 @@ const generateGuardianTransaction = async (
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
       // A dApp builds this request itself and the wallet only ever sees finished bytes, so
       // unlike every other custom-proposal path there is no builder here to commit fee
