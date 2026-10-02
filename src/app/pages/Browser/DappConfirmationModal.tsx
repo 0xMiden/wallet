@@ -26,7 +26,9 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { useSprings } from 'lib/animation';
+import { confirmSensitiveAction } from 'lib/biometric';
 import {
   confirmationPromptKey,
   isDetailsConfirmation,
@@ -34,6 +36,7 @@ import {
   type DAppConfirmationResult
 } from 'lib/dapp-browser/confirmation-store';
 import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -45,8 +48,8 @@ interface DappConfirmationModalProps {
   /** Full bech32 account id — sent back to the dApp on approve and
    *  truncated locally for the connection-panel display. */
   accountId: string | null;
-  /** Called when the user approves or denies. The store updates inside this callback. */
-  onResolve: (result: DAppConfirmationResult) => void;
+  /** Called with the id of the request the user approved or denied. The store updates inside this callback. */
+  onResolve: (result: DAppConfirmationResult, requestId: string) => void;
 }
 
 export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request, accountId, onResolve }) => {
@@ -77,7 +80,18 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   const allowedPrivateDataList = formatAllowedPrivateData(request.allowedPrivateData);
   const [standingAccessAcknowledged, setStandingAccessAcknowledged] = useState(false);
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
+  // Kept with the request whose prompt failed and shown only while that request is on screen, so a
+  // rejection that lands after a replacement never reads as the new request's failure.
+  const [approvalError, setApprovalError] = useState<{ requestId: string; message: string } | null>(null);
   const resolvedRef = useRef(false);
+  // A declined or failed prompt must leave Approve tappable again, so this is its own
+  // latch rather than folded into `resolvedRef`, which marks a request as settled for good.
+  const pendingApprovalRef = useRef(false);
+  // The id of the request this mounted modal currently shows. `requestConfirmation`
+  // replaces a still-pending entry for the same session before this component's
+  // props catch up, so a confirm awaited for an earlier request must not resolve
+  // whatever request now sits at that slot - null once unmounted.
+  const currentRequestIdRef = useRef<string | null>(request.id);
 
   // PR-7: focus management. On mount we store the element that was
   // focused before the modal opened, move focus to the first focusable
@@ -91,14 +105,21 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
   useEffect(() => {
     resolvedRef.current = false;
+    pendingApprovalRef.current = false;
+    currentRequestIdRef.current = request.id;
     setShowSpendingLimitChallenge(false);
+    setApprovalError(null);
+    setStandingAccessAcknowledged(false);
+    return () => {
+      currentRequestIdRef.current = null;
+    };
   }, [request.id]);
 
   useEffect(() => {
     if (request.type !== 'transaction' || transactionAccountMatches || resolvedRef.current) return;
     resolvedRef.current = true;
-    onResolve({ confirmed: false });
-  }, [onResolve, request.type, transactionAccountMatches]);
+    onResolve({ confirmed: false }, request.id);
+  }, [onResolve, request.id, request.type, transactionAccountMatches]);
 
   useEffect(() => {
     const previouslyFocused = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null;
@@ -122,10 +143,14 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Escape and the back handler register once, so they deny through this to reach the request on screen now.
+  const handleDenyRef = useRef(handleDeny);
+  handleDenyRef.current = handleDeny;
+
   // Hardware back / iOS swipe-back closes the modal as a deny.
   useMobileBackHandler(
     () => {
-      handleDeny();
+      handleDenyRef.current();
       return true;
     },
     [],
@@ -136,7 +161,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleDeny();
+        handleDenyRef.current();
         return;
       }
       if (e.key === 'Tab') {
@@ -174,7 +199,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     if (resolvedRef.current) return;
     resolvedRef.current = true;
     hapticLight();
-    onResolve({ confirmed: false });
+    onResolve({ confirmed: false }, request.id);
   }
 
   function resolveApproval(spendingLimitAuthenticated?: true) {
@@ -182,29 +207,59 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     if (resolvedRef.current) return;
     resolvedRef.current = true;
     hapticMedium();
-    onResolve({
-      confirmed: true,
-      accountPublicKey: accountId ?? undefined,
-      // Standing access is granted only on an explicit affirmative gesture.
-      // Approving without ticking the box downgrades to `UponRequest` (each
-      // read prompts) instead of silently honouring what the dApp asked for.
-      privateDataPermission:
-        requestsStandingPrivateData && !standingAccessAcknowledged
-          ? PrivateDataPermission.UponRequest
-          : (request.privateDataPermission ?? PrivateDataPermission.UponRequest),
-      // Mobile has no confirm-popup equivalent of ConfirmPage, which reads this
-      // for the extension; without it the backend hard-coded delegated proving
-      // and silently overrode the user's Delegated-proving setting.
-      delegate: isDelegateProofEnabled(),
-      ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
-    });
+    onResolve(
+      {
+        confirmed: true,
+        accountPublicKey: accountId ?? undefined,
+        // Standing access is granted only on an explicit affirmative gesture.
+        // Approving without ticking the box downgrades to `UponRequest` (each
+        // read prompts) instead of silently honouring what the dApp asked for.
+        privateDataPermission:
+          requestsStandingPrivateData && !standingAccessAcknowledged
+            ? PrivateDataPermission.UponRequest
+            : (request.privateDataPermission ?? PrivateDataPermission.UponRequest),
+        // Mobile has no confirm-popup equivalent of ConfirmPage, which reads this
+        // for the extension; without it the backend hard-coded delegated proving
+        // and silently overrode the user's Delegated-proving setting.
+        delegate: isDelegateProofEnabled(),
+        ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
+      },
+      request.id
+    );
   }
 
-  function handleApprove() {
-    if (!canApprove || resolvedRef.current) return;
+  async function handleApprove() {
+    if (!canApprove || resolvedRef.current || pendingApprovalRef.current) return;
+    setApprovalError(null);
     if (request.spendingLimitAssessment !== undefined) {
       setShowSpendingLimitChallenge(true);
       return;
+    }
+    const requestId = request.id;
+    pendingApprovalRef.current = true;
+    if (request.type === 'transaction') {
+      try {
+        const confirmed = await confirmSensitiveAction(t('confirmDappTransactionReason'), probeHardwareProtector);
+        // This request may have been superseded (a new one replaced it at the same
+        // session slot) or the modal may have unmounted while the prompt was open -
+        // either way `currentRequestIdRef` no longer names it, and resolving now
+        // would hand this approval to whatever request sits there instead.
+        if (currentRequestIdRef.current !== requestId) return;
+        if (!confirmed) {
+          pendingApprovalRef.current = false;
+          return;
+        }
+      } catch (error) {
+        console.error(error);
+        if (currentRequestIdRef.current === requestId) {
+          pendingApprovalRef.current = false;
+          setApprovalError({
+            requestId,
+            message: error instanceof Error && error.message ? error.message : t('smthWentWrong')
+          });
+        }
+        return;
+      }
     }
     resolveApproval();
   }
@@ -306,6 +361,12 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
             <p className="text-sm capitalize text-ink">{request.network}</p>
           </div>
+
+          {approvalError?.requestId === request.id && (
+            <ErrorLine data-testid="dapp-approval-error" className="mt-3">
+              {approvalError.message}
+            </ErrorLine>
+          )}
         </div>
 
         {/* Actions */}

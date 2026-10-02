@@ -21,6 +21,7 @@ import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -426,7 +427,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction('Confirm your send'))) {
+      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector))) {
         setIsSubmitting(false);
         return;
       }

@@ -1288,5 +1288,9 @@
   "unhide": "Afficher",
   "unhideTokenLabel": "Afficher l'$name$",
   "hiddenTokensError": "Impossible de mettre à jour les jetons cachés. Veuillez réessayer.",
-  "hiddenTokensUnreadable": "Les jetons cachés n’ont pas pu être chargés."
+  "hiddenTokensUnreadable": "Les jetons cachés n’ont pas pu être chargés.",
+  "confirmSendReason": "Confirmez votre envoi",
+  "confirmSwapReason": "Confirmez votre changement",
+  "confirmDappTransactionReason": "Confirmez cette transaction",
+  "confirmEarnDepositReason": "Confirmez votre dépôt"
 }

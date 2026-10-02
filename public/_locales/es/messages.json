@@ -5693,5 +5693,21 @@
   "hiddenTokensUnreadable": {
     "message": "No se han podido cargar los tokens ocultos.",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "Confirma tu envío",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "Confirma tu cambio",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "Confirma esta transacción",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "Confirma tu depósito",
+    "englishSource": "Confirm your deposit"
   }
 }
