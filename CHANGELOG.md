@@ -10,6 +10,7 @@
 
 ### Changes
 
+- [CHANGE][ci] Local, Guardian Lifecycle and Guardian Bridge-Out E2E no longer run on pull requests based on a branch other than main or next; there their checks report under names no branch requires, so a stacked run never satisfies a required check on a pull request into main or next; the three can be dispatched by hand against published packages, and a Guardian Lifecycle dispatch runs its full suite (#1071).
 - [CHANGE][all] Import account is removed from the Accounts sheet on Home, with its private-key import page: the wallet holds a single account, so there is nothing to import an account into for now.
 - [FIX][all] Long lists on Send, Receive and Swap pages scroll instead of being cut off, so every recent recipient can be reached (#1291).
 - [FIX][ci] The unfunded guardian recovery test measures the recovered balance against the note that was sent: the public faucet grant on testnet and devnet, and the local funder amount on a chain without one.
