@@ -276,7 +276,7 @@ describe('remoteProver transport deadline (#473)', () => {
   });
 
   it.each<[string, boolean, number]>([
-    ['on mobile it is the 30 min backstop', true, 1_800_000],
+    ['on mobile it is the 120 s delegated deadline', true, 120_000],
     ['on the extension and desktop it is the 120 s delegated deadline', false, 120_000]
   ])('%s', async (_platform, mobile, deadlineMs) => {
     jest.doMock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => mobile }));

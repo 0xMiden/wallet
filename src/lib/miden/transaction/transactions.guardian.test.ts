@@ -23,6 +23,8 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
+import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -3617,6 +3619,111 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
     warnSpy.mockRestore();
     jest.useRealTimers();
+  });
+
+  /**
+   * A delegated guardian send on mobile whose remote prove is in flight across a 140 s freeze. On
+   * resume the SDK's own transport deadline, a plain JS timer, has expired, so the prove rejects
+   * although the prover did not fail (#473). `duringFreeze` runs before that rejection lands.
+   */
+  async function delegatedGuardianSendAcrossFreeze(txId: string, duringFreeze: () => void = () => {}) {
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const doc = installHiddenDocument();
+    initBackgroundTimeTracking();
+    mockPlatformIsMobile = true;
+    try {
+      const result = makeResult();
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+
+      const abandonCandidate = jest.fn(async () => {});
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        abandonCandidate,
+        sync: jest.fn(async () => {})
+      });
+
+      const client = makeClientApi(result);
+      let failRemote!: (error: Error) => void;
+      client.transactions.prove.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            failRemote = reject;
+          })
+      );
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'send',
+          accountId: 'guardian-acc',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          amount: '1000',
+          delegateTransaction: true
+        } as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+      doc.setHidden(true);
+      doc.freezeFor(140_000);
+      doc.setHidden(false);
+      duringFreeze();
+      failRemote(new Error('failed to prove transaction: Deadline expired before operation could complete'));
+      await pending.catch(() => {});
+      return { client, result, abandonCandidate };
+    } finally {
+      mockPlatformIsMobile = false;
+      __resetBackgroundTimeForTest();
+      doc.restore();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  }
+
+  it('Guardian send (delegated, mobile): a remote prove the freeze broke is re-proved remotely, never locally (#473)', async () => {
+    const txId = 'send-guardian-delegated-freeze';
+    const { client, result, abandonCandidate } = await delegatedGuardianSendAcrossFreeze(txId);
+
+    expect(TransactionProver.newCallbackProver).not.toHaveBeenCalled();
+    expect(TransactionProver.newLocalProver).not.toHaveBeenCalled();
+    expect(client.transactions.prove).toHaveBeenCalledTimes(2);
+    expect(client.transactions.prove).toHaveBeenNthCalledWith(2, result, {});
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('Guardian send (delegated, mobile): a freeze that cost the hold starts no remote re-prove (#473)', async () => {
+    const { client } = await delegatedGuardianSendAcrossFreeze('send-guardian-delegated-freeze-evicted', revokeHold);
+
+    expect(client.transactions.prove).toHaveBeenCalledTimes(1);
+    expect(TransactionProver.newCallbackProver).not.toHaveBeenCalled();
+    expect(TransactionProver.newLocalProver).not.toHaveBeenCalled();
   });
 
   it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {
