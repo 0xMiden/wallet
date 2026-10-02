@@ -16,7 +16,6 @@ import {
   isLikelyNetworkError
 } from '@openzeppelin/miden-multisig-client';
 
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -276,10 +275,8 @@ const ecdsaSignatureAdviceEntry = (
  * are folded into the request's advice map. The result flows through the same
  * execute → prove → submit leaf as a proposal-built request.
  *
- * Since protocol 0.16 the signed summary binds the reference block commitment,
- * so the returned `chainAnchorB64` MUST be supplied to the executing
- * `executeRequest` — an unanchored execution at a later sync height derives a
- * different summary and the hot/cold signatures no longer verify.
+ * The anchor names the block the auth args bind; the rebuilt request declares
+ * that block so both signatures verify when the final leaf executes at the tip.
  *
  * Only the NEW guardian is contacted (its `getPubkey` is unauthenticated), to
  * fetch the pubkey commitment the on-chain rotation installs.
@@ -357,7 +354,7 @@ export const createDirectSwitchGuardianRequest = async (
   // proxy sync freshens the offscreen client while the local client that
   // `buildUpdateGuardianTransactionRequest`/`executeForSummary` run on stays
   // dormant, so the hot/cold signatures would bind a summary derived from
-  // stale state and the anchored execution would fail as unauthorized —
+  // stale state and execution would fail as unauthorized -
   // precisely in the dead-old-guardian recovery this path exists for.
   //
   // An eviction abandons this callback rather than cancelling it, and the mutex
@@ -384,11 +381,10 @@ export const createDirectSwitchGuardianRequest = async (
     // summary's anchor below names.
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
       accountId: accountIdHex,
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: getEffectiveRpcUrl()
+      signatureScheme: 'ecdsa'
     });
     assertWasmHoldCurrent(hold, 'direct-request: after the request build');
-    const { summary, anchor } = await executeForSummary(webClient, accountIdHex, request, getEffectiveRpcUrl());
+    const { summary, anchor } = await executeForSummary(webClient, accountIdHex, request);
     // `freeChainAnchor` in a `finally`, like every other anchor site (#784): the
     // anchor carries a partial blockchain, so it must not leak if the
     // serialization below throws, and wasm-bindgen's `free()` has no
@@ -494,8 +490,7 @@ export const createDirectSwitchGuardianRequest = async (
       boundBlockNum: built.boundBlockNum,
       salt: Word.fromHex(ensureHexPrefix(built.saltHex)),
       signatureAdviceMap,
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: getEffectiveRpcUrl()
+      signatureScheme: 'ecdsa'
     });
     return rebuilt;
   });

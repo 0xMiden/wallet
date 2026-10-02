@@ -1309,16 +1309,10 @@ describe('MultisigService', () => {
         // refuses a request that carries none.
         {
           accountId: 'acc-id',
-          signatureScheme: 'ecdsa',
-          midenRpcEndpoint: expect.any(String)
+          signatureScheme: 'ecdsa'
         }
       );
-      expect(mockExecuteForSummary).toHaveBeenCalledWith(
-        expect.anything(),
-        'acc-id',
-        { kind: 'request' },
-        expect.any(String)
-      );
+      expect(mockExecuteForSummary).toHaveBeenCalledWith(expect.anything(), 'acc-id', { kind: 'request' });
       // The anchor from execution has to be serialized onto the proposal: the
       // multisig client refuses to execute a proposal whose metadata carries no
       // chainAnchor, so dropping it strands the proposal permanently.
@@ -1550,8 +1544,7 @@ describe('MultisigService', () => {
         // refuses a request that carries none.
         {
           accountId: 'acc-id',
-          signatureScheme: 'ecdsa',
-          midenRpcEndpoint: expect.any(String)
+          signatureScheme: 'ecdsa'
         }
       );
     });

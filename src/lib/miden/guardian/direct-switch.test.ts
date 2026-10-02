@@ -516,20 +516,13 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(mockGuardianGetPubkey).toHaveBeenCalledWith('ecdsa');
   });
 
-  // Both builds have to agree, and both have to be the EFFECTIVE endpoint. The
-  // summary the two device keys sign comes from the first call and the request
-  // that is submitted from the second, so a scheme or endpoint that differs
-  // between them yields a request whose commitment nothing signed — and a
-  // build-baked endpoint winning over a developer override builds the whole
-  // rotation against the wrong network.
-  it('builds the summary and the rebuild alike against the effective RPC endpoint, as ECDSA', async () => {
+  it('builds and rebuilds ECDSA auth args on the supplied client with the same bound block and salt', async () => {
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
     expect(summaryBuild[2]).toEqual({
       accountId: '0xacct-id',
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: 'https://rpc.test'
+      signatureScheme: 'ecdsa'
     });
     // The auth args bind a block, so the rebuild pins the one the summary anchor
     // names rather than taking whatever the store synced to while the vault signed.
@@ -538,8 +531,7 @@ describe('createDirectSwitchGuardianRequest', () => {
       boundBlockNum: 4242,
       salt: { hex: '0xsalt', toFelts: expect.any(Function) },
       signatureAdviceMap: expect.anything(),
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: 'https://rpc.test'
+      signatureScheme: 'ecdsa'
     });
     // The SALT is what has to agree across the two calls now: the builder declares it
     // and miden-client commits `hash(CONVERSION_INFO || SALT)` from it, so a salt that
@@ -550,8 +542,7 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(mockedMultisigClient.executeForSummary).toHaveBeenCalledWith(
       expect.anything(),
       '0xacct-id',
-      expect.anything(),
-      'https://rpc.test'
+      expect.anything()
     );
   });
 
@@ -733,7 +724,7 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).toHaveBeenCalledWith(
       expect.anything(),
       NEW_GUARDIAN_COMMITMENT,
-      expect.objectContaining({ signatureScheme: 'ecdsa', midenRpcEndpoint: 'https://rpc.test' })
+      expect.objectContaining({ signatureScheme: 'ecdsa' })
     );
   });
 

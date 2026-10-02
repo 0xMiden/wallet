@@ -384,7 +384,11 @@ const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
-    client: { transactions: { executeRequest } },
+    client: {
+      syncChain: jest.fn(async () => {}),
+      getSyncHeight: jest.fn(async () => 100),
+      transactions: { executeRequest }
+    },
     __executeRequest: executeRequest
   };
 };

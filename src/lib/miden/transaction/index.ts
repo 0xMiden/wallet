@@ -1,5 +1,4 @@
 import {
-  ChainAnchor,
   NoteType,
   type TransactionRequest,
   TransactionProver,
@@ -28,13 +27,12 @@ import {
   withGuardianConflictRetry
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
+import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
-import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
-import { b64ToU8 } from 'lib/shared/helpers';
 import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
 
@@ -2013,7 +2011,7 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage) => Promise<void>,
-  chainAnchorB64?: string
+  _chainAnchorB64?: string
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
@@ -2034,22 +2032,11 @@ const runGuardianPipeline = async (
     // deserialize on whatever the eviction had since handed to a successor.
     await setStage('executing');
     assertStillHoldingLock(hold, 'after the client build and the executing stage write');
-    // #784: execute AT the proposal's anchored reference block, not the current
-    // sync height. The co-signatures were collected over a summary that binds
-    // that block's commitment (protocol 0.16), so an unanchored execute after
-    // the chain advanced derives a different summary and the kernel rejects the
-    // transaction as unauthorized. Decoded in-realm from the wire-form base64
-    // (`ChainAnchor.deserialize` re-validates header/chain consistency); freed
-    // as soon as executeRequest is done with it — the rest of the pipeline
-    // never touches it.
-    let anchor: ChainAnchor | undefined;
-    let executedTx;
-    try {
-      anchor = chainAnchorB64 ? ChainAnchor.deserialize(b64ToU8(chainAnchorB64)) : undefined;
-      executedTx = await midenClient.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
-    } finally {
-      freeChainAnchor(anchor);
-    }
+    await prepareGuardianTipExecution(midenClient.client, tr, () =>
+      assertStillHoldingLock(hold, 'while preparing tip execution')
+    );
+    assertStillHoldingLock(hold, 'before executing at the tip');
+    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
     // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
     // during `executeRequest` (a network round trip on the normal ceiling) abandons
     // this callback instead of stopping it, and mobile/desktop run THIS copy — the
@@ -2347,10 +2334,7 @@ const generateDirectSwitchGuardianTransaction = async (
     guardianProvider.signWord
   );
 
-  // Same leaf routing as the proposal path — offscreen flag-on, inline
-  // flag-off — with the summary's ChainAnchor riding along so the execution is
-  // pinned to the reference block the hot/cold signatures authorized
-  // (protocol 0.16).
+  // Keep the anchor transport slot for compatibility; final multisig execution uses the tip.
   await setTransactionStage(transaction.id, 'sending');
   let result: TransactionResult;
   if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
@@ -3084,24 +3068,7 @@ const generateGuardianTransaction = async (
     // direct-switch escape in the catch is closed from here on.
     guardianCoSignReturned = true;
 
-    // #784: the proposal carries the ChainAnchor of the reference block its
-    // signed summary was built at (`metadata.chainAnchor`, base64). The leaf
-    // pins executeRequest to it so the co-signed summary reproduces even when
-    // the chain advanced during the guardian round-trip — without it, guardian
-    // writes fail as "transaction is unauthorized" at a rate that scales with
-    // that window (measured 4.5%→35% as the round-trip grew under load). The
-    // anchor↔summary binding was already validated by `signProposal` (inside
-    // `signAndCreateTransactionRequest`), which also THROWS on a proposal with
-    // no anchor — so the fallback below cannot be reached by a proposal that
-    // just passed signing; it only keeps a mocked/legacy service on the old
-    // (racy, but mostly-working) unanchored behavior instead of bricking it.
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
-    if (!chainAnchorB64) {
-      console.warn('[Guardian] proposal has no chain anchor — executing at the current sync height (#784)', {
-        transactionId: transaction.id,
-        proposalId: proposalResult.id
-      });
-    }
 
     await setTransactionStage(transaction.id, 'sending');
     if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
@@ -3144,12 +3111,6 @@ const generateGuardianTransaction = async (
       if (transaction.requestBytes !== undefined) {
         await markMayHaveSubmitted(transaction.id);
       }
-      // The proposal's ChainAnchor rides along (protocol 0.16): the signed
-      // summary binds the reference block it was built at, so the leaf's
-      // executeRequest must be pinned there — the executing realm's sync height
-      // has usually advanced past it during the guardian HTTP roundtrips, and an
-      // unanchored execute derives a different summary the collected signatures
-      // no longer authorize ("transaction is unauthorized").
       result = await dispatchGuardianPipeline(
         transaction.accountId,
         tr.serialize(),

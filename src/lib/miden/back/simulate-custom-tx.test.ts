@@ -81,12 +81,7 @@ describe('simulateCustomTransaction', () => {
     });
     expect(importNoteBytes).toHaveBeenCalledTimes(2);
     expect(syncState).toHaveBeenCalledTimes(1);
-    expect(executeForSummary).toHaveBeenCalledWith(
-      fakeClient,
-      'hex:mtst1abc',
-      { __req: expect.any(Uint8Array) },
-      expect.any(String)
-    );
+    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
@@ -209,12 +204,7 @@ describe('simulateCustomTransaction', () => {
 
   it('passes a hex address straight through without calling accountIdStringToSdk', async () => {
     const res = await simulateCustomTransaction({ address: '0xabc', transactionRequest: 'reqB64' });
-    expect(executeForSummary).toHaveBeenCalledWith(
-      fakeClient,
-      '0xabc',
-      { __req: expect.any(Uint8Array) },
-      expect.any(String)
-    );
+    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
     expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
@@ -239,12 +229,8 @@ describe('simulateCustomTransaction', () => {
     expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
-  // Regression: `executeForSummary` runs on a client `getRawMidenClient` builds itself, without
-  // the create-options keystore this wallet installs, so it has no signer for an ordinary account
-  // and dies inside the kernel's auth-request event. That is not TRANSACTION_ALREADY_AUTHORIZED,
-  // so it used to rethrow, leaving the dApp custom sheet with no verified asset view, and making
-  // an account with a spending limit refuse every custom request, since the wallet could attribute
-  // no effects to it.
+  // Signing failures can still use the wallet execution fallback; unrelated
+  // kernel failures must remain errors rather than being retried.
   it.each([
     [
       'the kernel auth-request failure',
