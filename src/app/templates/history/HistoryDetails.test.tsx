@@ -26,9 +26,6 @@ import { HistoryDetails } from './HistoryDetails';
 import { IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
-// The estimates under test follow the default rule, no figure without a quote; pinned here against
-// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
-jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
   AccountId: {

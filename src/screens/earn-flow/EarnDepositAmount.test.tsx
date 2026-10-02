@@ -16,9 +16,6 @@ const mockRefetch = jest.fn();
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
-// The prices under test follow the default rule, no price without a quote; pinned here against
-// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
-jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));

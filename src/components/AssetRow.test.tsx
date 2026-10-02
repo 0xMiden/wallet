@@ -15,9 +15,6 @@ import AssetRowDefault, { AssetRow } from './AssetRow';
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo" data-symbol={symbol} />
 }));
-// The figures under test follow the default rule, no figure without a quote; pinned here against
-// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
-jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 
 jest.mock('components/ui', () => ({
   // The three figures are nodes now, not strings, so the stub renders them instead of stringifying

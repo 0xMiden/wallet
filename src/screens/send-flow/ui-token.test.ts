@@ -5,9 +5,6 @@ import { _resetNormalizedFaucetIdsForTest, TOKEN_IETH } from 'lib/miden/swap/tok
 import { UIToken } from './types';
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
 
-// The prices under test follow the default rule, no price without a quote; pinned here against
-// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
-jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => null,
   getNativeAssetMetadataSync: () => null
