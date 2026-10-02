@@ -261,26 +261,24 @@ export async function authenticate(reason: string): Promise<boolean> {
 }
 
 /**
- * Ask the device owner to confirm a send or swap when this wallet unlocks with
- * biometrics (the vault holds its hardware protector). A password or passcode
- * wallet, and any non-mobile platform, is not prompted.
+ * Ask the device owner to confirm a send, swap, earn deposit or dApp transaction
+ * when this wallet unlocks with biometrics (the vault holds its hardware
+ * protector). A password or passcode wallet, and any non-mobile platform, is not
+ * prompted.
  *
  * The prompt allows the device passcode as a fallback, so a biometry lockout
  * still prompts rather than skipping the check. A probe that rejects propagates:
  * the caller shows its error and the action does not proceed.
  *
  * @param reason - Prompt text shown to the user (e.g. "Confirm your send").
- * @param hasHardwareProtector - Whether the vault holds its hardware protector. Callers pass
+ * @param probe - Whether the vault holds its hardware protector. Callers pass
  *   `probeHardwareProtector` (`lib/miden/back/protector-probe`) by reference, which answers from the
  *   hardware key read and rejects only when both protector reads fail. It is a parameter rather than
  *   an import because the vault imports this module.
  */
-export async function confirmSensitiveAction(
-  reason: string,
-  hasHardwareProtector: () => Promise<boolean>
-): Promise<boolean> {
+export async function confirmSensitiveAction(reason: string, probe: () => Promise<boolean>): Promise<boolean> {
   if (!isMobile()) return true;
-  if (!(await hasHardwareProtector())) return true;
+  if (!(await probe())) return true;
   return authenticate(reason);
 }
 
