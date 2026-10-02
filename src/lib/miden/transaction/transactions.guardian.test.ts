@@ -8254,6 +8254,7 @@ describe('generateTransaction — Guardian routing', () => {
   const arrangeLandedRotation = () => {
     const txId = 'replace-apply-fail-suffix';
     const coldService = {
+      guardianEndpoint: 'https://old.guardian',
       createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace', nonce: 3 })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -8544,6 +8545,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
     return {
       run,
+      service,
       finalizeGuardianSwitch,
       setGuardianEndpoint,
       row: () => txStore.find(r => r.id === txId) as Record<string, unknown>
@@ -8609,6 +8611,26 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row().status).toBe(ITransactionStatus.Failed);
     expect(row().error).toMatch(/: Guardian switch exec-tx-hash did not land: the node discarded it\.$/);
     // The account's next proposal retries it (#1317).
+    expect(getGuardianCandidate('guardian-acc')).toEqual({
+      endpoint: 'https://old.guardian',
+      nonce: 41,
+      abandon: true
+    });
+  });
+
+  it('flags the recorded candidate of a discarded switch whose outgoing service cannot be rebuilt (#1317)', async () => {
+    const abandonCandidate = jest.fn(async (_nonce: number) => {});
+    const { run, row, service } = startDiscardedLandedSwitch('switch-discarded-outgoing-offline', abandonCandidate);
+    // The outgoing guardian goes offline once it holds the delta, so the reconcile cannot rebuild its service.
+    service.pushSwitchDeltaBounded.mockImplementation(async () => {
+      mockGetOrCreateMultisigService.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      return 'pushed' as const;
+    });
+    await run;
+
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    expect(row().status).toBe(ITransactionStatus.Failed);
+    expect(row().error).toMatch(/: Guardian switch exec-tx-hash did not land: the node discarded it\.$/);
     expect(getGuardianCandidate('guardian-acc')).toEqual({
       endpoint: 'https://old.guardian',
       nonce: 41,
@@ -8807,6 +8829,7 @@ describe('generateTransaction — Guardian routing', () => {
   // service backs the proposal; the reconcile builds none.
   const arrangeLandedThreshold = (apply: Parameters<typeof makeClientApi>[1]) => {
     const coldService = {
+      guardianEndpoint: 'https://old.guardian',
       createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => ({
         id: 'prop-upt',
         nonce: 9
@@ -9031,9 +9054,28 @@ describe('generateTransaction — Guardian routing', () => {
     }
   );
 
+  it.each(landedStructuralArrangements)(
+    '$type landed: a discard whose abandon cannot build its cold service flags the recorded candidate for abandon (#1317)',
+    async ({ arrange, nonce }) => {
+      const { run, row, coldService } = arrange();
+      mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+      // The proposal's build succeeds; the abandon's build (the second) fails as it does offline.
+      mockBuildColdMultisigService
+        .mockResolvedValueOnce(coldService)
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await run();
+
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: 'https://old.guardian', nonce, abandon: true });
+    }
+  );
+
   it('replace-hot-key landed: a discarded rotation whose abandon fails records the abandon for the next proposal (#1317)', async () => {
     const { run, row, coldService } = arrangeLandedRotation();
-    Object.assign(coldService, { guardianEndpoint: 'https://old.guardian' });
     coldService.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
     mockDidDirectSwitchLand.mockResolvedValueOnce(false);
     jest.spyOn(console, 'warn').mockImplementation(() => {});

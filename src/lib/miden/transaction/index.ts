@@ -1069,8 +1069,9 @@ async function reconcileStructuralApplyFailure(
     // later switch meets that candidate as a 409. Not gated on `switchDeltaPushed`: a silent push can
     // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
     const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
-    if (isGuardianSwitchDiscardedError(error) && service && typeof nonce === 'number') {
-      await abandonDiscardedCandidate(tx.accountId, service, nonce);
+    if (isGuardianSwitchDiscardedError(error) && typeof nonce === 'number') {
+      if (service) await abandonDiscardedCandidate(tx.accountId, service, nonce);
+      else flagCandidateForAbandon(tx.accountId, nonce);
     }
     throw error;
   }
@@ -2400,6 +2401,7 @@ const requireLandedCommit = async (
         `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
         buildError
       );
+      flagCandidateForAbandon(tx.accountId, nonce);
     }
   }
   throw new GuardianWriteDiscardedError(`Guardian ${tx.type} ${id} did not land: the node discarded it.`);
@@ -2748,6 +2750,16 @@ const recordUnabandonedCandidate = (accountId: string, service: MultisigService,
     nonce,
     abandon: true
   });
+
+/**
+ * Flag the record of a candidate whose abandon could not even be attempted, so the account's next
+ * proposal retries it (#1317). Only the record of that nonce: a later write's record is kept.
+ */
+const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
+  const key = canonicalWalletAccountId(accountId);
+  const recorded = getGuardianCandidate(key);
+  if (recorded?.nonce === nonce) recordGuardianCandidate(key, { ...recorded, abandon: true });
+};
 
 /**
  * Generate a transaction for a Guardian account using the MultisigService.
