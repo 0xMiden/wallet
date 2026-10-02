@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, act, fireEvent } from '@testing-library/react';
 
+import { holdNavbarHidden, useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+
 import HomeSwipeContainer from './HomeSwipeContainer';
 import { PageActiveContext, TabActiveContext, usePageActive } from './page-active';
 
@@ -32,6 +34,8 @@ const mockMotionValue = { set: mockMotionSet, get: () => mockX };
 const mockDragStart = jest.fn();
 const mockDragControls = { start: mockDragStart };
 const mockBoostRefreshRate = jest.fn();
+const mockUseHideNavbarWhileOpen = useHideNavbarWhileOpen;
+const mockSwapReview = { open: false };
 
 // The spring is solved into a `linear()` easing before the release starts. The
 // null-below-half-a-pixel rule is the real one's, and matters: it's the branch a
@@ -147,18 +151,23 @@ jest.mock('app/pages/Receive', () => ({
 jest.mock('screens/send-flow/SendManager', () => ({
   __esModule: true,
   SendFlow: ({ isLoading }: { isLoading?: boolean }) => (
-    <MockPage data-testid="page-send" data-loading={String(isLoading)} />
+    <MockPage data-testid="page-send" data-loading={String(isLoading)}>
+      <input data-testid="send-amount-input" />
+    </MockPage>
   )
 }));
 // The swap pane carries the amount fields whose `<input>` made framer refuse to
 // start a drag, so this stub keeps one.
 jest.mock('screens/swap-flow/SwapManager', () => ({
   __esModule: true,
-  SwapFlow: () => (
-    <MockPage data-testid="page-swap">
-      <input data-testid="swap-amount-input" />
-    </MockPage>
-  )
+  SwapFlow: () => {
+    mockUseHideNavbarWhileOpen(mockSwapReview.open);
+    return (
+      <MockPage data-testid="page-swap">
+        <input data-testid="swap-amount-input" />
+      </MockPage>
+    );
+  }
 }));
 
 // Swap availability is gated by isSwapEnabled (false on iOS); toggle it to
@@ -255,6 +264,7 @@ beforeEach(() => {
   mockLastBeforeLayoutMeasure = null;
   mockRoCallback = null;
   mockSwapEnabled.value = true;
+  mockSwapReview.open = false;
   mockReduceMotion.value = false;
   mockLinearEasing.value = true;
   mockX = 0;
@@ -376,6 +386,53 @@ function tapResumedByFramer(node: Element) {
 }
 
 describe('HomeSwipeContainer', () => {
+  it('releases a Swap review hold when its action page moves out of view', () => {
+    mockPathname = '/swap';
+    mockSwapReview.open = true;
+    const { rerender } = render(<HomeSwipeContainer />);
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+
+    mockPathname = '/receive';
+    rerender(<HomeSwipeContainer />);
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+
+    mockPathname = '/swap';
+    rerender(<HomeSwipeContainer />);
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+  });
+
+  it('marks only the selected action page active', () => {
+    mockPathname = '/swap';
+    const { getByTestId, rerender } = render(<HomeSwipeContainer />);
+    expect(getByTestId('page-swap')).toHaveAttribute('data-page-active', 'true');
+
+    mockPathname = '/receive';
+    rerender(<HomeSwipeContainer />);
+    expect(getByTestId('page-swap')).toHaveAttribute('data-page-active', 'false');
+  });
+
+  it('releases keyboard focus when a retained action page moves out of view', () => {
+    mockPathname = '/send';
+    const { getByTestId, rerender } = render(<HomeSwipeContainer />);
+    const input = getByTestId('send-amount-input');
+    let releaseNavbar: (() => void) | undefined;
+    input.addEventListener('focus', () => {
+      releaseNavbar = holdNavbarHidden();
+    });
+    input.addEventListener('blur', () => {
+      releaseNavbar?.();
+    });
+
+    input.focus();
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+
+    mockPathname = '/receive';
+    rerender(<HomeSwipeContainer />);
+
+    expect(input).not.toHaveFocus();
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+  });
+
   it('mounts all five home pages in the track', () => {
     const { getByTestId } = render(<HomeSwipeContainer />);
     expect(getByTestId('page-explore')).toBeInTheDocument();
