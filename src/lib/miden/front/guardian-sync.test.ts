@@ -1872,8 +1872,8 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     // Past the finisher's widest backoff by a margin, so a fractional performance.now() base cannot round a
     // gap to just under it.
-    const dueLaps = (first: number, count: number) =>
-      Array.from({ length: count }, (_, lap) => (first + lap) * (FUSED_SYNC_PROBE_INTERVAL_MS + 1_000));
+    const dueLap = (lap: number) => lap * (FUSED_SYNC_PROBE_INTERVAL_MS + 1_000);
+    const dueLaps = (first: number, count: number) => Array.from({ length: count }, (_, lap) => dueLap(first + lap));
 
     it('stops pushing for a rotation whose swap keeps failing once the push budget is spent (#1233)', async () => {
       storeState.accounts = [pendingAccount];
@@ -1950,7 +1950,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
 
         // Lit on the other guardian's lap's own clock, so that lap stops at the fused exit.
-        const [otherLap] = dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1);
+        const otherLap = dueLap(SELF_HEAL_MAX_ATTEMPTS + 1);
         const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(clocks.p0 + otherLap);
         noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://other.guardian.test'));
         perfSpy.mockRestore();
