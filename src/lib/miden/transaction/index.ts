@@ -26,10 +26,12 @@ import {
   readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from 'lib/miden/guardian/discover';
+import { GUARDIAN_REQUEST_TIMEOUT_MS } from 'lib/miden/guardian/native-http';
 import {
   clearGuardianCandidate,
   getGuardianCandidate,
   GuardianBackpressureError,
+  type GuardianCandidate,
   guardianRetryAfterSec,
   isGuardianPendingConflict,
   isGuardianRateLimited,
@@ -2351,7 +2353,9 @@ const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, propo
  * Abandon the candidate a discarded structural write left on its guardian (#1233), deadline-bounded and
  * best-effort like the other outgoing-guardian cleanups. Safe although the submit resolved: a discarded
  * transaction has left the mempool and never lands, and the guardian refuses the abandon if it did. A failed
- * abandon is recorded under `accountId`, so the account's next proposal retries it (#1317).
+ * abandon flags that candidate's record under `accountId`, so the account's next proposal retries it (#1317).
+ * The record is there to flag: every caller reaches this after the submit resolved, and `recordLeftCandidate`
+ * wrote it, with its proposal's stamps, earlier in the same call stack.
  */
 const abandonDiscardedCandidate = async (accountId: string, service: MultisigService, nonce: number): Promise<void> => {
   try {
@@ -2361,7 +2365,7 @@ const abandonDiscardedCandidate = async (accountId: string, service: MultisigSer
     );
   } catch (abandonError) {
     console.warn(`[Guardian] could not abandon the discarded candidate at nonce ${nonce}:`, abandonError);
-    recordUnabandonedCandidate(accountId, service, nonce);
+    flagCandidateForAbandon(accountId, nonce);
   }
 };
 
@@ -2729,28 +2733,45 @@ const resolveRotationHotKey = async (
 };
 
 /**
+ * How long after its proposal a candidate's abandon may still be retried (#1317): one Guardian hold less one request
+ * timeout. A retried abandon is keyed only by nonce, so it must not reach the Guardian after the Guardian released the
+ * candidate it targets, and a request sent before this ends is cut off by the fetch boundary before the hold does.
+ */
+const ABANDON_RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TIMEOUT_MS;
+
+/** The two clocks' readings for the proposal that creates a candidate, as its record carries them (#1317). */
+type ProposalStamps = Pick<GuardianCandidate, 'proposedAt' | 'proposedAtMono'>;
+
+/**
  * Retry, before the account's next proposal, the abandon a failed Guardian write could not get through (#1317): until
  * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
  * quarantine; refused for any reason, it stays for the next attempt and the proposal goes ahead. A record from another
- * Guardian (a switch since) is dropped unasked. A mark one Guardian hold old (GUARDIAN_CANDIDATE_HOLD_MS) turns plain
- * unretried: the Guardian has released that candidate itself, and an abandon at its nonce could only reach another
- * device's live candidate on the account. Never throws: a cleanup must not fail the write it precedes. Bounded at
- * PRIOR_CANDIDATE_CHECK_TIMEOUT_MS, since it runs inside the FIFO loop's Web Lock: the bound cancels nothing and the
- * next proposal retries idempotently, so a shorter one than the outgoing deadline loses nothing and shortens each stall
- * against a silent Guardian.
+ * Guardian (a switch since) is dropped unasked. A mark whose candidate is ABANDON_RETRY_WINDOW_MS old turns plain
+ * unretried: the Guardian has released that candidate itself, or will before an abandon sent now could arrive, and an
+ * abandon at its nonce could only reach another device's live candidate on the account. The age is the larger of the
+ * two clocks' elapsed times since the proposal: a wall clock set back cannot shrink it, since the monotonic one keeps
+ * counting, and neither can device sleep, since the wall clock keeps counting. Never throws: a cleanup must not fail
+ * the write it precedes. Bounded at PRIOR_CANDIDATE_CHECK_TIMEOUT_MS, since it runs inside the FIFO loop's Web Lock:
+ * the bound cancels nothing and the next proposal retries idempotently, so a shorter one than the outgoing deadline
+ * loses nothing and shortens each stall against a silent Guardian.
  */
 const releaseUnabandonedCandidate = async (transaction: ITransaction, service: MultisigService): Promise<void> => {
   const accountId = canonicalWalletAccountId(transaction.accountId);
   const prior = getGuardianCandidate(accountId);
-  const markedAt = prior?.abandonMarkedAt;
-  if (prior === undefined || markedAt === undefined) return;
+  if (prior?.abandon !== true) return;
   if (!sameGuardianEndpoint(prior.endpoint, service.guardianEndpoint)) {
     clearGuardianCandidate(accountId, prior.nonce);
     return;
   }
-  const plain = { endpoint: prior.endpoint, nonce: prior.nonce };
-  if (Date.now() - markedAt >= GUARDIAN_CANDIDATE_HOLD_MS) {
+  const plain: GuardianCandidate = {
+    endpoint: prior.endpoint,
+    nonce: prior.nonce,
+    proposedAt: prior.proposedAt,
+    proposedAtMono: prior.proposedAtMono
+  };
+  const age = Math.max(Date.now() - prior.proposedAt, monotonicNowMs() - prior.proposedAtMono);
+  if (age >= ABANDON_RETRY_WINDOW_MS) {
     recordGuardianCandidate(accountId, plain);
     return;
   }
@@ -2792,33 +2813,47 @@ const assertPriorCandidateSettled = async (transaction: ITransaction, service: M
 /**
  * Remember the candidate a Guardian write whose submit resolved left on its Guardian, for the next proposal's
  * settlement gate (#312). Every Guardian write records, structural ones included, so a send after a rotation waits
- * for the rotation's delta too.
+ * for the rotation's delta too. `proposalStamps` are the caller's, taken before its proposal (#1317).
  */
-const recordLeftCandidate = (transaction: ITransaction, service: MultisigService, proposal: Proposal): void =>
+const recordLeftCandidate = (
+  transaction: ITransaction,
+  service: MultisigService,
+  proposal: Proposal,
+  proposalStamps: ProposalStamps
+): void =>
   recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
     endpoint: service.guardianEndpoint,
-    nonce: proposal.nonce
+    nonce: proposal.nonce,
+    ...proposalStamps
   });
 
 /**
  * Remember a candidate whose transaction never landed and whose best-effort abandon failed, so the account's next
- * proposal retries the abandon (#1317) instead of meeting that candidate until its Guardian's hold expires.
+ * proposal retries the abandon (#1317) instead of meeting that candidate until its Guardian's hold expires. Stamped
+ * with the caller's `proposalStamps`, not the failure's time: the hold began at the proposal.
  */
-const recordUnabandonedCandidate = (accountId: string, service: MultisigService, nonce: number): void =>
+const recordUnabandonedCandidate = (
+  accountId: string,
+  service: MultisigService,
+  nonce: number,
+  proposalStamps: ProposalStamps
+): void =>
   recordGuardianCandidate(canonicalWalletAccountId(accountId), {
     endpoint: service.guardianEndpoint,
     nonce,
-    abandonMarkedAt: Date.now()
+    ...proposalStamps,
+    abandon: true
   });
 
 /**
- * Flag the record of a candidate whose abandon could not even be attempted, so the account's next
- * proposal retries it (#1317). Only the record of that nonce: a later write's record is kept.
+ * Flag the record of a candidate whose abandon failed or could not even be attempted, so the account's next
+ * proposal retries it (#1317). Only the record of that nonce: a later write's record is kept. The record keeps
+ * its proposal's stamps, so the retry window still closes where the Guardian's hold does.
  */
 const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
   const key = canonicalWalletAccountId(accountId);
   const recorded = getGuardianCandidate(key);
-  if (recorded?.nonce === nonce) recordGuardianCandidate(key, { ...recorded, abandonMarkedAt: Date.now() });
+  if (recorded?.nonce === nonce) recordGuardianCandidate(key, { ...recorded, abandon: true });
 };
 
 /**
@@ -2851,6 +2886,9 @@ const generateGuardianTransaction = async (
   // so surfacing "Creating proposal" immediately is more honest than
   // leaving the label stuck on "Sending transaction".
   await setTransactionStage(transaction.id, 'creating-proposal');
+  // Before any proposal, so never later than the Guardian's candidate exists: the record of the candidate this
+  // write leaves measures its retry window from here (#1317).
+  const proposalStamps: ProposalStamps = { proposedAt: Date.now(), proposedAtMono: monotonicNowMs() };
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
@@ -3358,7 +3396,7 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce);
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
       }
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
@@ -3539,7 +3577,7 @@ const generateGuardianTransaction = async (
     // leaves wrap every post-submit failure as the apply-after-submit error.
     const submitResolved = isApplyAfterSubmitError(error);
     // The node has the write, so its candidate is on the Guardian now: the next proposal's gate asks about it (#312).
-    if (submitResolved) recordLeftCandidate(transaction, service, proposalResult);
+    if (submitResolved) recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
     // The same hand-over as the success path below, for a switch whose submit resolved and whose
     // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
     // chain may never see.
@@ -3584,7 +3622,7 @@ const generateGuardianTransaction = async (
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce);
+        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
       }
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the
@@ -3626,7 +3664,7 @@ const generateGuardianTransaction = async (
     throw error;
   }
 
-  recordLeftCandidate(transaction, service, proposalResult);
+  recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
 
   // Clears the WORKER's copy of a prover outage, and only ever that one. Each
   // realm holds its own `connectivity-state` module state, so this cannot reach

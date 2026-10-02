@@ -463,33 +463,36 @@ describe('GuardianBackpressureError (#312)', () => {
   });
 });
 
+// The wall-clock and monotonic stamps of the proposal that created the candidate (#1317).
+const STAMPS = { proposedAt: 1_000, proposedAtMono: 50 };
+
 describe('the settlement record (#312)', () => {
   it('reads back the candidate recorded for an account, and none for another', () => {
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, ...STAMPS });
 
-    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7 });
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7, ...STAMPS });
     expect(getGuardianCandidate('B')).toBeUndefined();
   });
 
   it("replaces an account's candidate with its next write's", () => {
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 8 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, ...STAMPS });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 8, ...STAMPS });
 
-    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 8 });
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 8, ...STAMPS });
   });
 
   it('clears only the nonce it was asked about, so a newer write survives a stale clear', () => {
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 8 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 8, ...STAMPS });
 
     clearGuardianCandidate('A', 7);
-    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 8 });
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 8, ...STAMPS });
 
     clearGuardianCandidate('A', 8);
     expect(getGuardianCandidate('A')).toBeUndefined();
   });
 
   it('is dropped with the account locks', () => {
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, ...STAMPS });
 
     clearGuardianAccountLocks();
 
@@ -499,20 +502,20 @@ describe('the settlement record (#312)', () => {
 
 describe('the abandon mark (#1317)', () => {
   it('reads back a candidate recorded with its abandon mark', () => {
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, abandonMarkedAt: 1_000 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, ...STAMPS, abandon: true });
 
-    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7, abandonMarkedAt: 1_000 });
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7, ...STAMPS, abandon: true });
   });
 
   it('is gone once a plain record of the same candidate replaces it', () => {
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, abandonMarkedAt: 1_000 });
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, ...STAMPS, abandon: true });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, ...STAMPS });
 
-    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7 });
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7, ...STAMPS });
   });
 
   it('clears by nonce like a plain record', () => {
-    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, abandonMarkedAt: 1_000 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7, ...STAMPS, abandon: true });
 
     clearGuardianCandidate('A', 7);
 
