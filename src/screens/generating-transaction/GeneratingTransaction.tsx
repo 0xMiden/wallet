@@ -293,6 +293,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const failedRow = activeTransaction ?? completedTransaction;
   const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isUnconfirmedFailure(failedRow);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
+  // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
+  // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.
+  const guardianBusy =
+    isGuardian && activeTransaction?.status === ITransactionStatus.Queued && activeTransaction.guardianBusy === true;
 
   useEffect(() => {
     if (!transactionComplete || hasErrors) {
@@ -341,6 +345,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return t(commitUnconfirmed ? 'transactionSubmittedUnconfirmedDescription' : 'transactionSuccessDescription');
     }
+    if (guardianBusy) return t('guardianBusyDescription');
     return t(getStageDescriptionKey(activeStage));
   }, [
     transactionComplete,
@@ -350,7 +355,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     activeStage,
     commitUnconfirmed,
     activeTransaction,
-    completedTransaction
+    completedTransaction,
+    guardianBusy
   ]);
 
   const dismissalDescription = useMemo(() => {
@@ -367,7 +373,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const processingTitleKey = getProcessingTitleKey(activeType);
   const visibleTitle = transactionComplete ? headerText() : t(processingTitleKey);
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
-  const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');
+  const footerDescription =
+    transactionComplete || guardianBusy ? descriptionText() : t('generatingTransactionDescription');
   // On failure the row's stage freezes at the failing phase (setTransactionStage
   // never writes past a terminal status), so it pins the cross to the right step.
   const activeStepIndex = hasErrors
@@ -488,18 +495,16 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
           <div className="mt-6 w-full overflow-hidden rounded-2xl bg-fill">
             {steps.map((step, index) => {
-              const state = getTransactionStepState(
-                index,
-                activeStepIndex,
-                transactionComplete,
-                hasErrors,
-                unconfirmed
-              );
+              const waitingOnGuardian = guardianBusy && index === 0;
+              const state = waitingOnGuardian
+                ? 'pending'
+                : getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors, unconfirmed);
               return (
                 <TransactionStepRow
                   key={step.id}
                   step={step}
                   state={state}
+                  label={waitingOnGuardian ? t('guardianBusyStep') : undefined}
                   accent={accent}
                   isLast={index === steps.length - 1}
                   meta={state === 'complete' ? stepDurationLabels[index] : undefined}
