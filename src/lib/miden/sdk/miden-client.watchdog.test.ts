@@ -1213,13 +1213,36 @@ describe('watchdog counts running time only (#473)', () => {
     await jest.advanceTimersByTimeAsync(5_000);
     expect(isWasmClientBusy()).toBe(true);
 
-    // Still bounded: evicted once its running time, 10 s visible and 15 s of pulse
+    // Still bounded: evicted once its running time, 10 s visible and 5 s of pulse
     // slack so far, reaches the ceiling.
-    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 25_000 - 1);
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 15_000 - 1);
     expect(isWasmClientBusy()).toBe(true);
     await jest.advanceTimersByTimeAsync(1);
     await wedgedRejects;
     expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('a hold with 15 s left across a 20 s freeze is not evicted on resume', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+      const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+      await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 15_000);
+      doc.setHidden(true);
+      // 15 s of it is frozen; the 5 s of pulse slack is charged, so 10 s are left.
+      doc.freezeFor(20_000);
+      doc.setHidden(false);
+      expect(isWasmClientBusy()).toBe(true);
+
+      await jest.advanceTimersByTimeAsync(9_999);
+      expect(isWasmClientBusy()).toBe(true);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(isWasmClientBusy()).toBe(false);
+      await wedgedRejects;
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('logs a re-arm after a freeze once, with the hold and the running time left', async () => {
@@ -1232,14 +1255,14 @@ describe('watchdog counts running time only (#473)', () => {
       doc.setHidden(true);
       doc.freezeFor(400_000);
       doc.setHidden(false);
-      // 5 s visible and 15 s of pulse slack are spent.
+      // 5 s visible and 5 s of pulse slack are spent.
       expect(warnSpy).toHaveBeenCalledWith('[miden-client] watchdog re-armed after a frozen stretch:', {
         hold: 'frozen-hold',
-        leftMs: 280_000
+        leftMs: 290_000
       });
       expect(warnSpy).toHaveBeenCalledTimes(1);
 
-      await jest.advanceTimersByTimeAsync(279_999);
+      await jest.advanceTimersByTimeAsync(289_999);
       expect(isWasmClientBusy()).toBe(true);
       await jest.advanceTimersByTimeAsync(1);
       expect(isWasmClientBusy()).toBe(false);
@@ -1287,7 +1310,7 @@ describe('watchdog counts running time only (#473)', () => {
     doc.setHidden(false);
     expect(isWasmClientBusy()).toBe(true);
 
-    await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 15_000 - 1);
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 5_000 - 1);
     expect(isWasmClientBusy()).toBe(true);
     await jest.advanceTimersByTimeAsync(1);
     await wedgedRejects;

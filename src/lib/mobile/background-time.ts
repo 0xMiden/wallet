@@ -19,9 +19,12 @@
  * delegated prove, or the WASM lock watchdog, on resume (#473). Hidden is not
  * frozen: a hidden WebView may keep running JS (Android, Capacitor
  * KeepRunning), and there these deadlines must still fire on time, so a freeze
- * is measured rather than assumed from visibility (see `markNow`). Until
- * tracking is initialised it equals `performance.now()`, so the extension and
- * desktop, which never initialise it, keep plain monotonic time.
+ * is measured rather than assumed from visibility (see `markNow`): it is a
+ * silence longer than the hidden pulse can explain, 12 s in the first 5 minutes
+ * hidden and 75 s after that, once Chrome's intensive throttling may slow a
+ * hidden page's timers to one wake-up a minute. Until tracking is initialised
+ * it equals `performance.now()`, so the extension and desktop, which never
+ * initialise it, keep plain monotonic time.
  */
 
 interface HiddenInterval {
@@ -40,17 +43,27 @@ let installed = false;
 // Running time, on the monotonic clock and kept apart from the epoch-ms
 // intervals above, which `Date.now()` corrections can skew: the frozen total,
 // the last liveness mark (when the clock was last read, and whether the
-// document was hidden then), and the pulse that reads it while hidden.
+// document was hidden then), when the current hidden stretch began, and the
+// pulse that reads the clock while hidden.
 let frozenTotalMs = 0;
 let lastMarkAt: number | null = null;
 let lastMarkHidden = false;
+let hiddenStartedAt: number | null = null;
 let pulse: ReturnType<typeof setInterval> | null = null;
 
 /** How often the clock is read while the document is hidden. */
-const RUNNING_PULSE_MS = 15_000;
+const RUNNING_PULSE_MS = 5_000;
 
-// Above the one wake-up a minute to which Chrome's intensive throttling slows a
-// long-hidden page, so throttled but running JS is never counted as frozen.
+// Two pulse periods plus slack: until throttling can apply, a hidden page's
+// pulse runs on time, so any longer silence is a freeze.
+const EARLY_FROZEN_GAP_MS = 12_000;
+
+// Chrome's intensive throttling slows the timers of a page hidden this long to
+// one wake-up a minute.
+const THROTTLED_AFTER_HIDDEN_MS = 300_000;
+
+// Above that one wake-up a minute, so throttled but running JS is never
+// counted as frozen.
 const FROZEN_GAP_MS = 75_000;
 
 // Bound memory by COUNT, not by age. An age-based window could drop an interval
@@ -100,16 +113,22 @@ function monotonicNow(): number {
 /**
  * Read the monotonic clock and, once tracking is installed, leave a liveness
  * mark. While hidden the pulse reads the clock every `RUNNING_PULSE_MS`, so a
- * gap since the last mark that began hidden and outlasts `FROZEN_GAP_MS` is a
- * stretch our JS did not run. Up to one pulse period of it may have run, so
- * that much stays running time. A gap that began visible is never frozen.
+ * gap since the last mark that began hidden is a stretch our JS did not run
+ * once it outlasts what the pulse can explain: `EARLY_FROZEN_GAP_MS` while the
+ * read that closes it comes less than `THROTTLED_AFTER_HIDDEN_MS` after the
+ * page went hidden, and `FROZEN_GAP_MS` from then on, when throttling may hold
+ * the pulse to a minute. Keyed on the gap's end, so a throttled wake-up that
+ * reaches into that window is judged by the throttled threshold. Up to one
+ * pulse period of it may have run, so that much stays running time. A gap that
+ * began visible is never frozen.
  */
 function markNow(): number {
   const now = monotonicNow();
   if (!installed) return now;
   if (lastMarkAt !== null && lastMarkHidden) {
     const gap = now - lastMarkAt;
-    if (gap > FROZEN_GAP_MS) frozenTotalMs += gap - RUNNING_PULSE_MS;
+    const unthrottled = hiddenStartedAt !== null && now - hiddenStartedAt < THROTTLED_AFTER_HIDDEN_MS;
+    if (gap > (unthrottled ? EARLY_FROZEN_GAP_MS : FROZEN_GAP_MS)) frozenTotalMs += gap - RUNNING_PULSE_MS;
   }
   lastMarkAt = now;
   lastMarkHidden = document.hidden;
@@ -120,8 +139,11 @@ function startPulse(): void {
   if (pulse !== null) return;
   pulse = setInterval(() => {
     markNow();
-    // Also ends the pulse when the visible event never arrives.
-    if (!document.hidden) stopPulse();
+    // Also ends the hidden stretch when the visible event never arrives.
+    if (!document.hidden) {
+      stopPulse();
+      hiddenStartedAt = null;
+    }
   }, RUNNING_PULSE_MS);
 }
 
@@ -189,7 +211,7 @@ export function initBackgroundTimeTracking(): void {
   /* istanbul ignore next -- defensive no-DOM/SSR guard; unreachable under the jsdom test env */
   if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
   installed = true;
-  markNow();
+  const monoNow = markNow();
 
   // Seed the open interval if we start up already hidden (e.g. a background
   // relaunch): there is no visibilitychange→hidden event to open it, so without
@@ -197,6 +219,7 @@ export function initBackgroundTimeTracking(): void {
   // under-counted (#473 review). Nor is there one to start the pulse.
   if (document.hidden) {
     hiddenSince = Date.now();
+    hiddenStartedAt = monoNow;
     startPulse();
   }
 
@@ -207,13 +230,15 @@ export function initBackgroundTimeTracking(): void {
 // a listener left on it would keep writing into the next test's clock.
 function onVisibilityChange(): void {
   const now = Date.now();
-  markNow();
+  const monoNow = markNow();
   if (document.hidden) {
     if (hiddenSince === null) hiddenSince = now;
+    if (hiddenStartedAt === null) hiddenStartedAt = monoNow;
     startPulse();
     return;
   }
   stopPulse();
+  hiddenStartedAt = null;
   if (hiddenSince !== null) {
     hiddenIntervals.push({ start: hiddenSince, end: now });
     hiddenSince = null;
@@ -230,5 +255,6 @@ export function __resetBackgroundTimeForTest(): void {
   frozenTotalMs = 0;
   lastMarkAt = null;
   lastMarkHidden = false;
+  hiddenStartedAt = null;
   installed = false;
 }

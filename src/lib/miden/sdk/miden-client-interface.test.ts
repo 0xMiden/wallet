@@ -1378,6 +1378,24 @@ describe('MidenClientInterface', () => {
       expect(jest.getTimerCount()).toBe(0);
     });
 
+    it('a prove that fails across a 40 s freeze is re-proved once remotely', async () => {
+      const { proveDelegated, newRemoteProver } = await loadProveDelegated();
+      const first = pendingProve();
+      const prove = jest.fn().mockReturnValueOnce(first.promise).mockResolvedValueOnce('proof');
+      const settled = proveDelegated(prove, LABEL, jest.fn()).then(
+        value => ({ value }),
+        (error: unknown) => ({ error })
+      );
+
+      freezeFor(40_000);
+      first.fail(new Error('DeadlineExceeded: Request timed out'));
+      const outcome = await settled;
+
+      expect(newRemoteProver).toHaveBeenCalledTimes(2);
+      expect(outcome).toEqual({ value: 'proof' });
+      expect(prove).toHaveBeenCalledTimes(2);
+    });
+
     it('a failure with no frozen time does not retry', async () => {
       const { proveDelegated } = await loadProveDelegated();
       const failure = new Error('prover unavailable');
@@ -1409,7 +1427,7 @@ describe('MidenClientInterface', () => {
 
       freezeFor(140_000);
       first.fail(new Error('DeadlineExceeded: Request timed out'));
-      // The first attempt's deadline had 105 s left; the retry gets a whole one.
+      // The first attempt's deadline had 115 s left; the retry gets a whole one.
       await jest.advanceTimersByTimeAsync(119_999);
       expect(prove).toHaveBeenCalledTimes(2);
       expect(outcome).toBe('pending');
