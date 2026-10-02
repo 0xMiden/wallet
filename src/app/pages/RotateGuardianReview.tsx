@@ -28,7 +28,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianRotationInProgress } from 'lib/miden/guardian/rotation-in-progress';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension, isMobile } from 'lib/platform';
+import { isExtension, isIOS, isMobile } from 'lib/platform';
 import {
   isDelegateProofEnabled,
   isValidGuardianUrl,
@@ -115,7 +115,7 @@ const RotateGuardianReview: FC = () => {
         if (!(await isBiometricEnabled())) return;
         const availability = await checkBiometricAvailability();
         if (cancelled) return;
-        if (availability.biometryType === 'face') setHotKeyLabel(t('faceId'));
+        if (availability.biometryType === 'face') setHotKeyLabel(isIOS() ? t('faceId') : t('faceUnlock'));
         else if (availability.biometryType !== 'none') setHotKeyLabel(t('fingerprint'));
       } catch {
         // Keep the password fallback.

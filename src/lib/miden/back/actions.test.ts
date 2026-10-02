@@ -82,6 +82,15 @@ const mockVault = {
   insertKeySink: jest.fn()
 };
 
+// A spawned vault whose first read fails, so the action never publishes it.
+const unpublishableVault = () => ({
+  fetchAccounts: jest.fn().mockRejectedValue(new Error('account read failed')),
+  fetchSettings: jest.fn(),
+  getCurrentAccount: jest.fn(),
+  isOwnMnemonic: jest.fn(),
+  retire: jest.fn()
+});
+
 // Mock store callbacks
 const mockInited = jest.fn();
 const mockLocked = jest.fn();
@@ -792,6 +801,82 @@ describe('actions', () => {
       );
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
+    });
+
+    it('undoes a created wallet when its setup fails after the spawn resolved (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const provisionalVault = unpublishableVault();
+      Vault.spawn.mockResolvedValueOnce(provisionalVault);
+
+      await expect(registerNewWallet(WalletType.OnChain, 'pw')).rejects.toThrow('account read failed');
+
+      expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
+      expect(mockUnlocked).not.toHaveBeenCalled();
+      // The spawn RESOLVED, so its own undo cannot fire: this one clears the vault it wrote.
+      expect(mockStorageRemove).toHaveBeenCalled();
+    });
+
+    it('never undoes a published wallet (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce(mockVault);
+
+      await registerNewWallet(WalletType.OnChain, 'pw');
+
+      expect(mockVault.retire).not.toHaveBeenCalled();
+      // The only removal is the legacy guardian URL drop.
+      expect(mockStorageRemove).toHaveBeenCalledTimes(1);
+      expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
+    });
+  });
+
+  it.each([
+    ['registerNewWallet', 'spawn', () => registerNewWallet(WalletType.OnChain, 'pw')],
+    ['registerWalletFromHotKey', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
+    ['registerImportedWallet', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'mnemonic', [], 2, [])]
+  ] as const)(
+    '%s finishes its undo before a queued retry spawns, so the undo cannot wipe the retry (#946)',
+    async (_action, spawnMethod, invoke) => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const order: string[] = [];
+      Vault[spawnMethod].mockResolvedValueOnce(unpublishableVault()).mockImplementationOnce(async () => {
+        order.push('retry spawn');
+        return mockVault;
+      });
+      mockStorageRemove.mockImplementation(async (removed: string[]) => {
+        order.push(`remove ${removed.join(',')}`);
+      });
+
+      const failed = invoke();
+      const retried = invoke();
+      await expect(failed).rejects.toThrow('account read failed');
+      await retried;
+
+      expect(order).toEqual(['remove DAppEnabled', 'retry spawn', 'remove guardian_url_setting']);
+    }
+  );
+
+  describe('registerWalletFromHotKey', () => {
+    it('undoes an imported wallet when its setup fails after the spawn resolved (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const provisionalVault = unpublishableVault();
+      Vault.spawnFromHotKey.mockResolvedValueOnce(provisionalVault);
+
+      await expect(registerWalletFromHotKey('pw', 'hot:evm')).rejects.toThrow('account read failed');
+
+      expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
+      expect(mockUnlocked).not.toHaveBeenCalled();
+      expect(mockStorageRemove).toHaveBeenCalled();
+    });
+
+    it('never undoes a published wallet (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromHotKey.mockResolvedValueOnce(mockVault);
+
+      await registerWalletFromHotKey('pw', 'hot:evm');
+
+      expect(mockVault.retire).not.toHaveBeenCalled();
+      expect(mockStorageRemove).toHaveBeenCalledTimes(1);
+      expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
     });
   });
 

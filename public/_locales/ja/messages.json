@@ -2175,6 +2175,50 @@
     "message": "この端末では、生体認証によるロック解除はご利用いただけません。",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "ここで使用するには、設定で「指紋認証」または「顔認証」を仕事用に設定してください。",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "「設定」で指紋または顔認証を設定し、生体認証によるロック解除を利用してください。",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "仕事用に設定した顔認証や指紋認証では、ウォレットを保護するにはセキュリティが不十分です。ここで使用するには、設定で「仕事用」の指紋認証を設定してください。",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "このデバイスで設定されている顔認証や指紋認証によるロック解除は、ウォレットを保護するには十分なセキュリティレベルではありません。「設定」で指紋を登録し、生体認証によるロック解除を使用してください。",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "このデバイスの生体認証機能ではウォレットを保護できません。代わりにパスコードを使用してください。",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "現在、生体認証センサーは利用できません。もう一度お試しいただくか、パスコードをご利用ください。",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID や Touch ID は利用できません。このアプリで無効になっている場合は、「設定」で有効にするか、パスコードを使用してください。",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "生体認証によるロック解除を使用するには、最新のセキュリティ更新プログラムをインストールしてください。",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "生体認証によるロック解除を使用するには、設定でデバイスのパスコードを設定してください。",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "試行回数が多すぎると、生体認証によるロック解除がロックされます。デバイスのロックを解除してから、再度お試しください。",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "「設定」を開く",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Guardian を選択してください",
     "englishSource": "Choose your Guardian"
@@ -3939,6 +3983,14 @@
   "fingerprint": {
     "message": "指紋",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "顔認証",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "カメラへのアクセスが拒否されました",

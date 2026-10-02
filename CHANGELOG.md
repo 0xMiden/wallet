@@ -54,6 +54,7 @@
 
 ### Fixes
 
+- [FIX][all] A wallet creation or seed-less Guardian import that fails part way no longer leaves behind the vault-key protector it wrote, or a complete wallet that the next start opens on Unlock: like a failed restore, it leaves no wallet (#946).
 - [FIX][all] Private-note duplicate acknowledgements clear the SDK relay outbox, so delivery checks and interrupted sends no longer cause the same stored notes to be resent on every sync (#1294).
 - [FIX][extension] The transaction queue starts its next ready transaction as soon as it finishes one instead of idling 5 s first, so a claim queued behind Guardian sends no longer waits an extra 5 s for each; the E2E claim drain now fails only once transactions stop completing or the drain reaches twice its budget, and the stress suite's claims use its Guardian-aware budget (#1266)
 - [FIX][mobile][desktop] When the wallet cannot read whether it unlocks with biometrics, the recovery phrase, private key, account file, wallet file and Guardian rotation pages now take whichever credential the wallet has, instead of asking a biometrics-only wallet for a password it never set (or, on Guardian rotation, keeping Continue disabled). When neither credential can be read, a page shows an error instead of an unlock step (#1056).
@@ -124,6 +125,7 @@
 - [FIX][mobile][desktop] A desktop dApp listener that re-registers itself runs once per emission instead of hanging the page, and a throwing listener is logged; on the six screens that check the wallet's unlock method, a check that fails or does not answer within 5 s now ends in an error with a working Retry instead of leaving the page waiting (#1241).
 - [FIX][all] A wallet restored for an account whose Guardian recovery already ran or was interrupted starts its own recovery without an app restart (#1302).
 - [FIX][all] A link that opens the hidden Activity tab with a new filter shows the list already in place, with no rows sliding (#1198).
+- [FIX][mobile] Biometric setup says why biometrics can't be used and what to do: with no fingerprint or face enrolled it says so (in an Android work profile, Fingerprint or Face Unlock for work) and on Android offers Open Settings, then checks again when you come back; Android setup offers biometrics only when a strong (class 3) biometric is enrolled, as the vault key needs; and Unlock's biometric icon matches an Android device's fingerprint or face sensor, and the Rotate Guardian review's hot-key row names it Face unlock on Android, Face ID on iOS; a device with only a weaker biometric enrolled is now told to set up a stronger one instead of a generic enrollment message (in a work profile, for work), with Open Settings offered there too, and on iOS, a Face ID the user turned off for the app now says so instead of a generic hardware-unavailable message (#465).
 
 ## 1.16.2 (2026-09-24)
 

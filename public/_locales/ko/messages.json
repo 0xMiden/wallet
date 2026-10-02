@@ -2175,6 +2175,50 @@
     "message": "이 기기에서는 생체 인식 잠금 해제가 지원되지 않습니다.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "여기서 사용하려면 설정에서 업무용 지문 또는 얼굴 인식 잠금 해제를 설정하세요.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "설정에서 지문이나 얼굴을 등록하여 생체 인식 잠금 해제를 사용하세요.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "업무용으로 설정된 얼굴 또는 지문 잠금 해제 기능은 지갑을 보호하기에 충분히 안전하지 않습니다. 여기에서 사용하려면 설정에서 업무용 지문 잠금 해제를 설정하십시오.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "이 기기에 설정된 얼굴 또는 지문 잠금 해제 기능은 지갑을 보호하기에 충분히 안전하지 않습니다. 설정에서 지문을 등록하여 생체 인식 잠금 해제 기능을 사용하십시오.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "이 기기의 생체 인식 기능은 지갑을 보호할 수 없습니다. 대신 암호를 사용하십시오.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "현재 생체 인식 센서를 사용할 수 없습니다. 다시 시도하거나 비밀번호를 사용해 주세요.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID 또는 Touch ID를 사용할 수 없습니다. 이 앱에서 해당 기능이 꺼져 있다면, 설정에서 켜거나 패스코드를 사용하세요.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "생체 인식 잠금 해제를 사용하려면 최신 보안 업데이트를 설치하십시오.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "생체 인식 잠금 해제를 사용하려면 설정에서 기기 암호를 설정하십시오.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "생체 인증 잠금 해제는 시도 횟수가 너무 많으면 잠깁니다. 기기의 잠금을 해제한 후 다시 시도하십시오.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "설정 열기",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Guardian를 선택하세요",
     "englishSource": "Choose your Guardian"
@@ -3939,6 +3983,14 @@
   "fingerprint": {
     "message": "지문",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "얼굴 인식 잠금 해제",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "카메라 권한이 거부되었습니다.",

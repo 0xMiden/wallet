@@ -2175,6 +2175,50 @@
     "message": "El desbloqueo biométrico no está disponible en este dispositivo.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Configura el desbloqueo mediante huella dactilar o reconocimiento facial para el trabajo en «Ajustes» para poder utilizarlo aquí.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "Configura una huella dactilar o el reconocimiento facial en «Ajustes» para utilizar el desbloqueo biométrico.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "El desbloqueo facial o mediante huella dactilar configurado para el trabajo no es lo suficientemente seguro como para proteger un monedero. Configura «Huella dactilar» para el trabajo en «Ajustes» para poder utilizarla aquí.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "El desbloqueo por reconocimiento facial o huella dactilar configurado en este dispositivo no es lo suficientemente seguro como para proteger un monedero. Configura una huella dactilar en «Ajustes» para utilizar el desbloqueo biométrico.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "La biometría de este dispositivo no puede proteger una cartera. Utiliza un código de acceso en su lugar.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "El sensor biométrico no está disponible en este momento. Inténtalo de nuevo o utiliza un código de acceso.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID o Touch ID no están disponibles. Si están desactivados para esta aplicación, actívalos en «Ajustes» o utiliza un código de acceso.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Instala la última actualización de seguridad para utilizar el desbloqueo biométrico.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Configura un código de acceso para el dispositivo en «Ajustes» para utilizar el desbloqueo biométrico.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "El desbloqueo biométrico se bloquea tras demasiados intentos. Desbloquea tu dispositivo y vuelve a intentarlo.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Abrir Ajustes",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Elige tu «Guardian»",
     "englishSource": "Choose your Guardian"
@@ -3939,6 +3983,14 @@
   "fingerprint": {
     "message": "Huella dactilar",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Desbloqueo facial",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "Se ha denegado el permiso para acceder a la cámara",
