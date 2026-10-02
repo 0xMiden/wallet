@@ -7,7 +7,11 @@ import {
   REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
   REGISTER_DOMAIN_SCRIPT_ROOT_HEX
 } from './note-script-roots';
-import { loadMidenNameNoteScriptBytes, loadRegisterDomainScript, resetMidenNameNoteScriptsCacheForTests } from './script';
+import {
+  loadMidenNameNoteScriptBytes,
+  loadRegisterDomainScript,
+  resetMidenNameNoteScriptsCacheForTests
+} from './script';
 import { NoteScript } from './test-support/fake-sdk';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));

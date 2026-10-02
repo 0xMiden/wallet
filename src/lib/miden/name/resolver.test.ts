@@ -82,14 +82,11 @@ describe('resolveMidenName', () => {
     await expect(resolveMidenName('alice')).resolves.toBe('mtst11234');
   });
 
-
   it('returns null when there is no forward record, and caches it', async () => {
     await expect(resolveMidenName('alice')).resolves.toBeNull();
     await expect(resolveMidenName('alice')).resolves.toBeNull();
     expect(mockRead).toHaveBeenCalledTimes(1);
   });
-
-
 
   it('returns null for a forward value with an unknown layout', async () => {
     setEntry(MIDEN_NAME_SLOTS.domainToAccount, statusKeyFeltsForLabel('alice', REGISTRY), [1n, 0n, 2n, 3n]);

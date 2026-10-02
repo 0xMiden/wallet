@@ -12,7 +12,11 @@ import {
   MidenNameTakenError,
   MidenNameUnsupportedNetworkError
 } from './errors';
-import { assertMidenNameRegistrationLive, assertRegistrationPreconditions, MIDEN_NAME_RECLAIM_SAFETY_BLOCKS } from './guard';
+import {
+  assertMidenNameRegistrationLive,
+  assertRegistrationPreconditions,
+  MIDEN_NAME_RECLAIM_SAFETY_BLOCKS
+} from './guard';
 import type { MidenNameQuote } from './reads';
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: jest.fn() }));

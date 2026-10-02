@@ -2,8 +2,8 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
-import type { MidenNameTrackerDeps } from './tracker';
 import { MIDEN_NAME_TRACKER_INTERVAL_MS, MidenNameWatcher, runTrackerPassExclusive } from './MidenNameWatcher';
+import type { MidenNameTrackerDeps } from './tracker';
 
 const mockReconcile = jest.fn<Promise<void>, [MidenNameTrackerDeps]>();
 jest.mock('./tracker', () => ({
