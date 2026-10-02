@@ -2697,7 +2697,7 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Le commutateur « Guardian » a atteint le réseau, mais cet appareil n’a pas encore pu enregistrer le nouvel état de votre compte. Le portefeuille continue d’essayer en arrière-plan, et tant qu’il n’y parvient pas, les transactions provenant de cet appareil risquent de ne pas aboutir. Vous n’avez pas besoin de relancer le commutateur « Guardian ».",
+    "message": "Le changement de Guardian a atteint le réseau, mais cet appareil n’a pas encore pu enregistrer le nouvel état de votre compte. Le portefeuille continue d’essayer en arrière-plan, et tant qu’il n’y parvient pas, les transactions provenant de cet appareil risquent de ne pas aboutir. Vous n’avez pas besoin de relancer le changement de Guardian.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
@@ -2705,7 +2705,7 @@
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Le commutateur « Guardian » a atteint le réseau, mais cet appareil n’a pas pu enregistrer le nouvel état de votre compte et ne peut pas le restaurer de lui-même. Ne relancez pas le commutateur « Guardian ». Contactez le service d’assistance.",
+    "message": "Le changement de Guardian a atteint le réseau, mais cet appareil n’a pas pu enregistrer le nouvel état de votre compte et ne peut pas le restaurer de lui-même. Ne relancez pas le changement de Guardian. Contactez le service d’assistance.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {

@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { accentForTransactionType } from 'components/flow/accent';
 import { ITransaction } from 'lib/miden/db/types';
@@ -620,5 +622,50 @@ describe('GuardianSwitchSuccess', () => {
     // both: the prop is actually wired, and its value is the derived one.
     expect(mockLayoutProps!.accent).not.toBeUndefined();
     expect(mockLayoutProps!.accent).toBe(accentForTransactionType('switch-guardian'));
+  });
+});
+
+// The translation job rendered the switch in these two bodies as hardware or a toggle (commutateur, スイッチ,
+// 开关), so they are written by hand; an entry whose englishSource matches en.json survives the job's next run.
+// Read from disk, since the t() mock above never reaches a bundle.
+describe('Guardian-switch receipt bodies in each locale (#1233)', () => {
+  const LOCALES_DIR = path.join(__dirname, '../../../../public/_locales');
+  const RECEIPT_BODY_KEYS = ['guardianSwitchLocalStateNotSavedBody', 'guardianSwitchLocalStateUnrecoverableBody'];
+  // Each locale's term for the switch, as its shipped Guardian-switch strings already use it.
+  const SWITCH_TERMS: [string, RegExp][] = [
+    ['de', /Guardian-Wechsel/iu],
+    ['es', /cambio de Guardian/iu],
+    ['fr', /changement de Guardian/iu],
+    ['ja', /Guardianの変更/iu],
+    ['ko', /Guardian 변경/iu],
+    ['pl', /zmian\p{L}* Guardiana/iu],
+    ['pt', /mudança de Guardian/iu],
+    ['ru', /смен\p{L}* Guardian/iu],
+    ['tr', /Guardian değişikliğ\p{L}*/iu],
+    ['uk', /змін\p{L}* Guardian/iu],
+    ['zh_CN', /Guardian 切换/iu],
+    ['zh_TW', /Guardian 切換/iu]
+  ];
+  const HARDWARE_SENSE =
+    /commutateur|conmutador|przełącznik|anahtar|スイッチ|스위치|переключатель|перемикач|коммутатор|комутатор|交换机|开关|switch|切換器|切換功能|開關|交換機/iu;
+
+  type LocaleEntry = { message: string; englishSource?: string };
+  function readLocaleFile<T>(file: string): T {
+    return JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, file), 'utf8'));
+  }
+  const en: Record<string, string | undefined> = readLocaleFile('en/en.json');
+
+  it.each(SWITCH_TERMS)('%s names the switch with its own term, never as hardware or a toggle', (locale, term) => {
+    const messages: Record<string, LocaleEntry | undefined> = readLocaleFile(`${locale}/messages.json`);
+    const bundle: Record<string, string | undefined> = readLocaleFile(`${locale}/${locale}.json`);
+
+    for (const key of RECEIPT_BODY_KEYS) {
+      const message = messages[key]?.message;
+      expect(message).toMatch(term);
+      expect(message).not.toMatch(HARDWARE_SENSE);
+      expect(typeof en[key]).toBe('string');
+      expect(messages[key]?.englishSource).toBe(en[key]);
+      expect(bundle[key]).toBe(message);
+    }
   });
 });

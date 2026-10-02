@@ -2697,7 +2697,7 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Перемикач «Guardian» підключився до мережі, але цей пристрій ще не зміг зберегти новий стан вашого облікового запису. Гаманець продовжує намагатися у фоновому режимі, і доки йому це не вдасться, транзакції з цього пристрою можуть не проходити. Вам не потрібно запускати перемикач «Guardian» ще раз.",
+    "message": "Зміна Guardian дійшла до мережі, але цей пристрій ще не зміг зберегти новий стан вашого облікового запису. Гаманець продовжує спроби у фоновому режимі, і доки вони не вдадуться, транзакції з цього пристрою можуть не проходити. Повторно виконувати зміну Guardian не потрібно.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
@@ -2705,7 +2705,7 @@
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Перемикач «Guardian» підключився до мережі, але цей пристрій не зміг зберегти новий стан вашого облікового запису і не може самостійно його відновити. Не запускайте перемикач «Guardian» знову. Зверніться до служби підтримки.",
+    "message": "Зміна Guardian дійшла до мережі, але цей пристрій не зміг зберегти новий стан вашого облікового запису і не може самостійно його відновити. Не виконуйте зміну Guardian повторно. Зверніться до служби підтримки.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {

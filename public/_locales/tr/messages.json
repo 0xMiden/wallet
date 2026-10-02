@@ -2697,7 +2697,7 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Guardian'i anahtarı ağa ulaştı, ancak bu cihaz henüz hesabınızın yeni durumunu kaydedemedi. Cüzdan arka planda denemeye devam eder ve başarılı olana kadar bu cihazdan yapılan işlemler gerçekleştirilemeyebilir. Guardian anahtarını tekrar çalıştırmanıza gerek yoktur.",
+    "message": "Guardian değişikliği ağa ulaştı, ancak bu cihaz henüz hesabınızın yeni durumunu kaydedemedi. Cüzdan arka planda denemeye devam eder ve başarılı olana kadar bu cihazdan yapılan işlemler gerçekleştirilemeyebilir. Guardian değişikliğini tekrar yapmanıza gerek yoktur.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
@@ -2705,7 +2705,7 @@
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Guardian'i anahtarı ağa ulaştı, ancak bu cihaz hesabınızın yeni durumunu kaydedemedi ve kendi başına kurtaramaz. Guardian anahtarını tekrar çalıştırmayın. Destek ekibiyle iletişime geçin.",
+    "message": "Guardian değişikliği ağa ulaştı, ancak bu cihaz hesabınızın yeni durumunu kaydedemedi ve kendi başına kurtaramaz. Guardian değişikliğini tekrar yapmayın. Destek ekibiyle iletişime geçin.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {

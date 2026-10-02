@@ -2697,7 +2697,7 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Переключатель «Guardian» подключился к сети, но это устройство пока не смогло сохранить новое состояние вашей учетной записи. Кошелек продолжает попытки в фоновом режиме, и до тех пор, пока ему это не удастся, транзакции с этого устройства могут не проходить. Вам не нужно запускать переключатель «Guardian» повторно.",
+    "message": "Смена Guardian дошла до сети, но это устройство пока не смогло сохранить новое состояние вашей учетной записи. Кошелек продолжает попытки в фоновом режиме, и пока они не увенчаются успехом, транзакции с этого устройства могут не проходить. Повторно выполнять смену Guardian не нужно.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
@@ -2705,7 +2705,7 @@
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Переключатель «Guardian» подключился к сети, но это устройство не смогло сохранить новое состояние вашей учетной записи и не может восстановить его самостоятельно. Не запускайте переключатель «Guardian» повторно. Обратитесь в службу поддержки.",
+    "message": "Смена Guardian дошла до сети, но это устройство не смогло сохранить новое состояние вашей учетной записи и не может восстановить его самостоятельно. Не выполняйте смену Guardian повторно. Обратитесь в службу поддержки.",
     "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
