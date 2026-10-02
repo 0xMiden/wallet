@@ -512,10 +512,12 @@ describe('Welcome — hash → step routing', () => {
     expect(currentStep()).not.toBe(OnboardingStep.SetupPasscode);
   });
 
-  it('routes #setup-biometric to SetupBiometric', async () => {
+  it('redirects #setup-biometric to the password step off mobile', async () => {
+    mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await setHash('#setup-biometric');
-    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(currentStep()).not.toBe(OnboardingStep.SetupBiometric);
   });
 
   // The create seed exists only once a protection step is submitted; desktop's password submit generates it.
@@ -567,16 +569,18 @@ describe('Welcome — hash → step routing', () => {
     }
   );
 
-  // Every point that starts a create resets the whole flow state an earlier attempt left behind.
-  const CREATE_ENTRIES: Array<[string, () => Promise<void>]> = [
-    ['the choose-protection action', () => dispatch({ id: 'choose-protection' })],
-    ['#select-wallet-type', () => setHash('#select-wallet-type')],
-    ['#choose-protection', () => setHash('#choose-protection')],
-    ['#setup-biometric', () => setHash('#setup-biometric')]
+  // Every point that starts a create resets the whole flow state an earlier attempt left behind. The flag runs an entry
+  // on a mobile whose probe passes, the only place biometric setup renders.
+  const CREATE_ENTRIES: Array<[string, () => Promise<void>, boolean]> = [
+    ['the choose-protection action', () => dispatch({ id: 'choose-protection' }), false],
+    ['#select-wallet-type', () => setHash('#select-wallet-type'), false],
+    ['#choose-protection', () => setHash('#choose-protection'), false],
+    ['#setup-biometric', () => setHash('#setup-biometric'), true]
   ];
 
-  it.each(CREATE_ENTRIES)('%s drops a seed import and its password', async (_name, enter) => {
-    mockIsMobileFn.mockReturnValue(false);
+  it.each(CREATE_ENTRIES)('%s drops a seed import and its password', async (_name, enter, biometricDevice) => {
+    mockIsMobileFn.mockReturnValue(biometricDevice);
+    mockBiometricHW.mockResolvedValue(biometricDevice);
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
@@ -586,8 +590,9 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.password).toBeNull();
   });
 
-  it.each(CREATE_ENTRIES)('%s drops a pasted-key import', async (_name, enter) => {
-    mockIsMobileFn.mockReturnValue(false);
+  it.each(CREATE_ENTRIES)('%s drops a pasted-key import', async (_name, enter, biometricDevice) => {
+    mockIsMobileFn.mockReturnValue(biometricDevice);
+    mockBiometricHW.mockResolvedValue(biometricDevice);
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-hot-key-submit', payload: 'deadbeef' });
@@ -631,6 +636,8 @@ describe('Welcome — hash → step routing', () => {
   it.each(['#meet-guardian', '#choose-guardian'])(
     'redirects %s back to Welcome after a seed import is turned into a create by #setup-biometric',
     async hash => {
+      mockIsMobileFn.mockReturnValue(true);
+      mockBiometricHW.mockResolvedValue(true);
       await renderWelcome();
       await dispatch({ id: 'select-import-type' });
       await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
@@ -679,6 +686,7 @@ describe('Welcome — hash → step routing', () => {
 
   it('keeps a biometric create when Meet your Guardian goes back to its biometric step', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await dispatch({ id: 'setup-biometric-submit' });
     const seed = mockFlowProps.current.seedPhrase;
@@ -686,6 +694,7 @@ describe('Welcome — hash → step routing', () => {
     await setHash('#meet-guardian');
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
     await setHash('#setup-biometric');
+    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
     expect(mockFlowProps.current.seedPhrase).toBe(seed);
     await setHash('#meet-guardian');
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
@@ -745,7 +754,8 @@ describe('Welcome — hash → step routing', () => {
 
   it('leaves a running import attempt its credentials when the hash changes to #setup-biometric', async () => {
     expect.hasAssertions();
-    mockIsMobileFn.mockReturnValue(false);
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await holdAttempt(
       async () => {
         await dispatch({ id: 'select-import-type' });
@@ -1206,6 +1216,29 @@ describe("Welcome - the protection chooser follows the vault's hardware probe (#
     await answerProbe(false);
     expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
     expect(currentStep()).not.toBe(OnboardingStep.ChooseProtection);
+  });
+
+  it('redirects #setup-biometric to SetupPasscode, never SetupBiometric, where the probe answered false', async () => {
+    const steps: OnboardingStep[] = [];
+    mockOnFlowRender.current = props => steps.push(props.step);
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#setup-biometric');
+    expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+    expect(steps).not.toContain(OnboardingStep.SetupBiometric);
+  });
+
+  it('holds #setup-biometric while the probe is pending and shows biometric setup once it passes', async () => {
+    const answerProbe = pendingProbe();
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#setup-biometric');
+    expect(currentStep()).not.toBe(OnboardingStep.SetupBiometric);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await answerProbe(true);
+    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('takes Back from SetupPasscode to Welcome where the probe answered false', async () => {
@@ -1941,6 +1974,7 @@ describe('Welcome — confirmation / register', () => {
 
   it('drops a guardian choice whose hardware check answers after the user confirmed a passcode instead', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     expect(mockBiometricHW).toHaveBeenCalledTimes(1); // the mount-time check
     let answerHardwareCheck: (available: boolean) => void = () => undefined;
@@ -3001,10 +3035,14 @@ describe('Welcome — back navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#choose-protection');
   });
 
-  it('SetupBiometric back returns to Welcome where biometric is unsupported', async () => {
+  it('sends #setup-biometric to the password step where biometric is unsupported, whose back returns to Welcome', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await setHash('#setup-biometric');
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(currentStep()).not.toBe(OnboardingStep.SetupBiometric);
+    await setHash('#create-password');
+    expect(currentStep()).toBe(OnboardingStep.CreatePassword);
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/');

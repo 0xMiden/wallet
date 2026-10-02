@@ -990,17 +990,19 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.SelectWalletType);
         break;
       case '#choose-protection':
+      case '#setup-biometric':
         setOnboardingType(OnboardingType.Create);
-        // Never render the choose-protection screen where biometric can't work
-        // (guards direct hash navigation / reload); redirect to the platform's
-        // protection step instead. Until the mobile probe answers this waits,
-        // and the probe's answer re-runs this effect.
+        // Never render the choose-protection or biometric setup screen where
+        // biometric can't work (guards direct hash navigation, reload and history
+        // jumps); redirect to the platform's protection step instead. Until the
+        // mobile probe answers this waits, and the probe's answer re-runs this effect.
         if (isMobile() && isHardwareSecurityAvailable === null) break;
         if (!biometricProtectionSupported()) {
           navigate(protectionStepRoute());
           break;
         }
-        setStep(OnboardingStep.ChooseProtection);
+        if (hash === '#choose-protection') setStep(OnboardingStep.ChooseProtection);
+        else setStep(OnboardingStep.SetupBiometric);
         break;
       case '#setup-passcode':
         // The import flow also lands here on mobile — don't clobber its type.
@@ -1012,10 +1014,6 @@ const Welcome: FC = () => {
           break;
         }
         setStep(OnboardingStep.SetupPasscode);
-        break;
-      case '#setup-biometric':
-        setOnboardingType(OnboardingType.Create);
-        setStep(OnboardingStep.SetupBiometric);
         break;
       case '#meet-guardian':
       case '#choose-guardian':
