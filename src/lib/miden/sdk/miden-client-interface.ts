@@ -2030,6 +2030,20 @@ export class MidenClientInterface {
 export const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
 
 /**
+ * The gRPC transport deadline a delegated prove carries on mobile instead of
+ * {@link DELEGATED_PROVE_TIMEOUT_MS} (#473).
+ *
+ * The SDK arms its transport deadline as a plain JS timer inside the wasm client, which
+ * cannot be made to skip the time a backgrounded WebView spends frozen: it expires on
+ * resume and loses a reply that may already have arrived. This long backstop leaves
+ * `withDelegatedProveTimeout`, which counts foreground time only, as the deadline that
+ * binds. Thirty minutes stays far below the 2^31-1 ms past which `setTimeout` fires at
+ * once. A background stretch longer than about 28 minutes still aborts the fetch on
+ * resume, and that prove falls back to the local prover like any delegated failure.
+ */
+export const DELEGATED_PROVE_TRANSPORT_BACKSTOP_MS = 1_800_000;
+
+/**
  * Reject once {@link DELEGATED_PROVE_TIMEOUT_MS} passes without a delegated prove
  * answering.
  *
@@ -2179,10 +2193,13 @@ export function remoteProver(): TransactionProver | undefined {
     // `DeadlineExceeded: Request timed out`, and the caller then re-proves on the
     // deliberately unbounded LOCAL prover while holding the offscreen WASM mutex —
     // turning a proof that was seconds from finishing into a wedged claim (#718).
-    // Aligned with `DELEGATED_PROVE_TIMEOUT_MS` so the transport deadline and our
-    // own ceiling agree, leaving `withDelegatedProveTimeout` as the outer bound
-    // against a prover that stops answering entirely.
-    return TransactionProver.newRemoteProver(endpoint, BigInt(DELEGATED_PROVE_TIMEOUT_MS));
+    // On the extension and desktop it is aligned with `DELEGATED_PROVE_TIMEOUT_MS`
+    // so the transport deadline and our own ceiling agree, leaving
+    // `withDelegatedProveTimeout` as the outer bound against a prover that stops
+    // answering entirely. On mobile it is the long backstop, because only our own
+    // deadline can skip the time the app spends in the background (#473).
+    const transportDeadlineMs = isMobile() ? DELEGATED_PROVE_TRANSPORT_BACKSTOP_MS : DELEGATED_PROVE_TIMEOUT_MS;
+    return TransactionProver.newRemoteProver(endpoint, BigInt(transportDeadlineMs));
   } catch (error) {
     // A trap is not a construction failure: it goes to the lock this runs under.
     if (error instanceof WebAssembly.RuntimeError) throw error;
