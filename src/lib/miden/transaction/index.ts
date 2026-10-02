@@ -1010,13 +1010,11 @@ async function reconcileStructuralApplyFailure(
   // When the row already recorded that it took the direct path, don't even ask.
   // The build can only fail, and it is not free to let it: the operator shape
   // that produced the unreachable verdict is typically one that accepts the
-  // connection and goes silent, so this call would hold the WASM lock to the
-  // 5-minute watchdog and come back as `WasmClientPoisonedError` — which is
-  // deliberately NOT an unreachable verdict, so it would rethrow, the caller
-  // would log "reconcile failed; cancelling", and a rotation that IS on chain
-  // would end Failed with the vault still naming the dead operator. Bounded by
-  // the same deadline as the switch arms for a row without the marker (an older
-  // row, or a reconcile on the coordinated path).
+  // connection and goes silent, so this call would hold the WASM lock until the
+  // fetch boundary cuts the request off (GUARDIAN_REQUEST_TIMEOUT_MS) for an
+  // answer the row already has. A row without the marker (an older row, or a
+  // reconcile on the coordinated path) asks under the same deadline as the
+  // switch arms.
   let service: MultisigService | undefined;
   const tookDirectPath =
     tx.type === 'switch-guardian' && (tx as SwitchGuardianTransaction).extraInputs?.switchedDirectly === true;
@@ -3185,8 +3183,8 @@ const generateGuardianTransaction = async (
     }
     try {
       // Bounded for the same reason as the two arms above: this loads state from
-      // the OUTGOING guardian, and a silent operator here would otherwise wedge
-      // the lock rather than reach the fallback below.
+      // the OUTGOING guardian, and a silent operator here would otherwise hold the
+      // lock until the fetch boundary's cut-off before reaching the fallback below.
       const coldService = await withOutgoingGuardianDeadline(
         () => MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord),
         'loading the cold co-signing service from the outgoing guardian'
