@@ -2175,6 +2175,50 @@
     "message": "W tym urządzeniu nie jest dostępna funkcja odblokowywania za pomocą danych biometrycznych.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Aby móc z niego korzystać w tym miejscu, skonfiguruj w Ustawieniach odblokowywanie za pomocą odcisku palca lub twarzy.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "W Ustawieniach skonfiguruj odcisk palca lub rozpoznawanie twarzy, aby korzystać z odblokowywania biometrycznego.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "Funkcja odblokowywania za pomocą rozpoznawania twarzy lub odcisku palca skonfigurowana do użytku w pracy nie jest wystarczająco bezpieczna, aby chronić portfel. Aby móc z niej korzystać w tym miejscu, skonfiguruj funkcję odcisku palca do użytku w pracy w Ustawieniach.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "Funkcja odblokowywania za pomocą twarzy lub odcisku palca skonfigurowana na tym urządzeniu nie jest wystarczająco bezpieczna, aby chronić portfel. Skonfiguruj odcisk palca w Ustawieniach, aby korzystać z odblokowywania biometrycznego.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "Funkcje biometryczne tego urządzenia nie zapewniają ochrony portfela. Zamiast tego należy używać kodu dostępu.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "Czujnik biometryczny jest obecnie niedostępny. Spróbuj ponownie lub użyj kodu dostępu.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Funkcja Face ID lub Touch ID nie jest dostępna. Jeśli jest wyłączona dla tej aplikacji, włącz ją w Ustawieniach lub użyj kodu dostępu.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Zainstaluj najnowszą aktualizację zabezpieczeń, aby korzystać z odblokowywania biometrycznego.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Ustaw kod dostępu do urządzenia w Ustawieniach, aby korzystać z odblokowywania biometrycznego.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "Odblokowanie biometryczne jest zablokowane po zbyt wielu próbach. Odblokuj urządzenie, a następnie spróbuj ponownie.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Otwórz Ustawienia",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Wybierz swój adres Guardian",
     "englishSource": "Choose your Guardian"
@@ -3923,6 +3967,14 @@
   "fingerprint": {
     "message": "Odcisk palca",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Odblokowywanie twarzą",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "Odmowa udzielenia uprawnienia do korzystania z aparatu",

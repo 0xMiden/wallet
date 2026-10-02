@@ -2175,6 +2175,50 @@
     "message": "Bu cihazda biyometrik kilit açma özelliği mevcut değildir.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Burada kullanmak için Ayarlar'dan iş yerinde Parmak İzi veya Yüz Tanıma Kilidi özelliğini etkinleştirin.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "Biyometrik kilit açma özelliğini kullanmak için Ayarlar'dan parmak izi veya yüz tanıma ayarını yapın.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "İş için ayarlanan yüz veya parmak izi kilit açma özelliği, bir cüzdanı korumak için yeterince güvenli değildir. Burada kullanmak için Ayarlar'dan İş için Parmak İzi özelliğini ayarlayın.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "Bu cihazda ayarlanan yüz veya parmak izi kilit açma özelliği, bir cüzdanı korumak için yeterince güvenli değildir. Biyometrik kilit açma özelliğini kullanmak için Ayarlar'dan bir parmak izi kaydedin.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "Bu cihazın biyometrik özellikleri bir cüzdanı koruyamaz. Bunun yerine bir şifre kullanın.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "Biyometrik sensör şu anda kullanılamıyor. Lütfen tekrar deneyin veya bir şifre kullanın.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID veya Touch ID kullanılamıyor. Bu uygulama için kapalıysa, Ayarlar'dan açın veya bir şifre kullanın.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Biyometrik kilit açma özelliğini kullanmak için en son güvenlik güncellemesini yükleyin.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Biyometrik kilit açma özelliğini kullanmak için Ayarlar'dan bir cihaz şifresi belirleyin.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "Çok fazla deneme yapıldıktan sonra biyometrik kilit açma özelliği devre dışı kalır. Cihazınızın kilidini açın, ardından tekrar deneyin.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Ayarlar'ı açın",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Guardian'ınızı seçin",
     "englishSource": "Choose your Guardian"
@@ -3923,6 +3967,14 @@
   "fingerprint": {
     "message": "Parmak izi",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Yüz tanıma",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "Kamera izni reddedildi",

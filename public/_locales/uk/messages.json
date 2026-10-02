@@ -2175,6 +2175,50 @@
     "message": "На цьому пристрої функція розблокування за допомогою біометричних даних недоступна.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Налаштуйте розблокування за відбитком пальця або обличчям для роботи в «Налаштуваннях», щоб використовувати цю функцію тут.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "Налаштуйте відбиток пальця або розпізнавання обличчя в «Налаштуваннях», щоб використовувати біометричне розблокування.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "Розблокування за допомогою розпізнавання обличчя або відбитка пальця, налаштоване для роботи, недостатньо безпечне для захисту гаманця. Налаштуйте «Відбиток пальця» для роботи в «Налаштуваннях», щоб використовувати його тут.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "Розблокування за допомогою розпізнавання обличчя або відбитка пальця, налаштоване на цьому пристрої, не є достатньо безпечним для захисту гаманця. Налаштуйте відбиток пальця в розділі «Налаштування», щоб використовувати біометричне розблокування.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "Біометричні дані цього пристрою не можуть захистити гаманець. Замість цього використовуйте пароль.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "Біометричний датчик наразі недоступний. Спробуйте ще раз або скористайтеся паролем.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID або Touch ID недоступні. Якщо ці функції вимкнені для цього додатка, увімкніть їх у налаштуваннях або використовуйте пароль.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Встановіть останнє оновлення безпеки, щоб використовувати біометричне розблокування.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Встановіть пароль пристрою в налаштуваннях, щоб використовувати біометричний розблокування.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "Біометричне розблокування блокується після занадто великої кількості спроб. Розблокуйте пристрій, а потім спробуйте ще раз.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Відкрити налаштування",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Оберіть свій «Guardian»",
     "englishSource": "Choose your Guardian"
@@ -3923,6 +3967,14 @@
   "fingerprint": {
     "message": "Відбиток пальця",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Розблокування за допомогою розпізнавання обличчя",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "Дозвіл на використання камери відхилено",
