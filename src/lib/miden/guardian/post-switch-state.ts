@@ -11,7 +11,8 @@ import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from './discover';
 import { checkEndpointCommitment } from './operator-map';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
-import { isWasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { isPoisonedPipeline } from '../sdk/sdk-error-code';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { monotonicNowMs } from '../sync-backoff';
 
 /**
@@ -100,8 +101,8 @@ export async function adoptPostSwitchState(
     try {
       await adopter.adoptOnce();
     } catch (error) {
-      // The service is bound to the client the eviction poisoned, so every later adopt fails too.
-      if (isWasmClientPoisonedError(error)) return state;
+      // The service is bound to the client the eviction poisoned, so every later adopt fails too, wrapped or not (#1313).
+      if (isPoisonedPipeline(error)) return state;
       // Until it canonicalizes, the outgoing guardian holds the pre-switch state, which imports nothing;
       // a refusal or a failed read is the same "not yet".
       console.warn('[Guardian] the outgoing guardian does not hold the post-switch state yet:', error);
