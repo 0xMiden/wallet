@@ -73,7 +73,12 @@ jest.mock('lib/ui/drawer', () => ({
     </div>
   ),
   DrawerHeader: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-header">{children}</div>,
-  DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
+  DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>,
+  DrawerFooter: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+    <div data-testid="drawer-footer" data-class={className}>
+      {children}
+    </div>
+  )
 }));
 
 // ---------------------------------------------------------------------------
@@ -204,6 +209,15 @@ describe('GuardianInfoDrawer', () => {
 
     expect(onOpenChange).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('pins Got it in the footer, outside the scrolling body (#1279)', () => {
+    renderDrawer();
+
+    const gotIt = screen.getByTestId('btn-gotIt');
+    expect(screen.getByTestId('drawer-footer')).toContainElement(gotIt);
+    expect(gotIt.closest('.overflow-y-auto')).toBeNull();
+    expect(screen.getByTestId('drawer-footer').getAttribute('data-class') ?? '').toContain('shrink-0');
   });
 
   it("propagates the drawer's own onOpenChange requests", () => {

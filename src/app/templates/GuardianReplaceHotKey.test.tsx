@@ -152,7 +152,10 @@ describe('GuardianReplaceHotKey — rendering', () => {
     const section = screen.getByTestId('replace-hot-key-section');
     expect(section.tagName).toBe('SECTION');
     // The section label is the shared SectionHeader (an h2), not hand-styled text.
-    expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass('text-muted', 'text-label');
+    expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass(
+      'text-muted',
+      'text-row-title'
+    );
     expect(screen.getByText('replaceHotKeyDescription').parentElement).toHaveClass('text-body', 'text-muted');
     // One maintenance action on a page of links: border-only, 36px, not the page's primary CTA.
     expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'ghost');
