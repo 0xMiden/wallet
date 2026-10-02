@@ -202,15 +202,23 @@ interface GuardianDeadline {
   readonly signal: AbortSignal;
   /**
    * Run `start` unless the request is already cut off, and settle with it or with
-   * the cut-off, whichever comes first. A native request cannot be cancelled, so
-   * an answer that arrives after the cut-off is dropped. A failure that arrives
-   * once the deadline has passed is the cut-off too, though the timer has not
-   * fired: timers run late or sleep through a suspension while the request times
-   * out on its own.
+   * the cut-off, whichever comes first. An answer that comes first is used
+   * whenever it arrives, even past the deadline on a timer running late: the
+   * deadline bounds the wait, and discarding an answer the Guardian already
+   * delivered would orphan what it did, such as a proposal it created. A native
+   * request cannot be cancelled, so an answer that arrives after the cut-off is
+   * dropped. A failure that arrives once the deadline has passed is the cut-off
+   * too, though the timer has not fired: timers run late or sleep through a
+   * suspension while the request times out on its own.
    */
   race<T>(start: () => Promise<T>): Promise<T>;
   /** Stop the timer and the forwarded caller abort. */
   release(): void;
+}
+
+/** The caller's own signal, on both transports: `init`'s, or failing that a Request input's. */
+function callerSignalOf(input: RequestInfo | URL, init?: RequestInit): AbortSignal | undefined {
+  return init?.signal ?? (input instanceof Request ? input.signal : undefined);
 }
 
 function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefined): GuardianDeadline {
@@ -266,7 +274,7 @@ function guardianWebFetch(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  const deadline = startGuardianDeadline(url, init?.signal ?? undefined);
+  const deadline = startGuardianDeadline(url, callerSignalOf(input, init));
   return deadline
     .race(async () => {
       const response = await originalFetch(input, { ...init, signal: deadline.signal });
@@ -292,7 +300,7 @@ async function guardianNativeFetch(url: string, input: RequestInfo | URL, init?:
   const contentType = Object.entries(headers).find(([key]) => key.toLowerCase() === 'content-type')?.[1] ?? '';
   const data = rawBody !== undefined && contentType.includes('application/json') ? JSON.parse(rawBody) : rawBody;
 
-  const deadline = startGuardianDeadline(url, init?.signal ?? request?.signal ?? undefined);
+  const deadline = startGuardianDeadline(url, callerSignalOf(input, init));
   // The native timeouts bound the native request; what the caller sees is the JS deadline, which reads a failure past
   // it as the cut-off.
   const nativeResponse = await deadline

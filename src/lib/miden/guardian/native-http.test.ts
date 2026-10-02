@@ -30,9 +30,17 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNoteTransportUrl: () => mockNoteTransportUrl
 }));
 
-// jsdom has no fetch classes: the interceptor needs `Request` for an instanceof check and
-// `Response` to wrap a native answer.
-class FakeRequest {}
+// jsdom has no fetch classes: the interceptor needs `Request` for an instanceof check and a Request input's url and
+// signal, and `Response` to wrap a native answer.
+class FakeRequest {
+  readonly signal: AbortSignal | undefined;
+  constructor(
+    readonly url: string,
+    init?: { signal?: AbortSignal | null }
+  ) {
+    this.signal = init?.signal ?? undefined;
+  }
+}
 class FakeResponse {
   constructor(
     readonly body: unknown,
@@ -436,6 +444,38 @@ describe('the Guardian request deadline (#312)', () => {
     caller.abort(new Error('the caller gave up'));
 
     expect(signal).toHaveProperty('aborted', true);
+  });
+
+  it("honours a routed Request's own signal that aborts mid-flight, off mobile", async () => {
+    const offMobile = loadOffMobile();
+    mockWebFetch.mockReturnValue(new Promise(() => undefined));
+    offMobile.registerGuardianOrigin(CUSTOM);
+    const caller = new AbortController();
+    const reason = new Error('the caller gave up');
+
+    const request = track(globalThis.fetch(new Request(`${CUSTOM}/state`, { signal: caller.signal })));
+    const signal = forwardedSignal();
+    expect(signal).toHaveProperty('aborted', false);
+    caller.abort(reason);
+    await flush();
+
+    expect(signal).toHaveProperty('aborted', true);
+    expect(request.error).toBe(reason);
+  });
+
+  it('never sends a routed Request whose own signal already aborted, off mobile', async () => {
+    const offMobile = loadOffMobile();
+    mockWebFetch.mockResolvedValue(webResponse(200, '{}'));
+    offMobile.registerGuardianOrigin(CUSTOM);
+    const caller = new AbortController();
+    const reason = new Error('aborted before sending');
+    caller.abort(reason);
+
+    const request = track(globalThis.fetch(new Request(`${CUSTOM}/state`, { signal: caller.signal })));
+    await flush();
+
+    expect(mockWebFetch).not.toHaveBeenCalled();
+    expect(request.error).toBe(reason);
   });
 
   it('cuts off a response whose body never arrives at the deadline, off mobile', async () => {
