@@ -504,6 +504,54 @@ describe('the Guardian request deadline (#312)', () => {
     expect(request.error).toBe(reason);
   });
 
+  // JS timers can run late or sleep through a suspension while the native request times out on its own, so the
+  // native error can settle the request before the deadline's timer fires.
+  describe('a native request that fails once its deadline has passed', () => {
+    let now = 0;
+    let nowSpy: jest.SpyInstance<number, []>;
+    let failNative: (error: unknown) => void = () => undefined;
+    const nativeTimeout = new Error('The request timed out.');
+
+    beforeEach(() => {
+      now = 1_000_000;
+      nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockNativeRequest.mockReturnValue(
+        new Promise((_resolve, reject) => {
+          failNative = reject;
+        })
+      );
+      nativeHttp.registerGuardianOrigin(CUSTOM);
+    });
+    afterEach(() => nowSpy.mockRestore());
+
+    it('rejects as a Guardian request timeout even though the timer has not fired', async () => {
+      const request = globalThis.fetch(`${CUSTOM}/delta/proposal`, { method: 'POST' });
+      now += nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS;
+      failNative(nativeTimeout);
+
+      await expect(request).rejects.toBeInstanceOf(nativeHttp.GuardianRequestTimeoutError);
+    });
+
+    it('keeps the native error when the request fails before its deadline', async () => {
+      const request = globalThis.fetch(`${CUSTOM}/delta/proposal`, { method: 'POST' });
+      now += nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS - 1;
+      failNative(nativeTimeout);
+
+      await expect(request).rejects.toBe(nativeTimeout);
+    });
+
+    it("keeps the caller's reason when the caller aborted", async () => {
+      const caller = new AbortController();
+      const reason = new Error('the caller gave up');
+      const request = globalThis.fetch(`${CUSTOM}/delta/proposal`, { method: 'POST', signal: caller.signal });
+      now += nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS;
+      caller.abort(reason);
+      failNative(nativeTimeout);
+
+      await expect(request).rejects.toBe(reason);
+    });
+  });
+
   it.each([
     ['on mobile', true],
     ['off mobile', false]

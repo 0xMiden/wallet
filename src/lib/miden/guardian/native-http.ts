@@ -1,5 +1,6 @@
 import { CapacitorHttp } from '@capacitor/core';
 
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import {
   getEffectiveNoteTransportUrl,
@@ -202,7 +203,10 @@ interface GuardianDeadline {
   /**
    * Run `start` unless the request is already cut off, and settle with it or with
    * the cut-off, whichever comes first. A native request cannot be cancelled, so
-   * an answer that arrives after the cut-off is dropped.
+   * an answer that arrives after the cut-off is dropped. A failure that arrives
+   * once the deadline has passed is the cut-off too, though the timer has not
+   * fired: timers run late or sleep through a suspension while the request times
+   * out on its own.
    */
   race<T>(start: () => Promise<T>): Promise<T>;
   /** Stop the timer and the forwarded caller abort. */
@@ -210,6 +214,7 @@ interface GuardianDeadline {
 }
 
 function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefined): GuardianDeadline {
+  const startedAt = monotonicNowMs();
   const controller = new AbortController();
   // Kept beside the signal: engines older than abort reasons drop the argument to abort().
   let cutOffReason: unknown;
@@ -238,7 +243,14 @@ function startGuardianDeadline(url: string, callerSignal: AbortSignal | undefine
           return;
         }
         controller.signal.addEventListener('abort', () => reject(cutOffReason), { once: true });
-        start().then(resolve, reject);
+        start().then(resolve, (error: unknown) => {
+          const pastDeadline = monotonicNowMs() - startedAt >= GUARDIAN_REQUEST_TIMEOUT_MS;
+          reject(
+            pastDeadline && callerSignal?.aborted !== true
+              ? new GuardianRequestTimeoutError(url, GUARDIAN_REQUEST_TIMEOUT_MS)
+              : error
+          );
+        });
       }),
     release: (): void => {
       clearTimeout(timer);
@@ -285,7 +297,8 @@ async function guardianNativeFetch(url: string, input: RequestInfo | URL, init?:
   const data = rawBody !== undefined && contentType.includes('application/json') ? JSON.parse(rawBody) : rawBody;
 
   const deadline = startGuardianDeadline(url, init?.signal ?? request?.signal ?? undefined);
-  // The native timeouts end the request itself; the race ends the caller's wait at the same deadline.
+  // The native timeouts bound the native request; what the caller sees is the JS deadline, which reads a failure past
+  // it as the cut-off.
   const nativeResponse = await deadline
     .race(() =>
       CapacitorHttp.request({
