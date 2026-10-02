@@ -91,7 +91,7 @@ export const MIDEN_NAME_DEPLOYMENTS = new Map<MIDEN_NETWORK_NAME, MidenNameDeplo
   [
     MIDEN_NETWORK_NAME.TESTNET,
     {
-      registryAccountIdHex: '0xead81800958e7a112d45bdcf852fa6',
+      registryAccountIdHex: '0xe8249fe7070657110980da14461d78',
       paymentFaucetIdHex: '0x18101fa522c174b165efd4f70a0385'
     }
   ]

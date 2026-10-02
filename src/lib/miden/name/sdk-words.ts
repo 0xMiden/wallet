@@ -12,7 +12,6 @@ import { AccountId, Felt, FeltArray, type NonFungibleAsset, Poseidon2, Word } fr
 import {
   type AccountIdParts,
   type Felts4,
-  accountKeyFelts,
   commitmentPreimage,
   encodeDomainFelts,
   isZeroFelts,
@@ -67,10 +66,6 @@ export function statusKey(label: string, registry: AccountIdParts): Word {
 
 export function priceKey(labelLength: number, token: AccountIdParts): Word {
   return wordFromFelts(priceKeyFelts(labelLength, token));
-}
-
-export function accountKey(account: AccountIdParts): Word {
-  return wordFromFelts(accountKeyFelts(account));
 }
 
 /**

@@ -12,7 +12,6 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { traceRegistryStep } from 'lib/miden/name/debug';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -394,21 +393,7 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    const trace = proposalType === 'publish_name_record';
-    return traceRegistryStep(
-      'guardian.create-proposal-lock',
-      () =>
-        withWasmClientLock(() =>
-          traceRegistryStep(
-            'guardian.create-proposal-sdk',
-            () => this.multisig.createCustomProposal(requestBytes, proposalType),
-            { proposalType },
-            trace
-          )
-        ),
-      { proposalType },
-      trace
-    );
+    return withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
   }
 
   /**

@@ -1,7 +1,6 @@
 import {
   type Felts4,
   MIDEN_NAME_COMMITMENT_TAG,
-  accountKeyFelts,
   commitmentPreimage,
   decodeDomainFelts,
   encodeDomainFelts,
@@ -11,9 +10,7 @@ import {
   looksLikeMidenName,
   normalizeMidenNameInput,
   priceKeyFelts,
-  REGISTRY_NOTE_ACTION,
   registerNoteInputs,
-  registryNoteInputs,
   statusKeyFelts,
   validateMidenLabel
 } from './encoding';
@@ -177,26 +174,6 @@ describe('key and preimage layouts', () => {
     expect(registerNoteInputs(REGISTRY, encodeDomainFelts('a'), 0xffff_ffff)[6]).toBe(0xffff_ffffn);
   });
 
-  it('builds registry note inputs as the register layout plus the action', () => {
-    const target = { prefix: 0x1111n, suffix: 0x2200n };
-    const domainWord = encodeDomainFelts('alice');
-    expect(REGISTRY_NOTE_ACTION.updateRecords).toBe(3n);
-    expect(registryNoteInputs(target, domainWord, 1300, REGISTRY_NOTE_ACTION.updateRecords)).toEqual([
-      target.prefix,
-      target.suffix,
-      domainWord[0],
-      domainWord[1],
-      domainWord[2],
-      domainWord[3],
-      1300n,
-      3n
-    ]);
-  });
-
-  it('refuses a registry note reclaim height that does not fit in a u32', () => {
-    expect(() => registryNoteInputs(REGISTRY, encodeDomainFelts('a'), 0x1_0000_0000, 3n)).toThrow(RangeError);
-  });
-
   it('clamps the price key length at 5', () => {
     expect(priceKeyFelts(9, TOKEN)).toEqual([5n, 0n, TOKEN.suffix, TOKEN.prefix]);
     expect(priceKeyFelts(5, TOKEN)).toEqual([5n, 0n, TOKEN.suffix, TOKEN.prefix]);
@@ -205,9 +182,5 @@ describe('key and preimage layouts', () => {
 
   it('builds the status key from the first two commitment felts', () => {
     expect(statusKeyFelts([7n, 8n, 9n, 10n])).toEqual([7n, 8n, 0n, 0n]);
-  });
-
-  it('builds the account key as [0, 0, suffix, prefix]', () => {
-    expect(accountKeyFelts(REGISTRY)).toEqual([0n, 0n, REGISTRY.suffix, REGISTRY.prefix]);
   });
 });

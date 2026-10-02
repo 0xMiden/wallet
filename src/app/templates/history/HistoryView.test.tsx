@@ -459,25 +459,6 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(rowByTitle('Named send')).toHaveAttribute('data-subtitle', `to: ${expected}`);
   });
 
-  it('shows publication completion without an Unknown fungible amount', () => {
-    render(
-      <HistoryView
-        {...baseProps}
-        fullHistory
-        entries={[
-          makeEntry({
-            txType: 'publish-name-record',
-            message: 'Published',
-            token: 'Unknown',
-            midenNameStatus: 'pending'
-          })
-        ]}
-      />
-    );
-    expect(rowByTitle('Published')).toHaveAttribute('data-status', 'pending');
-    expect(rowByTitle('Published')).toHaveAttribute('data-amount-symbol', '');
-  });
-
   // The money helper already formatted both amounts; the symbol inside the value must not be what keeps the row
   // from rounding 0.015123 ETH to 0.015 again.
   it('marks a bridge-in and a bridge-out amount preformatted', () => {

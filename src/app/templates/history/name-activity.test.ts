@@ -34,24 +34,25 @@ describe('name activity reconciliation', () => {
     expect(reconcileMidenNameActivity([failed, pending, parent])).toEqual([failed, pending, parent]);
   });
 
-  it('links publication returns and tracks completion of the full publication', () => {
+  it('links name claims to their registration and tracks completion of the registration', () => {
     expect(
       midenNameActivityOf({
         type: 'consume',
-        extraInputs: { midenNameReturn: { label: 'alice', publishTxId: 'publish' } }
+        extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'register' } }
       })
-    ).toEqual({ midenNameParentTxId: 'publish' });
+    ).toEqual({ midenNameParentTxId: 'register' });
     for (const [phase, status] of [
-      ['returning', 'pending'],
-      ['done', 'confirmed'],
+      ['submitted', 'pending'],
+      ['owned', 'confirmed'],
       ['failed', 'failed']
     ]) {
       expect(
         midenNameActivityOf({
-          type: 'publish-name-record',
-          extraInputs: { phase, returnTxId: 'return' }
+          type: 'register-name',
+          extraInputs: { phase, claimTxId: 'claim' }
         })
-      ).toEqual({ midenNameStatus: status, midenNameReceiptTxId: 'return' });
+      ).toEqual({ midenNameStatus: status, midenNameReceiptTxId: 'claim' });
     }
+    expect(midenNameActivityOf({ type: 'send', extraInputs: {} })).toEqual({});
   });
 });

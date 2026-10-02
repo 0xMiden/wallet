@@ -122,8 +122,7 @@ const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = [
   'send',
   'earn-deposit',
   'bridged-send',
-  'register-name',
-  'publish-name-record'
+  'register-name'
 ];
 
 /** Translation key of the UI state of a Miden Name registration, for the Phase row. */

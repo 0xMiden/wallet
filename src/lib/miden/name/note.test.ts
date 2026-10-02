@@ -33,7 +33,7 @@ jest.mock('./script', () => ({
   loadRegisterDomainScript: jest.fn(async () => ({ script: 'register-domain', free: jest.fn() }))
 }));
 
-const REGISTRY_HEX = '0xead81800958e7a112d45bdcf852fa6';
+const REGISTRY_HEX = '0xe8249fe7070657110980da14461d78';
 const TOKEN_HEX = '0x18101fa522c174b165efd4f70a0385';
 const SENDER_HEX = '0xsender';
 const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };

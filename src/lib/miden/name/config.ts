@@ -22,7 +22,6 @@ export const MIDEN_NAME_SLOTS = {
   prices: 'domain_faucet::domain_faucet::prices',
   commitmentVersion: 'domain_faucet::domain_faucet::commitment_version',
   domainToAccount: 'domain_registry::domain_registry::domain_to_account',
-  accountToDomain: 'domain_registry::domain_registry::account_to_domain',
   allowedNoteScripts: 'miden::standards::auth::network_account::allowed_note_scripts',
   feeSchedule: 'miden::standards::fees::policies::basic_constant_fee::fee_schedule'
 } as const;

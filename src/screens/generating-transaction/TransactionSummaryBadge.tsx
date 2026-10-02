@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
-import { IPublishNameRecordExtraInputs, IRegisterNameExtraInputs, ITransaction } from 'lib/miden/db/types';
+import { IRegisterNameExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -350,17 +350,6 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: formatMidenName(label),
         rhs: `${formatAmount(BigInt(transaction.amount), tokenMetadata.decimals)} ${tokenMetadata.symbol}`,
-        separator: <span className="text-xl font-extrabold text-muted">·</span>
-      };
-    }
-
-    if (transaction?.type === 'publish-name-record') {
-      const inputs: IPublishNameRecordExtraInputs | undefined = transaction.extraInputs;
-      const label = inputs?.label;
-      if (!label) return undefined;
-      return {
-        lhs: formatMidenName(label),
-        rhs: t('midenNameBadgePublishing'),
         separator: <span className="text-xl font-extrabold text-muted">·</span>
       };
     }

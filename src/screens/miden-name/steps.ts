@@ -1,18 +1,18 @@
 /**
- * Pure derivation of the four steps that the Miden Name status page shows.
+ * Pure derivation of the three steps that the Miden Name status page shows.
  *
- * The data is the `register-name` row, the consume row that claims the delivery
- * note, the newest `publish-name-record` row of the same label, and the state
- * of the registry record on chain. This file has no React and no I/O.
+ * The data is the `register-name` row and the consume row that claims the
+ * delivery note. The registry mints the name and writes its registry records
+ * in one transaction, so a name that is issued already resolves. This file has
+ * no React and no I/O.
  */
 
 import { type ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { phaseOf, publishPhaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
-import type { MidenNameRecordState } from 'lib/miden/name/useMidenNameRecord';
+import { phaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
 
 export type MidenNameStepState = 'complete' | 'active' | 'pending' | 'failed';
 
-export type MidenNameStepId = 'request-sent' | 'issued' | 'adding' | 'publishing';
+export type MidenNameStepId = 'request-sent' | 'issued' | 'adding';
 
 export interface MidenNameStep {
   id: MidenNameStepId;
@@ -32,9 +32,10 @@ export type MidenNameFailureKey =
 const STEP_LABEL_KEYS: Record<MidenNameStepId, string> = {
   'request-sent': 'midenNameStepRequestSent',
   issued: 'midenNameStepIssued',
-  adding: 'midenNameStepAdding',
-  publishing: 'midenNameStepPublishing'
+  adding: 'midenNameStepAdding'
 };
+
+const STEP_IDS: readonly MidenNameStepId[] = ['request-sent', 'issued', 'adding'];
 
 type StepStates = readonly [MidenNameStepState, MidenNameStepState, MidenNameStepState];
 
@@ -116,7 +117,7 @@ function secondsBetween(start: number | undefined, end: number | undefined): num
   return end - start;
 }
 
-/** Durations (seconds) of the first three steps. Rows store whole seconds. */
+/** Durations (seconds) of the three steps. Rows store whole seconds. */
 function durationsOf(row: ITransaction, claimRow?: ITransaction): [number?, number?, number?] {
   return [
     secondsBetween(row.initiatedAt, row.completedAt),
@@ -127,67 +128,13 @@ function durationsOf(row: ITransaction, claimRow?: ITransaction): [number?, numb
   ];
 }
 
-/** What the status page knows about the publish of the name to the registry. */
-export interface MidenNamePublishView {
-  /** The newest `publish-name-record` row of the label, when there is one. */
-  row?: ITransaction;
-  /** The registry record of the label, read from the chain. */
-  record: MidenNameRecordState;
-}
-
-/**
- * The state of the publishing step of an owned name.
- *
- * A publish in flight is `active`. A record that points to the account is
- * `complete`, also when the wallet has no publish row (published from an
- * other device). A failed publish with no record is `failed`. With no publish
- * at all the step waits for the user: `pending`.
- */
-export function publishStepState(publish: MidenNamePublishView | undefined): MidenNameStepState {
-  if (!publish) return 'pending';
-  const phase = publish.row ? publishPhaseOf(publish.row) : undefined;
-  switch (phase) {
-    case 'requested':
-    case 'submitted':
-    case 'recorded':
-    case 'returning':
-      return 'active';
-    case 'done':
-      return 'complete';
-    case 'failed':
-      return publish.record === 'here' ? 'complete' : 'failed';
-    default:
-      return publish.record === 'here' ? 'complete' : 'pending';
-  }
-}
-
-/** True when the user can start (or start again) the publish of the name. */
-export function canPublish(row: ITransaction, publish: MidenNamePublishView | undefined): boolean {
-  if (phaseOf(row) !== 'owned' || !publish) return false;
-  switch (publishStepState(publish)) {
-    case 'pending':
-    case 'failed':
-      // A tap before the registry answered could publish twice.
-      return publish.record !== 'checking';
-    default:
-      return false;
-  }
-}
-
-/**
- * The four steps of a registration. Step 4 (publishing to the registry) is
- * `pending` until the name is owned; then `publishStepState` decides.
- */
-export function stepsFor(row: ITransaction, claimRow?: ITransaction, publish?: MidenNamePublishView): MidenNameStep[] {
+/** The three steps of a registration. */
+export function stepsFor(row: ITransaction, claimRow?: ITransaction): MidenNameStep[] {
   const states = stepStatesOf(row, claimRow);
   const durations = durationsOf(row, claimRow);
-  const ids: readonly MidenNameStepId[] = ['request-sent', 'issued', 'adding'];
-  const steps: MidenNameStep[] = ids.map((id, index) => {
+  return STEP_IDS.map((id, index) => {
     const state = states[index] ?? 'pending';
     const durationSec = state === 'complete' ? durations[index] : undefined;
     return { id, labelKey: STEP_LABEL_KEYS[id], state, ...(durationSec !== undefined ? { durationSec } : {}) };
   });
-  const publishing = phaseOf(row) === 'owned' ? publishStepState(publish) : 'pending';
-  steps.push({ id: 'publishing', labelKey: STEP_LABEL_KEYS.publishing, state: publishing });
-  return steps;
 }

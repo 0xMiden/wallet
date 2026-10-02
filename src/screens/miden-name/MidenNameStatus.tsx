@@ -10,24 +10,14 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
-import type { ITransaction } from 'lib/miden/db/types';
 import { useAllAccounts } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { formatMidenName } from 'lib/miden/name/encoding';
-import { publishRegistryRecord } from 'lib/miden/name/nfa';
-import {
-  phaseOf,
-  publishNameInputsOf,
-  publishPhaseOf,
-  registerNameInputsOf,
-  useMidenNamePublishes
-} from 'lib/miden/name/registrations';
-import { useMidenNameRecord } from 'lib/miden/name/useMidenNameRecord';
+import { phaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
 import { initiateConsumeTransactionFromId, tagConsumeAsMidenNameClaim } from 'lib/miden/transaction/initiate';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { formatAmount } from 'lib/shared/format';
-import { useConfirm } from 'lib/ui/dialog';
 import { cn } from 'lib/ui/util';
 import { navigate, Redirect } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -36,7 +26,7 @@ import { useTransactionRow } from 'screens/generating-transaction/useTransaction
 import { truncateAddress } from 'utils/string';
 
 import { startMidenNameProcessing } from './processing';
-import { canPublish, claimNeedsRetry, failureKeyOf, type MidenNameStepState, stepsFor } from './steps';
+import { claimNeedsRetry, failureKeyOf, type MidenNameStepState, stepsFor } from './steps';
 
 interface MidenNameStatusProps {
   txId: string;
@@ -71,17 +61,6 @@ const StepIndicator: FC<{ state: MidenNameStepState }> = ({ state }) => {
   );
 };
 
-/** The newest publish row of the label. The list is newest first. */
-function publishRowOf(rows: ITransaction[], label: string | undefined): ITransaction | undefined {
-  if (label === undefined) return undefined;
-  return rows.find(row => publishNameInputsOf(row)?.label === label);
-}
-
-/** One key per publish row phase: the record read runs again when a publish moves forward. */
-function publishRefreshKeyOf(rows: ITransaction[]): string {
-  return rows.map(row => `${publishNameInputsOf(row)?.label ?? ''}:${publishPhaseOf(row)}`).join('|');
-}
-
 function heroStateOf(phaseFailed: boolean, owned: boolean): TransactionHeroState {
   switch (true) {
     case owned:
@@ -100,7 +79,6 @@ function heroStateOf(phaseFailed: boolean, owned: boolean): TransactionHeroState
 export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
-  const confirm = useConfirm();
   const accounts = useAllAccounts();
   const { row, loaded } = useTransactionRow(txId);
   const inputs = row ? registerNameInputsOf(row) : undefined;
@@ -111,20 +89,6 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string>();
   const { row: claimRow } = useTransactionRow(retryTxId ?? inputs?.claimTxId ?? '');
-
-  // The publish of the name to the registry: the newest publish row of the
-  // label, and the registry record read from the chain (a record published
-  // from an other device is visible only there).
-  const publishRows = useMidenNamePublishes(row?.accountId);
-  const publishRow = publishRowOf(publishRows, inputs?.label);
-  const ownedNow = row !== undefined && phaseOf(row) === 'owned';
-  const record = useMidenNameRecord(
-    row?.accountId,
-    ownedNow ? inputs?.label : undefined,
-    publishRefreshKeyOf(publishRows)
-  );
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishError, setPublishError] = useState<string>();
 
   const onDone = () => navigate('/');
 
@@ -138,12 +102,10 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
   }
 
   const phase = phaseOf(row);
-  const publish = { row: publishRow, record };
-  const steps = stepsFor(row, claimRow, publish);
+  const steps = stepsFor(row, claimRow);
   const needsRetry = claimNeedsRetry(row, claimRow);
   const failureKey = failureKeyOf(row, claimRow);
   const owned = phase === 'owned';
-  const showPublish = canPublish(row, publish);
   const terminal = owned || (phase === 'failed' && !needsRetry);
   const heroState = heroStateOf(failureKey !== undefined, owned);
   const accountName =
@@ -175,29 +137,6 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
     }
   };
 
-  const handlePublish = async () => {
-    if (isPublishing || !showPublish) return;
-    // A publish reveals the owner. Ask first, in the wallet's confirm sheet.
-    const accepted = await confirm({
-      title: t('midenNameStepPublishing'),
-      children: t('midenNamePublishExplainer', { name: formatMidenName(inputs.label) }),
-      confirmLabel: t('midenNamePublish')
-    });
-    if (!accepted) return;
-    setIsPublishing(true);
-    setPublishError(undefined);
-    try {
-      const publishTxId = await publishRegistryRecord(row.accountId, inputs.label);
-      startMidenNameProcessing(signTransaction);
-      navigate(`/generating-transaction/${encodeURIComponent(publishTxId)}`);
-    } catch (error) {
-      console.warn('[miden-name] Publish to registry failed:', error);
-      setPublishError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsPublishing(false);
-    }
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg" data-testid="miden-name-status-page">
       <FlowLayout
@@ -209,26 +148,6 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
               <p role="alert" className="text-center text-caption text-negative-ink">
                 {retryError}
               </p>
-            )}
-            {publishError && (
-              <p
-                role="alert"
-                className="text-center text-caption text-negative-ink"
-                data-testid="miden-name-publish-error"
-              >
-                {publishError}
-              </p>
-            )}
-            {showPublish && (
-              <Button
-                data-testid="miden-name-publish"
-                variant={ButtonVariant.Primary}
-                title={t('midenNamePublish')}
-                onClick={handlePublish}
-                isLoading={isPublishing}
-                disabled={isPublishing}
-                className="w-full max-w-none"
-              />
             )}
             {needsRetry && (
               <Button
@@ -243,7 +162,7 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
             )}
             <Button
               data-testid="miden-name-status-done"
-              variant={terminal && !showPublish ? ButtonVariant.Primary : ButtonVariant.Secondary}
+              variant={terminal ? ButtonVariant.Primary : ButtonVariant.Secondary}
               title={terminal ? t('midenNameDone') : t('hide')}
               onClick={onDone}
               className="w-full max-w-none"

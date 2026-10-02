@@ -15,7 +15,7 @@ Upstream: https://github.com/OpenZeppelin/guardian/issues/481.
 
 Run `node --test scripts/guardian-shared-client.test.mjs` to check the patched adapter.
 
-## @miden-sdk/miden-sdk 0.16.1
+## @miden-sdk/miden-sdk 0.16.3
 
 Treat the note transport's stored-note duplicate as a successful `SendNote`, so the
 SDK removes the relay payload from its outbox. The transport sends it as headers

@@ -3836,17 +3836,14 @@ describe('HistoryDetails Miden Name', () => {
     expect(screen.getByTestId('history-miden-name-phase')).toHaveTextContent('midenNameStateOwned');
   });
 
-  it.each(['register-name', 'publish-name-record'])(
-    'keeps the reconciled NFA receipt accessible from %s',
-    async type => {
-      setMockRow(registerNameTx({ claimTxId: 'claim-1', returnTxId: 'return-1' }, { type }));
-      await renderAndLoad();
-      expect(rowByLabel('midenNameReceiptTransaction')?.querySelector('a')).toHaveAttribute(
-        'href',
-        `/history-details/${type === 'register-name' ? 'claim-1' : 'return-1'}`
-      );
-    }
-  );
+  it('keeps the reconciled NFA receipt accessible from register-name', async () => {
+    setMockRow(registerNameTx({ claimTxId: 'claim-1' }));
+    await renderAndLoad();
+    expect(rowByLabel('midenNameReceiptTransaction')?.querySelector('a')).toHaveAttribute(
+      'href',
+      '/history-details/claim-1'
+    );
+  });
 
   it('shows Failed for a failed row whose stored phase is not terminal yet', async () => {
     setMockRow(registerNameTx({ phase: 'requested' }, { status: 3 }));

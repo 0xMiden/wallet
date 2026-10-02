@@ -32,14 +32,6 @@ export class MidenNameScriptMismatchError extends Error {
   }
 }
 
-/** The account vault has no NFA for the label, so the wallet cannot publish its record. */
-export class MidenNameNotHeldError extends Error {
-  constructor(label: string) {
-    super(`The account does not hold the name "${label}"`);
-    this.name = 'MidenNameNotHeldError';
-  }
-}
-
 /** The note-script asset could not be fetched, or it has an unexpected shape. */
 export class MidenNameScriptAssetError extends Error {
   constructor(detail: string) {
@@ -56,14 +48,6 @@ export class MidenNameRegistryMismatchError extends Error {
   constructor(detail: string) {
     super(`Miden Name registry mismatch: ${detail}`);
     this.name = 'MidenNameRegistryMismatchError';
-  }
-}
-
-/** Publishing a registry record needs SDK support that is not available yet. */
-export class MidenNameRegistryPublishingUnsupportedError extends Error {
-  constructor() {
-    super('Publishing a Miden Name registry record is not supported yet');
-    this.name = 'MidenNameRegistryPublishingUnsupportedError';
   }
 }
 

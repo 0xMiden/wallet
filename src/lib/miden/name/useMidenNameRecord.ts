@@ -4,9 +4,9 @@
  * The registry's `domain_to_account` record is what makes `alice.miden` usable
  * in a send. The wallet's own rows only say what IT did; a record published
  * from another device, or one that is not there yet, is visible only on chain.
- * So this hook reads the record by RPC (no cache), again on every change of
- * `refreshKey` (the caller passes the phases of its publish rows), and every
- * `MIDEN_NAME_RECORD_POLL_MS` while the page is on screen.
+ * The registry writes the record when it mints the name, so this hook reads
+ * the record by RPC (no cache), again on every change of `refreshKey`, and
+ * every `MIDEN_NAME_RECORD_POLL_MS` while the page is on screen.
  */
 
 import { useEffect, useState } from 'react';

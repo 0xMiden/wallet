@@ -198,8 +198,8 @@ function buildRowProps(
   } else if (isGuardianOp(entry.txType)) {
     iconNode = <SwapIcon className="w-5 h-5" />;
     iconBg = 'bg-[#777487]';
-  } else if (entry.txType === 'register-name' || entry.txType === 'publish-name-record') {
-    // Same glyph and colour as `TransactionIcon`: the row pays for, or publishes, a name.
+  } else if (entry.txType === 'register-name') {
+    // Same glyph and colour as `TransactionIcon`: the row pays for a name.
     iconNode = <Icon name={IconName.User} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-accent-primary';
     amountDirection = 'negative';
@@ -357,9 +357,6 @@ function buildRowProps(
       }
     }
   }
-
-  // Publishing transfers the name NFA, not an unknown fungible token.
-  if (entry.txType === 'publish-name-record') amount = undefined;
 
   let status: Status = 'confirmed';
   if (isUnconfirmed) {

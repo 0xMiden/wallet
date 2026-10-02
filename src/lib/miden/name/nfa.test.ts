@@ -1,46 +1,13 @@
-import { getCurrentMidenBlock } from 'lib/epoch/chain';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { MIDEN_NAME_SLOTS } from './config';
-import {
-  type AccountIdParts,
-  type Felts4,
-  encodeDomainFelts,
-  REGISTRY_NOTE_ACTION,
-  registryNoteInputs
-} from './encoding';
-import {
-  MidenNameAbortedError,
-  MidenNameInvalidLabelError,
-  MidenNameNotHeldError,
-  MidenNameRegistryMismatchError,
-  MidenNameUnsupportedNetworkError,
-  isMidenNameAbortedError
-} from './errors';
-import {
-  REGISTRY_CLEARING_SUPPORTED,
-  REGISTRY_PUBLISHING_SUPPORTED,
-  accountHoldsDomainNfa,
-  buildPublishNameRecordRequest,
-  listOwnedDomainLabels,
-  publishRegistryRecord
-} from './nfa';
-import type { PublishNameRecordRequest } from './note';
+import { type AccountIdParts, type Felts4, encodeDomainFelts } from './encoding';
+import { MidenNameAbortedError, MidenNameUnsupportedNetworkError, isMidenNameAbortedError } from './errors';
+import { accountHoldsDomainNfa, listOwnedDomainLabels } from './nfa';
 import { type RegistryMapRequest, type RegistryStorageRead, readRegistryStorage } from './reads';
 import { domainCommitment } from './sdk-words';
-import {
-  Account,
-  AccountId,
-  AssetVault,
-  KNOWN_ACCOUNTS,
-  NON_PUBLIC_ACCOUNTS,
-  NOTE_BUILD_LOG,
-  NonFungibleAsset,
-  NoteType,
-  TransactionRequestBuilder,
-  Word
-} from './test-support/fake-sdk';
+import { Account, AccountId, AssetVault, KNOWN_ACCOUNTS, NonFungibleAsset } from './test-support/fake-sdk';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: jest.fn() }));
@@ -55,10 +22,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: jest.fn(),
   assertWasmHoldCurrent: jest.fn()
 }));
-jest.mock('lib/miden/transaction/initiate', () => ({ initiatePublishNameRecordTransaction: jest.fn() }));
-jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: jest.fn(() => true) }));
 jest.mock('./reads', () => ({ readRegistryStorage: jest.fn() }));
-jest.mock('./script', () => ({ loadRegistryNoteScript: jest.fn() }));
+jest.mock('./script', () => ({ loadRegisterDomainScript: jest.fn() }));
 
 /** `findDomainNfa` takes SDK objects. The test gives it the fakes. */
 interface FindDomainNfaModule {
@@ -71,49 +36,27 @@ interface FindDomainNfaModule {
 }
 const { findDomainNfa } = jest.requireActual<FindDomainNfaModule>('./nfa');
 
-const REGISTRY_HEX = '0xead81800958e7a112d45bdcf852fa6';
+const REGISTRY_HEX = '0xe8249fe7070657110980da14461d78';
 const OTHER_FAUCET_HEX = '0xotherfaucet';
 const SENDER_HEX = '0xsender';
 const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };
 const SENDER = { prefix: 0x11n, suffix: 0x22n };
 
 const HOLD = { hold: 'current' };
-const SALT = new Word(BigUint64Array.from([5n, 6n, 7n, 8n]));
 
 type LockOperation = (hold: object) => Promise<unknown>;
 
-interface FakeScript {
-  script: string;
-  free: jest.Mock<void, []>;
-}
-
 const mockNetwork = jest.mocked(getEffectiveNetworkName);
-const mockTip = jest.mocked(getCurrentMidenBlock);
 const mockRead = jest.mocked(readRegistryStorage);
 const mockGetAccount = jest.requireMock<{
   midenClientProxy: { getAccount: jest.Mock<Promise<Account | null>, [string]> };
 }>('lib/miden/back/miden-client-proxy').midenClientProxy.getAccount;
-const mockSalt = jest.requireMock<{ randomFeeSalt: jest.Mock<Word, []> }>('lib/miden/sdk/helpers').randomFeeSalt;
 const lock = jest.requireMock<{
   withWasmClientLock: jest.Mock<Promise<unknown>, [LockOperation, object]>;
   assertWasmHoldCurrent: jest.Mock<void, [object, string]>;
 }>('lib/miden/sdk/miden-client');
 const mockLock = lock.withWasmClientLock;
 const mockAssertHold = lock.assertWasmHoldCurrent;
-const mockLoadScript = jest.requireMock<{ loadRegistryNoteScript: jest.Mock<Promise<FakeScript>, []> }>(
-  './script'
-).loadRegistryNoteScript;
-const mockInitiate = jest.requireMock<{
-  initiatePublishNameRecordTransaction: jest.Mock<
-    Promise<string>,
-    [{ accountId: string; label: string; request: PublishNameRecordRequest; delegateTransaction?: boolean }]
-  >;
-}>('lib/miden/transaction/initiate').initiatePublishNameRecordTransaction;
-const mockDelegate = jest.requireMock<{ isDelegateProofEnabled: jest.Mock<boolean, []> }>(
-  'lib/settings/helpers'
-).isDelegateProofEnabled;
-
-let script: FakeScript;
 
 function registryId(): AccountId {
   return AccountId.fromHex(REGISTRY_HEX);
@@ -146,37 +89,15 @@ function mapKeyOf(label: string): string {
   return [commitment[0], commitment[1], 0n, 0n].join(',');
 }
 
-function builtNote() {
-  const builder = TransactionRequestBuilder.lastBuilt;
-  const note = builder?.ownOutputNotes?.notes[0];
-  if (!note) throw new Error('no note was built');
-  return { builder, note };
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
-  NOTE_BUILD_LOG.length = 0;
-  TransactionRequestBuilder.lastBuilt = undefined;
-  NON_PUBLIC_ACCOUNTS.clear();
   KNOWN_ACCOUNTS.clear();
   KNOWN_ACCOUNTS.set(REGISTRY_HEX, REGISTRY);
   KNOWN_ACCOUNTS.set(OTHER_FAUCET_HEX, { prefix: 0x77n, suffix: 0x88n });
   KNOWN_ACCOUNTS.set(SENDER_HEX, SENDER);
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.TESTNET);
-  mockTip.mockResolvedValue(1000);
-  mockSalt.mockReturnValue(SALT);
   mockLock.mockImplementation(async operation => operation(HOLD));
-  script = { script: 'registry', free: jest.fn() };
-  mockLoadScript.mockResolvedValue(script);
   mockGetAccount.mockResolvedValue(accountWith(nameNfa('alice')));
-  mockDelegate.mockReturnValue(true);
-});
-
-describe('flags', () => {
-  it('supports publishing and does not support clearing yet', () => {
-    expect(REGISTRY_PUBLISHING_SUPPORTED).toBe(true);
-    expect(REGISTRY_CLEARING_SUPPORTED).toBe(false);
-  });
 });
 
 describe('findDomainNfa', () => {
@@ -313,149 +234,6 @@ describe('listOwnedDomainLabels', () => {
   it('throws on a network with no deployment', async () => {
     mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
     await expect(listOwnedDomainLabels(SENDER_HEX)).rejects.toBeInstanceOf(MidenNameUnsupportedNetworkError);
-  });
-});
-
-describe('buildPublishNameRecordRequest', () => {
-  it('builds the registry note with the NFA and the storage inputs in the contract order', async () => {
-    const alice = nameNfa('alice');
-    mockGetAccount.mockResolvedValue(accountWith(alice));
-
-    const request = await buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' });
-
-    expect(request).toEqual({
-      requestBytes: new Uint8Array([1, 2, 3]),
-      registryNoteId: '0xregister-note',
-      reclaimHeight: 1300,
-      builtAtBlock: 1000,
-      action: REGISTRY_NOTE_ACTION.updateRecords
-    });
-    const { builder, note } = builtNote();
-    const felts = note.recipient.storage.felts.elements.map(felt => felt.value);
-    // The registry consumes the note. The sender gets the record and the returned NFA.
-    expect(felts).toEqual(registryNoteInputs(REGISTRY, encodeDomainFelts('alice'), 1300, 3n));
-    expect(felts.slice(0, 2)).not.toEqual([SENDER.prefix, SENDER.suffix]);
-    expect(felts).toHaveLength(8);
-    expect(felts[7]).toBe(3n);
-    expect(note.assets.assets).toEqual([alice]);
-    expect(alice.freed).toBe(0);
-    expect(note.metadata.noteType).toBe(NoteType.Public);
-    expect(note.metadata.sender.toString()).toBe(SENDER_HEX);
-    expect(note.metadata.tag.account.toString()).toBe(REGISTRY_HEX);
-    expect(note.attachments.map(attachment => attachment.target.toString())).toEqual([REGISTRY_HEX]);
-    expect(note.recipient.script).toBe(script);
-    expect(builder.feeSalt).toBe(SALT);
-    // The note owns the script now: the build does not free it.
-    expect(script.free).not.toHaveBeenCalled();
-  });
-
-  it('reads the note id before the note moves into the NoteArray', async () => {
-    await buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' });
-    expect(NOTE_BUILD_LOG).toEqual(['Note.withAttachments', 'note.id', 'NoteArray']);
-  });
-
-  it('holds the WASM lock with a label and checks the hold after the account read', async () => {
-    await buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' });
-    expect(mockLock).toHaveBeenCalledWith(expect.any(Function), { label: 'miden-name-publish-build' });
-    expect(mockAssertHold).toHaveBeenCalledWith(HOLD, expect.any(String));
-    expect(mockGetAccount).toHaveBeenCalledWith(SENDER_HEX);
-    const [loadOrder] = mockLoadScript.mock.invocationCallOrder;
-    const [lockOrder] = mockLock.mock.invocationCallOrder;
-    expect(loadOrder ?? Infinity).toBeLessThan(lockOrder ?? 0);
-  });
-
-  it('throws MidenNameNotHeldError and frees the script when the vault has no NFA of the label', async () => {
-    const bob = nameNfa('bob');
-    mockGetAccount.mockResolvedValue(accountWith(bob));
-
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' })).rejects.toBeInstanceOf(
-      MidenNameNotHeldError
-    );
-
-    expect(script.free).toHaveBeenCalledTimes(1);
-    expect(bob.freed).toBe(1);
-    expect(TransactionRequestBuilder.lastBuilt).toBeUndefined();
-  });
-
-  it('throws MidenNameNotHeldError when the account is not in the local store', async () => {
-    mockGetAccount.mockResolvedValue(null);
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' })).rejects.toBeInstanceOf(
-      MidenNameNotHeldError
-    );
-    expect(script.free).toHaveBeenCalledTimes(1);
-  });
-
-  it('refuses a registry that is not public and frees the script', async () => {
-    NON_PUBLIC_ACCOUNTS.add(REGISTRY_HEX);
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' })).rejects.toBeInstanceOf(
-      MidenNameRegistryMismatchError
-    );
-    expect(script.free).toHaveBeenCalledTimes(1);
-  });
-
-  it('frees the script when the lock fails', async () => {
-    mockLock.mockRejectedValueOnce(new Error('lock failed'));
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' })).rejects.toThrow(
-      'lock failed'
-    );
-    expect(script.free).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not free the script after the recipient took it', async () => {
-    const build = jest.spyOn(TransactionRequestBuilder.prototype, 'build').mockImplementationOnce(() => {
-      throw new Error('build failed');
-    });
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' })).rejects.toThrow(
-      'build failed'
-    );
-    expect(script.free).not.toHaveBeenCalled();
-    build.mockRestore();
-  });
-
-  it('refuses a reclaim height that does not fit in a u32, before the script load', async () => {
-    mockTip.mockResolvedValue(4_294_967_295 - 100);
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' })).rejects.toBeInstanceOf(
-      RangeError
-    );
-    expect(mockLoadScript).not.toHaveBeenCalled();
-    expect(mockLock).not.toHaveBeenCalled();
-  });
-
-  it('refuses an invalid label before any read', async () => {
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'Alice!' })).rejects.toBeInstanceOf(
-      MidenNameInvalidLabelError
-    );
-    expect(mockTip).not.toHaveBeenCalled();
-  });
-
-  it('refuses a network with no deployment', async () => {
-    mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.DEVNET);
-    await expect(buildPublishNameRecordRequest({ accountId: SENDER_HEX, label: 'alice' })).rejects.toBeInstanceOf(
-      MidenNameUnsupportedNetworkError
-    );
-    expect(mockTip).not.toHaveBeenCalled();
-  });
-});
-
-describe('publishRegistryRecord', () => {
-  it('builds the request and queues a publish row with the delegate setting', async () => {
-    mockInitiate.mockResolvedValue('publish-1');
-    mockDelegate.mockReturnValue(false);
-
-    await expect(publishRegistryRecord(SENDER_HEX, 'alice')).resolves.toBe('publish-1');
-
-    expect(mockInitiate).toHaveBeenCalledWith({
-      accountId: SENDER_HEX,
-      label: 'alice',
-      request: expect.objectContaining({ registryNoteId: '0xregister-note', reclaimHeight: 1300, action: 3n }),
-      delegateTransaction: false
-    });
-  });
-
-  it('queues nothing when the build fails', async () => {
-    mockGetAccount.mockResolvedValue(null);
-    await expect(publishRegistryRecord(SENDER_HEX, 'alice')).rejects.toBeInstanceOf(MidenNameNotHeldError);
-    expect(mockInitiate).not.toHaveBeenCalled();
   });
 });
 

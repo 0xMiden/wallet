@@ -38,7 +38,6 @@ import {
   type MidenNameConfig,
   getMidenNameConfig
 } from './config';
-import { traceRegistryStep } from './debug';
 import { type Felts4, encodeDomainFelts, priceKeyFelts } from './encoding';
 import { MidenNameRegistryMismatchError, MidenNameUnsupportedNetworkError } from './errors';
 import { feltsFromWord, idPartsFromHex, nfasCarryLabel, statusKeyFeltsForLabel, wordFromFelts } from './sdk-words';
@@ -109,24 +108,16 @@ export async function readRegistryStorage(
   requests: RegistryMapRequest[],
   label: string
 ): Promise<RegistryStorageRead> {
-  const trace = label.startsWith('midenNameResolve');
-  const rpc = await traceRegistryStep('resolve.rpc-ready', newRpcClient, { read: label }, trace);
+  const rpc = await newRpcClient();
   const registryHex = config.registryAccountIdHex.toLowerCase();
-  let attempt = 0;
 
   const proof = await withRpcTimeout(
     () =>
-      traceRegistryStep(
-        'resolve.account-proof',
-        () =>
-          rpc.getAccountProof(
-            AccountId.fromHex(config.registryAccountIdHex),
-            AccountStorageRequirements.fromSlotAndKeysArray(
-              requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
-            )
-          ),
-        { read: label, attempt: ++attempt },
-        trace
+      rpc.getAccountProof(
+        AccountId.fromHex(config.registryAccountIdHex),
+        AccountStorageRequirements.fromSlotAndKeysArray(
+          requests.map(request => new SlotAndKeys(request.slot, request.keys.map(wordFromFelts)))
+        )
       ),
     label
   );
@@ -222,21 +213,6 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
   };
   quoteCache.set(cacheKey, { quote, at: Date.now() });
   return quote;
-}
-
-/**
- * True when the registry allows a note script (`allowed_note_scripts[root]`
- * felt 0 is 1). The publish guard uses this for the registry script.
- */
-export async function fetchRegistryScriptAllowed(scriptRootHex: string): Promise<boolean> {
-  const config = requireConfig();
-  const scriptRoot = feltsFromWord(Word.fromHex(scriptRootHex));
-  const storage = await readRegistryStorage(
-    config,
-    [{ slot: MIDEN_NAME_SLOTS.allowedNoteScripts, keys: [scriptRoot] }],
-    'midenNameScriptAllowed'
-  );
-  return storage.mapValue(MIDEN_NAME_SLOTS.allowedNoteScripts, scriptRoot)[0] === MIDEN_NAME_ALLOWED_SCRIPT_MARKER;
 }
 
 /** True when the registry has issued the name (`asset_status` felt 0 is 1). */

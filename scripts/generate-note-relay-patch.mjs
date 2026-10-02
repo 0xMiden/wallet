@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packagePath = 'node_modules/@miden-sdk/miden-sdk';
-const patchPath = resolve(root, 'patches/@miden-sdk+miden-sdk+0.16.1.patch');
+const patchPath = resolve(root, 'patches/@miden-sdk+miden-sdk+0.16.3.patch');
 const bundles = JSON.parse(readFileSync(resolve(root, 'scripts/note-relay-bundles.json'), 'utf8'));
 const helper = readFileSync(resolve(root, 'src/lib/miden/sdk/note-relay-fetch.mjs'), 'utf8').replace(/^export /gm, '');
 const block = `// BEGIN note-relay-fetch\n${helper}// END note-relay-fetch\n\n`;
@@ -26,7 +26,7 @@ if (linked) {
   process.exit(0);
 }
 const version = JSON.parse(readFileSync(resolve(root, packagePath, 'package.json'), 'utf8')).version;
-if (version !== '0.16.1') throw new Error(`Relay patch requires SDK 0.16.1, found ${version}`);
+if (version !== '0.16.3') throw new Error(`Relay patch requires SDK 0.16.3, found ${version}`);
 
 const temporary = check ? null : mkdtempSync(join(tmpdir(), 'note-relay-patch-'));
 try {

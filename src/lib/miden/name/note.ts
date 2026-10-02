@@ -94,38 +94,6 @@ export function registerNameRowAccounts(): RegisterNameRowAccounts {
   };
 }
 
-export interface PublishNameRecordRequest {
-  /** Serialized `TransactionRequest`. Keep these bytes on the row and use them for all attempts. */
-  requestBytes: Uint8Array;
-  /** Id (hex) of the registry note in the request. */
-  registryNoteId: string;
-  /** Block after which the sender can reclaim the registry note. */
-  reclaimHeight: number;
-  /** Chain tip at the time of the build. */
-  builtAtBlock: number;
-  /** Registry note action code. */
-  action: bigint;
-}
-
-export interface PublishNameRowAccounts {
-  network: string;
-  /** Registry network account (also the NFA faucet), bech32. */
-  registryAccountId: string;
-}
-
-/**
- * The bech32 ids that a `publish-name-record` row stores, for the effective
- * network. The caller must load the SDK WASM first (a build does this).
- */
-export function publishNameRowAccounts(): PublishNameRowAccounts {
-  const config = getMidenNameConfig();
-  if (!config) throw new MidenNameUnsupportedNetworkError(getEffectiveNetworkName());
-  return {
-    network: config.network,
-    registryAccountId: getBech32AddressFromAccountId(AccountId.fromHex(config.registryAccountIdHex))
-  };
-}
-
 /** A random serial number for the register note. Each felt is below the field modulus. */
 export function randomSerialWord(): Word {
   const raw = new BigUint64Array(4);

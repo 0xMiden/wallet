@@ -1,7 +1,6 @@
 import { MIDEN_NAME_COMMITMENT_TAG, encodeDomainFelts } from './encoding';
 import {
   accountIdFromParts,
-  accountKey,
   decodeAccountWord,
   domainCommitment,
   feltsFromWord,
@@ -36,7 +35,6 @@ describe('sdk-words', () => {
   it('builds key words in the encoding layouts', () => {
     const token = { prefix: 3n, suffix: 4n };
     expect(feltsFromWord(priceKey(8, token))).toEqual([5n, 0n, 4n, 3n]);
-    expect(feltsFromWord(accountKey(token))).toEqual([0n, 0n, 4n, 3n]);
     expect(feltsFromWord(statusKey('miden', REGISTRY))).toEqual(statusKeyFeltsForLabel('miden', REGISTRY));
     expect(wordHexFromFelts([1n, 0n, 0n, 0n])).toBe(new Word(BigUint64Array.from([1n, 0n, 0n, 0n])).toHex());
   });

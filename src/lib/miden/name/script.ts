@@ -1,12 +1,12 @@
 /**
- * Loads the Miden Name note scripts.
+ * Loads the Miden Name register-domain note script.
  *
- * The serialized scripts are a static asset (`public/miden-name/note-scripts.json`),
- * not part of the bundle: together they are about 50 KB of base64. The asset
- * is fetched once per realm and cached; a failed fetch is not cached, so the
- * next call tries again. The roots and sizes in `note-script-roots.ts` are the
- * source of truth: the loader refuses an asset whose root or size differs, and
- * refuses deserialized bytes whose MAST root differs.
+ * The serialized script is a static asset (`public/miden-name/note-scripts.json`),
+ * not part of the bundle: it is about 23 KB of base64. The asset is fetched
+ * once per realm and cached; a failed fetch is not cached, so the next call
+ * tries again. The root and size in `note-script-roots.ts` are the source of
+ * truth: the loader refuses an asset whose root or size differs, and refuses
+ * deserialized bytes whose MAST root differs.
  */
 
 import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
@@ -17,12 +17,10 @@ import { MidenNameScriptAssetError, MidenNameScriptMismatchError } from './error
 import {
   MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH,
   REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
-  REGISTER_DOMAIN_SCRIPT_ROOT_HEX,
-  REGISTRY_SCRIPT_BYTE_LENGTH,
-  REGISTRY_SCRIPT_ROOT_HEX
+  REGISTER_DOMAIN_SCRIPT_ROOT_HEX
 } from './note-script-roots';
 
-export type MidenNameNoteScriptName = 'registerDomain' | 'registry';
+export type MidenNameNoteScriptName = 'registerDomain';
 
 interface SerializedNoteScript {
   root: string;
@@ -43,8 +41,7 @@ const EXPECTED: Record<MidenNameNoteScriptName, ExpectedNoteScript> = {
     rootHex: REGISTER_DOMAIN_SCRIPT_ROOT_HEX,
     byteLength: REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
     label: 'register-domain'
-  },
-  registry: { rootHex: REGISTRY_SCRIPT_ROOT_HEX, byteLength: REGISTRY_SCRIPT_BYTE_LENGTH, label: 'registry' }
+  }
 };
 
 let assetPromise: Promise<NoteScriptsAsset> | undefined;
@@ -95,8 +92,7 @@ function parseNoteScriptsAsset(value: unknown): NoteScriptsAsset {
     throw new MidenNameScriptAssetError('the asset is not a JSON object');
   }
   return {
-    registerDomain: parseNoteScriptEntry(value, 'registerDomain'),
-    registry: parseNoteScriptEntry(value, 'registry')
+    registerDomain: parseNoteScriptEntry(value, 'registerDomain')
   };
 }
 
@@ -160,11 +156,6 @@ export async function loadMidenNameNoteScript(name: MidenNameNoteScriptName): Pr
 /** The register-domain note script (sends the price to the registry). */
 export function loadRegisterDomainScript(): Promise<NoteScript> {
   return loadMidenNameNoteScript('registerDomain');
-}
-
-/** The registry note script (carries the NFA back with an action code). */
-export function loadRegistryNoteScript(): Promise<NoteScript> {
-  return loadMidenNameNoteScript('registry');
 }
 
 /** Drop the cached asset. For tests only. */

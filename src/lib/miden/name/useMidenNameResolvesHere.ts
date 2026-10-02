@@ -4,15 +4,18 @@
 
 import { useEffect, useState } from 'react';
 
+import { compareAccountIds } from 'lib/miden/activity/utils';
+
 import { isMidenNameSupported } from './config';
-import { reverseResolveMidenName } from './resolver';
+import { MidenNameAbortedError } from './errors';
+import { fetchDomainRecordAccount } from './resolver';
 
 /**
- * True when the registry reverse record of the account is the label.
+ * True when the registry record of the label points to the account.
  *
  * The check runs only when the network has a Miden Name deployment. While the
- * registry has no reverse record for the account, the result is false. Each new
- * account or label cancels the previous check.
+ * registry has no record for the label, the result is false. Each new account
+ * or label cancels the previous check.
  */
 export function useMidenNameResolvesHere(accountId: string | undefined, label: string | undefined): boolean {
   const [resolves, setResolves] = useState(false);
@@ -21,15 +24,19 @@ export function useMidenNameResolvesHere(accountId: string | undefined, label: s
     setResolves(false);
     if (!accountId || label === undefined || !isMidenNameSupported()) return undefined;
 
-    const controller = new AbortController();
-    reverseResolveMidenName(accountId, { signal: controller.signal })
-      .then(found => {
-        if (!controller.signal.aborted) setResolves(found === label);
+    let cancelled = false;
+    fetchDomainRecordAccount(label)
+      .then(record => {
+        if (!cancelled) setResolves(record !== null && compareAccountIds(record, accountId));
       })
       .catch(error => {
-        if (!controller.signal.aborted) console.warn('[miden-name] Reverse resolve failed:', error);
+        if (!cancelled && !(error instanceof MidenNameAbortedError)) {
+          console.warn('[miden-name] Record read failed:', error);
+        }
       });
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+    };
   }, [accountId, label]);
 
   return resolves;

@@ -103,10 +103,11 @@ jest.mock('lib/miden/name/config', () => ({
   isMidenNameSupported: () => mockNameSupported
 }));
 
-let mockReverseLabel: string | null = null;
-const mockReverseResolve = jest.fn(async (_accountId: string) => mockReverseLabel);
+// The registry record of the owned label: the account it points to, or null for no record.
+let mockRecordAccount: string | null = null;
+const mockFetchRecord = jest.fn(async (_label: string) => mockRecordAccount);
 jest.mock('lib/miden/name/resolver', () => ({
-  reverseResolveMidenName: (accountId: string) => mockReverseResolve(accountId)
+  fetchDomainRecordAccount: (label: string) => mockFetchRecord(label)
 }));
 
 jest.mock('app/templates/EvmConnectModal', () => ({
@@ -246,8 +247,8 @@ describe('Receive - Address', () => {
     jest.mocked(hapticLight).mockClear();
     mockOwnedLabel = undefined;
     mockNameSupported = false;
-    mockReverseLabel = null;
-    mockReverseResolve.mockClear();
+    mockRecordAccount = null;
+    mockFetchRecord.mockClear();
   });
 
   afterEach(async () => {
@@ -324,18 +325,18 @@ describe('Receive - Address', () => {
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
     });
 
-    it('does not reverse-resolve on a network without a deployment', async () => {
+    it('does not read the registry record on a network without a deployment', async () => {
       mockOwnedLabel = 'alice';
-      mockReverseLabel = 'alice';
+      mockRecordAccount = 'test-account-123';
       await renderReceive();
 
-      expect(mockReverseResolve).not.toHaveBeenCalled();
+      expect(mockFetchRecord).not.toHaveBeenCalled();
     });
 
-    it('shows the resolves pill only when the reverse record is the owned name', async () => {
+    it('shows the resolves pill only when the registry record of the owned name points here', async () => {
       mockOwnedLabel = 'alice';
       mockNameSupported = true;
-      mockReverseLabel = 'alice';
+      mockRecordAccount = 'test-account-123';
       const container = await renderReceive();
 
       await waitFor(() =>
@@ -343,17 +344,17 @@ describe('Receive - Address', () => {
           'midenNameResolvesHere'
         )
       );
-      expect(mockReverseResolve).toHaveBeenCalledWith('test-account-123');
+      expect(mockFetchRecord).toHaveBeenCalledWith('alice');
       expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).toBeNull();
     });
 
-    it('keeps the muted pill when the reverse record names another label', async () => {
+    it('keeps the muted pill when the registry record points to another account', async () => {
       mockOwnedLabel = 'alice';
       mockNameSupported = true;
-      mockReverseLabel = 'bob';
+      mockRecordAccount = 'mtst1someoneelse';
       const container = await renderReceive();
 
-      await waitFor(() => expect(mockReverseResolve).toHaveBeenCalled());
+      await waitFor(() => expect(mockFetchRecord).toHaveBeenCalled());
       expect(container.querySelector('[data-testid="receive-miden-name-resolves"]')).toBeNull();
       expect(container.querySelector('[data-testid="receive-miden-name-unresolved"]')).not.toBeNull();
     });

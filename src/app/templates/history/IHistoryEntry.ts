@@ -3,8 +3,6 @@ import {
   IBridgeProvider,
   IBridgedReceivePhase,
   IConsumeMidenNameExtraInputs,
-  IConsumeMidenNameReturnExtraInputs,
-  IPublishNameRecordExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   INoteDeliveryState,
@@ -182,7 +180,7 @@ export interface IHistoryEntry {
    * The row title then shows the name.
    */
   midenNameLabel?: string;
-  /** Registration/publication whose name-NFA receipt this row completes. */
+  /** Registration whose name-NFA receipt this row completes. */
   midenNameParentTxId?: string;
   midenNameStatus?: 'pending' | 'confirmed' | 'failed';
   midenNameReceiptTxId?: string;
@@ -193,26 +191,29 @@ export function midenNameActivityOf(
 ): Pick<IHistoryEntry, 'midenNameParentTxId' | 'midenNameStatus' | 'midenNameReceiptTxId'> {
   if (tx.type === 'consume') {
     const claim: Partial<IConsumeMidenNameExtraInputs> | undefined = tx.extraInputs;
-    const returned: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = tx.extraInputs;
-    return { midenNameParentTxId: claim?.midenNameClaim?.registerTxId ?? returned?.midenNameReturn?.publishTxId };
+    return { midenNameParentTxId: claim?.midenNameClaim?.registerTxId };
   }
-  if (tx.type === 'register-name' || tx.type === 'publish-name-record') {
-    const inputs: Partial<IRegisterNameExtraInputs | IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
-    const phase = inputs?.phase;
+  if (tx.type === 'register-name') {
     const registration: Partial<IRegisterNameExtraInputs> | undefined = tx.extraInputs;
-    const publication: Partial<IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
     return {
-      midenNameReceiptTxId: tx.type === 'register-name' ? registration?.claimTxId : publication?.returnTxId,
-      midenNameStatus: !phase
-        ? undefined
-        : phase === 'failed'
-          ? 'failed'
-          : phase === 'owned' || phase === 'done'
-            ? 'confirmed'
-            : 'pending'
+      midenNameReceiptTxId: registration?.claimTxId,
+      midenNameStatus: midenNameStatusOf(registration?.phase)
     };
   }
   return {};
+}
+
+function midenNameStatusOf(phase: IRegisterNameExtraInputs['phase'] | undefined): IHistoryEntry['midenNameStatus'] {
+  switch (phase) {
+    case undefined:
+      return undefined;
+    case 'failed':
+      return 'failed';
+    case 'owned':
+      return 'confirmed';
+    default:
+      return 'pending';
+  }
 }
 
 /**
@@ -225,25 +226,13 @@ export function midenNameLabelOf(tx: Pick<ITransaction, 'type' | 'extraInputs'>)
       const inputs: Partial<IRegisterNameExtraInputs> | undefined = tx.extraInputs;
       return inputs?.label || undefined;
     }
-    case 'publish-name-record': {
-      const inputs: Partial<IPublishNameRecordExtraInputs> | undefined = tx.extraInputs;
-      return inputs?.label || undefined;
-    }
     case 'consume': {
       const inputs: Partial<IConsumeMidenNameExtraInputs> | undefined = tx.extraInputs;
-      const returnInputs: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = tx.extraInputs;
-      return inputs?.midenNameClaim?.label || returnInputs?.midenNameReturn?.label || undefined;
+      return inputs?.midenNameClaim?.label || undefined;
     }
     default:
       return undefined;
   }
-}
-
-/** True when the consume row takes back the NFA after a registry-record publish. */
-export function isMidenNameReturnConsume(tx: Pick<ITransaction, 'type' | 'extraInputs'>): boolean {
-  if (tx.type !== 'consume') return false;
-  const inputs: Partial<IConsumeMidenNameReturnExtraInputs> | undefined = tx.extraInputs;
-  return inputs?.midenNameReturn !== undefined;
 }
 
 /**
@@ -261,8 +250,6 @@ export function midenNameRowTitle(
   switch (entry.txType) {
     case 'register-name':
       return t('historyRegisteredName', { name });
-    case 'publish-name-record':
-      return t('historyPublishedName', { name });
     case 'consume':
       return t('historyReceivedName', { name });
     default:
@@ -282,11 +269,7 @@ export enum HistoryEntryType {
 
 /** Fold successful NFA receipts into their loaded parent; never hide orphaned or failed receipts. */
 export function reconcileMidenNameActivity(entries: IHistoryEntry[]): IHistoryEntry[] {
-  const parents = new Set(
-    entries
-      .filter(entry => entry.txType === 'register-name' || entry.txType === 'publish-name-record')
-      .map(entry => entry.txId)
-  );
+  const parents = new Set(entries.filter(entry => entry.txType === 'register-name').map(entry => entry.txId));
   return entries.filter(
     entry =>
       !(

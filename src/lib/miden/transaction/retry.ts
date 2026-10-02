@@ -93,8 +93,7 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
   swap: 'SWAP',
   'bridged-send': 'SEND',
   execute: 'DEFAULT',
-  'register-name': 'SEND',
-  'publish-name-record': 'SEND'
+  'register-name': 'SEND'
 };
 
 /**
