@@ -13,10 +13,12 @@
 // invariant: an apply-after-submit failure must mark Completed, never Failed →
 // requeue → double-spend).
 //
-// The one import is `wasm-client-poison`, itself a zero-dependency leaf, so this
-// module stays realm- and cycle-safe.
+// The imports are `wasm-client-poison`, itself a zero-dependency leaf, and
+// `offscreen-codec`, whose own imports are type-only, so this module stays
+// realm- and cycle-safe.
 
 import { isWasmClientPoisonedError } from './wasm-client-poison';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 
 /**
  * Pulls a stable SDK error code off a thrown value, if present.
@@ -90,6 +92,64 @@ export function errorMessageParts(err: unknown): string[] {
     current = cause;
   }
   return parts;
+}
+
+/**
+ * `err` and then each value down its `cause` chain, each once. The walk ends on a
+ * cycle, after a value that is not an object, and at a `cause` that cannot be
+ * read.
+ *
+ * The read is guarded for the reason `errorMessageParts` gives, and the `in` test
+ * with it, since a Proxy can throw from that too. Every link is yielded before its
+ * `cause` is read, so a throw there costs only the rest of the chain, never a link
+ * already in hand.
+ */
+export function* causeChain(err: unknown): Generator<unknown, void, undefined> {
+  const seen = new Set<unknown>();
+  for (let link: unknown = err; !seen.has(link); ) {
+    seen.add(link);
+    yield link;
+    if (typeof link !== 'object' || link === null) return;
+    try {
+      if (!('cause' in link)) return;
+      link = link.cause;
+    } catch {
+      return;
+    }
+  }
+}
+
+/**
+ * True when `matches` accepts any object link of `err`'s cause chain. A link the
+ * predicate throws on is no match, and the walk goes on to its `cause`: a
+ * classifier that throws turns a handled failure into an unhandled one.
+ */
+export function someInCauseChain(err: unknown, matches: (link: object) => boolean): boolean {
+  for (const link of causeChain(err)) {
+    if (typeof link !== 'object' || link === null) continue;
+    try {
+      if (matches(link)) return true;
+    } catch {
+      // No answer from this link; its cause may still have one.
+    }
+  }
+  return false;
+}
+
+/**
+ * A killed pipeline anywhere in `err`'s cause chain: a lock-recovery eviction
+ * (`WasmClientPoisonedError`) or an offscreen deadline kill
+ * (`OperationAbortedError`). Either means the operation was torn down from
+ * outside and may still be running, so a caller wrapping one does not make it
+ * any less a kill (#1313).
+ */
+export function isKilledPipeline(err: unknown): boolean {
+  return someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link));
+}
+
+/** A lock-recovery eviction (`WasmClientPoisonedError`) anywhere in `err`'s cause chain. */
+export function isPoisonedPipeline(err: unknown): boolean {
+  return someInCauseChain(err, isWasmClientPoisonedError);
 }
 
 /**

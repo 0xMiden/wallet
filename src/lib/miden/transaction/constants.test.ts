@@ -3,6 +3,7 @@ import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/mi
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
   INVALID_NOTE_ERROR,
   isGuardianOutage,
@@ -454,5 +455,62 @@ describe('a Guardian request timeout as an outage (#1313)', () => {
     a.cause = b;
     b.cause = a;
     expect(isGuardianOutage(a)).toBe(false);
+  });
+});
+
+describe('formatRawTransactionError', () => {
+  it('prints each link of the cause chain, and a trailing non-Error value as text', () => {
+    const chain = new Error('outer', { cause: new TypeError('middle', { cause: new RangeError('inner') }) });
+    expect(formatRawTransactionError(chain)).toBe(
+      'Error: outer <- caused by TypeError: middle <- caused by RangeError: inner'
+    );
+    expect(formatRawTransactionError(new Error('outer', { cause: 'socket hang up' }))).toBe(
+      'Error: outer <- caused by socket hang up'
+    );
+  });
+
+  it('stops at the first link that is not an Error', () => {
+    const chain = new Error('outer', { cause: { code: 7, cause: new Error('hidden') } });
+    expect(formatRawTransactionError(chain)).toBe('Error: outer <- caused by [object Object]');
+  });
+
+  it('prints at most five links', () => {
+    let deep = new Error('link 6');
+    for (let i = 5; i >= 0; i--) deep = new Error(`link ${i}`, { cause: deep });
+    expect(formatRawTransactionError(deep)).toBe([0, 1, 2, 3, 4].map(i => `Error: link ${i}`).join(' <- caused by '));
+  });
+});
+
+describe('an error whose cause getter throws (#1313)', () => {
+  const withThrowingCause = <T extends Error>(error: T): T =>
+    Object.defineProperty(error, 'cause', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+
+  const proposal = () => withThrowingCause(new Error('could not create the proposal'));
+
+  it('is classified from the links before the getter', () => {
+    expect(() => isGuardianOutage(proposal())).not.toThrow();
+    expect(isGuardianOutage(proposal())).toBe(false);
+  });
+
+  it('is printed from the links before the getter', () => {
+    expect(formatRawTransactionError(proposal())).toBe('Error: could not create the proposal');
+  });
+
+  it('drops only the text of a link whose name cannot be read', () => {
+    const unreadable = Object.defineProperty(new Error('outer', { cause: new Error('inner') }), 'name', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    expect(formatRawTransactionError(unreadable)).toBe('Error: inner');
+  });
+
+  it('still reads a deadline kill as a recovered engine', () => {
+    const aborted = withThrowingCause(new OperationAbortedError('op-1', 'deadline'));
+    expect(resolveTransactionErrorMessage(aborted, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 });

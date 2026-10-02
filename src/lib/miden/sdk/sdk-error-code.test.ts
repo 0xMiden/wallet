@@ -5,8 +5,11 @@ import {
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isGuardianCanonicalizationError,
+  isKilledPipeline,
+  isPoisonedPipeline,
   isStaleInitialCommitmentError,
-  isTransactionDiscardedError
+  isTransactionDiscardedError,
+  someInCauseChain
 } from './sdk-error-code';
 
 /**
@@ -460,5 +463,59 @@ describe('isAccountNotFoundOnChainError', () => {
     expect(isAccountNotFoundOnChainError(new WasmClientPoisonedError('realm-error', new Error(NODE_016_MISS)))).toBe(
       false
     );
+  });
+});
+
+describe('someInCauseChain (#1313)', () => {
+  const isTarget = (link: object): boolean => 'name' in link && link.name === 'Target';
+  const target = (): Error => Object.assign(new Error('target'), { name: 'Target' });
+  const throwing = (error: Error, key: 'cause' | 'name'): Error =>
+    Object.defineProperty(error, key, {
+      get() {
+        throw new Error('boom');
+      }
+    });
+
+  it('finds a match three causes deep', () => {
+    const outer = new Error('outer', {
+      cause: new Error('first', { cause: new Error('second', { cause: target() }) })
+    });
+    expect(someInCauseChain(outer, isTarget)).toBe(true);
+  });
+
+  it('ends on a two-link cycle', () => {
+    const a: Error & { cause?: unknown } = new Error('a');
+    const b: Error & { cause?: unknown } = new Error('b');
+    a.cause = b;
+    b.cause = a;
+    expect(someInCauseChain(a, isTarget)).toBe(false);
+  });
+
+  it('stops at a cause getter that throws, keeping what the links before it answered', () => {
+    expect(() => someInCauseChain(throwing(new Error('outer'), 'cause'), isTarget)).not.toThrow();
+    expect(someInCauseChain(throwing(new Error('outer'), 'cause'), isTarget)).toBe(false);
+    expect(someInCauseChain(throwing(target(), 'cause'), isTarget)).toBe(true);
+  });
+
+  it('skips a link the predicate cannot read and still finds a match on its cause', () => {
+    expect(someInCauseChain(throwing(new Error('unreadable', { cause: target() }), 'name'), isTarget)).toBe(true);
+  });
+});
+
+describe('isKilledPipeline and isPoisonedPipeline (#1313)', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  const abortedInside = () => new Error('x', { cause: new OperationAbortedError('op-1', 'deadline') });
+  const poisonedInside = () => new Error('x', { cause: new WasmClientPoisonedError('watchdog') });
+
+  it('reads either kill anywhere in the chain as a killed pipeline', () => {
+    expect(isKilledPipeline(abortedInside())).toBe(true);
+    expect(isKilledPipeline(poisonedInside())).toBe(true);
+    expect(isKilledPipeline(new Error('x'))).toBe(false);
+  });
+
+  it('reads only a lock-recovery eviction as a poisoned pipeline', () => {
+    expect(isPoisonedPipeline(abortedInside())).toBe(false);
+    expect(isPoisonedPipeline(poisonedInside())).toBe(true);
   });
 });
