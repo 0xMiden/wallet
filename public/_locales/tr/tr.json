@@ -1031,7 +1031,6 @@
   "youAreDepositing": "Para yatırıyorsunuz",
   "confirmDeposit": "Para Yatırma İşlemini Onayla",
   "bridgeDepositProcessing": "Köprü yatırımı onayı",
-  "bridgeDepositProcessingDescription": "Cüzdanınızdaki talebi onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
   "bridgeDepositFailed": "Köprü yatırımı başarısız oldu",
   "bridgeDepositSubmitted": "Köprü başlatıldı!",
   "bridgeDepositDeliveryDescription": "Sepolia işlemi onaylandı. Köprü aktarımı tamamlandığında fonlarınız Miden'de görünecektir.",

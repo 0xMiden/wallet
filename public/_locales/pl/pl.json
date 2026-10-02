@@ -1031,7 +1031,6 @@
   "youAreDepositing": "Dokonujesz wpłaty",
   "confirmDeposit": "Potwierdź wpłatę",
   "bridgeDepositProcessing": "Potwierdzanie wpłaty na most",
-  "bridgeDepositProcessingDescription": "Zatwierdź żądanie w swoim portfelu i pozostaw ten ekran otwarty, dopóki Sepolia nie potwierdzi transakcji.",
   "bridgeDepositFailed": "Niepowodzenie wpłaty na most",
   "bridgeDepositSubmitted": "Most uruchomiony!",
   "bridgeDepositDeliveryDescription": "Transakcja Sepolia została potwierdzona. Twoje środki pojawią się na platformie Miden po zakończeniu transferu między łańcuchami.",

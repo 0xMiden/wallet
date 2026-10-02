@@ -1031,7 +1031,6 @@
   "youAreDepositing": "Ви здійснюєте внесок",
   "confirmDeposit": "Підтвердити депозит",
   "bridgeDepositProcessing": "Підтвердження депозиту через міст",
-  "bridgeDepositProcessingDescription": "Підтвердьте запит у своєму гаманці та залиште цей екран відкритим, поки Sepolia його підтверджує.",
   "bridgeDepositFailed": "Помилка під час депозиту через міст",
   "bridgeDepositSubmitted": "Міст ініційовано!",
   "bridgeDepositDeliveryDescription": "Транзакція Sepolia підтверджена. Ваші кошти з’являться на Miden після завершення передачі через міст.",

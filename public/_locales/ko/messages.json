@@ -4528,6 +4528,12 @@
     "message": "지갑에서 요청을 승인하고, Sepolia에서 확인이 완료될 때까지 이 화면을 열어 두세요.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
   },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+  },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
     "englishSource": "Bridge deposit failed"

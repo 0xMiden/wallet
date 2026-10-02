@@ -1031,7 +1031,6 @@
   "youAreDepositing": "You are depositing",
   "confirmDeposit": "Confirm Deposit",
   "bridgeDepositProcessing": "Confirming bridge deposit",
-  "bridgeDepositProcessingDescription": "Approve the request in your wallet and keep this screen open while Sepolia confirms it.",
   "bridgeDepositFailed": "Bridge deposit failed",
   "bridgeDepositSubmitted": "Bridge initiated!",
   "bridgeDepositDeliveryDescription": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",

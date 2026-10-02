@@ -4528,6 +4528,12 @@
     "message": "Підтвердьте запит у своєму гаманці та залиште цей екран відкритим, поки Sepolia його підтверджує.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
   },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+  },
   "bridgeDepositFailed": {
     "message": "Помилка під час депозиту через міст",
     "englishSource": "Bridge deposit failed"

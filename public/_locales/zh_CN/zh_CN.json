@@ -1031,7 +1031,6 @@
   "youAreDepositing": "您正在存入",
   "confirmDeposit": "确认存款",
   "bridgeDepositProcessing": "确认桥接存款",
-  "bridgeDepositProcessingDescription": "请在您的钱包中批准该请求，并在 Sepolia 确认期间保持此页面打开。",
   "bridgeDepositFailed": "桥接存款失败",
   "bridgeDepositSubmitted": "桥接已启动！",
   "bridgeDepositDeliveryDescription": "Sepolia 交易已确认。待跨链转账完成后，您的资金将显示在 Miden 上。",

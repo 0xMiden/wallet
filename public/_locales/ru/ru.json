@@ -1031,7 +1031,6 @@
   "youAreDepositing": "Вы вносите депозит",
   "confirmDeposit": "Подтвердить депозит",
   "bridgeDepositProcessing": "Подтверждение депозита через мост",
-  "bridgeDepositProcessingDescription": "Подтвердите запрос в кошельке и оставьте этот экран открытым, пока Sepolia не подтвердит его.",
   "bridgeDepositFailed": "Ошибка при внесении депозита через мост",
   "bridgeDepositSubmitted": "Мост запущен!",
   "bridgeDepositDeliveryDescription": "Транзакция Sepolia подтверждена. Ваши средства появятся на Miden после завершения передачи через мост.",

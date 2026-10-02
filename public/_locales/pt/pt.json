@@ -1031,7 +1031,6 @@
   "youAreDepositing": "Você está fazendo um depósito",
   "confirmDeposit": "Confirmar depósito",
   "bridgeDepositProcessing": "Confirmando o depósito na ponte",
-  "bridgeDepositProcessingDescription": "Aprovar a solicitação na sua carteira e manter esta tela aberta enquanto a Sepolia a confirma.",
   "bridgeDepositFailed": "Falha no depósito da ponte",
   "bridgeDepositSubmitted": "Bridge iniciada!",
   "bridgeDepositDeliveryDescription": "A transação na Sepolia está confirmada. Seus fundos aparecerão no Miden assim que a transferência pela ponte for concluída.",

@@ -4528,6 +4528,12 @@
     "message": "请在您的钱包中批准该请求，并在 Sepolia 确认期间保持此页面打开。",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
   },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+  },
   "bridgeDepositFailed": {
     "message": "桥接存款失败",
     "englishSource": "Bridge deposit failed"
