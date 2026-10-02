@@ -117,7 +117,9 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
     // for one has to find it, or typing a symbol the user can see hides
     // the very row showing it.
     entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-    entry.secondaryAddress?.toLowerCase().includes(query)
+    entry.secondaryAddress?.toLowerCase().includes(query) ||
+    // The row title shows the full name ("alice.miden"), so search for it too.
+    (entry.midenNameLabel !== undefined && formatMidenName(entry.midenNameLabel).includes(query))
   );
 }
 
@@ -339,6 +341,45 @@ const History = memo<HistoryProps>(
     const representedNotes: ReadonlySet<string> = new Set(
       pendingItems?.filter(item => item.status === 'claiming' || item.status === 'failed').map(item => item.note.id)
     );
+    // A note that leaves that set (its claim completed, auto-consume took it, a decline, a filter chip) can still
+    // have its failed attempts in settled reads fetched before its claim was Completed, which is what supersedes them
+    // (#771). Only the settled read holds Failed rows, and it runs only while the in-flight read does, so the note
+    // stays hidden until a refresh started after it left settles with the settled read running; the fresh read then
+    // decides. The set as last committed covers the render in which a note leaves, which paints before any effect.
+    // The held notes are a ref, filled in the same step that empties the committed set: a state update queued from
+    // the effect is skipped by a higher-priority render, which would then hide the note through neither set and find
+    // no hold to restart for. The state is only a counter a release bumps to draw the rows it frees, and a counter
+    // never nets back to the value last rendered.
+    const committedNotes = useRef<ReadonlySet<string>>(NO_NOTES);
+    const heldNotes = useRef<ReadonlySet<string>>(NO_NOTES);
+    const [, setReleases] = useSafeState(0);
+    const refreshSeq = useRef(0);
+    // Written only by the effect, which runs after every commit and does nothing on one with no leave and no read
+    // starting, so a refresh that settles after the page left the screen (or went to Pending) sees the read stopped:
+    // the page then still draws its pre-refresh rows, attempts included.
+    const settledReadRunning = useRef(readingCompleted);
+    useEffect(() => {
+      const leaving = [...committedNotes.current].filter(id => !representedNotes.has(id));
+      committedNotes.current = representedNotes;
+      const readStarted = readingCompleted && !settledReadRunning.current;
+      settledReadRunning.current = readingCompleted;
+      if (leaving.length > 0) heldNotes.current = new Set([...heldNotes.current, ...leaving]);
+      // A settled read that was off when the last refresh settled still owes the held notes one. No timer: a refresh
+      // that never settles keeps them hidden until the next leave's refresh settles or History unmounts, even while
+      // the other read keeps updating.
+      if (leaving.length === 0 && !(readStarted && heldNotes.current.size > 0)) return;
+      const seq = ++refreshSeq.current;
+      const startedRunning = readingCompleted;
+      void Promise.allSettled([mutateLatest(), mutateTx()]).then(() => {
+        // Only the latest refresh started after every leave, and SWR discards an older fetch that a newer mutate
+        // replaced, so an earlier refresh can settle on stale data. A read not running was not refreshed at all.
+        if (startedRunning && settledReadRunning.current && seq === refreshSeq.current) {
+          heldNotes.current = NO_NOTES;
+          setReleases(n => n + 1);
+        }
+      });
+    });
+    const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes.current]);
     let entries: IHistoryEntry[] = reconcileMidenNameActivity(allEntries).filter(
       entry =>
         !(
@@ -349,18 +390,7 @@ const History = memo<HistoryProps>(
     );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
-      entries = entries.filter(
-        e =>
-          e.message?.toLowerCase().includes(query) ||
-          e.token?.toLowerCase().includes(query) ||
-          // A batch claim displays its secondary assets on the row, so searching
-          // for one has to find it — otherwise typing a symbol the user can see
-          // hides the very row showing it.
-          e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-          e.secondaryAddress?.toLowerCase().includes(query) ||
-          // The row title shows the full name ("alice.miden"), so search for it too.
-          (e.midenNameLabel !== undefined && formatMidenName(e.midenNameLabel).includes(query))
-      );
+      entries = entries.filter(e => historyEntryMatchesSearch(e, query));
     }
     if (filter && filter !== 'all') {
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),

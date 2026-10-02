@@ -180,6 +180,14 @@ describe('Miden Name contacts', () => {
   });
 });
 
+it('labels the address and name fields with the 16px section title, the page set wholly in Nunito', () => {
+  render(<NewContactPage />);
+
+  expect(screen.getByText('contactAddressOrMidenName')).toHaveClass('text-row-title', 'text-muted');
+  expect(screen.getByText('name')).toHaveClass('text-row-title', 'text-muted');
+  expect(screen.getByTestId('contact-new').querySelector('[data-slot="body"]')).toHaveClass('face-heading');
+});
+
 it('saves a 0x contact with its network and goes back', async () => {
   render(<NewContactPage />);
   expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();

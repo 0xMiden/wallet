@@ -74,7 +74,7 @@ import {
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { NoteTypeEnum } from '../types';
 

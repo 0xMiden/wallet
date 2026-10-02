@@ -277,28 +277,6 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
   return false;
 };
 
-/**
- * Activity label for a guardian row whose submit LANDED on chain but whose local
- * reconcile failed. There is no `TransactionResult` here, so the label is derived
- * from the type alone and must match what the happy-path completion handler would
- * have written: `completeConsumeTransaction` → "Claimed",
- * `completeBridgedSendTransaction` → "Bridged to EVM", everything else → "Sent".
- */
-const applyLandedDisplayMessage = (type: ITransactionType): string => {
-  switch (type) {
-    case 'consume':
-      return 'Claimed';
-    case 'bridged-send':
-      return 'Bridged to EVM';
-    case 'register-name':
-      return 'Name requested';
-    case 'publish-name-record':
-      return 'Name published';
-    default:
-      return 'Sent';
-  }
-};
-
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
 // pending-delta 409. A persistently-conflicting tx is always the OLDEST Queued
 // row by initiatedAt, so without a backoff it is re-picked every cycle — burning
@@ -1331,12 +1309,9 @@ const generateTransactionWithProvider = async (
       // Canonicalize the lock key: the same guardian account can arrive as a bare
       // bech32 address (dApp) or the composite publicKey (in-wallet); both must take
       // the SAME per-account chain, else concurrent deltas stall canonicalization.
-      if (trace) console.log('[registry-debug] generate.guardian-account-lock: waiting', { rowId: transaction.id });
-      await withGuardianAccountLock(canonicalWalletAccountId(transaction.accountId), () => {
-        if (trace) console.log('[registry-debug] generate.guardian-account-lock: acquired', { rowId: transaction.id });
-        return generateGuardianTransaction(transaction, signCallback, guardianProvider);
-      });
-      if (trace) console.log('[registry-debug] generate.guardian-flow: done', { rowId: transaction.id });
+      await withGuardianAccountLock(canonicalWalletAccountId(transaction.accountId), () =>
+        generateGuardianTransactionOnFreshState(transaction, signCallback, guardianProvider)
+      );
     } catch (error) {
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
       // don't cancel. Re-throw so generateTransactionsLoop's locked-requeue path
@@ -3394,16 +3369,8 @@ const generateGuardianTransaction = async (
     // operator (best-effort abandoned below). Splitting the two halves would mean
     // widening the MultisigService API at the very end of a long review, and the
     // failure it would prevent is cosmetic next to the wedge the deadline closes.
-    const signAndCreateRequest = () => {
-      if (transaction.type === 'publish-name-record') {
-        return traceRegistryStep(
-          'pipeline.guardian-approval',
-          () => service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes, true),
-          { rowId: transaction.id, proposalId: proposalResult.id }
-        );
-      }
-      return service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-    };
+    const signAndCreateRequest = () =>
+      service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(
@@ -3755,10 +3722,9 @@ export const generateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
-): Promise<boolean | void> => {
-  console.log('[registry-debug] loop.enter', { useWorker, realm: globalThis.location?.pathname });
-  await traceRegistryStep('loop.cancel-stuck', cancelStuckTransactions);
-  await traceRegistryStep('loop.cancel-stale-queued', cancelStaleQueuedTransactions);
+): Promise<boolean | 'requeued' | void> => {
+  await cancelStuckTransactions();
+  await cancelStaleQueuedTransactions();
 
   // Import any notes needed for queued transactions.
   //
@@ -3832,23 +3798,12 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(
-    tx => !tx.awaitingRecoverySeed && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
-  );
-  if (!nextTransaction) {
-    console.log('[registry-debug] loop.skip-no-eligible-row', { now });
-    return;
-  }
-  console.log('[registry-debug] loop.selected', { rowId: nextTransaction.id, type: nextTransaction.type });
+  const nextTransaction = queuedTransactions.find(tx => isQueuedRowReady(tx, now));
+  if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
-    await traceRegistryStep(
-      'loop.generate',
-      () => generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider),
-      { rowId: nextTransaction.id, type: nextTransaction.type }
-    );
-    return true;
+    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
@@ -4038,25 +3993,15 @@ export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
-) => {
-  console.log('[registry-debug] loop.lock: requesting', { realm: globalThis.location?.pathname });
+): Promise<TransactionsLoopOutcome> => {
   return navigator.locks
-    .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
-      if (!lock) {
-        console.log('[registry-debug] loop.lock: busy');
-        return;
-      }
-      console.log('[registry-debug] loop.lock: acquired');
+    .request<Promise<TransactionsLoopOutcome>>(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
+      if (!lock) return 'idle';
 
       const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
-      console.log('[registry-debug] loop.lap: done', { result });
-      if (result === false) {
-        return false;
-      }
-
-      // Either a transaction was processed successfully (true)
-      // or there was nothing to do / another transaction is in progress (undefined).
-      return true;
+      if (result === true) return 'processed';
+      if (result === 'requeued') return 'requeued';
+      return result === false ? 'failed' : 'idle';
     })
     .catch((e): TransactionsLoopOutcome => {
       logger.error('Error in safe generate transactions loop', e);

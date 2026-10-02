@@ -3,6 +3,7 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, MIDEN_NAME_SUFFIX } from 'lib/miden/name/encoding';
@@ -20,9 +21,9 @@ interface MidenNameReceiveRowProps {
 }
 
 /**
- * The Miden Name row of the Receive actions. It shows the owned name, the
- * claim in progress, or the offer to claim a name. Nothing shows on a network
- * with no Miden Name deployment.
+ * The Miden Name row under the Receive action tiles, in its own list group. It
+ * shows the owned name, the claim in progress, or the offer to claim a name.
+ * Nothing shows on a network with no Miden Name deployment.
  */
 export const MidenNameReceiveRow: FC<MidenNameReceiveRowProps> = ({ address }) => {
   const supported = isMidenNameSupported();
@@ -39,38 +40,44 @@ export const MidenNameReceiveRow: FC<MidenNameReceiveRowProps> = ({ address }) =
 
   if (ownedLabel !== undefined) {
     return (
-      <ListRow
-        icon={icon}
-        title={t('midenName')}
-        subtitle={formatMidenName(ownedLabel)}
-        chevron
-        onClick={() => navigate('/settings/miden-name')}
-        data-testid="receive-miden-name"
-      />
+      <ListGroup data-testid="receive-miden-name-group">
+        <ListRow
+          icon={icon}
+          title={t('midenName')}
+          subtitle={formatMidenName(ownedLabel)}
+          chevron
+          onClick={() => navigate('/settings/miden-name')}
+          data-testid="receive-miden-name"
+        />
+      </ListGroup>
     );
   }
 
   if (liveClaim !== undefined && liveLabel !== undefined) {
     return (
-      <ListRow
-        icon={icon}
-        title={t('midenName')}
-        subtitle={t('midenNameClaiming', { name: formatMidenName(liveLabel) })}
-        chevron
-        onClick={() => navigate(`/miden-name/status/${encodeURIComponent(liveClaim.id)}`)}
-        data-testid="receive-miden-name"
-      />
+      <ListGroup data-testid="receive-miden-name-group">
+        <ListRow
+          icon={icon}
+          title={t('midenName')}
+          subtitle={t('midenNameClaiming', { name: formatMidenName(liveLabel) })}
+          chevron
+          onClick={() => navigate(`/miden-name/status/${encodeURIComponent(liveClaim.id)}`)}
+          data-testid="receive-miden-name"
+        />
+      </ListGroup>
     );
   }
 
   return (
-    <ListRow
-      icon={icon}
-      title={t('midenNameClaimCta')}
-      subtitle={t('midenNameClaimCtaSubtitle', { suffix: MIDEN_NAME_SUFFIX })}
-      chevron
-      onClick={() => navigate('/miden-name')}
-      data-testid="receive-miden-name"
-    />
+    <ListGroup data-testid="receive-miden-name-group">
+      <ListRow
+        icon={icon}
+        title={t('midenNameClaimCta')}
+        subtitle={t('midenNameClaimCtaSubtitle', { suffix: MIDEN_NAME_SUFFIX })}
+        chevron
+        onClick={() => navigate('/miden-name')}
+        data-testid="receive-miden-name"
+      />
+    </ListGroup>
   );
 };

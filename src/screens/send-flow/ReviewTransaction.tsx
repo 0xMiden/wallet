@@ -25,7 +25,6 @@ import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';

@@ -23,9 +23,14 @@ import {
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
-import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
-import { registerGuardianOrigin } from './native-http';
-import { guardianRegisterBackoffMs } from './serialize';
+import {
+  GuardianProbeTimeoutError,
+  isGuardianAccountAlreadyRegistered,
+  OUTGOING_GUARDIAN_DEADLINE_MS,
+  withTimeout
+} from './discover';
+import { registerGuardianOrigin, withGuardianProbe } from './native-http';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { bindGuardianWriteClient, type GuardianClientRequest } from './shared-client';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -161,6 +166,8 @@ export class MultisigService {
     signerCommitment: string,
     signWordFn: SignWordFunction,
     guardianEndpoint: string,
+    lockOptions?: WasmClientLockOptions,
+    onHeld?: (ms: number) => void,
     guardianClientRequest?: GuardianClientRequest
   ): Promise<MultisigService> {
     try {
@@ -173,9 +180,14 @@ export class MultisigService {
       // this caller drove a client that no longer existed (issue #775; the same
       // shape vault already fixed).
       //
-      // Use one writer for Guardian imports, sync, and transactions.
-      // The adapter also routes extension operations to the offscreen client.
-      const { multisig, client } = await withWasmClientLock(async hold => {
+      // Reuse the shared singleton client instead of spinning up a fresh
+      // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
+      // that is never terminated). Reusing the singleton also lets the multisig
+      // lib's rawClientCache WeakMap (keyed by this client instance) hit across
+      // every init, so at most ONE shared raw worker is created total.
+      // The Guardian adapter writes through this same client (`bindGuardianWriteClient`);
+      // on the extension that is the offscreen client, like every other write.
+      const loadUnderHold = async (hold: WasmLockHold) => {
         const webClient = (await getMidenClient()).client;
         // The build above is an await, and on the #777 path it is the long one: this
         // initializer is reachable from the unattended guardian sync loop, whose whole
@@ -227,6 +239,7 @@ export class MultisigService {
     account: Account,
     walletAccount: WalletAccount,
     signWordFn: SignWordFunction,
+    lockOptions?: WasmClientLockOptions,
     guardianClientRequest?: GuardianClientRequest
   ): Promise<MultisigService> {
     if (!walletAccount.coldPublicKey) {
@@ -240,6 +253,8 @@ export class MultisigService {
       `0x${commitment}`,
       signWordFn,
       guardianEndpoint,
+      lockOptions,
+      undefined,
       guardianClientRequest
     );
   }
@@ -421,38 +436,62 @@ export class MultisigService {
     await this.multisig.abandonCandidate(nonce);
   }
 
-  async signAndCreateTransactionRequest(
-    id: string,
-    requestBytes?: Uint8Array,
-    trace = false
-  ): Promise<TransactionRequest> {
-    const proposal = await traceRegistryStep(
-      'guardian.sign-proposal',
-      () => this.multisig.signProposal(id),
-      { proposalId: id },
-      trace
-    );
+  /**
+   * Hand the guardian this service still talks to the executed switch-guardian delta, as upstream
+   * `executeProposal` does after its submit (#1233). Without it that operator keeps the pre-switch
+   * state and never releases the account; with it, it canonicalizes the switch once the block lands,
+   * releases the account, and keeps serving reads of the post-switch state. Only after the switch's
+   * submit resolved, and before `finalizeGuardianSwitch` repoints this service.
+   */
+  async pushSwitchDelta(proposalId: string): Promise<void> {
+    const guardian = this.client.guardianClient;
+    const delta = await guardian.getDeltaProposal(this.accountId, proposalId);
+    await guardian.pushDelta({ ...delta, deltaPayload: delta.deltaPayload.txSummary });
+  }
+
+  /**
+   * `pushSwitchDelta` on the one outgoing-guardian budget, outside any lock, and never rejecting:
+   * `'pushed'` when it landed in time, `'silent'` when the guardian sat on it for the whole budget (what
+   * predicts a parked hold next), and `'refused'` for any other rejection, an unreachable answer
+   * included, since that one came back inside the budget (#1233).
+   */
+  async pushSwitchDeltaBounded(proposalId: string): Promise<'pushed' | 'silent' | 'refused'> {
+    try {
+      await withTimeout(
+        this.pushSwitchDelta(proposalId),
+        OUTGOING_GUARDIAN_DEADLINE_MS,
+        'pushing the executed switch delta to the outgoing guardian'
+      );
+      return 'pushed';
+    } catch (error) {
+      const outcome = error instanceof GuardianProbeTimeoutError ? 'silent' : 'refused';
+      console.warn(`[Guardian] the outgoing guardian did not take the executed switch delta (${outcome}):`, error);
+      return outcome;
+    }
+  }
+
+  /**
+   * Read this guardian's state for the account over HTTP only, never under the WASM lock (#1233): a
+   * caller asks before an adopt, whose hold a silent guardian would park until the watchdog evicts it.
+   */
+  async probeGuardianState(): Promise<void> {
+    await this.client.guardianClient.getState(this.accountId);
+  }
+
+  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
+    const proposal = await this.multisig.signProposal(id);
     if (proposal.metadata.proposalType === 'custom') {
       if (!requestBytes) {
         throw new Error('Request Bytes are required for custom execution');
       }
       // The SDK executes the request again to check the signed commitment.
       // Keep this execution separate from background client operations.
-      if (trace) console.log('[registry-debug] guardian.prepare-lock: waiting', { proposalId: id });
       return withWasmClientLock(
         async hold => {
-          if (trace) console.log('[registry-debug] guardian.prepare-lock: acquired', { proposalId: id });
-          const advice = await traceRegistryStep(
-            'guardian.prepare-custom-execution',
-            () => this.multisig.prepareCustomExecution(id, requestBytes),
-            { proposalId: id },
-            trace
-          );
+          const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
           assertWasmHoldCurrent(hold, 'guardian-custom-execution: after preparation');
           const request = TransactionRequest.deserialize(requestBytes);
-          const signedRequest = request.extendAdviceMap(advice);
-          if (trace) console.log('[registry-debug] guardian.signed-request-ready', { proposalId: id });
-          return signedRequest;
+          return request.extendAdviceMap(advice);
         },
         { label: 'guardian-custom-execution' }
       );

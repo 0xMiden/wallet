@@ -59,7 +59,8 @@ import { WalletType } from 'screens/onboarding/types';
 import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus, RegisterNameTransaction } from '../db/types';
+import { ITransactionStatus, RegisterNameTransaction, ReplaceHotKeyTransaction } from '../db/types';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
 // emits. The flag-ON route MUST forward these bytes verbatim to the offscreen leaf

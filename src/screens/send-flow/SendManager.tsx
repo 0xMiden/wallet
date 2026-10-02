@@ -13,7 +13,6 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { isMidenNameSupported } from 'lib/miden/name/config';
 import { formatMidenName, looksLikeMidenName, normalizeMidenNameInput } from 'lib/miden/name/encoding';
 import { isMidenNameAbortedError } from 'lib/miden/name/errors';

@@ -16,6 +16,7 @@ import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MidenNameSettings from 'app/templates/MidenNameSettings';
+import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import SpendingLimits from 'app/templates/SpendingLimits';
@@ -179,15 +180,13 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'language',
         titleI18nKey: 'language',
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton,
-        rendersSubPageLayout: true
+        testID: SettingsSelectors.LanguageButton
       },
       {
         slug: 'miden-name',
         titleI18nKey: 'midenName',
         Component: MidenNameSettings,
         testID: SettingsSelectors.MidenNameButton,
-        rendersSubPageLayout: true,
         requiresMidenName: true
       }
     ]

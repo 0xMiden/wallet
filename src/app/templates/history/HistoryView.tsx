@@ -14,8 +14,10 @@ import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { useSettleLayoutTransition, useTabShownAgain } from 'app/layouts/page-active';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
-import { springs, useMotion } from 'lib/animation';
+import { TextAction } from 'components/ui/TextAction';
+import { UnreadDot } from 'components/ui/UnreadDot';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
@@ -235,19 +237,25 @@ function buildRowProps(
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
+  const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
   const nameTitle =
-    !isFailed && entry.type === HistoryEntryType.CompletedTransaction ? midenNameRowTitle(entry, t) : undefined;
+    !isFailed && !isUnconfirmed && entry.type === HistoryEntryType.CompletedTransaction
+      ? midenNameRowTitle(entry, t)
+      : undefined;
 
-  const title = isCancelled
-    ? t('cancelled')
-    : faucet
-      ? t('faucetRequestTitle')
-      : nameTitle
-        ? nameTitle
-        : isSwap && entry.token && entry.requestedToken
-          ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-          : entry.message || '';
+  const title = isUnconfirmed
+    ? t('notConfirmed')
+    : isCancelled
+      ? t('cancelled')
+      : faucet
+        ? t('faucetRequestTitle')
+        : nameTitle
+          ? nameTitle
+          : isSwap && entry.token && entry.requestedToken
+            ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+            : entry.guardianRecovered
+              ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+              : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -257,7 +265,7 @@ function buildRowProps(
       : isSwap
         ? t('viaInProtocolDex')
         : entry.secondaryAddress
-          ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${entry.recipientName || shortAddr(entry.secondaryAddress)}`
+          ? `${isReceiveEntry(entry) ? t('from') : t('to')}: ${entry.recipientName || shortAddr(entry.secondaryAddress)}`
           : undefined;
 
   // A swap row shows up in BOTH sides' token-scoped histories. On such a page
@@ -367,7 +375,11 @@ function buildRowProps(
     status = 'pending';
   } else if (entry.midenNameStatus) {
     status = entry.midenNameStatus;
-  } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+  } else if (
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    earnDepositSettlementOf(entry) !== 'confirmed'
+  ) {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
     // the badge tracks that leg, as the details page does. Deliberately checked
@@ -459,7 +471,7 @@ const HistoryView = memo<HistoryViewProps>(
   }) => {
     const { t } = useTranslation();
     const { allContacts } = useFilteredContacts();
-    // Same spring as the rows, so a date group and the rows inside it move
+    // Same transition as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
     const layoutTransition = useSettleLayoutTransition();
     const shownAgain = useTabShownAgain();
@@ -612,6 +624,7 @@ const HistoryView = memo<HistoryViewProps>(
                   t,
                   tokenId
                 );
+                const unread = isHistoryEntryUnread(readState, entry);
                 return (
                   <Card
                     key={entry.key}

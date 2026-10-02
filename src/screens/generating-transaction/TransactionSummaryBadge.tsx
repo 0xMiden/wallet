@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { IPublishNameRecordExtraInputs, IRegisterNameExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -306,7 +307,7 @@ export const earnMarketLabel = (marketUid: string): string | undefined => {
  *   send          →  {amount} {symbol}        ->  {recipient}
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
- *   consume       →  {amount} {symbol}        ->  Consumed
+ *   consume       →  {amount} {symbol}        ->  Accepted
  *   register-name →  {label}.miden            ·   {price} MIDEN     (dot separator)
  *
  * Other transaction types (switch-guardian, bridged sends) render nothing for

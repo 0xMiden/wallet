@@ -12,8 +12,18 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ children, onClick, title }: { children: React.ReactNode; onClick?: () => void; title?: string }) => (
-    <button data-testid="done-button" data-title={title} onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    title,
+    accent
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    title?: string;
+    accent?: string;
+  }) => (
+    <button data-testid="done-button" data-title={title} data-accent={accent} onClick={onClick}>
       {children}
     </button>
   ),

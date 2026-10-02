@@ -433,6 +433,8 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
+  // The retired Pending notes page: an old link or a restored URL still lands where it went.
+  ['/pending-notes', () => <Woozie.Redirect to={ACTIVITY_PENDING_PATH} />],
   // Miden Name: the status page first, so that `/miden-name` does not take its path.
   // The claim form navigates here with Replace, so Back from the status page skips the form.
   [

@@ -197,100 +197,86 @@ export const NewContactPage: React.FC = () => {
       >
         {/* The name is already in the flow title above (or the name field below), so the
               hero here is the avatar alone — same shape as the existing contact's own page. */}
-          <Hero
-            visual={
-              <ContactAvatar
-                address={resolvedAddress || '0'}
-                name={trimmedName}
-                network={isValid && isEvm ? 'ethereum' : undefined}
-                size="xl"
+        <Hero
+          visual={
+            <ContactAvatar
+              address={resolvedAddress || '0'}
+              name={trimmedName}
+              network={isValid && isEvm ? 'ethereum' : undefined}
+              size="xl"
+            />
+          }
+        />
+
+        <TextField
+          multiline
+          label={t('contactAddressOrMidenName')}
+          labelSize="md"
+          value={address}
+          onChange={event => {
+            setAddress(event.target.value);
+            setScanError(undefined);
+            setPasteError(undefined);
+            setSaveError(undefined);
+          }}
+          onBlur={() => setAddressTouched(true)}
+          placeholder={t('contactAddressOrMidenNamePlaceholder')}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          className="break-all"
+          data-testid="address-book-address-input"
+          error={addressError}
+          errorTestId="contact-address-error"
+          trailing={
+            !trimmedAddress && (isMobile() || isScanAvailable()) ? (
+              <>
+                {isMobile() && (
+                  <Pill
+                    tone="page"
+                    icon={<Icon name={IconName.FileCopy} size="xs" />}
+                    onClick={() => void onPaste()}
+                    data-testid="contact-paste"
+                  >
+                    {t('paste')}
+                  </Pill>
+                )}
+                {isScanAvailable() && (
+                  <Pill tone="page" icon={<ScanFrameIcon />} onClick={() => void onScan()} data-testid="contact-scan">
+                    {t('scan')}
+                  </Pill>
+                )}
+              </>
+            ) : undefined
+          }
+        />
+
+        {resolving && (
+          <p role="status" className="text-body-sm text-muted">
+            {t('midenNameResolving')}
+          </p>
+        )}
+        {isMidenName && isValid && (
+          <p className="break-all text-body-sm text-muted" data-testid="contact-resolved-address">
+            {t('contactResolvedAddress', { address: resolvedAddress })}
+          </p>
+        )}
+
+        <AnimatePresence initial={false}>
+          {isValid && (
+            // The shared `reveal` preset, which is reduced-motion aware on its own.
+            <motion.div key="network" {...reveal} className="overflow-hidden">
+              <NetworkField
+                chain={isEvm ? 'ethereum' : 'miden'}
+                network={network}
+                onSelect={setNetwork}
+                testIdPrefix="new-contact"
               />
-            }
-          />
-
-          <TextField
-            multiline
-            label={t('contactAddressOrMidenName')}
-            value={address}
-            onChange={event => {
-              setAddress(event.target.value);
-              setScanError(undefined);
-              setPasteError(undefined);
-              setSaveError(undefined);
-            }}
-            onBlur={() => setAddressTouched(true)}
-            placeholder={t('contactAddressOrMidenNamePlaceholder')}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            className="break-all"
-            data-testid="address-book-address-input"
-            error={addressError}
-            errorTestId="contact-address-error"
-            trailing={
-              !trimmedAddress && (isMobile() || isScanAvailable()) ? (
-                <>
-                  {isMobile() && (
-                    <Pill
-                      tone="plain"
-                      className="bg-page text-ink"
-                      icon={<Icon name={IconName.FileCopy} size="xs" />}
-                      onClick={() => void onPaste()}
-                      data-testid="contact-paste"
-                    >
-                      {t('paste')}
-                    </Pill>
-                  )}
-                  {isScanAvailable() && (
-                    <Pill
-                      tone="plain"
-                      className="bg-page text-ink"
-                      icon={<ScanFrameIcon />}
-                      onClick={() => void onScan()}
-                      data-testid="contact-scan"
-                    >
-                      {t('scan')}
-                    </Pill>
-                  )}
-                </>
-              ) : undefined
-            }
-          />
-
-          {resolving && (
-            <p role="status" className="text-body-sm text-muted">
-              {t('midenNameResolving')}
-            </p>
-          )}
-          {isMidenName && isValid && (
-            <p className="break-all text-body-sm text-muted" data-testid="contact-resolved-address">
-              {t('contactResolvedAddress', { address: resolvedAddress })}
-            </p>
-          )}
-
-          <AnimatePresence initial={false}>
-            {isValid && (
-              <motion.div key="network" {...reveal} className="overflow-hidden">
-                <NetworkField
-                  chain={isEvm ? 'ethereum' : 'miden'}
-                  network={network}
-                  onSelect={setNetwork}
-                  testIdPrefix="new-contact"
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <ContactNameInput value={displayName} onChange={setName} />
-
-          {saveError && (
-            <p role="alert" className="-mt-2 text-sm text-negative-ink">
-              {saveError}
-            </p>
+            </motion.div>
           )}
         </AnimatePresence>
 
-        <ContactNameInput value={name} onChange={setName} />
+        <ContactNameInput value={displayName} onChange={setName} />
 
         <ErrorLine className="-mt-2">{saveError}</ErrorLine>
       </SubPageLayout>

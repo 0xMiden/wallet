@@ -194,6 +194,10 @@ export async function getOrCreateMultisigService(
       `0x${commitment}`,
       provider.signWord,
       currentEndpoint,
+      boundAtSyncCeiling
+        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+        : { label: 'guardian-service-init' },
+      undefined,
       provider.guardianClientRequest
     );
 

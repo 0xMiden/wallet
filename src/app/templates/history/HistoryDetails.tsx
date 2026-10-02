@@ -61,6 +61,7 @@ import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
+import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry, midenNameActivityOf, midenNameLabelOf } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
@@ -112,8 +113,8 @@ interface RequestedTokenInfo {
  *  - `earn-deposit` - `secondaryAccountId` is the Epoch allocator the P2IDE
  *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
  *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
- *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
- *    bridge falls through to this rule and is still outbound.
+ *    Miden "to" row in favour of the BridgeClaimSection), but an UNSTAMPED
+ *    user-cancelled bridge falls through to this rule and is still outbound.
  *  - `register-name` - `secondaryAccountId` is the Miden Name registry that
  *    receives the register note with the price.
  */
@@ -458,6 +459,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInMidenNoteId:
             bridgeReceive?.midenNoteId ??
             (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined),
+          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined,
           midenNameLabel: midenNameLabelOf(tx)
         };
 
@@ -556,6 +558,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const nameReceiptTxId = transaction ? midenNameActivityOf(transaction).midenNameReceiptTxId : undefined;
   const registerNamePhaseKey =
     transaction && registerName ? midenNameStateKey(uiStateOf(phaseOf(transaction))) : undefined;
+
+  // A device-key rotation changes the account's signer, not its co-signer, so it
+  // draws the guardian once. Both are structural Guardian ops: neither moves
+  // value, so neither gets the wallet From/To rows.
+  const isHotKeyRotation = entry?.txType === 'replace-hot-key';
+  const guardianOp = entry ? isGuardianOp(entry.txType) : false;
+  // The guardian the rotation ran under, as its record stored it. A row recorded without one names
+  // no guardian: the account's current endpoint may belong to a later switch.
+  const rotationGuardianEndpoint = isHotKeyRotation ? entry?.rotationGuardianEndpoint : undefined;
   // Which way the money moved is a property of the transaction TYPE, not of its
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`

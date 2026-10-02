@@ -2693,11 +2693,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockAssertMidenNamePublishLive).toHaveBeenCalledWith(transaction);
     expect(mockAssertMidenNameRegistrationLive).not.toHaveBeenCalled();
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'publish_name_record');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
-      'publish-proposal',
-      requestBytes,
-      true
-    );
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('publish-proposal', requestBytes);
     const completed = txStore.find(row => row.id === txId);
     expect(completed?.error).toBeUndefined();
     expect(completed?.status).toBe(ITransactionStatus.Completed);
@@ -2769,12 +2765,31 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
-  it('Guardian earn-deposit: a still-pending 409 requeues AND drops the frozen requestBytes so the next cycle rebuilds a fresh reclaim height', async () => {
-    // An earn-deposit builds requestBytes (with an absolute reclaim height) BEFORE the
-    // custom proposal. If the proposal keeps hitting a transient pending-delta 409, the
-    // row is requeued — but the frozen bytes must be dropped, or a delayed re-submit
-    // would land a collateral note whose remaining reclaim window is below the Epoch
-    // allocator's minimum (stranding the collateral). Assert the drop.
+  // An Earn deposit row as `createEarnP2IDENote` queues it: its collateral request, with the mandate-binding
+  // attachment, is already on the row. The in-memory copy carries the same bytes, as a loop pickup would.
+  const seedEarnDeposit = (txId: string, requestBytes: Uint8Array | undefined, delegateTransaction = true) => {
+    const row = {
+      id: txId,
+      type: 'earn-deposit',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'allocator',
+      faucetId: 'faucet',
+      amount: 1000n,
+      noteType: 'public',
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      requestBytes
+    };
+    txStore.push({ ...row });
+    return Object.assign(new Transaction('guardian-acc', new Uint8Array()), row);
+  };
+
+  it('Guardian earn-deposit: a still-pending 409 requeues and KEEPS its request bytes, whose attachment cannot be rebuilt', async () => {
+    // The bytes carry the mandate-binding attachment built once at initiate; any rebuild mints a plain P2IDE the
+    // allocator refuses to bind. Their frozen reclaim height is safe to reuse (the reclaim buffer outlasts the
+    // caller's wait), so the requeue keeps them.
     jest.useFakeTimers();
     try {
       const txId = 'earn-pending-conflict';

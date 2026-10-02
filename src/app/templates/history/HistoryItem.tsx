@@ -11,6 +11,7 @@ import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
+import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry, midenNameRowTitle } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
@@ -69,10 +70,19 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
   const nameTitle =
-    entry.type === HistoryEntryType.CompletedTransaction && entry.transactionIcon !== 'FAILED' && !entry.isCancelled
+    entry.type === HistoryEntryType.CompletedTransaction &&
+    entry.transactionIcon !== 'FAILED' &&
+    !entry.isCancelled &&
+    !entry.isUnconfirmed
       ? midenNameRowTitle(entry, t)
       : undefined;
-  const title = isFaucet ? t('faucetRequest') : (nameTitle ?? entry.message);
+  const title = entry.guardianRecovered
+    ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+    : isFaucet
+      ? t('faucetRequest')
+      : entry.isUnconfirmed
+        ? t('notConfirmed')
+        : (nameTitle ?? entry.message);
   return (
     <div
       className={classNames(

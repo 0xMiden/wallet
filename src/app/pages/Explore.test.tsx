@@ -145,7 +145,7 @@ jest.mock('components/ui', () => ({
     accountNumber: string;
     accountId: string;
     accountAlias?: string;
-    amount: string;
+    amount: React.ReactNode;
     onMore: () => void;
     state?: string;
     // Surfaced so a test can see what Home passes: a stub that drops it makes the call site
@@ -247,9 +247,18 @@ jest.mock('lib/miden/name/registrations', () => ({
   useOwnedMidenName: () => mockOwnedMidenName
 }));
 
-jest.mock('lib/platform', () => ({
-  isExtension: () => mockIsExtension,
-  isMobile: () => mockIsMobile
+// `lib/settings/helpers` is mocked without the haptic setting, so the real haptics would throw.
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+const mockHapticLight = jest.mocked(hapticLight);
+
+// The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
+let mockStoredHiddenTokens: string[] | null = null;
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn(),
+  inStorageTurn: jest.requireActual('lib/miden/front/storage').inStorageTurn,
+  onStorageChanged: jest.fn(() => () => {}),
+  registerStorageReread: jest.fn()
 }));
 const mockReadStorage = jest.mocked(fetchFromStorage);
 const mockWriteStorage = jest.mocked(putToStorage);

@@ -17,6 +17,7 @@ import { CopyButton } from 'components/ui/CopyButton';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { formatMidenName } from 'lib/miden/name/encoding';
 import { useOwnedMidenName } from 'lib/miden/name/registrations';
@@ -294,6 +295,32 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {network && (
               <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
             )}
+            {/* The owned name is the headline. The address stays under it as the copy control. */}
+            {ownedLabel !== undefined && (
+              <div className="flex w-full min-w-0 flex-col items-center gap-2">
+                <span
+                  data-testid="receive-miden-name-headline"
+                  className="max-w-full truncate text-center text-hero-value text-ink"
+                >
+                  {formatMidenName(ownedLabel)}
+                </span>
+                {nameResolvesHere ? (
+                  <Pill
+                    size="sm"
+                    tone="positive"
+                    icon={<Icon name={IconName.Checkmark} size="xs" />}
+                    className="uppercase"
+                    data-testid="receive-miden-name-resolves"
+                  >
+                    {t('midenNameResolvesHere')}
+                  </Pill>
+                ) : (
+                  <Pill size="sm" tone="neutral" className="text-muted" data-testid="receive-miden-name-unresolved">
+                    {t('midenNameNotYetResolvable')}
+                  </Pill>
+                )}
+              </div>
+            )}
             <CopyButton
               text={address}
               data-testid="receive-copy-address"
@@ -301,55 +328,16 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               icon="leading"
               iconClassName="text-accent-receive"
               checkClassName="text-positive-ink"
-              className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive"
-              contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+              className={cn(
+                'flex items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-receive',
+                // Under a name headline the address is a small pill.
+                ownedLabel === undefined ? 'h-11 w-full' : 'h-9 max-w-full'
+              )}
+              contentClassName={
+                ownedLabel === undefined ? 'gap-2 font-heading text-base leading-5 font-bold' : 'gap-2 text-body-sm'
+              }
             />
           </div>
-          {network && (
-            <NetworkChip kind="miden" label={t('qrNetworkCaption', { network })} data-testid="receive-network" />
-          )}
-          {/* The owned name is the headline. The address stays under it as the copy control. */}
-          {ownedLabel !== undefined && (
-            <div className="flex w-full min-w-0 flex-col items-center gap-2">
-              <span
-                data-testid="receive-miden-name-headline"
-                className="max-w-full truncate text-center text-hero-value text-ink"
-              >
-                {formatMidenName(ownedLabel)}
-              </span>
-              {nameResolvesHere ? (
-                <Pill
-                  size="sm"
-                  tone="positive"
-                  icon={<Icon name={IconName.Checkmark} size="xs" />}
-                  className="uppercase"
-                  data-testid="receive-miden-name-resolves"
-                >
-                  {t('midenNameResolvesHere')}
-                </Pill>
-              ) : (
-                <Pill size="sm" tone="neutral" className="text-muted" data-testid="receive-miden-name-unresolved">
-                  {t('midenNameNotYetResolvable')}
-                </Pill>
-              )}
-            </div>
-          )}
-          <CopyButton
-            text={address}
-            data-testid="receive-copy-address"
-            label={truncateAddress(address, false, 16, 8)}
-            icon="leading"
-            iconClassName="text-muted"
-            checkClassName="text-positive-ink"
-            className={cn(
-              'flex items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
-              // Under a name headline the address is a small pill.
-              ownedLabel === undefined ? 'h-11 w-full' : 'h-9 max-w-full'
-            )}
-            contentClassName={
-              ownedLabel === undefined ? 'gap-2 font-heading text-base leading-5 font-bold' : 'gap-2 text-body-sm'
-            }
-          />
         </div>
 
         <div className="mt-2 flex shrink-0 flex-col gap-2">
@@ -363,8 +351,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               onClick={() => void handleShare()}
               data-testid="receive-share"
             />
-            {/* Renders nothing on a network with no Miden Name deployment. */}
-            <MidenNameReceiveRow address={address} />
             {/* WalletConnect is not supported on the extension: the Reown relay
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
                 the AppKit connect flow can never complete there. */}
@@ -379,6 +365,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               />
             )}
           </div>
+          {/* The owned name, the claim in progress or the offer to claim one. Renders nothing on a
+              network with no Miden Name deployment. */}
+          <MidenNameReceiveRow address={address} />
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}

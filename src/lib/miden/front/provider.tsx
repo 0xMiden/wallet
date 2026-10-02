@@ -6,9 +6,11 @@ import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-curren
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { MidenNameWatcher } from 'lib/miden/name/MidenNameWatcher';
+import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
 import { isExtension } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -140,7 +142,11 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   return (
     <WalletStoreProvider>
       <MidenContextProvider>
-        {/* The wallet owns the write client. The SDK provider creates another client and runs a startup sync. */}
+        {/* The wallet owns the write client: no SDK provider, which would build another client
+            and run a startup sync. Prices are public and need no unlock. Fetched only once the
+            wallet turned ready, they landed after Home's first frame, so the balance card showed
+            "$—" and then the total. */}
+        <PriceProvider />
         <ConditionalProviders>{children}</ConditionalProviders>
       </MidenContextProvider>
     </WalletStoreProvider>

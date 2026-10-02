@@ -529,9 +529,6 @@ function resetControl() {
         // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
         // reads drive directly.
         client: {
-          accounts: {
-            insert: (options: { account: object; overwrite: boolean }) => G.__off.guardianInsertAccount(options)
-          },
           transactions: {
             preview: (options: object) => G.__off.guardianPreview(options),
             captureAnchor: (request: object) => G.__off.guardianCaptureAnchor(request),
@@ -547,7 +544,10 @@ function resetControl() {
           syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
           getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
           sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
-          accounts: { get: (...a: any[]) => (globalThis as any).__off.clientAccountsGet(...a) },
+          accounts: {
+            get: (...a: any[]) => (globalThis as any).__off.clientAccountsGet(...a),
+            insert: (options: { account: object; overwrite: boolean }) => G.__off.guardianInsertAccount(options)
+          },
           pswap: {
             lineage: (orderId: string) => G.__off.clientLineage(orderId),
             lineages: () => G.__off.clientLineages()

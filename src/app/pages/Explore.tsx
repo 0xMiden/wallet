@@ -34,8 +34,11 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatMidenName } from 'lib/miden/name/encoding';
 import { useOwnedMidenName } from 'lib/miden/name/registrations';
+import { tokenQuote } from 'lib/miden/swap/tokens';
+import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
@@ -378,6 +381,9 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   const { t } = useTranslation();
   // Undefined on a network with no Miden Name deployment.
   const ownedMidenName = useOwnedMidenName(address);
+  // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
+  const assetListRef = useRef<HTMLDivElement>(null);
+  const assetsHeadingId = useId();
   return (
     <>
       <Balance>
@@ -387,11 +393,10 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountId={address}
             accountName={account.name}
             accountAlias={ownedMidenName ? formatMidenName(ownedMidenName) : undefined}
-            // Gap 16: until real prices have loaded, every token falls back to the
-            // $1 default, so the "USD total" would be a fabricated number equal to
-            // the raw token count. When no prices are available (feed down or still
-            // loading) show "$—" rather than that fake figure; once any real price
-            // lands (stale-but-real via keepPreviousData counts), show the total.
+            // The dash when there is no total to show: prices have not loaded yet (feed
+            // down or still loading), or tokens are held and none can be valued (Balance
+            // hands null). Once any real price lands (stale-but-real via keepPreviousData
+            // counts), the total shows.
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={

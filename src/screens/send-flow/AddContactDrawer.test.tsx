@@ -89,6 +89,12 @@ it('suggests the resolved Miden Name as an editable label and saves the actual a
   expect(addContactMock).toHaveBeenCalledWith(expect.objectContaining({ address: MIDEN, name: 'alice.miden' }));
 });
 
+it('gives the add-contact submit the send flow colour', () => {
+  renderSheet();
+
+  expect(screen.getByTestId('address-book-add-contact')).toHaveAttribute('data-accent', 'send');
+});
+
 it('saves a Miden contact with a trimmed name and closes', async () => {
   const onOpenChange = renderSheet();
   fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: '  Alice  ' } });

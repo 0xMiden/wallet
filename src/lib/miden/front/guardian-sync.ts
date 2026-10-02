@@ -1081,6 +1081,7 @@ async function attemptColdReRegisterSelfHeal(
       staleAccount,
       account,
       zustandProvider.signWord,
+      GUARDIAN_SELF_HEAL_INIT_LOCK_OPTIONS,
       zustandProvider.guardianClientRequest
     );
     const adopted = await coldService

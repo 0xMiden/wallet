@@ -478,6 +478,43 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(rowByTitle('Published')).toHaveAttribute('data-amount-symbol', '');
   });
 
+  // The money helper already formatted both amounts; the symbol inside the value must not be what keeps the row
+  // from rounding 0.015123 ETH to 0.015 again.
+  it('marks a bridge-in and a bridge-out amount preformatted', () => {
+    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'MIDEN',
+      outSymbol: 'USDC',
+      outAmount: '10.65',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'ETH',
+      outAmount: '0.015123',
+      providerLabel: 'Epoch',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
+          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
+        ]}
+        fullHistory
+      />
+    );
+
+    const rowWithAmount = (value: string) =>
+      screen.getAllByTestId('activity-row').find(row => row.getAttribute('data-amount-value') === value);
+    expect(rowWithAmount('10.65 USDC')).toHaveAttribute('data-amount-preformatted', 'yes');
+    expect(rowWithAmount('+0.015123 ETH')).toHaveAttribute('data-amount-preformatted', 'yes');
+  });
+
   // One render exercising every icon/title/subtitle/amount/status branch.
   const entries: IHistoryEntry[] = [
     // --- Day A group (first group → gets pt-4; set + push + push) ---
@@ -1649,5 +1686,96 @@ describe('HistoryView Miden Name rows', () => {
     });
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     expect(rowByTitle('Transaction failed')).toHaveAttribute('data-status', 'failed');
+  });
+});
+
+// A link that narrows Activity's filter while its tab is hidden lands in the commit that shows the tab
+// again (#1198): the date groups and pending cards that survive take their new places at once there,
+// and slide on the settle spring on any other change.
+describe('HistoryView - its tab shown again', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'swap-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  // A stable ref so InfiniteScroll mounts (mirrors how the real page passes one down); the mock
+  // never reads `.current`, so a bare DOM node is enough.
+  const scrollParentRef = { current: document.createElement('div') };
+  const noMore = async () => {};
+  const view = (
+    shown: boolean,
+    onScreen = true,
+    hasMore = false,
+    loadMore: (page: number) => Promise<void> = noMore
+  ) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <TabActiveContext.Provider value={shown}>
+        <HistoryView
+          fullHistory
+          initialLoading={false}
+          hasMore={hasMore}
+          loadMore={loadMore}
+          entries={[makeEntry({ key: 'settled', timestamp: DAY_A })]}
+          pendingItems={[pending]}
+          renderPendingItem={() => <span>Pending note</span>}
+          scrollParentRef={scrollParentRef}
+        />
+      </TabActiveContext.Provider>
+    </PageActiveContext.Provider>
+  );
+  const groupMoves = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[data-layout]'))
+      .filter(node => !node.hasAttribute('data-pending-note-id'))
+      .map(node => JSON.parse(node.getAttribute('data-transition') ?? 'null'));
+
+  it('swaps only the layout of its date groups and pending cards in the commit that shows the tab again', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+
+    const groups = groupMoves(container);
+    expect(groups.length).toBeGreaterThan(0);
+    groups.forEach(transition => expect(transition).toEqual({ ...springs.settle, layout: tabBarSwap }));
+    expect(mockPendingWrapper.props?.transition).toEqual({ ...springs.settle, layout: tabBarSwap });
+  });
+
+  it('slides them on the next change, and when a slide page uncovers the list', () => {
+    const { container, rerender } = render(view(true));
+    rerender(view(false));
+    rerender(view(true));
+    rerender(view(true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
+    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+
+    rerender(view(true, false));
+    rerender(view(true, true));
+    expect(groupMoves(container).length).toBeGreaterThan(0);
+    groupMoves(container).forEach(transition => expect(transition).toEqual(springs.settle));
+    expect(mockPendingWrapper.props?.transition).toEqual(springs.settle);
+  });
+
+  it("defers the scroller's page request in the commit that shows the tab again, and passes the parent's loadMore through otherwise", async () => {
+    const loadMore = jest.fn((_page: number) => Promise.resolve());
+    const { rerender } = render(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
+    rerender(view(false, true, true, loadMore));
+    rerender(view(true, true, true, loadMore));
+
+    mockScroller.props?.loadMore(3);
+    expect(loadMore).not.toHaveBeenCalled();
+    await act(async () => {});
+    expect(loadMore.mock.calls).toEqual([[3]]);
+
+    rerender(view(true, true, true, loadMore));
+    expect(mockScroller.props?.loadMore).toBe(loadMore);
   });
 });
