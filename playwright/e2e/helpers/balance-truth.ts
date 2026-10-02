@@ -13,16 +13,19 @@
  * cannot fail for a wrong-amount or never-actually-claimed bug.
  *
  * These helpers keep the two quantities strictly separate and work in **base units
- * as bigint** — no float division, so a 6-decimal and an 8-decimal token can't
+ * as bigint** - no float division, so a 6-decimal and an 8-decimal token can't
  * silently compare equal after rounding.
  *
- *   vaultBalance()     — spendable, in the vault, for ONE symbol. What "I have it" means.
- *   pendingNoteTotal() — discovered but NOT yet consumed, for ONE symbol.
+ *   vaultBalance()     - spendable, in the vault, for ONE symbol. What "I have it" means.
+ *   pendingNoteTotal() - discovered but NOT yet consumed, for ONE symbol.
  *
  * Never add them together. If a test wants "the money arrived", it wants
  * `vaultBalance`; if it wants "the note showed up", it wants `pendingNoteTotal`.
  */
 import type { Page } from '@playwright/test';
+
+import type { TokenBalanceData } from 'lib/miden/front/balance';
+import type { AssetMetadata } from 'lib/miden/metadata';
 
 import { readTransactionRows } from './history';
 
@@ -44,7 +47,7 @@ export function toBaseUnits(amount: string | number, decimals: number): bigint {
     throw new Error(`toBaseUnits: not a positive decimal amount: ${JSON.stringify(amount)}`);
   const [whole = '0', frac = ''] = s.split('.');
   if (frac.length > decimals) {
-    throw new Error(`toBaseUnits: ${s} has more precision than ${decimals} decimals — refusing to round silently`);
+    throw new Error(`toBaseUnits: ${s} has more precision than ${decimals} decimals - refusing to round silently`);
   }
   return BigInt(whole + frac.padEnd(decimals, '0'));
 }
@@ -72,7 +75,7 @@ export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
  * read as lost value in the very check written to detect lost value.
  *
  * Returns 0n when the symbol is absent, which is a legitimate answer ("you hold
- * none of this"), not an error — assertions should compare against an expected
+ * none of this"), not an error - assertions should compare against an expected
  * amount rather than against presence.
  */
 export async function vaultBalance(page: Page, symbol: string): Promise<bigint> {
@@ -111,6 +114,54 @@ export async function vaultBalance(page: Page, symbol: string): Promise<bigint> 
       throw new Error(
         `vaultBalance(${symbol}): store balance ${t.balance} does not round-trip at ${t.decimals} decimals ` +
           `(scaled=${scaled}). Refusing to assert on a lossy value.`
+      );
+    }
+    total += BigInt(rounded);
+  }
+  return total;
+}
+
+/** Spendable base units for one full, canonical bech32 faucet id, independent of its symbol. */
+export async function vaultBalanceByFaucetId(page: Page, faucetId: string): Promise<bigint> {
+  const raw = await page.evaluate(wanted => {
+    const store:
+      | {
+          getState?: () => {
+            balances?: Record<string, TokenBalanceData[]>;
+            assetsMetadata?: Record<string, AssetMetadata>;
+          };
+        }
+      | undefined = Reflect.get(window, '__TEST_STORE__');
+    const state = store?.getState?.();
+    const out: Array<{ decimals: number; balance: number }> = [];
+    for (const tokenList of Object.values(state?.balances ?? {})) {
+      if (!Array.isArray(tokenList)) continue;
+      for (const token of tokenList) {
+        if (token?.tokenId !== wanted) continue;
+        const cached = state?.assetsMetadata?.[wanted];
+        out.push({
+          decimals: Number(token?.metadata?.decimals ?? cached?.decimals),
+          balance: Number(token?.balance ?? 0)
+        });
+      }
+    }
+    return out;
+  }, faucetId);
+
+  let total = 0n;
+  for (const token of raw) {
+    if (!Number.isInteger(token.decimals) || token.decimals < 0) {
+      throw new Error(`vaultBalanceByFaucetId(${faucetId}): missing or invalid token decimals`);
+    }
+    const scaled = token.balance * Math.pow(10, token.decimals);
+    const rounded = Math.round(scaled);
+    if (!Number.isSafeInteger(rounded)) {
+      throw new Error(`vaultBalanceByFaucetId(${faucetId}): base-unit balance is not a safe integer`);
+    }
+    if (Math.abs(scaled - rounded) > 1e-6) {
+      throw new Error(
+        `vaultBalanceByFaucetId(${faucetId}): store balance ${token.balance} does not round-trip ` +
+          `at ${token.decimals} decimals (scaled=${scaled}). Refusing to assert on a lossy value.`
       );
     }
     total += BigInt(rounded);
@@ -160,7 +211,7 @@ export async function pendingNoteTotal(page: Page, symbol: string): Promise<bigi
  * MAXIMUM turns that into "no cycle in this window listed it", which is the
  * statement an absence assertion actually wants to make.
  *
- * Returns the max rather than throwing so the caller owns the comparison — an
+ * Returns the max rather than throwing so the caller owns the comparison - an
  * `expect` in the spec names the product breakage; a throw in here would not.
  */
 export async function maxPendingNoteTotal(
@@ -182,10 +233,10 @@ export async function maxPendingNoteTotal(
 /**
  * Poll until the UNCONSUMED-note total for `symbol` equals `expected` exactly.
  *
- * This is the right assertion for "the mint arrived" — a minted note is discovered
+ * This is the right assertion for "the mint arrived" - a minted note is discovered
  * before it is consumed, so its value is pending, not spendable. Asserting the
  * VAULT here would be wrong (it stays 0 until a claim) and asserting vault+pending
- * summed together — what the old `getBalance` did — cannot tell the two apart at
+ * summed together - what the old `getBalance` did - cannot tell the two apart at
  * all, which is how a broken claim used to read as a successful one.
  */
 export async function waitForPendingNoteTotal(
@@ -229,7 +280,7 @@ export async function waitForPendingNoteTotal(
  * transfer. The wait is the load-bearing part: the recipient seeing the note only
  * proves it is on-chain, and the SENDER's balances projection updates on its own
  * schedule. A bare read right after the recipient's wait therefore samples a
- * balance that has not moved yet and reports `debited 0` — a green send scored as
+ * balance that has not moved yet and reports `debited 0` - a green send scored as
  * a failure, which is exactly how this helper came to exist.
  */
 export async function waitForVaultDebit(
@@ -258,7 +309,7 @@ export async function waitForVaultDebit(
       `  vault now:    ${fmt(last)}\n` +
       `  observed debit: ${fmt(before - last)}\n` +
       `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
-      `  (an unchanged vault here means the send never debited the sender, not that it is slow —\n` +
+      `  (an unchanged vault here means the send never debited the sender, not that it is slow -\n` +
       `   this waited the full timeout for the projection to move)`
   );
 }
@@ -287,6 +338,31 @@ export async function waitForVaultBalance(
       `  actual vault:   ${fmt(last)}\n` +
       `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
       `  (a non-zero pending total with a short vault means the note was discovered but never consumed)`
+  );
+}
+
+/** Wait for an exact spendable balance of one canonical faucet, or report expected and actual units. */
+export async function waitForVaultBalanceByFaucetId(
+  page: Page,
+  faucetId: string,
+  expected: bigint,
+  opts: { timeoutMs?: number; decimals?: number } = {}
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const deadline = Date.now() + timeoutMs;
+  let last = -1n;
+  while (Date.now() < deadline) {
+    last = await vaultBalanceByFaucetId(page, faucetId);
+    if (last === expected) return;
+    await page.waitForTimeout(2_000);
+  }
+  const decimals = opts.decimals;
+  const fmt = (value: bigint) =>
+    decimals == null ? value.toString() : `${fromBaseUnits(value, decimals)} (${value} base units)`;
+  throw new Error(
+    `waitForVaultBalanceByFaucetId(${faucetId}) timed out after ${timeoutMs}ms.\n` +
+      `  expected vault: ${fmt(expected)}\n` +
+      `  actual vault:   ${fmt(last)}\n`
   );
 }
 
@@ -363,7 +439,7 @@ export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string
  * Field names match `TokenBalanceData` (`src/lib/miden/front/balance.ts`) deliberately.
  * This previously read `token.faucetId` and `token.amountBaseUnits`, neither of which
  * exists on that type, so every row printed `faucetId: '(none)'` and fell through to
- * `balance` — a DECIMAL display number — under a key named `amount`. This output is
+ * `balance` - a DECIMAL display number - under a key named `amount`. This output is
  * what a failing fee assertion prints, so it was actively misdescribing the store at
  * the one moment someone reads it.
  */

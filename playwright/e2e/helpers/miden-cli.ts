@@ -1,9 +1,9 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-
 import { coerce } from 'semver';
 
+import { discoverFeeFaucetId } from './fee-faucet';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
@@ -320,9 +320,18 @@ export class MidenCli {
    */
   private funderIds: string[] = [];
   private nativeFaucetId?: string;
+  private nativeFaucetDiscovery?: Promise<string>;
 
   async ensureNativeFaucetId(): Promise<string | undefined> {
     await this.init();
+    if (!this.nativeFaucetId && this.env.name !== 'localhost') {
+      const discovery = (this.nativeFaucetDiscovery ??= discoverFeeFaucetId(this.env.rpcUrl));
+      try {
+        this.nativeFaucetId = await discovery;
+      } finally {
+        if (this.nativeFaucetDiscovery === discovery) this.nativeFaucetDiscovery = undefined;
+      }
+    }
     return this.nativeFaucetId;
   }
 
@@ -357,6 +366,7 @@ export class MidenCli {
   }
 
   private async importFunders(): Promise<string[]> {
+    if (this.env.name !== 'localhost') return [];
     if (!this.initialized) {
       await this.init();
       return this.funderIds;
