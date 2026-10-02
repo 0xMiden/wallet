@@ -1,6 +1,6 @@
 import * as Repo from 'lib/miden/repo';
 
-import { recordNoteDelivery } from './helper';
+import { recordNoteDelivery, relayNoteIdsOf, relayRecipientOf } from './helper';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { INoteDeliveryState, ITransaction } from '../db/types';
 
@@ -82,9 +82,14 @@ const candidateRows = async (at: number): Promise<ITransaction[]> => {
 };
 
 const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string } | undefined => {
-  const noteId = row.outputNoteIds?.[0];
-  if (!noteId || !row.secondaryAccountId) return undefined;
-  return { noteId, recipient: row.secondaryAccountId };
+  // The row holds one delivery state for the private notes it owes the relay (`relayNoteIdsOf`), so one note's
+  // receipt or re-push speaks for the row only when it owes exactly that one.
+  const owed = relayNoteIdsOf(row);
+  if (owed.length !== 1) return undefined;
+  const noteId = owed[0];
+  const recipient = relayRecipientOf(row);
+  if (!noteId || !recipient) return undefined;
+  return { noteId, recipient };
 };
 
 /**

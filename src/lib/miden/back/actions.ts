@@ -8,6 +8,7 @@ import { getMessage } from 'lib/i18n';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
+import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift
@@ -27,7 +28,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
-import { clearStorage, dropLegacyGuardianUrl } from 'lib/miden/reset';
+import { dropLegacyGuardianUrl } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -221,8 +222,10 @@ export function registerNewWallet(
   return withInited(() =>
     getUnlockQueue().add(async () => {
       console.log('[Actions.registerNewWallet] Starting...');
+      let vault: Vault | undefined;
+      let published = false;
       try {
-        const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
+        vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
         console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
@@ -236,12 +239,14 @@ export function registerNewWallet(
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
+        published = true;
         await dropLegacyGuardianUrlAfterSetup('registerNewWallet');
         console.log('[Actions.registerNewWallet] Completed');
       } catch (err: unknown) {
         console.error('[Actions.registerNewWallet] FAILED:', err);
         throw err;
       } finally {
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerNewWallet');
         syncRealmInsertKeySink();
       }
     })
@@ -260,9 +265,11 @@ async function dropLegacyGuardianUrlAfterSetup(caller: string) {
 export function registerWalletFromHotKey(password?: string, keyPairPayload?: string, guardianEndpoint?: string) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
+      let vault: Vault | undefined;
+      let published = false;
       try {
         if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
-        const vault = await Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint);
+        vault = await Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint);
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -275,8 +282,10 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
+        published = true;
         await dropLegacyGuardianUrlAfterSetup('registerWalletFromHotKey');
       } finally {
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerWalletFromHotKey');
         syncRealmInsertKeySink();
       }
     })
@@ -319,19 +328,7 @@ export function registerImportedWallet(
         published = true;
         await dropLegacyGuardianUrlAfterSetup('registerImportedWallet');
       } finally {
-        if (!published && vault) {
-          // The spawn's own undo cannot fire here: it already RESOLVED, and the
-          // four awaits above are what failed. Without this the profile keeps a
-          // complete vault - protector, mnemonic, accounts, current-account
-          // pointer - that a reload would route straight to Unlock, while the UI
-          // reported a failed restore.
-          vault.retire();
-          // Never let the undo replace the cause: this runs in a finally, so a
-          // throw here would surface a storage error instead of the real failure.
-          await clearStorage(false).catch(undoError =>
-            console.error('[registerImportedWallet] could not undo a failed restore:', undoError)
-          );
-        }
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerImportedWallet');
         syncRealmInsertKeySink();
       }
     })
@@ -777,10 +774,10 @@ export async function retryDeadletteredNotes(): Promise<{ requeued: number }> {
   return result;
 }
 
-export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {
+export function swapHotKey(accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) {
   return withUnlocked(({ vault }) =>
     getAccountsWriteQueue().add(async () => {
-      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
       // Push the updated WalletAccount[] into the Effector store so the
       // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
       // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next

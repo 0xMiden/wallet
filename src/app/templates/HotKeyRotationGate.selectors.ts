@@ -130,7 +130,8 @@ export function resolveRotationGateView(input: RotationGateViewInput): RotationG
 export type RotationFailureRow = Pick<
   ITransaction,
   'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'
->;
+> &
+  Partial<Pick<ITransaction, 'extraInputs'>>;
 
 export interface RotationFailure {
   /** The row may have reached the network, so its outcome is unknown rather than failed. */

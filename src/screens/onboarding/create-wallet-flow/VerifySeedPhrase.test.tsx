@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 
 import { VerifySeedPhraseScreen } from './VerifySeedPhrase';
 
@@ -26,6 +27,11 @@ jest.mock('lodash', () => ({
 // the light tap haptic and nothing else.
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
+}));
+
+// The guard waits on a native plugin; it reports the screen protected unless a case says otherwise.
+jest.mock('lib/mobile/screenshot-guard', () => ({
+  useScreenshotGuard: jest.fn()
 }));
 
 // The word chips use the real `Pill` (not a stub): selecting a word is a Pill
@@ -58,6 +64,7 @@ const wordButtonSelected = (index: number) => wordChip(index).getAttribute('aria
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.mocked(useScreenshotGuard).mockReturnValue(true);
 });
 
 describe('VerifySeedPhraseScreen', () => {
@@ -268,6 +275,30 @@ describe('VerifySeedPhraseScreen', () => {
       fireEvent.click(screen.getByTestId('continue'));
 
       expect(onSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('screenshot guard', () => {
+    it('withholds the words, not the heading, until the guard reports the screen protected', () => {
+      jest.mocked(useScreenshotGuard).mockReturnValue(false);
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+
+      expect(screen.queryAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(0);
+      SEED.forEach(word => expect(screen.queryByText(word)).not.toBeInTheDocument());
+      expect(screen.getByRole('heading', { level: 1, name: 'verifySeedPhrase' })).toBeInTheDocument();
+    });
+
+    it('renders every word once the guard reports the screen protected', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+
+      SEED.forEach(word => expect(screen.getByText(word)).toBeInTheDocument());
+    });
+
+    it('holds the guard with no argument', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+
+      expect(useScreenshotGuard).toHaveBeenCalled();
+      jest.mocked(useScreenshotGuard).mock.calls.forEach(args => expect(args).toEqual([]));
     });
   });
 

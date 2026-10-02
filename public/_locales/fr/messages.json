@@ -419,8 +419,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Total des récompenses accumulées",
-    "englishSource": "Total Earned Rewards"
+    "message": "Total gagné",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "Bénéficier d'un taux de rendement annuel (APY) combiné de l'$apy$",
@@ -2175,6 +2175,50 @@
     "message": "Le déverrouillage biométrique n'est pas disponible sur cet appareil.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Configurez l'authentification par empreinte digitale ou par reconnaissance faciale dans les « Paramètres » pour pouvoir l'utiliser ici.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "Configurez une empreinte digitale ou une reconnaissance faciale dans les « Paramètres » pour utiliser le déverrouillage biométrique.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "Le déverrouillage par reconnaissance faciale ou par empreinte digitale configuré pour le travail n’est pas suffisamment sécurisé pour protéger un portefeuille. Configurez l’empreinte digitale pour le travail dans les Paramètres afin de pouvoir l’utiliser ici.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "Le déverrouillage par reconnaissance faciale ou par empreinte digitale configuré sur cet appareil n’est pas suffisamment sécurisé pour protéger un portefeuille. Configurez une empreinte digitale dans les Paramètres pour utiliser le déverrouillage biométrique.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "Les fonctions biométriques de cet appareil ne permettent pas de protéger un portefeuille. Utilisez plutôt un code d’accès.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "Le capteur biométrique n’est pas disponible pour le moment. Réessayez ou utilisez un code d’accès.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID ou Touch ID n’est pas disponible. Si cette fonctionnalité est désactivée pour cette application, activez-la dans les Réglages ou utilisez un code d’accès.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Installez la dernière mise à jour de sécurité pour utiliser le déverrouillage biométrique.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Définissez un code d'accès pour l'appareil dans les Paramètres afin d'utiliser le déverrouillage biométrique.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "Le déverrouillage biométrique est bloqué après un trop grand nombre de tentatives. Déverrouillez votre appareil, puis réessayez.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Ouvrir les paramètres",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Choisissez votre «Guardian»",
     "englishSource": "Choose your Guardian"
@@ -2692,6 +2736,22 @@
     "message": "Le changement a été soumis, mais cet appareil n'a pas pu confirmer qu'il a abouti sur la chaîne. Le portefeuille ne peut pas le confirmer à votre place : vos paramètres Guardian et l'entrée de cette transaction dans Activité indiqueront le nouveau Guardian dans les deux cas. Si une transaction ultérieure est refusée faute de cosignature, relancez le changement.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "Pas encore enregistré sur cet appareil.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Le changement de Guardian a atteint le réseau, mais cet appareil n’a pas encore pu enregistrer le nouvel état de votre compte. Le portefeuille continue d’essayer en arrière-plan, et tant qu’il n’y parvient pas, les transactions provenant de cet appareil risquent de ne pas aboutir. Vous n’avez pas besoin de relancer le changement de Guardian.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "Non enregistré sur cet appareil.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Le changement de Guardian a atteint le réseau, mais cet appareil n’a pas pu enregistrer le nouvel état de votre compte et ne peut pas le restaurer de lui-même. Ne relancez pas le changement de Guardian. Contactez le service d’assistance.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Cet appareil n'a pas non plus pu enregistrer l'adresse du nouveau Guardian, il affiche donc toujours la précédente. Le portefeuille vous demandera de la saisir à nouveau : cette invite ne lance pas un autre changement.",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
@@ -3013,6 +3073,10 @@
   "insufficientFeeAsset": {
     "message": "Vous avez besoin de MIDEN pour payer les frais de réseau. Recevez des MIDEN pour continuer.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",
@@ -3919,6 +3983,14 @@
   "fingerprint": {
     "message": "Empreinte digitale",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Déverrouillage par reconnaissance faciale",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "Autorisation d'accès à l'appareil photo refusée",
@@ -4972,6 +5044,38 @@
     "message": "Pas pour l'instant",
     "englishSource": "Not now"
   },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
+  },
   "activityAcceptTransfer": {
     "message": "Accepter le transfert",
     "englishSource": "Accept Transfer"
@@ -5311,6 +5415,39 @@
   "spendingLimitCoverage": {
     "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
     "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+  },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
   },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",

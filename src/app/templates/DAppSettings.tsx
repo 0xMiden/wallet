@@ -104,7 +104,7 @@ const DAppSection: FC<{
   const explorerAccountUrl = getExplorerAccountUrl(explorerHash);
 
   return (
-    <SubPageSection title={hostname} data-testid="dapp-session">
+    <SubPageSection title={hostname} titleSize="md" data-testid="dapp-session">
       <DetailCard>
         <DetailRow label={rowLabel(t('originLabel'))} stacked>
           {origin}

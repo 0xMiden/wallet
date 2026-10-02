@@ -1,7 +1,13 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { IBridgedSendExtraInputs, ITransaction, ITransactionStage, ITransactionStatus } from '../db/types';
+import {
+  IBridgedSendExtraInputs,
+  ITransaction,
+  ITransactionStage,
+  ITransactionStatus,
+  STRUCTURAL_GUARDIAN_TYPES
+} from '../db/types';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -140,6 +146,7 @@ export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED
  * rotation moves no asset, so a fee shortfall is a definite failure, not an unknown outcome.
  * False whenever {@link isBridgeRouteFailedRow} holds too: a bridged-send its own route
  * evidence (the allocator or the fill poll) reports failed is settled by that, not unknown.
+ * And whenever {@link isNodeDiscardedRow} holds: a structural write the node discarded never lands.
  */
 export function isUnconfirmedFailure(
   row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
@@ -150,6 +157,7 @@ export function isUnconfirmedFailure(
   if (isVaultShortfallRow(row)) return false;
   // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
   if (isBridgeRouteFailedRow(row)) return false;
+  if (isNodeDiscardedRow(row)) return false;
   const reason = row.rawError ?? row.error;
   return (
     row.mayHaveSubmitted === true ||
@@ -365,6 +373,20 @@ export function isBridgeRouteFailedRow(
   if (row.type !== 'bridged-send' || row.status !== ITransactionStatus.Failed) return false;
   const extraInputs: Partial<IBridgedSendExtraInputs> | undefined = row.extraInputs;
   return extraInputs?.epochStatus === 'failed';
+}
+
+/**
+ * True for a Failed structural Guardian row (`STRUCTURAL_GUARDIAN_TYPES`) the node discarded:
+ * `extraInputs.nodeDiscarded`, which `cancelTransaction` writes in the write that fails the row when
+ * the error is the node's discard (#1233). A set `mayHaveSubmitted` does not make such a row unknown:
+ * the write did submit, but a discarded write never lands.
+ */
+export function isNodeDiscardedRow(
+  row: Pick<ITransaction, 'type' | 'status'> & Partial<Pick<ITransaction, 'extraInputs'>>
+): boolean {
+  if (row.status !== ITransactionStatus.Failed || !STRUCTURAL_GUARDIAN_TYPES.includes(row.type)) return false;
+  const extraInputs: { nodeDiscarded?: boolean } | undefined = row.extraInputs;
+  return extraInputs?.nodeDiscarded === true;
 }
 
 /** A consume for an account whose everyday key is not active yet, other than the gate's own claim (#805). */

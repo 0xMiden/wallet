@@ -475,6 +475,19 @@ describe('HotKeyRotationGate', () => {
     expect(screen.getByTestId('hot-key-rotation-failed-message')).toHaveClass('w-full', 'wrap-anywhere');
   });
 
+  it('blurs the wallet behind it with plain filter values, prefixed and not', async () => {
+    render(<HotKeyRotationGate />);
+
+    const gate = screen.getByTestId('hot-key-rotation-gate');
+    expect(gate).toHaveClass(
+      '[backdrop-filter:blur(24px)_saturate(1.5)]',
+      '[-webkit-backdrop-filter:blur(24px)_saturate(1.5)]'
+    );
+    expect(gate).not.toHaveClass('backdrop-blur-xl');
+    expect(gate).not.toHaveClass('backdrop-saturate-150');
+    await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
+  });
+
   it('disappears once the rotation flag clears', async () => {
     const { container, rerender } = render(<HotKeyRotationGate />);
     await waitFor(() => expect(mockInitiate).toHaveBeenCalled());

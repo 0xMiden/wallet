@@ -10,8 +10,19 @@ import {
 } from 'lib/epoch/intent-key';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
-import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
+import {
+  didDirectSwitchLand,
+  finalizeDirectGuardianSwitch,
+  GuardianSwitchDiscardedError,
+  isGuardianKeyMismatchRefusal,
+  isGuardianSwitchDiscardedError
+} from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
+import {
+  adoptPostSwitchState,
+  type PostSwitchAdopter,
+  type PostSwitchLocalState
+} from 'lib/miden/guardian/post-switch-state';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -19,9 +30,12 @@ import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/tran
 
 import {
   applyVerifiedLanding,
+  landedTransactionIdFields,
+  type LandedWithoutResult,
   recordNoteDelivery,
   reportVerifiedLanding,
   setTransactionStage,
+  undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
@@ -81,12 +95,17 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // between a user knowing one note of several is stuck and assuming the whole
   // transaction failed.
   let undeliveredNotes = 0;
+  // Every private note, relayable or not, since `noteDelivery` and the label cover them all.
+  const relayNoteIds: string[] = [];
+  // Read before `interpretTransactionResult`, which puts the input note's sender in `secondaryAccountId` on a consume.
+  const relayRecipientId = transaction.secondaryAccountId;
 
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
       continue;
     }
+    relayNoteIds.push(note.id().toString());
 
     if (!transaction.secondaryAccountId) {
       // The recipient is supplied by the requesting site and is optional, so a
@@ -202,7 +221,11 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // Set explicitly AFTER interpretTransactionResult: that returns the whole
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.
-  if (noteDelivery) updatedTransaction.noteDelivery = noteDelivery;
+  if (noteDelivery) {
+    updatedTransaction.noteDelivery = noteDelivery;
+    updatedTransaction.relayNoteIds = relayNoteIds;
+    updatedTransaction.relayRecipientId = relayRecipientId;
+  }
 
   if (undeliveredNotes > 0) {
     // Completed, not Failed: the transaction is on chain and the assets have left
@@ -210,10 +233,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // spends again. What is wrong is the DELIVERY, and the row is the only place
     // the user would ever learn about it — `error` is rendered for failed rows
     // only, so the label is what carries it.
-    updatedTransaction.displayMessage =
-      undeliveredNotes === 1
-        ? 'Completed — a private note could not be delivered'
-        : `Completed — ${undeliveredNotes} private notes could not be delivered`;
+    updatedTransaction.displayMessage = undeliveredDisplayMessage('Completed', undeliveredNotes);
   }
 
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
@@ -417,7 +437,9 @@ export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  // Set only by the landed reconcile, where `result` is absent (#1233).
+  landed?: LandedWithoutResult
 ) => {
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
@@ -462,7 +484,14 @@ export const completeReplaceHotKeyTransaction = async (
     let reRegisterError: unknown;
     let reRegisterAttempts = 0;
     let storedAccountId = tx.accountId;
-    for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+    // The landed reconcile pushes nothing (#1233): the apply failed, so the local store still holds
+    // the pre-rotation account and allowlist, and a push landing after canonicalization would put
+    // the guardian back on them, so every hot-signed request 401s with no cold self-heal. The
+    // guardian's canonicalization of the rotation re-derives both; a hot-signed request in the
+    // seconds before it fails and is retried by its caller.
+    const reRegisterAttemptBudget = landed ? 0 : POST_ROTATION_REREGISTER_ATTEMPTS;
+    if (landed) storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
+    for (let attempt = 1; attempt <= reRegisterAttemptBudget; attempt++) {
       reRegisterAttempts = attempt;
       try {
         const accounts = await guardianProvider.getAccounts();
@@ -528,12 +557,11 @@ export const completeReplaceHotKeyTransaction = async (
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
       // guardian re-register landed (#619 gap 1).
       extraInputs: { ...tx.extraInputs, reRegisterFailed },
-      // `result` is absent on the apply-after-submit-failed reconcile path: the
-      // rotation is already on chain, we just lack the local TransactionResult.
-      ...(result && {
-        transactionId: result.executedTransaction().id().toHex(),
-        resultBytes: result.serialize()
-      })
+      // `result` is absent on the landed reconcile path: the rotation is already on chain, and all
+      // the reconcile has is the id its failure carried (#1233).
+      ...(result
+        ? { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() }
+        : landedTransactionIdFields(landed))
     });
 
     // The account now has both signers on-chain, so bring it up to the same
@@ -607,6 +635,41 @@ const readTransactionResultFields = (
   }
 };
 
+/**
+ * Point a discarded switch's account back at its previous guardian (#1233), retried like the terminal
+ * status write. The write needs an unlocked wallet, and one that stays locked outlasts the attempts,
+ * so false (or no previous endpoint on the row) is what the Failed row then names.
+ */
+const restorePreviousGuardianEndpoint = async (
+  guardianProvider: GuardianAccountProvider,
+  storedAccountId: string,
+  previousGuardianEndpoint: string | undefined
+): Promise<boolean> => {
+  if (!previousGuardianEndpoint) {
+    console.error('The node discarded the guardian switch, and the row records no previous endpoint to restore');
+    return false;
+  }
+  for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
+    try {
+      await withTimeout(
+        Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, previousGuardianEndpoint)),
+        ENDPOINT_PERSIST_TIMEOUT_MS,
+        'restoring the previous guardian endpoint'
+      );
+      return true;
+    } catch (restoreError) {
+      console.error(
+        `Could not restore the previous guardian endpoint (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
+        restoreError
+      );
+      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
+      }
+    }
+  }
+  return false;
+};
+
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
   result: TransactionResult | undefined,
@@ -620,15 +683,17 @@ export const completeSwitchGuardianTransaction = async (
   // confirmation the code never obtained.
   //
   // Two callers pass it: the direct path when `didDirectSwitchLand` answers
-  // `undefined`, and `reconcileStructuralApplyFailure` always — an
-  // apply-after-submit failure proves the node accepted the transaction and
-  // nothing beyond that.
+  // `undefined`, and `reconcileStructuralApplyFailure` always. It runs only on an
+  // apply-after-submit failure, which no pre-submit step produces, so it knows the
+  // node accepted the transaction and nothing beyond that.
   //
   // The default is `false` for the paths that WAITED for the commit and got it.
   // That is a claim about the commit wait, not about which path called: do not
   // read this default as "coordinated means confirmed" and add a caller without
   // checking which of the two it is.
-  commitUnconfirmed = false
+  commitUnconfirmed = false,
+  // Set only by the landed reconcile, where `result` is absent (#1233).
+  landed?: LandedWithoutResult
 ) => {
   // Read the WASM-backed result fields ONCE, up front, before anything that can
   // select a terminal status depends on them.
@@ -651,6 +716,8 @@ export const completeSwitchGuardianTransaction = async (
   // clean switch on the two states the user most needs told about.
   let endpointPersistFailed = false;
   let registerFailed = false;
+  let localStateNotSaved = false;
+  let localStateUnrecoverable = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
     const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
@@ -730,14 +797,62 @@ export const completeSwitchGuardianTransaction = async (
       );
     }
 
+    // A landed switch (#1233): the apply failed, so this device's copy may still be the pre-switch
+    // account, whose guardian slot names the outgoing operator, and the new one refuses to register
+    // that. Adopt the post-switch state from the outgoing guardian first (it holds it once it
+    // canonicalizes the delta pushed after submit), and skip a registration that can only be refused.
+    // A read that throws counts as unknown: nothing here may select the Failed path. A guardian the delta
+    // did not reach in time is not polled: the background self-heal re-pushes it and adopts then.
+    const outgoing = tx.extraInputs.switchDeltaPushed === true ? multisigService : undefined;
+    const adopter: PostSwitchAdopter | undefined = outgoing
+      ? { probe: () => outgoing.probeGuardianState(), adoptOnce: () => outgoing.adoptGuardianStateOnce() }
+      : undefined;
+    const localState: PostSwitchLocalState = landed
+      ? await adoptPostSwitchState(adopter, storedAccountId, newGuardianEndpoint).catch(
+          (adoptError: unknown): PostSwitchLocalState => {
+            console.warn('Could not read the post-switch local state; registering as before:', adoptError);
+            return 'unknown';
+          }
+        )
+      : 'post-switch';
+    // Pre-switch at the bound is also what a switch the node discarded leaves, since the outgoing
+    // guardian then never holds a post-switch state, and an unknown copy may be either. A post-switch
+    // copy can be the failed apply's own account write (the store's apply writes the record, then the
+    // account, then notes and tags), which proves no commit; one an adopt produced can only meet a
+    // commit or no verdict, so asking there costs one bounded verdict read and changes no outcome.
+    // So ask the node about the transaction whatever the copy reads, as the direct path does: a discard
+    // means the switch did not happen, so the endpoint persisted above goes back to the previous
+    // guardian and the caller fails the row. No verdict keeps the flag.
+    const askNodeAbout = landed?.transactionId;
+    if (askNodeAbout !== undefined && (await didDirectSwitchLand(askNodeAbout)) === false) {
+      const restored = await restorePreviousGuardianEndpoint(
+        guardianProvider,
+        storedAccountId,
+        tx.extraInputs.previousGuardianEndpoint
+      );
+      throw new GuardianSwitchDiscardedError(askNodeAbout, restored ? undefined : newGuardianEndpoint);
+    }
+    // Only a coordinated row has a repair path: the self-heal adopts from the previous guardian, which
+    // a direct switch fled before it ever received the delta.
+    const switchedDirectly = tx.extraInputs.switchedDirectly === true;
     try {
-      if (multisigService) {
+      if (localState === 'pre-switch') {
+        if (switchedDirectly) localStateUnrecoverable = true;
+        else localStateNotSaved = true;
+      } else if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
       } else {
         await finalizeDirectGuardianSwitch(storedAccountId, newGuardianEndpoint, guardianProvider);
       }
     } catch (registerError) {
       registerFailed = true;
+      // Refused, maybe, for a copy nobody could show was post-switch: the self-heal that adopts
+      // one has to know.
+      // A direct switch has no repair path, and another key is the 'pre-switch' read, found by the registration.
+      if (localState === 'unknown') {
+        if (!switchedDirectly) localStateNotSaved = true;
+        else if (isGuardianKeyMismatchRefusal(registerError)) localStateUnrecoverable = true;
+      }
       console.error(
         'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
           'unknown to the new operator until the guardian-sync self-heal lands a registration:',
@@ -761,11 +876,17 @@ export const completeSwitchGuardianTransaction = async (
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
-      // Absent on the apply-after-submit-failed reconcile path (no local
-      // TransactionResult), and absent if reading the handle threw — the switch
-      // is on chain either way, so the row completes without them.
-      ...resultFields
+      extraInputs: {
+        ...tx.extraInputs,
+        registerFailed,
+        endpointPersistFailed,
+        commitUnconfirmed,
+        localStateNotSaved,
+        localStateUnrecoverable
+      },
+      // On the landed reconcile path there is no local TransactionResult, so the row takes the id
+      // the failure carried, if any (#1233); the switch is on chain either way.
+      ...(resultFields ?? landedTransactionIdFields(landed))
     });
   } catch (error) {
     // Past the commit, Failed is not an honest terminal status: the rotation IS
@@ -794,12 +915,22 @@ export const completeSwitchGuardianTransaction = async (
     // just delivered later and with a generic reason. Spacing the attempts costs
     // nothing on the happy path (it is only reached when a write has already
     // failed) and removes the single-retry coincidence.
+    //
+    // Except the node's discard (#1233): that switch did not happen, so its caller fails the row.
+    if (isGuardianSwitchDiscardedError(error)) throw error;
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
     const completedPayload = {
       displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
-      ...resultFields
+      extraInputs: {
+        ...tx.extraInputs,
+        registerFailed,
+        endpointPersistFailed,
+        commitUnconfirmed,
+        localStateNotSaved,
+        localStateUnrecoverable
+      },
+      ...(resultFields ?? landedTransactionIdFields(landed))
     };
     for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
       try {
@@ -1020,7 +1151,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
-      displayMessage: noteDelivery === 'undelivered' ? 'Sent — the private note could not be delivered' : 'Sent',
+      displayMessage: noteDelivery === 'undelivered' ? undeliveredDisplayMessage('Sent') : 'Sent',
       transactionId: executedTx.id().toHex(),
       outputNoteIds,
       noteDelivery,

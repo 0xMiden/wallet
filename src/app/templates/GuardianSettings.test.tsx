@@ -385,10 +385,17 @@ it('opens the Guardian explainer drawer from the About section', () => {
   render(<GuardianSettings />);
 
   expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'false');
-  fireEvent.click(screen.getByRole('button', { name: 'learnMoreAboutGuardian' }));
+  const pill = screen.getByRole('button', { name: 'learnMoreAboutGuardian' });
+  // The full-width info pill, as on Home, announcing the sheet it opens.
+  expect(pill).toHaveClass('w-full');
+  expect(pill).toHaveAttribute('aria-haspopup', 'dialog');
+  expect(pill).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(pill);
 
+  // One buzz: the shared Pill's own, with none added on top.
   expect(mockHapticLight).toHaveBeenCalledTimes(1);
   expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'true');
+  expect(pill).toHaveAttribute('aria-expanded', 'true');
 });
 
 it('navigates to guardian rotation, buzzing once', () => {
@@ -576,11 +583,13 @@ it('renders through SubPageLayout: section labels, muted copy, details card, Rot
   // The old grey-chip assertion is gone: that token is retired, and the registry in lib/ui now
   // forbids ANY source file from naming it - a stronger guarantee than one element's class list,
   // and one that also refuses the name in a comment, which is why it is not repeated here.
-  expect(screen.getByText('about')).toHaveClass('text-label', 'text-muted');
+  // The 16px section label (`titleSize="md"`), the size the other Settings sub-pages use.
+  expect(screen.getByText('about')).toHaveClass('text-row-title', 'text-muted');
+  expect(screen.getByText('details')).toHaveClass('text-row-title', 'text-muted');
   expect(page.querySelector('hr')).toBeNull();
-  // The explanation is a muted body paragraph; the details sit in the shared DetailCard.
+  // The explanation is a muted body paragraph; the details sit in the shared DetailCard, outlined.
   expect(screen.getByText('guardianInfoDescription').closest('.text-muted')).toHaveClass('text-body');
-  expect(screen.getByText('guardianProvider').closest('.rounded-2xl')).toHaveClass('bg-fill');
+  expect(screen.getByText('guardianProvider').closest('.rounded-2xl')).toHaveClass('bg-page', 'border-hairline');
 });
 
 // Hot-key-only import: no cold key on the account. This guards the CTA's

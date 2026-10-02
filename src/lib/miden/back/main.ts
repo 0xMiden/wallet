@@ -633,7 +633,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.PersistNewHotKeyResponse
       };
     case WalletMessageType.SwapHotKeyRequest:
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };

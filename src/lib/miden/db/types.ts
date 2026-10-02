@@ -133,6 +133,31 @@ export interface ISwitchGuardianExtraInputs {
   // endpoint. The receipt is the last place the user can be told, which is why
   // this is persisted rather than merely logged.
   commitUnconfirmed?: boolean;
+  // `localStateNotSaved`: the switch reached the network, but its local apply failed and the
+  // reconcile could not bring this device's copy of the account to the post-switch state, so it did
+  // not register it on the new operator, which refuses a copy naming the old one (#1233). The
+  // background self-heal adopts that state from `previousGuardianEndpoint`, registers it and clears
+  // this. `registerFailed` is not set on its own for this case: its self-heal cannot repair it.
+  // Coordinated rows only: the flag means that repair path exists.
+  localStateNotSaved?: boolean;
+  // `localStateUnrecoverable`: the same failure on a DIRECT switch, which has no repair path. The heal
+  // skips it, the previous guardian never received a delta, the new one was never handed a state, the
+  // account is private so the chain holds only its commitment, and running the switch again builds on
+  // the stale copy. Nothing clears it; the receipt sends the user to support.
+  // It also covers a direct switch whose registration was refused because the copy names another guardian key.
+  localStateUnrecoverable?: boolean;
+  // `switchProposalId` / `switchDeltaPushed`: a landed coordinated switch's proposal, and whether the
+  // outgoing guardian took its executed delta inside the deadline (#1233). The reconcile adopts only
+  // from a guardian that did, and the self-heal re-pushes the delta by this id to one that did not.
+  switchProposalId?: string;
+  switchDeltaPushed?: boolean;
+  // `switchProposalNonce`: that proposal's nonce. When the node discards the switch, the reconcile
+  // abandons this nonce's candidate on the outgoing guardian before the row fails, through
+  // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233). Its sibling on
+  // a rotation or a threshold update is `proposalNonce`.
+  switchProposalNonce?: number;
+  // `nodeDiscarded`: the node discarded the switch; `cancelTransaction` writes it, `isNodeDiscardedRow` reads it.
+  nodeDiscarded?: boolean;
 }
 
 /**
@@ -534,6 +559,10 @@ export interface ITransaction {
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
   outputNoteIds?: string[];
+  /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
+  relayNoteIds?: string[];
+  /** The account a custom row's private notes were relayed to, kept apart from `secondaryAccountId`; see `relayRecipientOf`. */
+  relayRecipientId?: string;
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
@@ -1334,7 +1363,14 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // allowlist push needs the self-heal to catch up.
   // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
-  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean; guardianEndpoint?: string };
+  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  extraInputs: {
+    newHotPublicKey?: string;
+    reRegisterFailed?: boolean;
+    guardianEndpoint?: string;
+    proposalNonce?: number;
+    nodeDiscarded?: boolean;
+  };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
@@ -1370,7 +1406,8 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { procedure: string; threshold: number };
+  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  extraInputs: { procedure: string; threshold: number; proposalNonce?: number; nodeDiscarded?: boolean };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, procedure: string, threshold: number, delegateTransaction?: boolean) {

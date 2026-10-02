@@ -1,5 +1,6 @@
 import {
   ApplyAfterSubmitError,
+  extractLanded,
   extractSdkErrorCode,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
@@ -164,6 +165,81 @@ describe('ApplyAfterSubmitError', () => {
     expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
     expect(isApplyAfterSubmitError(error)).toBe(true);
     expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
+  });
+
+  it('carries the landed facts as one object, which extractLanded reads', () => {
+    const landed = { transactionId: '0xlanded', privateOutputNotes: 2 };
+    const error = new ApplyAfterSubmitError(new Error('store quota'), landed);
+    expect(error.landed).toEqual(landed);
+    expect(extractLanded(error)).toEqual(landed);
+    expect(new ApplyAfterSubmitError(new Error('store quota')).landed).toEqual({});
+    // As the service worker rebuilds an offscreen failure: a plain Error with the forwarded object.
+    const rebuilt = Object.assign(new Error('rebuilt'), {
+      landed: { transactionId: '0xlanded', privateOutputNotes: 0 }
+    });
+    expect(extractLanded(rebuilt)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 0 });
+  });
+
+  it('extractLanded keeps only a string id and a non-negative integer count', () => {
+    expect(extractLanded({ landed: { transactionId: 5, privateOutputNotes: 1.5 } })).toEqual({});
+    const counts = [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY, '2', null];
+    expect(
+      counts.map(count => extractLanded({ landed: { transactionId: '0xlanded', privateOutputNotes: count } }))
+    ).toEqual(counts.map(() => ({ transactionId: '0xlanded' })));
+    // The facts cross as one object: fields beside it are not read.
+    expect(
+      extractLanded(Object.assign(new Error('rebuilt'), { transactionId: '0xlanded', privateOutputNotes: 2 }))
+    ).toEqual({});
+  });
+
+  it('extractLanded reads nothing off a non-object or a throwing landed accessor', () => {
+    for (const value of [
+      null,
+      undefined,
+      2,
+      '0xlanded',
+      new Error('plain'),
+      { landed: '0xlanded' },
+      { landed: null }
+    ]) {
+      expect(extractLanded(value)).toEqual({});
+    }
+    const hostile = Object.defineProperty(new Error('hostile'), 'landed', {
+      get() {
+        throw new Error('accessor');
+      }
+    });
+    const hostileFields = {
+      landed: Object.defineProperties(
+        {},
+        {
+          transactionId: {
+            get() {
+              throw new Error('accessor');
+            }
+          },
+          privateOutputNotes: {
+            get() {
+              throw new Error('accessor');
+            }
+          }
+        }
+      )
+    };
+    expect(extractLanded(hostile)).toEqual({});
+    expect(extractLanded(hostileFields)).toEqual({});
+  });
+
+  it('extractLanded keeps a string final account commitment and drops any other (#1233)', () => {
+    expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment: '0xfinal' } })).toEqual({
+      transactionId: '0xlanded',
+      finalAccountCommitment: '0xfinal'
+    });
+    for (const finalAccountCommitment of [5, null, { toHex: () => '0xfinal' }]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
   });
 });
 

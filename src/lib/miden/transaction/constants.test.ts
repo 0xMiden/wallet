@@ -338,6 +338,18 @@ describe('isUnconfirmedFailure', () => {
     [
       'a bridged-send whose fill confirmed, mayHaveSubmitted',
       failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'confirmed' } })
+    ],
+    [
+      'a send row carrying the discard marker, mayHaveSubmitted',
+      failed({ mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a rotation whose error names the discard but carries no marker, mayHaveSubmitted',
+      failed({
+        type: 'replace-hot-key',
+        error: 'Guardian replace-hot-key 0xabc did not land: the node discarded it.',
+        mayHaveSubmitted: true
+      })
     ]
   ])('is true for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(true);
@@ -368,6 +380,18 @@ describe('isUnconfirmedFailure', () => {
     [
       'a rotation row with no extraInputs at all',
       { type: 'replace-hot-key', status: ITransactionStatus.Failed, error: 'guardian unreachable' }
+    ],
+    [
+      'a switch-guardian row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'switch-guardian', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a replace-hot-key row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'replace-hot-key', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a update-procedure-threshold row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'update-procedure-threshold', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
     ]
   ])('is false for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(false);

@@ -7,7 +7,7 @@
  * as `undelivered` nor promoted to `confirmed`. `note-delivery-sweep.ts` has the why.
  */
 
-import { ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
+import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import { MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
 
@@ -49,10 +49,11 @@ jest.mock('../back/miden-client-proxy', () => ({
   }
 }));
 
-const mockRecord = jest.fn<Promise<void>, [string, string]>();
+const mockRecord = jest.fn<Promise<void>, [string, INoteDeliveryState]>();
 
 jest.mock('./helper', () => ({
-  recordNoteDelivery: (id: string, state: string) => mockRecord(id, state)
+  ...jest.requireActual<typeof import('./helper')>('./helper'),
+  recordNoteDelivery: (id: string, state: INoteDeliveryState) => mockRecord(id, state)
 }));
 
 /** A landed private send that owes a delivery, overridable per case. */
@@ -117,6 +118,22 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
     expect(rows[0]!.relayAttempts).toBe(2);
     expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
+  });
+
+  it('re-pushes a custom row read as a consume to the recipient its relay used', async () => {
+    // Reading the result as a consume puts the input note's sender in `secondaryAccountId`.
+    rows.push(
+      row({
+        type: 'consume',
+        secondaryAccountId: 'mtst1sender',
+        relayRecipientId: 'mtst1recipient',
+        relayNoteIds: ['0xnote']
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
   });
 
   it('arms the schedule on first sighting rather than pushing straight away', async () => {
@@ -437,5 +454,244 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xearly', '0xlate']);
+  });
+});
+
+// History renders `displayMessage`, not `noteDelivery`, so a note proven delivered has to
+// take the undelivered wording off the label as well. These run the real `recordNoteDelivery`.
+describe('the undelivered label', () => {
+  const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
+  const UNDELIVERED_SEND = 'Sent - the private note could not be delivered';
+  const UNDELIVERED_CUSTOM = 'Completed - a private note could not be delivered';
+  // 1.16.2 and earlier joined the wording with an em dash.
+  const EM = ' \u2014 ';
+  const LEGACY_UNDELIVERED_SEND = 'Sent' + EM + 'the private note could not be delivered';
+
+  beforeEach(() => {
+    mockRecord.mockImplementation(recordNoteDelivery);
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  it('drops when the sweep re-pushes an undelivered private send', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND }));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+    expect(rows[0]!.displayMessage).toBe('Sent');
+  });
+
+  it('drops when the sweep finds the note consumed', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND }));
+    mockIsConsumed.mockResolvedValue(true);
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.noteDelivery).toBe('confirmed');
+    expect(rows[0]!.displayMessage).toBe('Sent');
+  });
+
+  it('drops from a single-note custom row once it is relayed', async () => {
+    rows.push(
+      row({
+        type: 'execute',
+        noteDelivery: 'undelivered',
+        displayMessage: 'Completed - a private note could not be delivered'
+      })
+    );
+
+    await recordNoteDelivery('tx-1', 'relayed');
+
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it.each<[ITransactionType, string, string]>([
+    ['send', LEGACY_UNDELIVERED_SEND, 'Sent'],
+    ['execute', 'Completed' + EM + 'a private note could not be delivered', 'Completed'],
+    ['execute', 'Completed' + EM + 'the private note could not be delivered', 'Completed']
+  ])('drops the wording 1.16.2 wrote from a %s row labelled %p once relayed (#1233)', async (type, label, base) => {
+    rows.push(row({ type, noteDelivery: 'undelivered', displayMessage: label }));
+
+    await recordNoteDelivery('tx-1', 'relayed');
+
+    expect(rows[0]!.displayMessage).toBe(base);
+  });
+
+  it('drops the legacy wording when the sweep re-pushes an older private send (#1233)', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: LEGACY_UNDELIVERED_SEND }));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+    expect(rows[0]!.displayMessage).toBe('Sent');
+  });
+
+  // The row holds one delivery state, and a verdict on one of its notes says nothing of the other.
+  it.each([
+    ['Completed - a private note could not be delivered'],
+    ['Completed - 2 private notes could not be delivered'],
+    ['Completed' + EM + '2 private notes could not be delivered']
+  ])('stays as %p on a two-note row recorded relayed', async displayMessage => {
+    rows.push(
+      row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
+    );
+
+    await recordNoteDelivery('tx-1', 'relayed');
+
+    expect(rows[0]!.displayMessage).toBe(displayMessage);
+  });
+
+  // Rows written before `relayNoteIds` fall back to `outputNoteIds`.
+  it('re-pushes an older single-note custom row with no relayNoteIds by its output note', async () => {
+    rows.push(row({ type: 'execute', noteDelivery: 'undelivered', displayMessage: UNDELIVERED_CUSTOM }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it('stays on an older two-note row with no relayNoteIds, which the sweep neither re-pushes nor records', async () => {
+    const displayMessage = UNDELIVERED_CUSTOM;
+    rows.push(
+      row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).not.toHaveBeenCalled();
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      noteDelivery: 'undelivered',
+      relayAttempts: 1,
+      nextRelayAt: NOW - 1,
+      displayMessage
+    });
+  });
+
+  // A public note beside the one private note is not owed a relay, whatever its place in `outputNoteIds`.
+  const mixedRow = () =>
+    row({
+      type: 'execute',
+      outputNoteIds: ['0xpublic', '0xprivate'],
+      relayNoteIds: ['0xprivate'],
+      relayRecipientId: 'mtst1recipient',
+      noteDelivery: 'undelivered',
+      displayMessage: UNDELIVERED_CUSTOM
+    });
+
+  it('re-pushes a mixed row by its one private note, and the label drops', async () => {
+    rows.push(mixedRow());
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xprivate');
+    expect(mockRelayById).toHaveBeenCalledWith('0xprivate', 'mtst1recipient');
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it('confirms a mixed row by its one private note', async () => {
+    rows.push(mixedRow());
+    mockIsConsumed.mockResolvedValue(true);
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xprivate');
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.noteDelivery).toBe('confirmed');
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  it('stays on a row owing two private notes, which the sweep neither re-pushes nor records', async () => {
+    rows.push(
+      row({
+        type: 'execute',
+        outputNoteIds: ['0xprivate1', '0xprivate2', '0xpublic'],
+        relayNoteIds: ['0xprivate1', '0xprivate2'],
+        noteDelivery: 'undelivered',
+        displayMessage: UNDELIVERED_CUSTOM
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).not.toHaveBeenCalled();
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      noteDelivery: 'undelivered',
+      relayAttempts: 1,
+      displayMessage: UNDELIVERED_CUSTOM
+    });
+  });
+
+  // Its `secondaryAccountId` is the consumed note's sender, a third party the note was never for.
+  it('stays on a custom row whose dApp named no recipient, which the sweep neither re-pushes nor records', async () => {
+    rows.push(
+      row({
+        type: 'consume',
+        secondaryAccountId: 'mtst1sender',
+        relayNoteIds: ['0xnote'],
+        noteDelivery: 'undelivered',
+        displayMessage: UNDELIVERED_CUSTOM
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      noteDelivery: 'undelivered',
+      relayAttempts: 1,
+      displayMessage: UNDELIVERED_CUSTOM
+    });
+  });
+
+  it('stays on an undelivered send whose re-push fails again', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND }));
+    mockRelayById.mockRejectedValue(new Error('transport unreachable'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
+    expect(rows[0]!.displayMessage).toBe(UNDELIVERED_SEND);
+  });
+
+  it('stays off a clean send the sweep records undelivered', async () => {
+    rows.push(row({ noteDelivery: 'pending', displayMessage: 'Sent' }));
+    mockRelayById.mockRejectedValue(new Error('transport unreachable'));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.noteDelivery).toBe('undelivered');
+    expect(rows[0]!.displayMessage).toBe('Sent');
+  });
+
+  it('stays while the delivery is only pending', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND }));
+
+    await recordNoteDelivery('tx-1', 'pending');
+
+    expect(rows[0]!.displayMessage).toBe(UNDELIVERED_SEND);
+  });
+
+  // Only wording the shared definition built is removed, so a near miss keeps its text.
+  it.each([
+    ['Completed - 1 private notes could not be delivered'],
+    ['Completed - 02 private notes could not be delivered'],
+    ['Sent - the private note could not be delivered yet'],
+    ['Sent - a note could not be delivered'],
+    ['Sent' + EM + 'a note could not be delivered'],
+    ['Completed' + EM + '02 private notes could not be delivered']
+  ])('leaves %p alone', async displayMessage => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage }));
+
+    await recordNoteDelivery('tx-1', 'confirmed');
+
+    expect(rows[0]!.displayMessage).toBe(displayMessage);
   });
 });

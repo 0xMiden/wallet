@@ -3,7 +3,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import { TRANSACTION_RETRY_UNSAFE_ERROR, isSubmitOutcomeUnknown } from './constants';
-import { completeVerifiedLandedTransaction } from './helper';
+import { applyLandedDisplayMessage, completeVerifiedLandedTransaction, landedValueRowFields } from './helper';
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
@@ -46,13 +46,15 @@ import {
  *    Nothing was abandoned there: `openEarnPosition` is still awaiting this row
  *    via `waitForTransactionCompletion`, and the quote/mandate are still live -
  *    so `earn-deposit` SHOULD keep participating, and it does.
- *  - `ApplyTransactionAfterSubmitFailed` marks the row `Completed` rather than
- *    Failed: the note IS on chain, so the correct move is to let the awaiting
- *    `createEarnP2IDENote` read it back, not to re-send. `earn-deposit` belongs
- *    in that type-agnostic path too, and stays there.
+ *  - `ApplyTransactionAfterSubmitFailed` marks the row `Failed`, not `Completed`,
+ *    in both the Guardian catch and the loop catch: the note IS on chain, but no
+ *    `TransactionResult` survives, and a Completed row without one would leave the
+ *    awaiting `createEarnP2IDENote` waiting forever. The caller resolves through
+ *    its error branch; the collateral note reclaims itself at its recall height.
  *
- * Both of those cover cases where the intent is still valid; only the terminal
- * FIFO requeue, which reruns a send whose intent is gone, has to exclude it.
+ * The first keeps a live intent's row queued and the second ends the row without
+ * sending it again; only the terminal FIFO requeue, which reruns a send whose
+ * intent is gone, has to exclude it.
  *
  * An Epoch (Fast) `bridged-send` is excluded for EXACTLY the earn-deposit reason,
  * and is gated separately below because the type alone doesn't say which route the
@@ -177,10 +179,11 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * input note's nullifier makes a duplicate unusable.)
  *
  * Why these need a guard beyond `verifySendLanded`: that check is keyed on
- * `ITransaction.transactionId`, and the only writers of that field are the
- * completion handlers in `complete.ts` - the SUCCESS path - plus
- * `updateBridgedReceivePhase`. A row that failed before any completion handler
- * ran therefore reaches Retry with `transactionId === undefined`, where
+ * `ITransaction.transactionId`, whose writers are the completion handlers in
+ * `complete.ts` - the SUCCESS path - `updateBridgedReceivePhase`, and the landed
+ * arms, which record the id a failed apply after submit carried (#1233). A row
+ * that failed before any of them ran therefore reaches Retry with
+ * `transactionId === undefined`, where
  * `verifySendLanded` short-circuits to `'unknown'` and the resubmit would proceed
  * unguarded. Stamping the id pre-submit is not available today: under
  * `MIDEN_USE_OFFSCREEN_CLIENT` the write runs in the offscreen realm, whose DTOs
@@ -330,13 +333,21 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
   if (NODE_VERIFIED_RETRY_TYPES.includes(tx.type)) {
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
+      // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
+      // relays a private send's note, and with no delivery recorded that relay never ran. A
+      // recorded 'pending', 'relayed' or 'confirmed' is the relay's own outcome and is kept
+      // under the clean label; a recorded 'undelivered' is derived again. Judged on the row
+      // the write finds, since the sweep or a cancelled pipeline can record an outcome during
+      // the node check above.
+      const completedAt = Math.floor(Date.now() / 1000);
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
-      await completeVerifiedLandedTransaction(txId, {
-        displayMessage: 'Completed',
-        completedAt: Math.floor(Date.now() / 1000)
-      });
+      await completeVerifiedLandedTransaction(txId, fresh =>
+        fresh.noteDelivery === undefined || fresh.noteDelivery === 'undelivered'
+          ? { ...landedValueRowFields(fresh), completedAt }
+          : { displayMessage: applyLandedDisplayMessage(fresh), completedAt }
+      );
       return;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could

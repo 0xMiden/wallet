@@ -419,8 +419,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "총 적립 포인트",
-    "englishSource": "Total Earned Rewards"
+    "message": "총 수익",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "$apy$의 복합 연이율(APY) 획득",
@@ -2175,6 +2175,50 @@
     "message": "이 기기에서는 생체 인식 잠금 해제가 지원되지 않습니다.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "여기서 사용하려면 설정에서 업무용 지문 또는 얼굴 인식 잠금 해제를 설정하세요.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "설정에서 지문이나 얼굴을 등록하여 생체 인식 잠금 해제를 사용하세요.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "업무용으로 설정된 얼굴 또는 지문 잠금 해제 기능은 지갑을 보호하기에 충분히 안전하지 않습니다. 여기에서 사용하려면 설정에서 업무용 지문 잠금 해제를 설정하십시오.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "이 기기에 설정된 얼굴 또는 지문 잠금 해제 기능은 지갑을 보호하기에 충분히 안전하지 않습니다. 설정에서 지문을 등록하여 생체 인식 잠금 해제 기능을 사용하십시오.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "이 기기의 생체 인식 기능은 지갑을 보호할 수 없습니다. 대신 암호를 사용하십시오.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "현재 생체 인식 센서를 사용할 수 없습니다. 다시 시도하거나 비밀번호를 사용해 주세요.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID 또는 Touch ID를 사용할 수 없습니다. 이 앱에서 해당 기능이 꺼져 있다면, 설정에서 켜거나 패스코드를 사용하세요.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "생체 인식 잠금 해제를 사용하려면 최신 보안 업데이트를 설치하십시오.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "생체 인식 잠금 해제를 사용하려면 설정에서 기기 암호를 설정하십시오.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "생체 인증 잠금 해제는 시도 횟수가 너무 많으면 잠깁니다. 기기의 잠금을 해제한 후 다시 시도하십시오.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "설정 열기",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Guardian를 선택하세요",
     "englishSource": "Choose your Guardian"
@@ -2692,6 +2736,22 @@
     "message": "변경이 제출되었지만 이 기기에서는 온체인에서 처리되었는지 확인할 수 없었습니다. 지갑에서는 확인해 드릴 수 없습니다. Guardian 설정과 이 거래의 활동 항목은 어느 쪽이든 새 Guardian을 표시합니다. 이후 거래가 공동 서명되지 않아 거부되면 변경을 다시 실행하세요.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "아직 이 기기에 저장되지 않았습니다.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Guardian 변경이 네트워크에 전달되었으나, 이 기기는 아직 계정의 새 상태를 저장하지 못했습니다. 지갑은 백그라운드에서 계속 시도 중이며, 성공할 때까지 이 기기에서 발생하는 거래가 처리되지 않을 수 있습니다. Guardian 변경을 다시 실행할 필요는 없습니다.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "이 기기에 저장되어 있지 않습니다.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Guardian 변경이 네트워크에 전달되었으나, 이 기기는 계정의 새 상태를 저장하지 못했으며 자체적으로 복구할 수 없습니다. Guardian 변경을 다시 실행하지 마십시오. 지원팀에 문의하십시오.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "이 기기는 새 Guardian의 주소도 저장하지 못해 이전 주소가 계속 표시됩니다. 지갑이 다시 입력하도록 요청하지만, 그 요청으로 또 다른 변경이 시작되지는 않습니다.",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
@@ -3013,6 +3073,10 @@
   "insufficientFeeAsset": {
     "message": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",
@@ -3919,6 +3983,14 @@
   "fingerprint": {
     "message": "지문",
     "englishSource": "Fingerprint"
+  },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "얼굴 인식 잠금 해제",
+    "englishSource": "Face unlock"
   },
   "cameraPermissionDenied": {
     "message": "카메라 권한이 거부되었습니다.",
@@ -4972,6 +5044,38 @@
     "message": "지금은 아닙니다",
     "englishSource": "Not now"
   },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
+  },
   "activityAcceptTransfer": {
     "message": "이체 수락",
     "englishSource": "Accept Transfer"
@@ -5311,6 +5415,39 @@
   "spendingLimitCoverage": {
     "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
     "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+  },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
   },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
