@@ -438,6 +438,74 @@ describe('runningNow, frozenMs and setRunningTimeout (#473)', () => {
   });
 });
 
+describe('an observed visible document ends the hidden stretch on both clocks (#473)', () => {
+  // A whole second, so `hiddenSecondsSince` reads exact seconds from here.
+  const START_MS = 1_000_000;
+  const START_SECONDS = START_MS / 1000;
+  let doc: HiddenDocument;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(START_MS);
+    __resetBackgroundTimeForTest();
+    doc = installHiddenDocument();
+    initBackgroundTimeTracking();
+  });
+
+  afterEach(() => {
+    __resetBackgroundTimeForTest();
+    doc.restore();
+    jest.useRealTimers();
+  });
+
+  it('a re-hide after a missed visible event times the early threshold from the new stretch', () => {
+    doc.setHidden(true);
+    jest.advanceTimersByTime(301_000);
+    doc.setHidden(false, { dispatch: false });
+    const fired = jest.fn();
+    setRunningTimeout(fired, 25_000);
+    jest.advanceTimersByTime(1_000);
+    doc.setHidden(true);
+    doc.freezeFor(40_000);
+    expect(frozenMs()).toBe(35_000);
+    // 1 s ran visible and 5 s of pulse slack count, so 19 s are left.
+    expect(fired).not.toHaveBeenCalled();
+    doc.setHidden(false);
+    jest.advanceTimersByTime(18_999);
+    expect(fired).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it('a clock read after a missed visible event closes the wall-clock interval', () => {
+    doc.setHidden(true);
+    jest.advanceTimersByTime(60_000);
+    doc.setHidden(false, { dispatch: false });
+    runningNow();
+    jest.advanceTimersByTime(100_000);
+    expect(hiddenSecondsSince(START_SECONDS)).toBe(60);
+  });
+
+  it('the pulse tick after a missed visible event closes the wall-clock interval and stops', () => {
+    doc.setHidden(true);
+    jest.advanceTimersByTime(60_000);
+    doc.setHidden(false, { dispatch: false });
+    jest.advanceTimersByTime(5_000);
+    jest.advanceTimersByTime(100_000);
+    expect(hiddenSecondsSince(START_SECONDS)).toBe(65);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('a reaper read after a missed visible event closes the wall-clock interval itself', () => {
+    doc.setHidden(true);
+    jest.advanceTimersByTime(60_000);
+    doc.setHidden(false, { dispatch: false });
+    expect(hiddenSecondsSince(START_SECONDS)).toBe(60);
+    jest.advanceTimersByTime(100_000);
+    expect(hiddenSecondsSince(START_SECONDS)).toBe(60);
+  });
+});
+
 describe('installHiddenDocument (test fixture)', () => {
   let doc: HiddenDocument;
 

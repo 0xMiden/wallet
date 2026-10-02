@@ -25,6 +25,9 @@
  * hidden page's timers to one wake-up a minute. Until tracking is initialised
  * it equals `performance.now()`, so the extension and desktop, which never
  * initialise it, keep plain monotonic time.
+ *
+ * The visible event is not guaranteed, so any read that finds the document
+ * visible ends the hidden stretch on both clocks (see `endHiddenStretch`).
  */
 
 interface HiddenInterval {
@@ -98,9 +101,12 @@ export function hiddenMsWithin(
 
 /**
  * Whole seconds the document has spent hidden since `sinceSeconds` (an epoch
- * *seconds* timestamp, matching `Transaction.processingStartedAt`).
+ * *seconds* timestamp, matching `Transaction.processingStartedAt`). It reads
+ * the clock first, so a read after a missed visible event closes the open
+ * interval instead of counting foreground time as hidden.
  */
 export function hiddenSecondsSince(sinceSeconds: number, nowMs: number = Date.now()): number {
+  markNow();
   const ms = hiddenMsWithin(hiddenIntervals, hiddenSince, sinceSeconds * 1000, nowMs);
   return Math.floor(ms / 1000);
 }
@@ -120,7 +126,8 @@ function monotonicNow(): number {
  * the pulse to a minute. Keyed on the gap's end, so a throttled wake-up that
  * reaches into that window is judged by the throttled threshold. Up to one
  * pulse period of it may have run, so that much stays running time. A gap that
- * began visible is never frozen.
+ * began visible is never frozen. A read that finds the document visible ends
+ * the hidden stretch once the gap is judged, so a re-hide starts a fresh one.
  */
 function markNow(): number {
   const now = monotonicNow();
@@ -132,19 +139,24 @@ function markNow(): number {
   }
   lastMarkAt = now;
   lastMarkHidden = document.hidden;
+  if (!lastMarkHidden) endHiddenStretch();
   return now;
+}
+
+/** Stop the pulse and close the open stretch on both clocks; a no-op when none is open. */
+function endHiddenStretch(): void {
+  stopPulse();
+  hiddenStartedAt = null;
+  if (hiddenSince !== null) {
+    hiddenIntervals.push({ start: hiddenSince, end: Date.now() });
+    hiddenSince = null;
+    pruneOldIntervals();
+  }
 }
 
 function startPulse(): void {
   if (pulse !== null) return;
-  pulse = setInterval(() => {
-    markNow();
-    // Also ends the hidden stretch when the visible event never arrives.
-    if (!document.hidden) {
-      stopPulse();
-      hiddenStartedAt = null;
-    }
-  }, RUNNING_PULSE_MS);
+  pulse = setInterval(markNow, RUNNING_PULSE_MS);
 }
 
 function stopPulse(): void {
@@ -229,21 +241,12 @@ export function initBackgroundTimeTracking(): void {
 // Named so the test reset can remove it: jsdom's document outlives a test, and
 // a listener left on it would keep writing into the next test's clock.
 function onVisibilityChange(): void {
-  const now = Date.now();
+  // On a visible document this read has already ended the stretch.
   const monoNow = markNow();
-  if (document.hidden) {
-    if (hiddenSince === null) hiddenSince = now;
-    if (hiddenStartedAt === null) hiddenStartedAt = monoNow;
-    startPulse();
-    return;
-  }
-  stopPulse();
-  hiddenStartedAt = null;
-  if (hiddenSince !== null) {
-    hiddenIntervals.push({ start: hiddenSince, end: now });
-    hiddenSince = null;
-    pruneOldIntervals();
-  }
+  if (!document.hidden) return;
+  if (hiddenSince === null) hiddenSince = Date.now();
+  if (hiddenStartedAt === null) hiddenStartedAt = monoNow;
+  startPulse();
 }
 
 /** Test-only: clear accumulated state and the install flag. */
