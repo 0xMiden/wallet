@@ -438,7 +438,9 @@ function isKilledPipelineInChain(error: unknown): boolean {
  * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
  * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
  * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
- * the requeue arm and the classifier both ask this rather than the transport verdict alone.
+ * the requeue arm and the classifier both ask this rather than the transport verdict alone. A killed pipeline anywhere
+ * in the cause chain is never an outage; otherwise a Guardian request timeout anywhere in the chain always is, ahead of
+ * the kernel-failure exclusions, because a cut-off request carries no answer and so no kernel failure.
  */
 export function isGuardianOutage(error: unknown): boolean {
   if (error instanceof RotationGateConsumeRefusal) return false;
