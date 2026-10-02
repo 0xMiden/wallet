@@ -8162,6 +8162,7 @@ describe('generateTransaction — Guardian routing', () => {
     expect(swapHotKey).not.toHaveBeenCalled();
     expect(row()?.status).toBe(ITransactionStatus.Failed);
     expect(row()?.error).toMatch(/did not land: the node discarded it/);
+    expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: 'https://old.guardian', nonce: 7 });
   });
 
   it('Guardian replace-hot-key: a discarded rotation whose abandon fails records the abandon for the next proposal (#1317)', async () => {
