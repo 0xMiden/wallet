@@ -5693,5 +5693,21 @@
   "hiddenTokensUnreadable": {
     "message": "Приховані токени не вдалося завантажити.",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "Підтвердьте відправлення",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "Підтвердьте обмін",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "Підтвердіть цю транзакцію",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "Підтвердьте свій депозит",
+    "englishSource": "Confirm your deposit"
   }
 }
