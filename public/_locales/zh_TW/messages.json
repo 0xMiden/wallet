@@ -182,34 +182,12 @@
     "englishSource": "Request sent"
   },
   "midenNameStepIssued": {
-    "message": "由 Miden Name 發行",
-    "englishSource": "Name issued by Miden Name"
+    "message": "由 Miden Name 發行並發布的名稱",
+    "englishSource": "Name issued and published by Miden Name"
   },
   "midenNameStepAdding": {
     "message": "將其加入您的帳戶",
     "englishSource": "Adding it to your account"
-  },
-  "midenNameStepPublishing": {
-    "message": "發佈至登記處",
-    "englishSource": "Publishing to the registry"
-  },
-  "midenNamePublishExplainer": {
-    "message": "發布此資訊會公開表明此帳戶擁有 $name$，因此任何人都可以向該帳戶轉帳。在您發布之前，只有您自己知道您擁有這個名稱。",
-    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNamePublishingExplainer": {
-    "message": "這將公開顯示您的帳戶擁有 $name$，因此任何人都可以向該地址發送資金。在此之前，只有您自己知道您擁有這個名稱。",
-    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "midenNameFailedTaken": {
     "message": "這個名稱已被他人先註冊了。",
@@ -261,8 +239,8 @@
     "englishSource": "Failed"
   },
   "midenNameNotYetResolvable": {
-    "message": "尚未發布 · 目前尚無人能向其發送",
-    "englishSource": "Not published · nobody can send to it yet"
+    "message": "尚未收錄於註冊表中",
+    "englishSource": "Not in the registry yet"
   },
   "midenNameResolvesHere": {
     "message": "此帳戶已解決",
@@ -284,14 +262,6 @@
     "message": "您的名稱",
     "englishSource": "Your names"
   },
-  "midenNamePublish": {
-    "message": "發佈",
-    "englishSource": "Publish"
-  },
-  "midenNamePublishing": {
-    "message": "正在發布……",
-    "englishSource": "Publishing…"
-  },
   "midenNameCheckingRecord": {
     "message": "正在查閱註冊表……",
     "englishSource": "Checking the registry…"
@@ -299,31 +269,6 @@
   "midenNameResolvesElsewhere": {
     "message": "將轉入另一個帳戶",
     "englishSource": "Resolves to another account"
-  },
-  "midenNameBadgePublishing": {
-    "message": "發佈至登記冊",
-    "englishSource": "Publishing to registry"
-  },
-  "midenNameClearRecords": {
-    "message": "請將我的紀錄從註冊表中移除",
-    "englishSource": "Remove my records from the registry"
-  },
-  "transactionStagePublishingName": {
-    "message": "發佈名稱",
-    "englishSource": "Publishing name"
-  },
-  "transactionTitlePublishName": {
-    "message": "發佈名稱",
-    "englishSource": "Publishing Name"
-  },
-  "historyPublishedName": {
-    "message": "發佈於 $name$",
-    "englishSource": "Published $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "transactionStageRegisteringName": {
     "message": "註冊名稱",

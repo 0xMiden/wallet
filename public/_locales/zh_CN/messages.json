@@ -182,34 +182,12 @@
     "englishSource": "Request sent"
   },
   "midenNameStepIssued": {
-    "message": "由 Miden Name 签发",
-    "englishSource": "Name issued by Miden Name"
+    "message": "名称由 Miden Name 发布并公布",
+    "englishSource": "Name issued and published by Miden Name"
   },
   "midenNameStepAdding": {
     "message": "将其添加到您的账户中",
     "englishSource": "Adding it to your account"
-  },
-  "midenNameStepPublishing": {
-    "message": "发布至注册表",
-    "englishSource": "Publishing to the registry"
-  },
-  "midenNamePublishExplainer": {
-    "message": "发布操作会公开表明该账户拥有 $name$，因此任何人都可以向其转账。在发布之前，只有你知道自己拥有该名称。",
-    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNamePublishingExplainer": {
-    "message": "这会公开显示您的账户持有 $name$，因此任何人都可以向该地址发送资金。此前，只有您自己知道您拥有该名称。",
-    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "midenNameFailedTaken": {
     "message": "这个名字已被他人先用。",
@@ -261,8 +239,8 @@
     "englishSource": "Failed"
   },
   "midenNameNotYetResolvable": {
-    "message": "未发布 · 目前尚无人可向其发送",
-    "englishSource": "Not published · nobody can send to it yet"
+    "message": "尚未收录到词库中",
+    "englishSource": "Not in the registry yet"
   },
   "midenNameResolvesHere": {
     "message": "该账户已解决",
@@ -284,14 +262,6 @@
     "message": "您的姓名",
     "englishSource": "Your names"
   },
-  "midenNamePublish": {
-    "message": "发布",
-    "englishSource": "Publish"
-  },
-  "midenNamePublishing": {
-    "message": "发布中……",
-    "englishSource": "Publishing…"
-  },
   "midenNameCheckingRecord": {
     "message": "正在核查注册表……",
     "englishSource": "Checking the registry…"
@@ -299,31 +269,6 @@
   "midenNameResolvesElsewhere": {
     "message": "转入另一个账户",
     "englishSource": "Resolves to another account"
-  },
-  "midenNameBadgePublishing": {
-    "message": "发布至注册表",
-    "englishSource": "Publishing to registry"
-  },
-  "midenNameClearRecords": {
-    "message": "从注册表中删除我的记录",
-    "englishSource": "Remove my records from the registry"
-  },
-  "transactionStagePublishingName": {
-    "message": "发布者名称",
-    "englishSource": "Publishing name"
-  },
-  "transactionTitlePublishName": {
-    "message": "发布名称",
-    "englishSource": "Publishing Name"
-  },
-  "historyPublishedName": {
-    "message": "发布于 $name$",
-    "englishSource": "Published $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "transactionStageRegisteringName": {
     "message": "注册名称",

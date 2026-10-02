@@ -182,34 +182,12 @@
     "englishSource": "Request sent"
   },
   "midenNameStepIssued": {
-    "message": "Miden Name에서 발행한 이름",
-    "englishSource": "Name issued by Miden Name"
+    "message": "Miden Name에서 발행 및 게시한 이름",
+    "englishSource": "Name issued and published by Miden Name"
   },
   "midenNameStepAdding": {
     "message": "계정에 추가하기",
     "englishSource": "Adding it to your account"
-  },
-  "midenNameStepPublishing": {
-    "message": "레지스트리에 게시하기",
-    "englishSource": "Publishing to the registry"
-  },
-  "midenNamePublishExplainer": {
-    "message": "'게시(Publish)'를 하면 이 계정이 $name$를 소유하고 있다는 사실이 공개되므로, 누구나 해당 주소로 자금을 보낼 수 있습니다. 게시하기 전까지는 본인만이 해당 이름을 소유하고 있음을 알고 있습니다.",
-    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNamePublishingExplainer": {
-    "message": "이를 통해 귀하의 계정이 $name$를 소유하고 있다는 사실이 공개되므로, 누구나 해당 주소로 자금을 보낼 수 있습니다. 지금까지는 귀하만이 해당 이름을 소유하고 있다는 사실을 알고 있었습니다.",
-    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "midenNameFailedTaken": {
     "message": "이 이름은 이미 다른 사람이 먼저 사용했습니다.",
@@ -261,8 +239,8 @@
     "englishSource": "Failed"
   },
   "midenNameNotYetResolvable": {
-    "message": "게시되지 않음 · 아직 아무도 이곳으로 전송할 수 없음",
-    "englishSource": "Not published · nobody can send to it yet"
+    "message": "아직 레지스트리에 등록되지 않음",
+    "englishSource": "Not in the registry yet"
   },
   "midenNameResolvesHere": {
     "message": "이 계정으로 해결됨",
@@ -284,14 +262,6 @@
     "message": "사용자 이름",
     "englishSource": "Your names"
   },
-  "midenNamePublish": {
-    "message": "게시",
-    "englishSource": "Publish"
-  },
-  "midenNamePublishing": {
-    "message": "게시 중…",
-    "englishSource": "Publishing…"
-  },
   "midenNameCheckingRecord": {
     "message": "레지스트리를 확인 중…",
     "englishSource": "Checking the registry…"
@@ -299,31 +269,6 @@
   "midenNameResolvesElsewhere": {
     "message": "다른 계정으로 해결됨",
     "englishSource": "Resolves to another account"
-  },
-  "midenNameBadgePublishing": {
-    "message": "레지스트리에 게시",
-    "englishSource": "Publishing to registry"
-  },
-  "midenNameClearRecords": {
-    "message": "등록부에서 제 기록을 삭제해 주세요",
-    "englishSource": "Remove my records from the registry"
-  },
-  "transactionStagePublishingName": {
-    "message": "게시자 이름",
-    "englishSource": "Publishing name"
-  },
-  "transactionTitlePublishName": {
-    "message": "발행명",
-    "englishSource": "Publishing Name"
-  },
-  "historyPublishedName": {
-    "message": "게시일$name$",
-    "englishSource": "Published $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "transactionStageRegisteringName": {
     "message": "이름 등록",

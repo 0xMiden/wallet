@@ -182,34 +182,12 @@
     "englishSource": "Request sent"
   },
   "midenNameStepIssued": {
-    "message": "Назва, видана компанією Miden Name",
-    "englishSource": "Name issued by Miden Name"
+    "message": "Назва видана та опублікована компанією Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
   },
   "midenNameStepAdding": {
     "message": "Додавання до вашого рахунку",
     "englishSource": "Adding it to your account"
-  },
-  "midenNameStepPublishing": {
-    "message": "Публікація в реєстрі",
-    "englishSource": "Publishing to the registry"
-  },
-  "midenNamePublishExplainer": {
-    "message": "Публікація робить загальновідомим, що цей акаунт володіє ім’ям $name$, тож будь-хто може надсилати на нього кошти. До моменту публікації лише ви знаєте, що володієте цим ім’ям.",
-    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNamePublishingExplainer": {
-    "message": "Це публічно вказує, що ваш рахунок є власником $name$, тому будь-хто може надсилати на нього кошти. До цього моменту лише ви знали, що володієте цим іменем.",
-    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "midenNameFailedTaken": {
     "message": "Цю назву першим придумав хтось інший.",
@@ -261,8 +239,8 @@
     "englishSource": "Failed"
   },
   "midenNameNotYetResolvable": {
-    "message": "Не опубліковано · поки що ніхто не може надіслати туди повідомлення",
-    "englishSource": "Not published · nobody can send to it yet"
+    "message": "Ще не внесено до реєстру",
+    "englishSource": "Not in the registry yet"
   },
   "midenNameResolvesHere": {
     "message": "Відноситься до цього рахунку",
@@ -284,14 +262,6 @@
     "message": "Ваші імена",
     "englishSource": "Your names"
   },
-  "midenNamePublish": {
-    "message": "Опублікувати",
-    "englishSource": "Publish"
-  },
-  "midenNamePublishing": {
-    "message": "Публікація…",
-    "englishSource": "Publishing…"
-  },
   "midenNameCheckingRecord": {
     "message": "Перевірка реєстру…",
     "englishSource": "Checking the registry…"
@@ -299,31 +269,6 @@
   "midenNameResolvesElsewhere": {
     "message": "Перенаправлення на інший рахунок",
     "englishSource": "Resolves to another account"
-  },
-  "midenNameBadgePublishing": {
-    "message": "Публікація в реєстрі",
-    "englishSource": "Publishing to registry"
-  },
-  "midenNameClearRecords": {
-    "message": "Видалити мої записи з реєстру",
-    "englishSource": "Remove my records from the registry"
-  },
-  "transactionStagePublishingName": {
-    "message": "Ім’я автора публікації",
-    "englishSource": "Publishing name"
-  },
-  "transactionTitlePublishName": {
-    "message": "Назва видання",
-    "englishSource": "Publishing Name"
-  },
-  "historyPublishedName": {
-    "message": "Опубліковано $name$",
-    "englishSource": "Published $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "transactionStageRegisteringName": {
     "message": "Реєстрація імені",

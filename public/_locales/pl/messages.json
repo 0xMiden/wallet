@@ -182,34 +182,12 @@
     "englishSource": "Request sent"
   },
   "midenNameStepIssued": {
-    "message": "Nazwa nadana przez Miden Name",
-    "englishSource": "Name issued by Miden Name"
+    "message": "Nazwa nadana i opublikowana przez Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
   },
   "midenNameStepAdding": {
     "message": "Dodanie do konta",
     "englishSource": "Adding it to your account"
-  },
-  "midenNameStepPublishing": {
-    "message": "Publikacja w rejestrze",
-    "englishSource": "Publishing to the registry"
-  },
-  "midenNamePublishExplainer": {
-    "message": "Opublikowanie sprawia, że staje się publicznie wiadome, iż to konto jest właścicielem nazwy $name$, więc każdy może na nie wysłać środki. Dopóki nie opublikujesz tej nazwy, tylko Ty wiesz, że jesteś jej właścicielem.",
-    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNamePublishingExplainer": {
-    "message": "Spowoduje to upublicznienie informacji, że Twoje konto jest właścicielem nazwy $name$, dzięki czemu każdy będzie mógł wysłać na nie środki. Do tej pory tylko Ty wiedziałeś, że jesteś właścicielem tej nazwy.",
-    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "midenNameFailedTaken": {
     "message": "Ktoś inny użył tej nazwy jako pierwszy.",
@@ -261,8 +239,8 @@
     "englishSource": "Failed"
   },
   "midenNameNotYetResolvable": {
-    "message": "Nieopublikowane · nikt nie może jeszcze wysyłać na ten adres",
-    "englishSource": "Not published · nobody can send to it yet"
+    "message": "Jeszcze nie ma w rejestrze",
+    "englishSource": "Not in the registry yet"
   },
   "midenNameResolvesHere": {
     "message": "Odnosi się to do tego konta",
@@ -284,14 +262,6 @@
     "message": "Wasze imiona",
     "englishSource": "Your names"
   },
-  "midenNamePublish": {
-    "message": "Opublikuj",
-    "englishSource": "Publish"
-  },
-  "midenNamePublishing": {
-    "message": "Publikowanie…",
-    "englishSource": "Publishing…"
-  },
   "midenNameCheckingRecord": {
     "message": "Sprawdzanie rejestru…",
     "englishSource": "Checking the registry…"
@@ -299,31 +269,6 @@
   "midenNameResolvesElsewhere": {
     "message": "Przekierowuje na inne konto",
     "englishSource": "Resolves to another account"
-  },
-  "midenNameBadgePublishing": {
-    "message": "Publikacja w rejestrze",
-    "englishSource": "Publishing to registry"
-  },
-  "midenNameClearRecords": {
-    "message": "Usuń moje dane z rejestru",
-    "englishSource": "Remove my records from the registry"
-  },
-  "transactionStagePublishingName": {
-    "message": "Nazwa wydawcy",
-    "englishSource": "Publishing name"
-  },
-  "transactionTitlePublishName": {
-    "message": "Nazwa wydawcy",
-    "englishSource": "Publishing Name"
-  },
-  "historyPublishedName": {
-    "message": "Opublikowano $name$",
-    "englishSource": "Published $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "transactionStageRegisteringName": {
     "message": "Rejestracja nazwy",

@@ -182,34 +182,12 @@
     "englishSource": "Request sent"
   },
   "midenNameStepIssued": {
-    "message": "Название, выданное Miden Name",
-    "englishSource": "Name issued by Miden Name"
+    "message": "Название выпущено и опубликовано компанией Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
   },
   "midenNameStepAdding": {
     "message": "Добавление средств на ваш счёт",
     "englishSource": "Adding it to your account"
-  },
-  "midenNameStepPublishing": {
-    "message": "Публикация в реестре",
-    "englishSource": "Publishing to the registry"
-  },
-  "midenNamePublishExplainer": {
-    "message": "Публикация делает общедоступным факт того, что данный аккаунт владеет именем $name$, поэтому любой может отправлять на него средства. До публикации только вы знаете, что владеете этим именем.",
-    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNamePublishingExplainer": {
-    "message": "Это делает общедоступной информацию о том, что ваш аккаунт владеет именем $name$, поэтому любой может отправить на него средства. До сих пор только вы знали, что владеете этим именем.",
-    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "midenNameFailedTaken": {
     "message": "Кто-то другой первым придумал это название.",
@@ -261,8 +239,8 @@
     "englishSource": "Failed"
   },
   "midenNameNotYetResolvable": {
-    "message": "Не опубликовано · пока никто не может отправлять туда сообщения",
-    "englishSource": "Not published · nobody can send to it yet"
+    "message": "Ещё не внесено в реестр",
+    "englishSource": "Not in the registry yet"
   },
   "midenNameResolvesHere": {
     "message": "Сводится к следующему объяснению",
@@ -284,14 +262,6 @@
     "message": "Ваши имена",
     "englishSource": "Your names"
   },
-  "midenNamePublish": {
-    "message": "Опубликовать",
-    "englishSource": "Publish"
-  },
-  "midenNamePublishing": {
-    "message": "Публикация…",
-    "englishSource": "Publishing…"
-  },
   "midenNameCheckingRecord": {
     "message": "Проверка реестра…",
     "englishSource": "Checking the registry…"
@@ -299,31 +269,6 @@
   "midenNameResolvesElsewhere": {
     "message": "Перенаправляется на другой аккаунт",
     "englishSource": "Resolves to another account"
-  },
-  "midenNameBadgePublishing": {
-    "message": "Публикация в реестре",
-    "englishSource": "Publishing to registry"
-  },
-  "midenNameClearRecords": {
-    "message": "Удалите мои записи из реестра",
-    "englishSource": "Remove my records from the registry"
-  },
-  "transactionStagePublishingName": {
-    "message": "Имя издателя",
-    "englishSource": "Publishing name"
-  },
-  "transactionTitlePublishName": {
-    "message": "Имя издателя",
-    "englishSource": "Publishing Name"
-  },
-  "historyPublishedName": {
-    "message": "Опубликовано $name$",
-    "englishSource": "Published $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "transactionStageRegisteringName": {
     "message": "Регистрация названия",

@@ -182,34 +182,12 @@
     "englishSource": "Request sent"
   },
   "midenNameStepIssued": {
-    "message": "Miden tarafından verilen isim: Miden",
-    "englishSource": "Name issued by Miden Name"
+    "message": "Miden Name tarafından yayınlanan ve yayınlanan isim",
+    "englishSource": "Name issued and published by Miden Name"
   },
   "midenNameStepAdding": {
     "message": "Hesabınıza ekleme",
     "englishSource": "Adding it to your account"
-  },
-  "midenNameStepPublishing": {
-    "message": "Kayıt defterine yayınlama",
-    "englishSource": "Publishing to the registry"
-  },
-  "midenNamePublishExplainer": {
-    "message": "Yayınlama işlemi, bu hesabın $name$ adresine sahip olduğunu herkese duyurur, böylece herkes bu hesaba para gönderebilir. Yayınlayana kadar, bu ismin sahibi olduğunuzu sadece siz bilirsiniz.",
-    "englishSource": "Publishing makes it public that this account owns $name$, so anyone can send to it. Until you publish, only you know you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNamePublishingExplainer": {
-    "message": "Bu, hesabınızun $name$ adresine sahip olduğunu herkese açık hale getirir, böylece herkes bu adrese para gönderebilir. Şimdiye kadar, bu adrese sahip olduğunuzu sadece siz biliyordunuz.",
-    "englishSource": "This makes it public that your account owns $name$, so anyone can send to it. Until now, only you knew you own the name.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "midenNameFailedTaken": {
     "message": "Bu adı ilk olarak başka biri almıştı.",
@@ -261,8 +239,8 @@
     "englishSource": "Failed"
   },
   "midenNameNotYetResolvable": {
-    "message": "Yayınlanmadı · henüz kimse buraya gönderim yapamaz",
-    "englishSource": "Not published · nobody can send to it yet"
+    "message": "Henüz kayıt defterinde yok",
+    "englishSource": "Not in the registry yet"
   },
   "midenNameResolvesHere": {
     "message": "Bu hesaba yönlendirilir",
@@ -284,14 +262,6 @@
     "message": "İsimleriniz",
     "englishSource": "Your names"
   },
-  "midenNamePublish": {
-    "message": "Yayınla",
-    "englishSource": "Publish"
-  },
-  "midenNamePublishing": {
-    "message": "Yayınlanıyor…",
-    "englishSource": "Publishing…"
-  },
   "midenNameCheckingRecord": {
     "message": "Kayıt defterini kontrol ediyorum…",
     "englishSource": "Checking the registry…"
@@ -299,31 +269,6 @@
   "midenNameResolvesElsewhere": {
     "message": "Başka bir hesaba yönlendirilir",
     "englishSource": "Resolves to another account"
-  },
-  "midenNameBadgePublishing": {
-    "message": "Kayıt defterine yayınlama",
-    "englishSource": "Publishing to registry"
-  },
-  "midenNameClearRecords": {
-    "message": "Kayıtlarımı kayıt defterinden sil",
-    "englishSource": "Remove my records from the registry"
-  },
-  "transactionStagePublishingName": {
-    "message": "Yayıncı adı",
-    "englishSource": "Publishing name"
-  },
-  "transactionTitlePublishName": {
-    "message": "Yayıncı Adı",
-    "englishSource": "Publishing Name"
-  },
-  "historyPublishedName": {
-    "message": "Yayınlandığı tarih$name$",
-    "englishSource": "Published $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "transactionStageRegisteringName": {
     "message": "Adın kaydedilmesi",
