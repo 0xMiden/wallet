@@ -2204,6 +2204,48 @@ describe('Vault.spawn', () => {
     expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
     expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
   });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the spawn is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    let settled = false;
+    const spawning = Vault.spawn(WalletType.OnChain, 'pw');
+    spawning.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(spawning).rejects.toThrow('Failed to create wallet');
+  });
 });
 
 const MALFORMED = 'Encrypted file contains malformed imported account data';
@@ -2703,6 +2745,51 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
     const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
     expect((insertedSecret as any).__marker).toBe('rpo-falcon-secret');
+  });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the restore is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    let settled = false;
+    const restoring = restoreVersionTwo();
+    restoring.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(restoring).rejects.toThrow(PublicError);
   });
 });
 
@@ -4847,6 +4934,48 @@ describe('Vault.spawnFromHotKey', () => {
     expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
     expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
     expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+  });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the spawn is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('guardian unreachable'));
+
+    let settled = false;
+    const spawning = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+    spawning.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(spawning).rejects.toThrow('guardian unreachable');
   });
 
   it('falls back to the network default endpoint when none is passed', async () => {

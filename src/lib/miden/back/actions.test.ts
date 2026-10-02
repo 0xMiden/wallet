@@ -814,25 +814,6 @@ describe('actions', () => {
       expect(mockStorageRemove).toHaveBeenCalled();
     });
 
-    it('finishes its undo before a queued retry spawns, so the undo cannot wipe the retry (#946)', async () => {
-      const { Vault } = jest.requireMock('lib/miden/back/vault');
-      const order: string[] = [];
-      Vault.spawn.mockResolvedValueOnce(unpublishableVault()).mockImplementationOnce(async () => {
-        order.push('retry spawn');
-        return mockVault;
-      });
-      mockStorageRemove.mockImplementation(async (removed: string[]) => {
-        order.push(`remove ${removed.join(',')}`);
-      });
-
-      const failed = registerNewWallet(WalletType.OnChain, 'pw');
-      const retried = registerNewWallet(WalletType.OnChain, 'pw');
-      await expect(failed).rejects.toThrow('account read failed');
-      await retried;
-
-      expect(order).toEqual(['remove DAppEnabled', 'retry spawn', 'remove guardian_url_setting']);
-    });
-
     it('never undoes a published wallet (#946)', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.spawn.mockResolvedValueOnce(mockVault);
@@ -845,6 +826,32 @@ describe('actions', () => {
       expect(mockStorageRemove).toHaveBeenCalledWith(['guardian_url_setting']);
     });
   });
+
+  it.each([
+    ['registerNewWallet', 'spawn', () => registerNewWallet(WalletType.OnChain, 'pw')],
+    ['registerWalletFromHotKey', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
+    ['registerImportedWallet', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'mnemonic', [], 2, [])]
+  ] as const)(
+    '%s finishes its undo before a queued retry spawns, so the undo cannot wipe the retry (#946)',
+    async (_action, spawnMethod, invoke) => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const order: string[] = [];
+      Vault[spawnMethod].mockResolvedValueOnce(unpublishableVault()).mockImplementationOnce(async () => {
+        order.push('retry spawn');
+        return mockVault;
+      });
+      mockStorageRemove.mockImplementation(async (removed: string[]) => {
+        order.push(`remove ${removed.join(',')}`);
+      });
+
+      const failed = invoke();
+      const retried = invoke();
+      await expect(failed).rejects.toThrow('account read failed');
+      await retried;
+
+      expect(order).toEqual(['remove DAppEnabled', 'retry spawn', 'remove guardian_url_setting']);
+    }
+  );
 
   describe('registerWalletFromHotKey', () => {
     it('undoes an imported wallet when its setup fails after the spawn resolved (#946)', async () => {
