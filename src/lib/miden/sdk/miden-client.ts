@@ -1,6 +1,6 @@
 import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
 
-import { runningNow } from 'lib/mobile/background-time';
+import { runningNow, setRunningTimeout } from 'lib/mobile/background-time';
 
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
@@ -151,7 +151,7 @@ interface LockHolder {
   running: Promise<unknown> | null;
   /** Depth of `withWasmLockWatchdogPaused` brackets currently open. */
   pauseCount: number;
-  watchdogTimer: ReturnType<typeof setTimeout> | null;
+  cancelWatchdog: (() => void) | null;
   /**
    * Unpaused wall-clock this hold has already spent, and when the current
    * unpaused segment began (`null` while a pause bracket is open). Together they
@@ -704,7 +704,8 @@ function pausedCeilingFor(holder: LockHolder): number {
 }
 
 function armWatchdogFor(holder: LockHolder): void {
-  if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
+  holder.cancelWatchdog?.();
+  holder.cancelWatchdog = null;
   let ceiling: number;
   if (holder.pauseCount > 0) {
     // The relaxed ceiling bounds the hold's TOTAL paused time, not the current
@@ -748,35 +749,18 @@ function armWatchdogFor(holder: LockHolder): void {
       ceiling = Math.max(remaining, 0);
     }
   }
-  holder.watchdogTimer = setTimeout(() => onWatchdogFired(holder), ceiling);
-}
-
-/**
- * The foreground budget `holder` has left on the ceiling it is armed at, its open
- * segment included: the arithmetic `armWatchdogFor` does at a transition, read at
- * a fire instead. No grace here; the finishing slices are granted at transitions.
- */
-function watchdogBudgetLeftMs(holder: LockHolder): number {
-  if (holder.pauseCount > 0) {
-    const open = holder.pausedSegmentStartedAt === null ? 0 : monotonicNow() - holder.pausedSegmentStartedAt;
-    return WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs - open;
-  }
-  const open = holder.segmentStartedAt === null ? 0 : monotonicNow() - holder.segmentStartedAt;
-  return holder.normalCeilingMs - holder.unpausedElapsedMs - open;
-}
-
-/**
- * A fire is not proof the ceiling was spent (#473): a frozen WebView runs the
- * overdue timer the moment it resumes. Re-arm for the foreground budget left and
- * evict only once it is gone.
- */
-function onWatchdogFired(holder: LockHolder): void {
-  const leftMs = watchdogBudgetLeftMs(holder);
-  if (leftMs > 0) {
-    holder.watchdogTimer = setTimeout(() => onWatchdogFired(holder), leftMs);
-    return;
-  }
-  recoverFromWedgedHolder(holder, 'watchdog');
+  // A fire is not proof the ceiling was spent (#473): a frozen WebView runs the overdue
+  // timer the moment it resumes. Between transitions the budget burns at the running
+  // clock's rate, so the scheduler's own re-read at the fire is the ledger's remainder.
+  holder.cancelWatchdog = setRunningTimeout(
+    () => recoverFromWedgedHolder(holder, 'watchdog'),
+    ceiling,
+    leftMs =>
+      console.warn('[miden-client] watchdog re-armed after a frozen stretch:', {
+        hold: holder.label ?? 'unlabelled',
+        leftMs: Math.round(leftMs)
+      })
+  );
 }
 
 /**
@@ -825,7 +809,7 @@ function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
     killed: false,
     running: null,
     pauseCount: 0,
-    watchdogTimer: null,
+    cancelWatchdog: null,
     unpausedElapsedMs: 0,
     segmentStartedAt: monotonicNow(),
     pausedElapsedMs: 0,
@@ -852,8 +836,8 @@ function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
     // over-release into a cascade of concurrent WASM calls.
     const displaced = currentHolder;
     displaced.killed = true;
-    if (displaced.watchdogTimer) clearTimeout(displaced.watchdogTimer);
-    displaced.watchdogTimer = null;
+    displaced.cancelWatchdog?.();
+    displaced.cancelWatchdog = null;
     displaced.abort(new WasmClientPoisonedError('realm-error', new Error('displaced by a second lock holder')));
   }
   armWatchdogFor(holder);
@@ -867,8 +851,8 @@ function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
  * holder and released the lock, and releasing again would corrupt the queue.
  */
 function endHold(holder: LockHolder): boolean {
-  if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
-  holder.watchdogTimer = null;
+  holder.cancelWatchdog?.();
+  holder.cancelWatchdog = null;
   if (currentHolder === holder) {
     currentHolder = null;
   }
@@ -887,8 +871,8 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   if (holder.killed || holder !== currentHolder) return;
   holder.killed = true;
   lastRecoveryAt = monotonicNow();
-  if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
-  holder.watchdogTimer = null;
+  holder.cancelWatchdog?.();
+  holder.cancelWatchdog = null;
   currentHolder = null;
   const error = new WasmClientPoisonedError(reason, cause);
   // The forensic record for a mechanism that fires rarely, in the field, on a
@@ -1324,10 +1308,8 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     // which is why the identity argument exists.
     return operation();
   }
-  if (holder.watchdogTimer) {
-    clearTimeout(holder.watchdogTimer);
-    holder.watchdogTimer = null;
-  }
+  holder.cancelWatchdog?.();
+  holder.cancelWatchdog = null;
   // Not RUNNING while yielded, so this time is charged against the normal ceiling
   // no more than a pause is. It is still banked (below, on the way out) against
   // the relaxed one: the ceiling is a bound on the HOLD, and letting each yield

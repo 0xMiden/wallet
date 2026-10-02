@@ -327,6 +327,37 @@ describe('runningNow, frozenMs and setRunningTimeout (#473)', () => {
     expect(fired).not.toHaveBeenCalled();
   });
 
+  it('hands onRearm the running time left on a re-arm, and never on the fire that calls back', () => {
+    initBackgroundTimeTracking();
+    const fired = jest.fn();
+    const onRearm = jest.fn();
+    setRunningTimeout(fired, 120_000, onRearm);
+    jest.advanceTimersByTime(10_000);
+    doc.setHidden(true);
+    doc.freezeFor(140_000);
+    expect(onRearm).toHaveBeenCalledTimes(1);
+    expect(onRearm).toHaveBeenCalledWith(95_000);
+    doc.setHidden(false);
+    jest.advanceTimersByTime(95_000);
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(onRearm).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls back instead of re-arming with less than 1 ms left', () => {
+    const fired = jest.fn();
+    const onRearm = jest.fn();
+    setRunningTimeout(fired, 120_000, onRearm);
+    const fakeNow = performance.now.bind(performance);
+    const nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow() - 0.5);
+    try {
+      jest.advanceTimersByTime(120_000);
+      expect(onRearm).not.toHaveBeenCalled();
+      expect(fired).toHaveBeenCalledTimes(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('falls back to Date.now() when performance is unavailable', () => {
     const fakePerformance = globalThis.performance;
     Object.defineProperty(globalThis, 'performance', { configurable: true, writable: true, value: undefined });

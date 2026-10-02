@@ -1222,6 +1222,34 @@ describe('watchdog counts running time only (#473)', () => {
     expect(isWasmClientBusy()).toBe(false);
   });
 
+  it('logs a re-arm after a freeze once, with the hold and the running time left', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const wedged = withWasmClientLock(() => new Promise<never>(() => {}), { label: 'frozen-hold' });
+      const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      doc.setHidden(true);
+      doc.freezeFor(400_000);
+      doc.setHidden(false);
+      // 5 s visible and 15 s of pulse slack are spent.
+      expect(warnSpy).toHaveBeenCalledWith('[miden-client] watchdog re-armed after a frozen stretch:', {
+        hold: 'frozen-hold',
+        leftMs: 280_000
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(279_999);
+      expect(isWasmClientBusy()).toBe(true);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(isWasmClientBusy()).toBe(false);
+      await wedgedRejects;
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('a hold that wedges while hidden with JS running is evicted on running time, still hidden', async () => {
     const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });

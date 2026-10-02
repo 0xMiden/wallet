@@ -152,16 +152,22 @@ export function frozenMs(): number {
  *
  * A frozen WebView runs an overdue `setTimeout` the moment it resumes, so a
  * fire never calls back on trust: it re-reads the clock, which measures the
- * freeze it woke from, and re-arms for what is left.
+ * freeze it woke from, and with at least 1 ms left calls `onRearm(leftMs)` and
+ * re-arms for that remainder. Under 1 ms it calls back, since no timer lands
+ * closer than that.
  */
-export function setRunningTimeout(callback: () => void, ms: number): () => void {
+export function setRunningTimeout(callback: () => void, ms: number, onRearm?: (leftMs: number) => void): () => void {
   const startedAt = runningNow();
   let timer: ReturnType<typeof setTimeout>;
   const arm = (delayMs: number): void => {
     timer = setTimeout(() => {
       const leftMs = ms - (runningNow() - startedAt);
-      if (leftMs > 0) arm(leftMs);
-      else callback();
+      if (leftMs >= 1) {
+        onRearm?.(leftMs);
+        arm(leftMs);
+      } else {
+        callback();
+      }
     }, delayMs);
   };
   arm(ms);
