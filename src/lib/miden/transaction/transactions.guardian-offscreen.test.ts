@@ -203,7 +203,7 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-jest.mock('lib/settings/constants', () => ({ GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting' }));
+jest.mock('lib/settings/constants', () => ({}));
 
 const mockIsGuardianAccount = jest.fn();
 const mockGetOrCreateMultisigService = jest.fn();
@@ -2933,7 +2933,14 @@ describe('replace-hot-key stale-state rebuild, flag ON (#904)', () => {
     const persistNewHotKey = jest.fn(async (_publicKeyHex: string, _ciphertext: string) => {});
     const rotationProvider: GuardianAccountProvider = {
       getAccounts: async () => [
-        { publicKey: 'guardian-acc', name: 'Guardian', isPublic: false, type: WalletType.Guardian, hdIndex: 0 }
+        {
+          publicKey: 'guardian-acc',
+          name: 'Guardian',
+          isPublic: false,
+          type: WalletType.Guardian,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        }
       ],
       getPublicKeyForCommitment: async () => 'pk',
       signWord: async () => 'sig',

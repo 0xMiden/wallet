@@ -2,6 +2,9 @@
 
 ## 1.17.0 (TBD)
 
+### Changes
+
+- [CHANGE][all] Wallets and backup files created before 0.17 are no longer supported: the legacy key scheme and the unlock-time migrations are removed (#1091).
 ### Features
 
 - [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).

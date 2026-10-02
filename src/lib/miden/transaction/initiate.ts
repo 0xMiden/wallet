@@ -757,7 +757,7 @@ export const initiateSwitchGuardianTransaction = async (
     'Switch guardian is only supported for Guardian accounts'
   );
   const storedAccountId = account.publicKey;
-  const previousGuardianEndpoint = await resolveGuardianEndpoint(account);
+  const previousGuardianEndpoint = resolveGuardianEndpoint(account);
 
   // Check-and-add inside one rw transaction, like the consume dedup above, so
   // two taps landing together cannot both pass the check.
@@ -828,14 +828,9 @@ export const initiateReplaceHotKeyTransaction = async (
   const dbTransaction = new ReplaceHotKeyTransaction(account.publicKey, delegateTransaction);
   // Record the guardian now: the account's endpoint moves with any later switch, and the history row
   // must keep naming the one this rotation ran under. That is the endpoint every guardian operation
-  // resolves (the account's own, else the legacy key, else the network default), as the switch
-  // records its previous one.
-  try {
-    const guardianEndpoint = await resolveGuardianEndpoint(account);
-    if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
-  } catch {
-    // Display only: a failed endpoint read leaves the row unstamped rather than refusing the rotation.
-  }
+  // resolves (the account's own, else the network default), as the switch records its previous one.
+  const guardianEndpoint = resolveGuardianEndpoint(account);
+  if (guardianEndpoint) dbTransaction.extraInputs = { guardianEndpoint };
   return queueRecoveryChange(dbTransaction);
 };
 

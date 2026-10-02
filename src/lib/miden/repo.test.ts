@@ -159,23 +159,21 @@ describe('miden repo export/import', () => {
     expect(imported[0]!.resultBytes).toEqual(new Uint8Array([9, 8, 7]));
   });
 
-  // Files written before the BigInt tag existed keep importing. `amount` was a
-  // plain string and `requestBytes` an untagged number array; `resultBytes` rode
-  // the untouched rest-spread, and `JSON.stringify` renders a `Uint8Array` as an
-  // index-keyed object rather than an array.
-  it('imports a legacy dump whose amount and byte fields are untagged', async () => {
+  // `amount` is written as a plain string (readable by builds that predate the
+  // BigInt tag) and byte fields as untagged number arrays; both import by name.
+  it('imports a dump whose amount and byte fields are untagged', async () => {
     await importDb(
       JSON.stringify({
         [Table.Transactions]: [
           {
-            id: 'legacy-1',
+            id: 'untagged-1',
             type: 'send',
             status: ITransactionStatus.Completed,
             accountId: 'acc1',
             initiatedAt: 3,
             amount: '42',
             requestBytes: [1, 2, 3],
-            resultBytes: { '0': 9, '1': 8, '2': 7 },
+            resultBytes: [9, 8, 7],
             displayIcon: 'SEND'
           }
         ]
@@ -212,28 +210,17 @@ describe('miden repo export/import', () => {
       ['a value above 255', { requestBytes: [1, 999, 3] }],
       ['a negative value', { requestBytes: [1, -1, 3] }],
       ['a fractional value', { requestBytes: [1, 1.5, 3] }],
-      ['a non-number', { requestBytes: [1, 'two', 3] }],
-      ['a value above 255, index-keyed', { resultBytes: { '0': 9, '1': 300 } }]
+      ['a non-number', { requestBytes: [1, 'two', 3] }]
     ])('is rejected rather than truncated: %s', async (_label, fields) => {
       await expect(importDb(dumpWith(fields))).rejects.toThrow(/is not a byte/);
     });
 
-    // The old decoder sized the array by key COUNT and then read 0…count-1, so a
-    // gap made it read a key the file did not have: this restored as [1, 0],
-    // inventing a zero and dropping the byte at index 2 without a word.
     it.each([
-      ['a gap', { resultBytes: { '0': 1, '2': 3 } }],
-      ['an index past the end', { resultBytes: { '0': 1, '5': 3 } }],
-      ['a negative index', { resultBytes: { '0': 1, '-1': 3 } }],
-      ['a non-numeric key', { resultBytes: { '0': 1, x: 3 } }]
-    ])('is rejected rather than silently reshaped: %s', async (_label, fields) => {
-      await expect(importDb(dumpWith(fields))).rejects.toThrow(/dense byte sequence/);
-    });
-
-    // An empty Uint8Array serializes to exactly this, so it has to stay valid.
-    it('accepts an empty index-keyed object as an empty byte array', async () => {
-      await importDb(dumpWith({ resultBytes: {} }));
-      expect((await transactions.toArray())[0]!.resultBytes).toEqual(new Uint8Array([]));
+      ['an index-keyed resultBytes', { resultBytes: { '0': 9, '1': 8 } }],
+      ['an empty object', { resultBytes: {} }],
+      ['an index-keyed requestBytes', { requestBytes: { '0': 1 } }]
+    ])('is rejected rather than stored as a plain object: %s', async (_label, fields) => {
+      await expect(importDb(dumpWith(fields))).rejects.toThrow(/is not a byte array/);
     });
   });
 

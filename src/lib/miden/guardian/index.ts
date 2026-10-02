@@ -234,7 +234,7 @@ export class MultisigService {
       async () => (await getSignerDetailsFromAccount(account, true)).commitment,
       lockOptions
     );
-    const guardianEndpoint = await resolveGuardianEndpoint(walletAccount);
+    const guardianEndpoint = resolveGuardianEndpoint(walletAccount);
     return MultisigService.init(
       account,
       `0x${walletAccount.coldPublicKey}`,
@@ -254,9 +254,8 @@ export class MultisigService {
   ) {
     // No production callers today. If a future feature wires this into a
     // non-default guardian import, thread the per-account `guardianEndpoint` in
-    // (as `MultisigService.init` does) rather than reintroducing a global-key
-    // read: the frozen global GUARDIAN_URL_STORAGE_KEY is intentionally not
-    // consulted here (#408 stage 3), so this binds to the network default.
+    // (as `MultisigService.init` does); until then this binds to the network
+    // default.
     const guardianEndpoint = getEffectiveDefaultGuardianEndpoint();
     const guardian = new GuardianHttpClient(guardianEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);

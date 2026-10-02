@@ -223,8 +223,8 @@ describe('effective-endpoints resolver', () => {
 
     it('is keyed by the effective (overridden) network, not the build network, when no custom guardian URL is set', async () => {
       // The bug this guards against: an endpoint override with no custom guardian URL
-      // and no stored GUARDIAN_URL_STORAGE_KEY must fall back to the OVERRIDDEN
-      // network's guardian, not the build's DEFAULT_NETWORK guardian.
+      // must fall back to the OVERRIDDEN network's guardian, not the build's
+      // DEFAULT_NETWORK guardian.
       const m = loadModule();
       const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
       override.guardianUrl = '';

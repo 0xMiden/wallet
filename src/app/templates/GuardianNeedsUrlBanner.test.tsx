@@ -18,7 +18,8 @@ const baseAccount = {
   name: 'Account 1',
   isPublic: true,
   type: WalletType.Guardian,
-  hdIndex: 0
+  hdIndex: 0,
+  authScheme: 'ecdsa' as const
 };
 
 describe('GuardianNeedsUrlBanner', () => {

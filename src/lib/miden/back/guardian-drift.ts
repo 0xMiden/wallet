@@ -426,48 +426,14 @@ async function runGuardianDriftPass(
   // stored endpoint retires the run and the cooldown together: the run is about
   // the old endpoint's silence, and the cooldown would leave the NEW endpoint
   // unprobed (and the account on a stale status) for up to a full period.
-  // The pointer this account is actually BOUND to, which is not the same value as
-  // the raw `guardianEndpoint` field. `resolveGuardianEndpoint` — what the sync
-  // loop builds its service from — falls back to the legacy global key, retained
-  // by design as the only pointer a pre-per-account-endpoint account on a
-  // custom/self-hosted operator has (the unlock backfill deliberately leaves that
-  // account's field empty rather than stamping a guess). Reading the raw field
-  // here classified exactly that account `'absent'`, which accuses on the FIRST
-  // complete round with no duration rule — so an account whose own operator was
-  // answering, and whose `service.sync()` was succeeding on the same tick, got a
-  // permanent `needs-user-input` and had every send blocked by
-  // `assertGuardianInSync`. F-150 fixed this same field/identity confusion one
-  // module over; the reconciler kept it.
-  //
-  // The DEFAULT arm of the resolver is deliberately not adopted: an endpoint the
-  // wallet merely guessed is not a pointer this account chose, and a denial from
-  // it says only "the default operator is not your guardian" — which is exactly
-  // what `'absent'` already means, and it must keep `'absent'`'s requirement of a
+  // The pointer this account CHOSE (`resolveChosenGuardianEndpoint`), one
+  // definition shared with the missing-registration self-heal. The DEFAULT arm of
+  // `resolveGuardianEndpoint` is deliberately not adopted: an endpoint the wallet
+  // merely guessed is not a pointer this account chose, and a denial from it says
+  // only "the default operator is not your guardian", which is exactly what
+  // `'absent'` already means, and it must keep `'absent'`'s requirement of a
   // complete built-in round before accusing.
-  // One definition of "the pointer this account chose", shared with the
-  // missing-registration self-heal — the other caller that must not be handed a
-  // guessed default.
-  //
-  // A read failure SKIPS this window rather than degrading to `''`. The two are
-  // not interchangeable here: `''` is the value that means "this account named no
-  // operator", which is the `'absent'` evidence this function accuses on, so
-  // swallowing the error would let a storage hiccup manufacture the accusation
-  // instead of merely failing to check for it. Skipping costs one probe window
-  // and self-corrects on the next tick; accusing writes `needs-user-input`, which
-  // blocks every send through `assertGuardianInSync` and does not self-correct.
-  // Note the cooldown is deliberately NOT armed on this path — an unread pointer
-  // is not a completed probe, and charging it a cooldown would stretch a
-  // transient failure into a multi-minute blind spot.
-  let storedEndpoint: string;
-  try {
-    storedEndpoint = (await resolveChosenGuardianEndpoint(account)) ?? '';
-  } catch (error) {
-    console.warn(
-      `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; skipping this window`,
-      error
-    );
-    return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
-  }
+  const storedEndpoint = resolveChosenGuardianEndpoint(account) ?? '';
   // A respelling of the stored pointer (host case, a default port, a trailing
   // slash) is the same operator and must not cut its cooldown short.
   const probedEndpoint = driftProbeEndpoint.get(accountPublicKey);
@@ -526,8 +492,8 @@ async function runGuardianDriftPass(
   //                way on any single window, so this takes the duration rule.
   //  - `'absent'`  no endpoint is stored at all. Nothing denied anything, so
   //                this must not inherit `'denied'`'s immediacy — which is what
-  //                a boolean initialized to `true` gave it: a legacy record
-  //                whose backfill had not run yet was accused on the FIRST
+  //                a boolean initialized to `true` gave it: an account with no
+  //                stored endpoint was accused on the FIRST
   //                window off an `'unavailable'` round, i.e. off our own probes
   //                failing, when a complete round might have named a built-in
   //                and repaired it silently.
@@ -544,8 +510,7 @@ async function runGuardianDriftPass(
       // any probe runs, so a stale or hostile URL that echoes the account's
       // on-chain commitment vetoes reconciliation for good — green pill, no
       // `needs-user-input`, and the wallet keeps pushing proposals to an
-      // operator with no on-chain authority. `backfillGuardianEndpoints` cannot
-      // undo it either; it only touches accounts with NO stored endpoint.
+      // operator with no on-chain authority.
       //
       // So the claim gets corroborated instead of believed. The built-ins report
       // themselves over the same unauthenticated endpoint, but the asymmetry is
@@ -924,9 +889,9 @@ export async function revertGuardianEndpointAfterDiscard(
   revertTo: string
 ): Promise<RevertDiscardedEndpointOutcome> {
   // ONE REASON PER EXIT, on one channel. Every `'stale'` below is charged against a finite per-row
-  // budget whose fifteenth charge tells the user the account is unrepairable, and until now only
-  // the pointer-read failure said anything at all - so the state that raises that prompt could not
-  // be told apart from the six other states that also produce it.
+  // budget whose fifteenth charge tells the user the account is unrepairable, so each exit names its
+  // state: otherwise the state that raises that prompt could not be told apart from the others that
+  // also produce it.
   const stale = (reason: string): 'stale' => {
     console.warn(`[Guardian Drift] rollback for ${accountPublicKey} stays pending: ${reason}`);
     return 'stale';
@@ -967,42 +932,16 @@ export async function revertGuardianEndpointAfterDiscard(
   // binding still on this rotation's target it licenses the rollback, and with
   // the binding moved on it licenses nothing - that is somebody else's row to
   // repair - but it must not read as "nothing to undo" either.
-  // THE POINTER THIS ACCOUNT CHOSE, not the raw field - the same correction the
-  // reconciler above already carries, and the rollback kept the old reading.
-  // A pre-per-account-endpoint account has the legacy global key as its ONLY
-  // pointer (the unlock backfill leaves the field empty on purpose), and the raw
-  // field is also empty whenever completion stamped the row but its binding write
-  // failed. Both landed on the `return 'stale'` below, which is not a harmless
-  // wait: the caller CHARGES a stale against this row's finite budget, so fifteen
-  // laps of an account with nothing wrong with it - its pointer never moved, so
-  // there is nothing to roll back - declared it unrepairable and put a
-  // `needs-user-input` prompt in front of the user.
-  //
-  // The default arm stays excluded (`resolveChosenGuardianEndpoint`, not
-  // `resolveGuardianEndpoint`): this function ends in a WRITE, and an endpoint the
-  // wallet merely guessed is not a pointer the account chose.
-  let boundEndpoint: string | undefined;
-  try {
-    boundEndpoint = await resolveChosenGuardianEndpoint(account);
-  } catch (error) {
-    // A storage read that threw says nothing about the binding, and this guard
-    // cannot treat "I could not tell" as permission - the same fail-closed rule
-    // the unreachable-operator and unread-commitment arms below follow.
-    console.warn(
-      `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; leaving the rollback pending`,
-      error
-    );
-    return 'stale';
-  }
-  // No pointer at all, by either route. Unchanged answer, but now for the right
-  // reason: there is genuinely nothing to compare the row against.
+  // The pointer this account chose. The default arm stays excluded
+  // (`resolveChosenGuardianEndpoint`, not `resolveGuardianEndpoint`): this function
+  // ends in a WRITE, and an endpoint the wallet merely guessed is not a pointer the
+  // account chose.
+  const boundEndpoint = resolveChosenGuardianEndpoint(account);
+  // No pointer at all: there is nothing to compare the row against.
   if (!boundEndpoint) return stale('the account names no guardian endpoint to compare against');
   // ALREADY WHERE THE ROLLBACK WOULD PUT IT. `'superseded'`, not `'stale'`: the
   // write is a no-op, so the row is finished and the caller should settle it
-  // rather than spend fifteen more laps re-establishing that. This is the arm the
-  // legacy-global account reaches - its chosen pointer is still the pre-rotation
-  // operator, which is exactly `revertTo` (`initiate` stamps
-  // `previousGuardianEndpoint` from the same resolver).
+  // rather than spend fifteen more laps re-establishing that.
   if (sameGuardianEndpoint(boundEndpoint, revertTo)) return 'superseded';
 
   const bindingMovedOn = !sameGuardianEndpoint(boundEndpoint, discardedEndpoint);

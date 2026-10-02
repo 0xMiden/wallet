@@ -484,13 +484,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(
-        req.password,
-        req.mnemonic,
-        req.walletAccounts,
-        req.formatVersion,
-        req.importedAccounts
-      );
+      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts, req.importedAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);

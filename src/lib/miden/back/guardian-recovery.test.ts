@@ -34,7 +34,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/miden/guardian/account', () => ({
   getSignerDetailsFromAccount: jest.fn().mockResolvedValue({ commitment: 'commitment' }),
-  resolveGuardianEndpoint: jest.fn().mockResolvedValue('https://guardian.test')
+  resolveGuardianEndpoint: jest.fn().mockReturnValue('https://guardian.test')
 }));
 jest.mock('lib/miden/guardian/native-http', () => ({ registerGuardianOrigin: jest.fn() }));
 jest.mock('lib/miden/guardian/signer', () => ({ WalletSigner: jest.fn() }));

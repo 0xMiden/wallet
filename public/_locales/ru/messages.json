@@ -768,15 +768,6 @@
     "message": "Насколько я понимаю, этот ключ нельзя изменить или отозвать.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "Импортированные учетные записи, отсутствующие в этом старом файле кошелька: $importedCount$. Восстановите их отдельно из резервных копий закрытых ключей.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Изменить название учетной записи",
     "englishSource": "Edit Account Name"
@@ -2065,10 +2056,6 @@
   "enterDecryptionPassword": {
     "message": "Введите пароль, который вы установили при экспорте кошелька. Это позволит расшифровать файл и восстановить доступ.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
-  },
-  "continueImport": {
-    "message": "Продолжить импорт",
-    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Выберите, как вы хотите защитить свой кошелек",

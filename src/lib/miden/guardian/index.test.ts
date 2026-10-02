@@ -47,9 +47,7 @@ jest.mock('../front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
-jest.mock('lib/settings/constants', () => ({
-  GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
-}));
+jest.mock('lib/settings/constants', () => ({}));
 
 jest.mock('lib/shared/helpers', () => ({
   u8ToB64: jest.fn(() => 'base64-bytes'),
@@ -183,7 +181,7 @@ jest.mock('./account', () => ({
   insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
   // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
-  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+  resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>
     acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
 
@@ -912,11 +910,10 @@ describe('MultisigService', () => {
       expect(webClient.accounts.insert).not.toHaveBeenCalled();
     });
 
-    it('binds to the network default WITHOUT reading the frozen global key', async () => {
-      // #408 stage 3: importAccountFromGuardian no longer reads
-      // GUARDIAN_URL_STORAGE_KEY — it binds to the effective network default.
-      // (No production callers today; a future non-default import must thread a
-      // per-account endpoint rather than reintroduce a global-key read.)
+    it('adopts the guardian account without consulting storage', async () => {
+      // importAccountFromGuardian binds to the effective network default. (No
+      // production callers today; a future non-default import must thread a
+      // per-account endpoint rather than read a stored one.)
       const webClient = { accounts: { insert: jest.fn(async () => {}) } };
       const stateBase64 = Buffer.from('hi').toString('base64');
       guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
@@ -926,7 +923,6 @@ describe('MultisigService', () => {
 
       // Reached the adoption step, i.e. the import ran to completion.
       expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalled();
-      // The global-key read is gone: storage is never consulted for the import.
       expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });
   });

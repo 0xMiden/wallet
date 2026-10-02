@@ -8,7 +8,6 @@ import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
@@ -17,66 +16,34 @@ import { GuardianProbeTimeoutError, isGuardianAccountAlreadyRegistered, withTime
 import { isGuardianKeyCommitment } from './key-commitment';
 import { withGuardianProbe } from './native-http';
 import { guardianRegisterBackoffMs, withGuardianRateLimitRetry } from './serialize';
-import { fetchFromStorage } from '../front/storage';
 import type { AssertLive } from '../sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
- * Resolve the guardian operator endpoint for a Guardian account.
- *
- * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
- * on switch-guardian) so accounts on different operators don't collide. Falls
- * back to the legacy global `GUARDIAN_URL_STORAGE_KEY`, then to the effective
- * network's default guardian.
- *
- * The global-key fallback is retained BY DESIGN as a frozen, read-only fallback
- * (#408 stage 3): nothing writes the key. The unlock-time backfill stamps a
- * per-account endpoint on every legacy account it can resolve on-chain, but a
- * legacy account on a custom/self-hosted/rotated guardian that the backfill
- * cannot identify has this key as its only pointer, so a wallet that is only
- * ever unlocked keeps it. It is dropped once a wallet setup succeeds
- * (`dropLegacyGuardianUrl`) and by a full reset; see `GUARDIAN_URL_STORAGE_KEY`.
- * Do NOT delete this read; removing the key from a wallet that is only ever
- * unlocked needs a "re-enter your guardian URL" user flow (out of scope).
+ * Resolve the guardian operator endpoint for a Guardian account: its own
+ * `guardianEndpoint` (set at create/recovery time and on switch-guardian), so
+ * accounts on different operators don't collide, else the effective network's
+ * default guardian.
  */
-export async function resolveGuardianEndpoint(account: { guardianEndpoint?: string }): Promise<string> {
-  return (await resolveChosenGuardianEndpoint(account)) ?? getEffectiveDefaultGuardianEndpoint();
+export function resolveGuardianEndpoint(account: { guardianEndpoint?: string }): string {
+  return account.guardianEndpoint || getEffectiveDefaultGuardianEndpoint();
 }
 
 /**
- * The guardian pointer this account actually CHOSE — the per-account field, then
- * the legacy global key — with the network default deliberately excluded, so an
- * account with no pointer at all answers `undefined` rather than a guess.
+ * The guardian pointer this account actually CHOSE (its own field), with the
+ * network default deliberately excluded, so an account with no pointer answers
+ * `undefined` rather than a guess.
  *
- * Split out because the two halves are not interchangeable for every caller, and
- * conflating them has now been a defect in both directions. Callers that merely
- * need somewhere to talk to want the default (`resolveGuardianEndpoint`). Callers
- * about to make an ACCUSATION or a WRITE must not have it: the drift reconciler
- * treats a denial from the default as no evidence, and the missing-registration
- * self-heal POSTs this device's serialized private account state as an operator's
- * authoritative `initialState` — which must never go to an endpoint the wallet
- * guessed rather than one the account named.
- *
- * Reading the raw field alone is the opposite error, and the one this exists to
- * stop repeating: a pre-per-account-endpoint account on a custom operator has the
- * global key as its ONLY pointer, because the unlock backfill leaves that
- * account's field empty rather than stamping a guess.
- *
- * A failed storage read PROPAGATES, deliberately. Swallowing it here reads as
- * tidiness and is a lie in two directions at once: `undefined` would then mean
- * both "this account named no operator" and "we could not find out", and the two
- * demand opposite handling — the first is a verdict a caller may act on, the
- * second is a caller that must do nothing this window. It would also silently
- * change `resolveGuardianEndpoint` for every one of its other callers, turning a
- * read failure into the network default: a guess, returned as though it were the
- * account's own pointer. Callers that want best-effort must say so at their own
- * call site, where they can choose the right degradation.
+ * Callers that merely need somewhere to talk to want the default
+ * (`resolveGuardianEndpoint`). Callers about to make an ACCUSATION or a WRITE
+ * must not have it: the drift reconciler treats a denial from the default as no
+ * evidence, and the missing-registration self-heal POSTs this device's
+ * serialized private account state as an operator's authoritative
+ * `initialState`, which must never go to an endpoint the wallet guessed rather
+ * than one the account named.
  */
-export async function resolveChosenGuardianEndpoint(account: {
-  guardianEndpoint?: string;
-}): Promise<string | undefined> {
-  if (account.guardianEndpoint) return account.guardianEndpoint;
-  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || undefined;
+export function resolveChosenGuardianEndpoint(account: { guardianEndpoint?: string }): string | undefined {
+  return account.guardianEndpoint || undefined;
 }
 
 /**
@@ -206,12 +173,9 @@ const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slic
 const isEmptyWordHex = (unprefixed: string): boolean => /^0*$/.test(unprefixed);
 
 /**
- * Read a signer's commitment from a Guardian account.
- *
- * 3-key accounts store `[hot@0, cold@1]`; legacy single-key Guardian accounts
- * (feature #153) keep the cold/HD key alone at index 0. So for the cold lookup
- * we read index 1 and fall back to index 0 — otherwise activating a migrated
- * legacy account would read a non-existent index 1 and brick it.
+ * Read a signer's commitment from a Guardian account: the hot signer at index 0,
+ * or with `getCold` the cold signer at index 1 (`[hot, cold]`, the order
+ * `createGuardianAccount` registers them in).
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
   const noSigner = new Error('No signer commitment found in account storage');
@@ -225,7 +189,7 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
     throw noSigner;
   }
 
-  const raw = getCold ? (commitments[1] ?? commitments[0]) : commitments[0];
+  const raw = getCold ? commitments[1] : commitments[0];
   if (raw === undefined) throw noSigner;
 
   const commitment = stripHexPrefix(raw);
@@ -361,8 +325,8 @@ export async function fetchGuardianCreateKey(
   guardianEndpointOverride?: string,
   assertLive: () => void = () => {}
 ): Promise<GuardianCreateKey> {
-  // Onboarding always threads the picked endpoint (stage 1 of #408); a NEW account never
-  // inherits the frozen global key (#408 stage 3).
+  // Onboarding always threads the picked endpoint (stage 1 of #408); with no override, the
+  // effective network default.
   const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
   const startMs = monotonicNowMs();
   // Set while `assertLive` runs, so its refusal is told apart from a guardian failure.

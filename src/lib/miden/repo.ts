@@ -336,11 +336,8 @@ const isTaggedBigInt = (value: object): value is TaggedBigInt => {
 };
 
 /**
- * Byte fields stay plain number arrays, which is the shape the previous format
- * emitted for `requestBytes` — so a file written by an older build still imports.
- * `resultBytes` rode the untouched rest-spread back then, and `JSON.stringify`
- * turns a `Uint8Array` into `{"0":1,"1":2}` rather than an array, so the legacy
- * shape for that one is an index-keyed object.
+ * Byte fields are written as plain number arrays (`toSerializable` turns every
+ * `Uint8Array` into one) and restored by name.
  */
 const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes']);
 
@@ -368,33 +365,6 @@ const isByteValue = (value: unknown): value is number =>
 const bytesFromArray = (value: unknown[], key: string): Uint8Array => {
   if (!value.every(isByteValue)) throw new Error(`importDb: ${key} contains a value that is not a byte`);
   return Uint8Array.from(value);
-};
-
-/**
- * `{"0":1,"1":2}` — what `JSON.stringify` makes of a `Uint8Array`, and so the
- * legacy on-disk shape for `resultBytes`.
- *
- * The indices have to be dense and cover exactly `0…n-1`. The previous decoder
- * sized the array by key COUNT and then read indices `0…count-1`, so a gap made
- * it read past the keys the file actually had: `{"0":1,"2":3}` restored as
- * `[1,0]`, inventing a zero and dropping the byte at 2 without a word. `{}` is
- * legitimate and stays legitimate — an empty `Uint8Array` serializes to exactly
- * that.
- */
-const bytesFromIndexKeyed = (value: object, key: string): Uint8Array => {
-  const entries = Object.entries(value);
-  const bytes = new Uint8Array(entries.length);
-  const seen = new Set<number>();
-  for (const [index, entry] of entries) {
-    const position = Number(index);
-    if (!Number.isInteger(position) || position < 0 || position >= entries.length || seen.has(position)) {
-      throw new Error(`importDb: ${key} is not a dense byte sequence`);
-    }
-    if (!isByteValue(entry)) throw new Error(`importDb: ${key} contains a value that is not a byte`);
-    seen.add(position);
-    bytes[position] = entry;
-  }
-  return bytes;
 };
 
 const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
@@ -425,7 +395,7 @@ const fromSerializable = (value: unknown, key?: string, depth = 0): unknown => {
   }
   if (typeof value === 'object' && value !== null) {
     if (isTaggedBigInt(value)) return BigInt(value[BIGINT_TAG]);
-    if (isByteField) return bytesFromIndexKeyed(value, key);
+    if (isByteField) throw new Error(`importDb: ${key} is not a byte array`);
     const sole = soleKeyOf(value);
     if (sole !== undefined && ESCAPED_BIGINT_TAG.test(sole)) {
       return { [sole.slice(0, -1)]: fromSerializable(Reflect.get(value, sole), undefined, depth + 1) };

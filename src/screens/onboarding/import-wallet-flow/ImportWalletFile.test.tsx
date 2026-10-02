@@ -11,9 +11,7 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
 /**
  * ImportWalletFileScreen is a react-hook-form-driven onboarding step that
  * accepts an encrypted `.json` wallet backup, decrypts it with a user-supplied
- * password, and (optionally, when the exporter stripped imported accounts)
- * shows a two-step "confirm the omitted accounts" notice before completing the
- * restore.
+ * password, parses it, and imports both databases.
  *
  * Every module boundary is mocked so each branch is reachable deterministically:
  *   - `react-hook-form`'s `useForm` is mocked so `watch`, `formState`
@@ -23,7 +21,7 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  *   - `@miden-sdk/react/lazy`'s `useImportStore`, `lib/miden/passworder`'s
  *     crypto primitives, and `lib/miden/repo`'s `importDb` are jest.fn()s so we
  *     can trace exactly what the component threads through the decrypt pipeline
- *     and drive the wrong-password / thrown-error / omitted-accounts arms.
+ *     and drive the wrong-password / thrown-error arms.
  *   - `TextField` / `components/Button` / the v2 icon barrel are thin harnesses
  *     that surface only the props under test (errorCaption, disabled, isLoading,
  *     children).
@@ -226,7 +224,8 @@ const VALID_ACCOUNT = {
   name: 'Account 1',
   isPublic: true,
   type: WalletType.OnChain,
-  hdIndex: 0
+  hdIndex: 0,
+  authScheme: 'ecdsa' as const
 };
 
 const VERSION_TWO_PAYLOAD: DecryptedWalletFile = {
@@ -879,22 +878,24 @@ describe('decryption flow', () => {
     expect(onSubmit).toHaveBeenCalled();
   });
 
-  it('completes a valid legacy payload directly when no imported accounts were omitted', async () => {
+  it('rejects an unversioned payload as malformed before either database import', async () => {
     const onSubmit = jest.fn();
-    const legacyPayload: DecryptedWalletFile = {
+    mockDecryptJson.mockResolvedValueOnce({
       seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
       midenClientDbContent: 'mc',
       walletDbContent: 'wd',
-      accounts: [{ ...VALID_ACCOUNT, name: 'A' }]
-    };
-    mockDecryptJson.mockResolvedValueOnce(legacyPayload);
+      accounts: [VALID_ACCOUNT]
+    });
     const { container } = renderScreen({ onSubmit });
     loadFile(container);
 
     await submit(container);
 
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(legacyPayload));
-    expect(screen.queryByText(/encryptedFileImportedAccountsOmitted/)).not.toBeInTheDocument();
+    const error = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+    await waitFor(() => expect(error()).toHaveTextContent('encryptedWalletFileMalformed'));
+    expect(mockImportStore).not.toHaveBeenCalled();
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('shows the wrong-password error when the password check does not match', async () => {
@@ -1010,72 +1011,6 @@ describe('decryption flow', () => {
     expect(mockImportStore).not.toHaveBeenCalled();
     expect(mockImportDb).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Two-step confirmation when imported accounts were omitted.
-// ---------------------------------------------------------------------------
-describe('omitted-accounts two-step confirmation', () => {
-  const loadFile = (container: HTMLElement) =>
-    uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
-
-  it('stages a pending restore, shows the notice, and completes on the second confirm click', async () => {
-    const onSubmit = jest.fn();
-    const legacyPayload: DecryptedWalletFile = {
-      seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-      midenClientDbContent: 'mc',
-      walletDbContent: 'wd',
-      accounts: [{ ...VALID_ACCOUNT, name: 'Kept' }],
-      omittedImportedAccountCount: 3
-    };
-    mockDecryptJson.mockResolvedValueOnce(legacyPayload);
-    const { container } = renderScreen({ onSubmit });
-    loadFile(container);
-
-    // First submit: decrypts, but pauses for confirmation instead of completing.
-    await submit(container);
-
-    await waitFor(() => expect(screen.getByText('encryptedFileImportedAccountsOmitted:3')).toBeInTheDocument());
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(mockImportStore).not.toHaveBeenCalled();
-    expect(mockImportDb).not.toHaveBeenCalled();
-
-    // The password field is now hidden, the button flips to the confirm label
-    // and is force-enabled regardless of form validity.
-    expect(screen.queryByTestId('form-field')).not.toBeInTheDocument();
-    const button = screen.getByTestId('submit-button');
-    expect(button).toHaveTextContent('continueImport');
-    expect(button).toBeEnabled();
-
-    // Second submit: imports and forwards the already parsed payload without
-    // decrypting or parsing untrusted data again.
-    mockGenerateKey.mockClear();
-    await submit(container);
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(legacyPayload));
-    expect(mockImportStore).toHaveBeenCalledWith('mc');
-    expect(mockImportDb).toHaveBeenCalledWith('wd');
-    expect(mockGenerateKey).not.toHaveBeenCalled();
-  });
-
-  it('force-enables the confirm button even when the form reports invalid', async () => {
-    mockFormState = { errors: {}, isSubmitting: false, isValid: false };
-    const onSubmit = jest.fn();
-    mockDecryptJson.mockResolvedValueOnce({
-      seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-      midenClientDbContent: 'mc',
-      walletDbContent: 'wd',
-      accounts: [VALID_ACCOUNT],
-      omittedImportedAccountCount: 1
-    });
-    const { container } = renderScreen({ onSubmit });
-    loadFile(container);
-
-    await submit(container);
-
-    await waitFor(() => expect(screen.getByTestId('submit-button')).toBeEnabled());
-    expect(screen.getByTestId('submit-button')).toHaveTextContent('continueImport');
   });
 });
 

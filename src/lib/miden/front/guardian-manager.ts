@@ -146,17 +146,16 @@ export async function getOrCreateMultisigService(
       throw new Error('Account is not a Guardian account');
     }
     // Hot pubkey lives on the WalletAccount record (set at create time). A
-    // Guardian account without it is either a legacy single-Falcon-key record
-    // (pre-migration) or an in-flight write that crashed mid-create — both are
-    // unsigned states that should fail loudly rather than silently fall back.
+    // Guardian account without one has no usable local signer, and this caller
+    // needs to sign right now: it must fail loudly here rather than silently
+    // fall back.
     if (!account.hotPublicKey) {
       throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
     }
     const hotPublicKey = account.hotPublicKey;
-    // Per-account guardian endpoint (falls back to the legacy global key for
-    // records created before the field existed). Resolved once and reused for
-    // both the cache drift-check and the init binding below.
-    const currentEndpoint = await resolveGuardianEndpoint(account);
+    // Per-account guardian endpoint, resolved once and reused for both the cache
+    // drift-check and the init binding below.
+    const currentEndpoint = resolveGuardianEndpoint(account);
 
     // Return cached instance if its endpoint AND bound hot pubkey still match.
     // Two separate drift sources:

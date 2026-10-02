@@ -154,8 +154,7 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     walletAccounts: WalletAccount[],
-    formatVersion?: number,
-    importedAccounts?: ImportedAccountBackup[]
+    importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 
