@@ -2697,16 +2697,16 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Der Switch hat das Netzwerk erreicht, aber dieses Gerät konnte den neuen Status Ihres Kontos noch nicht speichern. Die Wallet versucht es im Hintergrund weiter, und bis dies gelingt, werden Transaktionen von diesem Gerät möglicherweise nicht ausgeführt. Sie müssen den Switch nicht erneut ausführen.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+    "message": "Der „Guardian“-Switch hat das Netzwerk erreicht, aber dieses Gerät konnte den neuen Status Ihres Kontos noch nicht speichern. Die Wallet versucht es im Hintergrund weiter, und bis dies gelingt, werden Transaktionen von diesem Gerät möglicherweise nicht ausgeführt. Sie müssen den „Guardian“-Switch nicht erneut ausführen.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
     "message": "Nicht auf diesem Gerät gespeichert.",
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Der Switch hat das Netzwerk erreicht, aber dieses Gerät konnte den neuen Zustand Ihres Kontos nicht speichern und kann ihn nicht selbstständig wiederherstellen. Starten Sie den Switch nicht erneut. Wenden Sie sich an den Support.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+    "message": "Der „Guardian“-Switch hat das Netzwerk erreicht, aber dieses Gerät konnte den neuen Zustand Ihres Kontos nicht speichern und kann es nicht selbstständig wiederherstellen. Führen Sie den „Guardian“-Switch nicht erneut aus. Wenden Sie sich an den Support.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Dieses Gerät konnte außerdem die Adresse des neuen Guardians nicht speichern und zeigt daher weiterhin die vorherige an. Die Wallet wird Sie bitten, sie erneut einzugeben — diese Abfrage startet keinen weiteren Wechsel.",

@@ -2697,16 +2697,16 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Anahtar ağa ulaştı, ancak bu cihaz henüz hesabınızın yeni durumunu kaydedemedi. Cüzdan arka planda denemeye devam eder ve başarılı olana kadar bu cihazdan yapılan işlemler gerçekleşmeyebilir. Anahtarı tekrar çalıştırmanıza gerek yoktur.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+    "message": "Guardian'i anahtarı ağa ulaştı, ancak bu cihaz henüz hesabınızın yeni durumunu kaydedemedi. Cüzdan arka planda denemeye devam eder ve başarılı olana kadar bu cihazdan yapılan işlemler gerçekleştirilemeyebilir. Guardian anahtarını tekrar çalıştırmanıza gerek yoktur.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
     "message": "Bu cihaza kaydedilmemiştir.",
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Anahtar ağa ulaştı, ancak bu cihaz hesabınızın yeni durumunu kaydedemedi ve kendi başına geri yükleyemiyor. Anahtarı tekrar çalıştırmayın. Destek ekibiyle iletişime geçin.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+    "message": "Guardian'i anahtarı ağa ulaştı, ancak bu cihaz hesabınızın yeni durumunu kaydedemedi ve kendi başına kurtaramaz. Guardian anahtarını tekrar çalıştırmayın. Destek ekibiyle iletişime geçin.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Bu cihaz yeni Guardian'ın adresini de kaydedemedi, bu yüzden hâlâ öncekini gösteriyor. Cüzdan adresi yeniden girmenizi isteyecek — bu istem yeni bir değişiklik başlatmaz.",

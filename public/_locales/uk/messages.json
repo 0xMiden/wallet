@@ -2697,16 +2697,16 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Комутатор підключився до мережі, але цей пристрій ще не зміг зберегти новий стан вашого облікового запису. Гаманець продовжує намагатися у фоновому режимі, і доки йому це не вдасться, транзакції з цього пристрою можуть не проходити. Вам не потрібно запускати комутатор знову.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+    "message": "Перемикач «Guardian» підключився до мережі, але цей пристрій ще не зміг зберегти новий стан вашого облікового запису. Гаманець продовжує намагатися у фоновому режимі, і доки йому це не вдасться, транзакції з цього пристрою можуть не проходити. Вам не потрібно запускати перемикач «Guardian» ще раз.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
     "message": "Не збережено на цьому пристрої.",
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Комутатор підключився до мережі, але цей пристрій не зміг зберегти новий стан вашого облікового запису і не може самостійно його відновити. Не запускайте комутатор знову. Зверніться до служби підтримки.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+    "message": "Перемикач «Guardian» підключився до мережі, але цей пристрій не зміг зберегти новий стан вашого облікового запису і не може самостійно його відновити. Не запускайте перемикач «Guardian» знову. Зверніться до служби підтримки.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Цей пристрій також не зміг зберегти адресу нового Guardian, тому досі показує попередню. Гаманець попросить ввести її знову — цей запит не починає нову зміну.",

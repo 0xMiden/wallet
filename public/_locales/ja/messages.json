@@ -2697,16 +2697,16 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "スイッチはネットワークに接続されましたが、このデバイスではまだアカウントの新しい状態を保存できていません。ウォレットはバックグラウンドで試行を続けており、成功するまでは、このデバイスからの取引は処理されない可能性があります。スイッチを再度実行する必要はありません。",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+    "message": "Guardianスイッチはネットワークに接続されましたが、このデバイスではまだアカウントの新しい状態を保存できていません。ウォレットはバックグラウンドで試行を続けており、成功するまでは、このデバイスからの取引が処理されない可能性があります。Guardianスイッチを再度実行する必要はありません。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
     "message": "このデバイスには保存されていません。",
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "スイッチはネットワークに接続されましたが、このデバイスはアカウントの新しい状態を保存できず、単独で復元することもできません。スイッチを再度起動しないでください。サポートにご連絡ください。",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+    "message": "Guardianスイッチはネットワークに接続されましたが、このデバイスはアカウントの新しい状態を保存できず、単独では復元できません。Guardianスイッチを再度実行しないでください。サポートにお問い合わせください。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "このデバイスは新しい Guardian のアドレスも保存できなかったため、引き続き以前のアドレスが表示されます。ウォレットが再入力を求めますが、その入力によって別の変更が開始されることはありません。",

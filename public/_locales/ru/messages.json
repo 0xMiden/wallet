@@ -2697,16 +2697,16 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "Коммутатор подключился к сети, но это устройство пока не смогло сохранить новое состояние вашей учётной записи. Кошелек продолжает попытки в фоновом режиме, и до тех пор, пока ему это не удастся, транзакции с этого устройства могут не проходить. Вам не нужно запускать коммутатор заново.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+    "message": "Переключатель «Guardian» подключился к сети, но это устройство пока не смогло сохранить новое состояние вашей учетной записи. Кошелек продолжает попытки в фоновом режиме, и до тех пор, пока ему это не удастся, транзакции с этого устройства могут не проходить. Вам не нужно запускать переключатель «Guardian» повторно.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
     "message": "Не сохранено на этом устройстве.",
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "Коммутатор подключился к сети, но это устройство не смогло сохранить новое состояние вашей учетной записи и не может восстановить его самостоятельно. Не запускайте коммутатор повторно. Обратитесь в службу поддержки.",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+    "message": "Переключатель «Guardian» подключился к сети, но это устройство не смогло сохранить новое состояние вашей учетной записи и не может восстановить его самостоятельно. Не запускайте переключатель «Guardian» повторно. Обратитесь в службу поддержки.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Это устройство также не смогло сохранить адрес нового Guardian, поэтому по-прежнему показывает предыдущий. Кошелёк попросит ввести его заново — этот запрос не начинает новую смену.",

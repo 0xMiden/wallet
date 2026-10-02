@@ -2697,16 +2697,16 @@
     "englishSource": "Not saved on this device yet."
   },
   "guardianSwitchLocalStateNotSavedBody": {
-    "message": "此裝置已連線至網路，但目前尚無法儲存您帳戶的新狀態。錢包會持續在背景中嘗試，在成功之前，來自此裝置的交易可能無法完成。您無需再次執行此裝置。",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the switch again."
+    "message": "Guardian 切換功能已連線至網路，但此裝置目前尚無法儲存您帳戶的新狀態。錢包會持續在背景嘗試，在成功之前，來自此裝置的交易可能無法完成。您無需再次執行 Guardian 切換操作。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
   },
   "guardianSwitchLocalStateUnrecoverableTitle": {
     "message": "未儲存於此裝置上。",
     "englishSource": "Not saved on this device."
   },
   "guardianSwitchLocalStateUnrecoverableBody": {
-    "message": "此切換已傳送至網路，但此裝置無法儲存您帳戶的新狀態，亦無法自行恢復。請勿再次執行此切換。請聯絡支援團隊。",
-    "englishSource": "The switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the switch again. Contact support."
+    "message": "Guardian 切換器已連線至網路，但此裝置無法儲存您帳戶的新狀態，亦無法自行還原。請勿再次執行 Guardian 切換操作。請聯絡技術支援。",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "本裝置也未能儲存新 Guardian 的位址，因此仍顯示上一個位址。錢包會請你重新輸入——該提示不會啟動另一次切換。",
