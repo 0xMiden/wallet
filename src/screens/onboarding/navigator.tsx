@@ -50,6 +50,11 @@ export interface OnboardingFlowProps {
   isLoading?: boolean;
   useBiometric?: boolean;
   isHardwareSecurityAvailable?: boolean;
+  /**
+   * The host skips the create flow's protection chooser on mobile too (Welcome does where the vault's
+   * hardware probe answered false), so that flow is one step shorter, as it is off mobile.
+   */
+  skipProtectionChoice?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
   /** The last Guardian lookup failure's display text, or `null`. */
@@ -134,6 +139,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   isLoading,
   useBiometric = true,
   isHardwareSecurityAvailable = false,
+  skipProtectionChoice = false,
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupFailure = null,
@@ -166,10 +172,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   useEffect(() => {
     setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
   }, [seedPhrase]);
-  // The choose-protection step only exists where biometric can work (mobile).
-  // On the extension/desktop it's skipped, so the create flow is one step
-  // shorter — render 3 segments and shift every position down by one.
-  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && !isMobile();
+  // The choose-protection step only exists where biometric can work: on mobile,
+  // unless the host skips it. Where it's skipped the create flow is one step
+  // shorter, so render 3 segments and shift every position down by one.
+  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && (!isMobile() || skipProtectionChoice);
   // In that shortened create flow the password screen replaces passcode setup,
   // so it sits at the protection-step position rather than its import-flow one.
   const baseStep =

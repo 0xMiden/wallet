@@ -103,12 +103,7 @@ class UpdateAvailabilityPlugin : Plugin() {
         flexibleAllowed: Boolean = false,
     ): PlayUpdateSnapshot {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            packageInfo.longVersionCode.toInt()
-        } else {
-            @Suppress("DEPRECATION")
-            packageInfo.versionCode
-        }
+        val versionCode = packageInfo.longVersionCode.toInt()
         return PlayUpdateSnapshot(
             playInstalled = playInstalled,
             availability = availability,
