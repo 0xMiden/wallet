@@ -81,12 +81,14 @@ import {
 } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
+  claimBridgeSubmit,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
   landedValueRowFields,
   type LandedWithoutResult,
   markMayHaveSubmitted,
+  recordBridgeNoteLanded,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
@@ -241,9 +243,10 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * timeout — the promise then never settles and the Epoch flow hangs forever while the
  * activity row claims success. So these rows must be marked Failed instead: the
  * caller resolves via the error branch, the flow can run its own failure handling
- * (`markBridgedSendFailed`), and the on-chain collateral note reclaims itself at its
- * recall height. Neither is blindly re-queued into a duplicate note — `earn-deposit`
- * and Epoch `bridged-send` are both excluded from `REQUEUEABLE_TYPES`.
+ * (`markBridgedSendFailed`), and the landed collateral note is recorded so the
+ * activity row offers Reclaim funds at its recall height. Neither is blindly
+ * re-queued into a duplicate note - `earn-deposit` and Epoch `bridged-send` are
+ * both excluded from `REQUEUEABLE_TYPES`.
  *
  * The gate is per-ROUTE, not per-type, because only ONE of the two `bridged-send`
  * routes has an awaiting caller. The Agglayer (Slow) route enters via
@@ -879,6 +882,14 @@ async function requeueTransactionForRetry(
     row?.unauthorizedRetryUntil !== undefined
       ? { unauthorizedRetryUntil: row.unauthorizedRetryUntil + cooldownSec }
       : {};
+  // Every caller requeues a pre-submit attempt, so a bridge submit claim never outlives its attempt.
+  await Repo.transactions.where({ id: txId }).modify(tx => {
+    const ei: Record<string, unknown> | undefined = tx.extraInputs;
+    if (ei?.submitClaimed === undefined) return false;
+    const { submitClaimed: _claim, ...rest } = ei;
+    tx.extraInputs = rest;
+    return undefined;
+  });
   const nextEligibleAt = Math.floor(Date.now() / 1000) + cooldownSec;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
@@ -1174,9 +1185,10 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
  * `openEarnPosition` gives up on a deposit whose queued row didn't complete within
  * `waitForTransactionCompletion`'s 5 minutes (or whose Epoch intent was aborted)
  * and records that by patching `extraInputs.epochStatus = 'failed'` (earn.ts). That
- * patch does NOT touch `status` — unlike the bridged-send abandonment path
+ * patch does NOT touch `status` - unlike the bridged-send abandonment path
  * (`markBridgedSendFailed`, which writes `Failed` and so removes the row from the
- * Queued scan) — leaving the row Queued and well inside MAX_QUEUED_AGE, so the FIFO
+ * Queued scan, while a bridged-send already picked up is stopped by its submit
+ * claim) - leaving the row Queued and well inside MAX_QUEUED_AGE, so the FIFO
  * loop still picks it up once the queue drains. Submitting it then mints a P2IDE
  * collateral note to the Epoch allocator with no live intent behind it: the funds
  * are stranded until the note's reclaim height (MIDEN_MIN_RECLAIM_BLOCKS +
@@ -1210,6 +1222,19 @@ const requireEarnDepositRequestBytes = async (transaction: ITransaction): Promis
   await assertEarnDepositIntentLive(transaction);
   if (!transaction.requestBytes) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   return transaction.requestBytes;
+};
+
+export const EPOCH_BRIDGE_ABANDONED_ERROR =
+  'This bridge was already abandoned, so its collateral note was not submitted.';
+
+/**
+ * An Epoch bridged-send's precondition for submitting, called by both leaves just before their submit: the row's
+ * submit claim (`claimBridgeSubmit`). A row `markBridgedSendFailed` already failed is refused, so its collateral note
+ * is never minted; every other row returns at once.
+ */
+const requireBridgeSubmitClaim = async (transaction: ITransaction): Promise<void> => {
+  if (transaction.type !== 'bridged-send' || bridgeProviderOf(transaction) !== 'epoch') return;
+  if (!(await claimBridgeSubmit(transaction.id))) throw new Error(EPOCH_BRIDGE_ABANDONED_ERROR);
 };
 
 export const generateTransaction = async (
@@ -1353,6 +1378,7 @@ const generateTransactionWithProvider = async (
           `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
           error
         );
+        await recordBridgeNoteLanded(transaction.id);
         await recordLandedTransactionId(transaction.id, error);
         await cancelTransactionAfterPipelineStopped(transaction, error);
         return;
@@ -1729,9 +1755,10 @@ const generateTransactionWithProvider = async (
       //
       // The abandoned-intent guard the Guardian leaf has must apply here too: this
       // shared block had none, so a non-Guardian account still minted the orphan
-      // collateral note. `bridged-send` needs no equivalent — its abandonment path
-      // writes `status = Failed`, which takes the row out of the Queued scan.
+      // collateral note. An Epoch `bridged-send` is stopped by `requireBridgeSubmitClaim`
+      // instead: its abandonment writes `status = Failed`, and a Failed row is never claimed.
       if (transaction.type === 'earn-deposit') await requireEarnDepositRequestBytes(transaction);
+      await requireBridgeSubmitClaim(transaction);
       if (transaction.requestBytes) {
         // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
         // returned at the top of `generateTransaction`), and for a basic wallet miden-client
@@ -3319,6 +3346,7 @@ const generateGuardianTransaction = async (
       });
     }
 
+    await requireBridgeSubmitClaim(transaction);
     await setTransactionStage(transaction.id, 'sending');
     if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
       // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-
@@ -3808,14 +3836,16 @@ export const generateTransactionsLoop = async (
       // `TransactionResult` to repopulate them from (the apply threw before we could
       // capture it). See the `isResultAwaitingRow` doc comment. Fail the row instead
       // so the caller resolves via the error branch and gives up cleanly; the
-      // on-chain P2IDE collateral note reclaims itself at its recall height, and
-      // neither is blindly re-queued into a duplicate collateral note. An AGGLAYER
-      // `bridged-send` is deliberately NOT in this branch — nothing awaits it, its
-      // note is on chain, and failing it would hide the L1 claim UI.
+      // landed P2IDE collateral note is recorded so the activity row offers Reclaim
+      // funds at its recall height, and neither is blindly re-queued into a
+      // duplicate collateral note. An AGGLAYER `bridged-send` is deliberately NOT in
+      // this branch - nothing awaits it, its note is on chain, and failing it would
+      // hide the L1 claim UI.
       if (tx && isResultAwaitingRow(tx)) {
         logger.warning(
           `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
+        await recordBridgeNoteLanded(tx.id);
         if (tx.status !== ITransactionStatus.Failed) {
           await recordLandedTransactionId(tx.id, e);
           await cancelTransactionAfterPipelineStopped(tx, e);

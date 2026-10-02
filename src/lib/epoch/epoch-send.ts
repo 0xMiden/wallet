@@ -185,13 +185,15 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   if (intent.error) {
     // The `createMidenP2IDENote` callback already committed the P2IDE note and the
     // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'
-    // BEFORE the allocator rejected the intent here. Demote that false success to
-    // Failed so the user isn't told the bridge succeeded while their funds sit in
-    // an unconsumed, recallable note. A row the note pipeline already failed for
-    // its own reason keeps that failure instead - markBridgedSendFailed leaves an
-    // already-Failed row untouched (#1250).
+    // BEFORE the allocator rejected the intent here. Or the note's 5-minute wait
+    // gave up while its row was still in flight, which markBridgedSendFailed
+    // records on the row so a note that commits later can still be reclaimed.
+    // Demote that false success to Failed so the user isn't told the bridge
+    // succeeded while their funds sit in an unconsumed, recallable note. A row the
+    // note pipeline already failed for its own reason keeps that failure instead -
+    // markBridgedSendFailed leaves an already-Failed row untouched (#1250).
     if (bridgeTxId) {
-      await markBridgedSendFailed(bridgeTxId, intent.error, params.midenReclaimHeight);
+      await markBridgedSendFailed(bridgeTxId, intent.error);
     }
     throw new Error(intent.error);
   }

@@ -11,6 +11,7 @@ import { type SignCallbackReason } from './sign-callback';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { compareAccountIds } from '../activity/utils';
 import {
+  IBridgedSendExtraInputs,
   INoteDeliveryState,
   ITransaction,
   ITransactionStage,
@@ -607,6 +608,58 @@ export const reportVerifiedLanding = (tx: ITransaction): void => {
 export const markMayHaveSubmitted = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.mayHaveSubmitted = true;
+  });
+};
+
+/**
+ * Claim the submit point of an Epoch bridged-send, in the same write that checks
+ * the row is not Failed. A `markBridgedSendFailed` that already abandoned the
+ * bridge stops the pipeline here (the claim returns false and writes nothing),
+ * and one that comes later finds the claim recorded, so it knows the collateral
+ * note may exist. Bridge-only: it says nothing to the retry and
+ * unconfirmed-outcome readers of `mayHaveSubmitted`, which a claim made before
+ * execute and prove would turn every definite pre-submit failure into an
+ * unknown outcome.
+ */
+export const claimBridgeSubmit = async (id: string): Promise<boolean> => {
+  let claimed = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status === ITransactionStatus.Failed) return false;
+    tx.extraInputs = { ...(tx.extraInputs ?? {}), submitClaimed: true };
+    claimed = true;
+    return undefined;
+  });
+  return claimed;
+};
+
+/**
+ * Record the collateral note of an Epoch bridged-send whose submit is proven to
+ * have landed: its local apply or canonicalization failed after it. It acts only
+ * on a row whose pipeline claimed its submit (`claimBridgeSubmit`), which is
+ * what makes such a failure post-submit; a canonicalization refusal can also be
+ * raised while the proposal is created, before any claim. The stamped
+ * `reclaimNoteId` is that note's id, computed from the bytes that were submitted,
+ * and the pipeline failing the row means the intent never went out, so the row
+ * is recorded as a route-failed bridge with a committed note, the shape the
+ * reclaim gate reads.
+ *
+ * The pipeline writes this itself rather than leaving the route to
+ * `markBridgedSendFailed`, which runs only in the realm driving the bridge; on
+ * the extension that is the page, which may be closed by then. Guard-free as to
+ * status, like `markMayHaveSubmitted`: a demotion may already have failed the
+ * row, and the note landed all the same. It never overwrites a recorded note or
+ * route, and never touches the row's status or error.
+ */
+export const recordBridgeNoteLanded = async (id: string): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    const noteId = ei?.reclaimNoteId;
+    if (tx.type !== 'bridged-send' || ei?.provider !== 'epoch' || !noteId) return false;
+    if (ei.submitClaimed !== true) return false;
+    if (tx.outputNoteIds?.length) return false;
+    tx.outputNoteIds = [noteId];
+    if (ei.epochStatus === undefined) tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
+    return undefined;
   });
 };
 
