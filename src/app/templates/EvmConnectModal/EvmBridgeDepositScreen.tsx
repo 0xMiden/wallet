@@ -241,6 +241,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [slowError, setSlowError] = useState<string | null>(null);
   const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
   const [creatingBridgeRow, setCreatingBridgeRow] = useState(false);
+  // True between the approve landing on Sepolia and the bridge prompt being answered — the gap in
+  // which the wallet is silent and the user would otherwise read the flow as finished.
+  const [awaitingNextConfirmation, setAwaitingNextConfirmation] = useState(false);
 
   const selectedBalance = token === 'ETH' ? ethBalance : usdcBalance;
   // Only USDC on the Fast (Epoch) route is quotable today; ETH-fast wraps to WETH
@@ -420,6 +423,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               data: approveData
             });
             await waitForSepoliaReceipt(unwrapNativeResult(approval.hash) as `0x${string}`);
+            setAwaitingNextConfirmation(true);
           }
           const data = encodeFunctionData({
             abi: AGGLAYER_BRIDGE_ABI,
@@ -450,6 +454,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               args: [contractAddress, amountInBaseUnits]
             });
             await waitForSepoliaReceipt(approvalHash);
+            setAwaitingNextConfirmation(true);
           }
           hash = await writeContract.mutateAsync({
             chainId: DEFAULT_CHAIN_ID,
@@ -461,6 +466,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           });
         }
 
+        // The bridge prompt has been answered; what follows is a chain wait, not a wallet wait.
+        setAwaitingNextConfirmation(false);
+
         await updateBridgedReceivePhase(trackingTxId, 'submitting', { evmTxHash: hash });
         await waitForSepoliaReceipt(hash);
         await updateBridgedReceivePhase(trackingTxId, 'delivering', { evmTxHash: hash });
@@ -468,6 +476,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
         const message = errorMessage(err);
+        setAwaitingNextConfirmation(false);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
@@ -672,7 +681,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     (activeRoute: Route) => {
       switch (activeRoute.name) {
         case ReceiveStep.ShowBridgePageStatus:
-          return bridgeTxId ? <EvmBridgeDepositStatus txId={bridgeTxId} onDone={onClose} /> : null;
+          return bridgeTxId ? (
+            <EvmBridgeDepositStatus
+              txId={bridgeTxId}
+              onDone={onClose}
+              awaitingNextConfirmation={awaitingNextConfirmation}
+            />
+          ) : null;
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
@@ -722,6 +737,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
+      awaitingNextConfirmation,
       bridgeTxId,
       reviewAmount,
       error,
