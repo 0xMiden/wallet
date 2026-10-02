@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as FaceIcon } from 'app/icons/onboarding/face.svg';
 import { ReactComponent as FingerprintIcon } from 'app/icons/onboarding/fingerprint.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { authenticate, checkBiometricAvailability } from 'lib/biometric';
+import { authenticate, type BiometricSetup, checkBiometricSetup, openBiometricSettings } from 'lib/biometric';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isIOS, isMobile } from 'lib/platform';
+import { isAndroid, isIOS, isMobile } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
 type Phase = 'prompt' | 'success';
@@ -56,10 +57,31 @@ const ScanFrame: React.FC<{ color: FrameColor; children: React.ReactNode }> = ({
   );
 };
 
+// Literal t() calls, so the i18n key-coverage test sees every key.
+const unavailableMessage = ({ reason, managedProfile }: BiometricSetup, t: TFunction): string => {
+  switch (reason) {
+    case 'none-enrolled':
+      return managedProfile ? t('biometricNotEnrolledWork') : t('biometricNotEnrolled');
+    case 'no-strong-biometric':
+      return t('biometricNotStrong');
+    case 'hardware-unavailable':
+      return t('biometricHardwareUnavailable');
+    case 'security-update-required':
+      return t('biometricSecurityUpdate');
+    case 'passcode-not-set':
+      return t('biometricPasscodeNotSet');
+    case 'locked-out':
+      return t('biometricLockedOut');
+    default:
+      return t('biometricUnavailable');
+  }
+};
+
 export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSwitchToPasscode, onContinue }) => {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>('prompt');
   const [error, setError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<BiometricSetup | null>(null);
   const inFlightRef = useRef(false);
 
   const isFaceId = isIOS();
@@ -70,6 +92,7 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setError(null);
+    setBlocked(null);
     try {
       // Non-mobile (extension/desktop) can't trigger the Capacitor biometric
       // plugin — surface a switch-to-passcode prompt instead.
@@ -77,9 +100,10 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
         setError(t('biometricUnavailable'));
         return;
       }
-      const availability = await checkBiometricAvailability();
-      if (!availability.isAvailable) {
-        setError(t('biometricUnavailable'));
+      const setup = await checkBiometricSetup();
+      if (!setup.available) {
+        setError(unavailableMessage(setup, t));
+        setBlocked(setup);
         return;
       }
       const ok = await authenticate(t('biometricSetupReason'));
@@ -101,6 +125,18 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
       void tryAuthenticate();
     }
   }, [phase, tryAuthenticate]);
+
+  // Only an availability failure re-checks on return; re-running after a cancelled prompt would loop it.
+  useEffect(() => {
+    if (!blocked) return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void tryAuthenticate();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [blocked, tryAuthenticate]);
+
+  const showOpenSettings = blocked?.reason === 'none-enrolled' && isAndroid();
 
   const handleRetry = () => {
     hapticLight();
@@ -140,7 +176,10 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
 
         <div className="w-full flex flex-col items-center gap-2 shrink-0">
           {phase === 'prompt' ? (
-            <Button title={t('usePasscodeInstead')} variant={ButtonVariant.Ghost} onClick={onSwitchToPasscode} />
+            <>
+              {showOpenSettings && <Button title={t('openSettings')} onClick={() => void openBiometricSettings()} />}
+              <Button title={t('usePasscodeInstead')} variant={ButtonVariant.Ghost} onClick={onSwitchToPasscode} />
+            </>
           ) : (
             <Button title={t('continue')} onClick={onContinue} />
           )}

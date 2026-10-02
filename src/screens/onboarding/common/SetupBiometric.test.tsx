@@ -2,9 +2,9 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { authenticate, checkBiometricAvailability } from 'lib/biometric';
+import { authenticate, checkBiometricAvailability, checkBiometricSetup, openBiometricSettings } from 'lib/biometric';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isIOS, isMobile } from 'lib/platform';
+import { isAndroid, isIOS, isMobile } from 'lib/platform';
 
 import SetupBiometricScreen, { SetupBiometricScreen as NamedSetupBiometricScreen } from './SetupBiometric';
 
@@ -45,6 +45,7 @@ jest.mock('app/icons/v2', () => ({
 // `lib/platform` — `isIOS`/`isMobile` drive the Face-ID-vs-fingerprint and the
 // mobile-vs-extension branches. Controlled per test.
 jest.mock('lib/platform', () => ({
+  isAndroid: jest.fn(),
   isIOS: jest.fn(),
   isMobile: jest.fn()
 }));
@@ -53,6 +54,8 @@ jest.mock('lib/platform', () => ({
 // the Capacitor plugin; controlled per test.
 jest.mock('lib/biometric', () => ({
   checkBiometricAvailability: jest.fn(),
+  checkBiometricSetup: jest.fn(),
+  openBiometricSettings: jest.fn(),
   authenticate: jest.fn()
 }));
 
@@ -65,15 +68,21 @@ jest.mock('lib/mobile/haptics', () => ({
 // Typed handles onto the mocked modules
 // ---------------------------------------------------------------------------
 
+const mockIsAndroid = isAndroid as jest.Mock;
 const mockIsIOS = isIOS as jest.Mock;
 const mockIsMobile = isMobile as jest.Mock;
 const mockCheckAvailability = checkBiometricAvailability as jest.Mock;
+const mockCheckSetup = checkBiometricSetup as jest.Mock;
+const mockOpenSettings = openBiometricSettings as jest.Mock;
 const mockAuthenticate = authenticate as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const AVAILABLE = { available: true, reason: null, managedProfile: false };
+const blockedBy = (reason: string, managedProfile = false) => ({ available: false, reason, managedProfile });
 
 const renderComponent = (props: Partial<React.ComponentProps<typeof SetupBiometricScreen>> = {}) =>
   render(<SetupBiometricScreen {...props} />);
@@ -102,9 +111,12 @@ const deferred = <T,>() => {
 beforeEach(() => {
   jest.clearAllMocks();
   // Sensible defaults; individual tests override as needed.
+  mockIsAndroid.mockReturnValue(false);
   mockIsIOS.mockReturnValue(false);
   mockIsMobile.mockReturnValue(true);
   mockCheckAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'fingerprint' });
+  mockCheckSetup.mockResolvedValue(AVAILABLE);
+  mockOpenSettings.mockResolvedValue(true);
   mockAuthenticate.mockResolvedValue(true);
   mockHapticLight.mockResolvedValue(undefined);
 });
@@ -168,13 +180,13 @@ describe('SetupBiometricScreen', () => {
 
     it('surfaces the unavailable error when the device reports no biometrics', async () => {
       mockIsMobile.mockReturnValue(true);
-      mockCheckAvailability.mockResolvedValue({ isAvailable: false, biometryType: 'none' });
+      mockCheckSetup.mockResolvedValue(blockedBy('unknown'));
 
       renderComponent();
       await flush();
 
       expect(screen.getByText('biometricUnavailable')).toBeInTheDocument();
-      expect(mockCheckAvailability).toHaveBeenCalledTimes(1);
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
       expect(mockAuthenticate).not.toHaveBeenCalled();
     });
 
@@ -223,7 +235,7 @@ describe('SetupBiometricScreen', () => {
       expect(screen.getByText('biometricConfirmed')).toBeInTheDocument();
       // The effect re-runs when phase flips to 'success', but the `phase === 'prompt'`
       // guard keeps it from re-triggering another authentication.
-      expect(mockCheckAvailability).toHaveBeenCalledTimes(1);
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
       expect(mockAuthenticate).toHaveBeenCalledTimes(1);
     });
   });
@@ -288,16 +300,16 @@ describe('SetupBiometricScreen', () => {
   describe('in-flight guard (inFlightRef)', () => {
     it('ignores a retry tap while an authentication attempt is still pending', async () => {
       mockIsMobile.mockReturnValue(true);
-      const gate = deferred<{ isAvailable: boolean; biometryType: string }>();
+      const gate = deferred<typeof AVAILABLE>();
       // The mount-time attempt hangs on the availability probe, holding inFlightRef true.
-      mockCheckAvailability.mockReturnValue(gate.promise);
+      mockCheckSetup.mockReturnValue(gate.promise);
       mockAuthenticate.mockResolvedValue(true);
 
       renderComponent();
       await flush();
 
       // Probe was kicked off once by the mount effect and is still pending.
-      expect(mockCheckAvailability).toHaveBeenCalledTimes(1);
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
 
       // Tap the scan frame while the first attempt is in flight: haptic still fires,
       // but the guard short-circuits before a second availability probe.
@@ -305,19 +317,275 @@ describe('SetupBiometricScreen', () => {
       await flush();
 
       expect(mockHapticLight).toHaveBeenCalledTimes(1);
-      expect(mockCheckAvailability).toHaveBeenCalledTimes(1);
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
       expect(screen.queryByText('biometricConfirmed')).not.toBeInTheDocument();
 
       // Release the gate; the original attempt completes into the success phase.
       await act(async () => {
-        gate.resolve({ isAvailable: true, biometryType: 'fingerprint' });
+        gate.resolve(AVAILABLE);
       });
       await flush();
 
       expect(screen.getByText('biometricConfirmed')).toBeInTheDocument();
       // Still only ever probed / authenticated once despite the extra tap.
-      expect(mockCheckAvailability).toHaveBeenCalledTimes(1);
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
       expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('why biometrics are unavailable (checkBiometricSetup)', () => {
+    it('asks checkBiometricSetup, never the weaker checkBiometricAvailability', async () => {
+      renderComponent();
+      await flush();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
+      expect(mockCheckAvailability).not.toHaveBeenCalled();
+      expect(screen.getByText('biometricConfirmed')).toBeInTheDocument();
+    });
+
+    it.each([
+      ['none-enrolled', false, 'biometricNotEnrolled'],
+      ['none-enrolled', true, 'biometricNotEnrolledWork'],
+      ['no-strong-biometric', false, 'biometricNotStrong'],
+      ['no-strong-biometric', true, 'biometricNotStrong'],
+      ['hardware-unavailable', false, 'biometricHardwareUnavailable'],
+      ['security-update-required', false, 'biometricSecurityUpdate'],
+      ['passcode-not-set', false, 'biometricPasscodeNotSet'],
+      ['locked-out', false, 'biometricLockedOut'],
+      ['unknown', false, 'biometricUnavailable']
+    ])('shows the %s message (managed profile: %s) with the passcode fallback', async (reason, managed, message) => {
+      mockCheckSetup.mockResolvedValue(blockedBy(reason, managed));
+
+      renderComponent();
+      await flush();
+
+      expect(screen.getByText(message)).toBeInTheDocument();
+      expect(mockAuthenticate).not.toHaveBeenCalled();
+      expect(screen.getByTestId('btn-usePasscodeInstead')).toBeInTheDocument();
+    });
+
+    it('keeps the work message to a managed profile', async () => {
+      mockCheckSetup.mockResolvedValue(blockedBy('none-enrolled'));
+
+      renderComponent();
+      await flush();
+
+      expect(screen.getByText('biometricNotEnrolled')).toBeInTheDocument();
+      expect(screen.queryByText('biometricNotEnrolledWork')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Open Settings', () => {
+    it.each([false, true])(
+      'sits above the passcode fallback on Android with no biometric enrolled (managed profile: %s)',
+      async managed => {
+        mockIsAndroid.mockReturnValue(true);
+        mockCheckSetup.mockResolvedValue(blockedBy('none-enrolled', managed));
+
+        renderComponent();
+        await flush();
+
+        const passcode = screen.getByTestId('btn-usePasscodeInstead');
+        expect(screen.getByTestId('btn-openSettings').compareDocumentPosition(passcode)).toBe(
+          Node.DOCUMENT_POSITION_FOLLOWING
+        );
+      }
+    );
+
+    it.each([
+      ['none-enrolled', 'iOS', false],
+      ['no-strong-biometric', 'Android', true],
+      ['hardware-unavailable', 'Android', true],
+      ['security-update-required', 'Android', true],
+      ['unknown', 'Android', true]
+    ])('is not offered for %s on %s', async (reason, _platform, android) => {
+      mockIsAndroid.mockReturnValue(android);
+      mockCheckSetup.mockResolvedValue(blockedBy(reason));
+
+      renderComponent();
+      await flush();
+
+      expect(screen.getByTestId('btn-usePasscodeInstead')).toBeInTheDocument();
+      expect(screen.queryByTestId('btn-openSettings')).not.toBeInTheDocument();
+    });
+
+    it('is not offered after a failed prompt on Android', async () => {
+      mockIsAndroid.mockReturnValue(true);
+      mockAuthenticate.mockResolvedValue(false);
+
+      renderComponent();
+      await flush();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('biometricFailed')).toBeInTheDocument();
+      expect(screen.queryByTestId('btn-openSettings')).not.toBeInTheDocument();
+    });
+
+    it.each([true, false])('opens Settings on tap and leaves the screen as it is (opened: %s)', async opened => {
+      mockIsAndroid.mockReturnValue(true);
+      mockCheckSetup.mockResolvedValue(blockedBy('none-enrolled', true));
+      mockOpenSettings.mockResolvedValue(opened);
+
+      renderComponent();
+      await flush();
+      fireEvent.click(screen.getByTestId('btn-openSettings'));
+      await flush();
+
+      expect(mockOpenSettings).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('biometricNotEnrolledWork')).toBeInTheDocument();
+      expect(screen.getByTestId('btn-openSettings')).toBeInTheDocument();
+      expect(screen.getByTestId('btn-usePasscodeInstead')).toBeInTheDocument();
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
+      expect(mockAuthenticate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('returning to the app (visibilitychange)', () => {
+    const spyVisibility = () => jest.spyOn(document, 'visibilityState', 'get');
+    let visibility: ReturnType<typeof spyVisibility>;
+
+    const switchTo = async (state: DocumentVisibilityState) => {
+      visibility.mockReturnValue(state);
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await flush();
+    };
+
+    const returnToApp = async () => {
+      await switchTo('hidden');
+      await switchTo('visible');
+    };
+
+    beforeEach(() => {
+      visibility = spyVisibility().mockReturnValue('visible');
+    });
+
+    afterEach(() => {
+      visibility.mockRestore();
+    });
+
+    it('checks again on return after an availability failure, and prompts once a biometric is enrolled', async () => {
+      mockIsAndroid.mockReturnValue(true);
+      mockCheckSetup.mockResolvedValueOnce(blockedBy('none-enrolled', true));
+
+      renderComponent();
+      await flush();
+      expect(screen.getByText('biometricNotEnrolledWork')).toBeInTheDocument();
+
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(2);
+      expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('biometricConfirmed')).toBeInTheDocument();
+    });
+
+    it('does not check again when the app only goes to the background', async () => {
+      mockCheckSetup.mockResolvedValueOnce(blockedBy('none-enrolled'));
+
+      renderComponent();
+      await flush();
+      await switchTo('hidden');
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('biometricNotEnrolled')).toBeInTheDocument();
+    });
+
+    it('keeps the message and Open Settings when still unavailable, and checks again on the next return', async () => {
+      mockIsAndroid.mockReturnValue(true);
+      mockCheckSetup.mockResolvedValue(blockedBy('none-enrolled', true));
+
+      renderComponent();
+      await flush();
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('biometricNotEnrolledWork')).toBeInTheDocument();
+      expect(screen.getByTestId('btn-openSettings')).toBeInTheDocument();
+
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(3);
+      expect(mockAuthenticate).not.toHaveBeenCalled();
+    });
+
+    it('does not prompt again on return after the prompt was cancelled', async () => {
+      mockAuthenticate.mockResolvedValue(false);
+
+      renderComponent();
+      await flush();
+      expect(screen.getByText('biometricFailed')).toBeInTheDocument();
+
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
+      expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not prompt again on return after a re-check reached the prompt and it was cancelled', async () => {
+      mockCheckSetup.mockResolvedValueOnce(blockedBy('none-enrolled'));
+      mockAuthenticate.mockResolvedValue(false);
+
+      renderComponent();
+      await flush();
+      await returnToApp();
+
+      expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('biometricFailed')).toBeInTheDocument();
+
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(2);
+      expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts no second check or prompt while the prompt is open, even when it hides the app', async () => {
+      const prompt = deferred<boolean>();
+      mockCheckSetup.mockResolvedValueOnce(blockedBy('none-enrolled'));
+      mockAuthenticate.mockReturnValue(prompt.promise);
+
+      renderComponent();
+      await flush();
+      await returnToApp();
+      expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+
+      await returnToApp();
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(2);
+      expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        prompt.resolve(true);
+      });
+      await flush();
+
+      expect(screen.getByText('biometricConfirmed')).toBeInTheDocument();
+    });
+
+    it('stops listening once setup succeeds', async () => {
+      mockCheckSetup.mockResolvedValueOnce(blockedBy('none-enrolled'));
+
+      renderComponent();
+      await flush();
+      await returnToApp();
+      expect(screen.getByText('biometricConfirmed')).toBeInTheDocument();
+
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(2);
+      expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops listening when the screen unmounts', async () => {
+      mockCheckSetup.mockResolvedValue(blockedBy('none-enrolled'));
+
+      const { unmount } = renderComponent();
+      await flush();
+      unmount();
+      await returnToApp();
+
+      expect(mockCheckSetup).toHaveBeenCalledTimes(1);
     });
   });
 
