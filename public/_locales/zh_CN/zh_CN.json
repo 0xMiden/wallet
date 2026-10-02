@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "已生成证明",
   "transactionStepSubmitting": "提交",
   "transactionStepSyncingGuardian": "与 Guardian 同步",
+  "guardianBusyStep": "期待您的 Guardian",
+  "guardianBusyDescription": "您的Guardian仍在处理之前的交易。本次交易将自动继续进行。",
   "transactionStepDurationSec": "$seconds$ 秒",
   "transactionStageSyncing": "同步账户",
   "transactionStageSyncingDescription": "正在获取您的最新账户状态。",

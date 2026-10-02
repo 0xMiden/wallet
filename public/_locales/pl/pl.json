@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Wygenerowano dowód",
   "transactionStepSubmitting": "Przesyłanie",
   "transactionStepSyncingGuardian": "Synchronizacja z Guardian",
+  "guardianBusyStep": "Czekasz na swój Guardian",
+  "guardianBusyDescription": "Twój portfel Guardian nadal finalizuje poprzednią transakcję. Ta transakcja jest kontynuowana automatycznie.",
   "transactionStepDurationSec": "$seconds$ sek.",
   "transactionStageSyncing": "Synchronizacja konta",
   "transactionStageSyncingDescription": "Pobieranie aktualnego stanu konta.",

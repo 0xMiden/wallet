@@ -87,8 +87,8 @@ export async function adoptPostSwitchState(
       POST_SWITCH_RECONCILE_CHECK_TIMEOUT_MS
     );
     if (state !== 'pre-switch' || !adopter || now() >= deadline) return state;
-    // The adopt holds the WASM lock on the sync ceiling, so a silent guardian there ends in a watchdog
-    // eviction that poisons the realm's client. Ask it first, outside any lock; the flagged row's
+    // The adopt holds the WASM lock, so a silent guardian there holds the realm's client until the fetch
+    // boundary cuts each request off a minute in. Ask it first, outside any lock; the flagged row's
     // self-heal is the retry.
     const probeMs = Math.min(deadline - now(), OUTGOING_GUARDIAN_DEADLINE_MS);
     try {
