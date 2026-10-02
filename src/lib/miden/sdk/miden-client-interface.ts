@@ -53,6 +53,7 @@ import { reportProve } from 'lib/telemetry/report-operation';
 import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
 import { WalletType } from 'screens/onboarding/types';
 
+import { applyAfterSubmit } from './apply-after-submit';
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
@@ -75,7 +76,7 @@ import {
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { ApplyAfterSubmitError, isApplyAfterSubmitError } from './sdk-error-code';
+import { isApplyAfterSubmitError } from './sdk-error-code';
 import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
@@ -1570,22 +1571,7 @@ export class MidenClientInterface {
         );
         await onStage?.('proving');
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt, onStage);
-        // Explicit prover on the delegated path — see `remoteProver`. `prove({})`
-        // selects the SDK's default-prover fallback, which requires an initialized
-        // client and so never dispatches in the offscreen realm (#718).
-        const sendProver = prover ?? remoteProver();
-        const proven = await attempt.pauseWatchdogForLocalProve(() => {
-          const proving = executed.prove(sendProver ? { prover: sendProver } : {});
-          return prover === undefined ? withDelegatedProveTimeout(proving, 'Delegated send prove') : proving;
-        });
-        await onStage?.('submitting');
-        // Point of no return: everything below can put this transfer on chain, so a
-        // failure past here must NOT be retried with the local prover — the retry
-        // would build a fresh request (new note serial) and submit a SECOND send.
-        attempt.markSubmitting();
-        const submitted = await proven.submit();
-        await submitted.apply();
-        return executed.result;
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'send', onStage);
       },
       dbTransaction.delegateTransaction,
       this.liveness
@@ -1639,71 +1625,35 @@ export class MidenClientInterface {
             return { accountId: acctId, request };
           }, attempt);
         }
-        if (attempt.provesInWorker()) {
-          // Staged so the proof can come from the prove worker (#945), from the same
-          // request the SDK's own consume builds: each note read from the store, and
-          // the consuming account, which SDK 0.16.1 requires. It crosses the SDK lock
-          // as bytes, like the send's.
-          const requestBytes = await this.withInnerClient(async inner => {
-            const notes: Note[] = [];
-            for (const id of targetNoteIds) {
-              const record = await inner.getInputNote(id);
-              if (!record) throw new Error(`Note not found: ${id}`);
-              notes.push(record.toNote());
-            }
-            const request = await inner.newConsumeTransactionRequest(notes, walletAccountIdToSdk(accountId));
-            return request.serialize();
-          });
+        // Staged for every attempt the offscreen prover does not take, so the apply after the
+        // submit is reachable and a failure there classifies as landed (#1233): a worker leg proves
+        // in the prove worker (#945), every other leg proves here. The request is the one the SDK's
+        // own consume builds: each note read from the store, and the consuming account, which SDK
+        // 0.16.1 requires. It crosses the SDK lock as bytes, like the send's.
+        const requestBytes = await this.withInnerClient(async inner => {
+          const notes: Note[] = [];
+          for (const id of targetNoteIds) {
+            const record = await inner.getInputNote(id);
+            if (!record) throw new Error(`Note not found: ${id}`);
+            notes.push(record.toNote());
+          }
+          const request = await inner.newConsumeTransactionRequest(notes, walletAccountIdToSdk(accountId));
+          return request.serialize();
+        });
+        try {
           const executed = await this.client.transactions.executeRequest(
             walletAccountIdToSdk(accountId).toString(),
             TransactionRequest.deserialize(requestBytes)
           );
-          return await this.submitWorkerProof(executed, attempt);
-        }
-        // The ONLY caller that deliberately does NOT call `attempt.markSubmitting()`
-        // before an opaque whole-op SDK write, i.e. the only one that still permits a
-        // whole-op local-prover retry. Two properties make that safe here and nowhere
-        // else: (1) the retry consumes the SAME input notes, so if the first attempt
-        // did reach the chain the second is rejected on the spent nullifier rather
-        // than duplicating value — unlike a send/swap, whose retry mints a new output
-        // note with a fresh serial; (2) the apply-after-submit failure (submitted,
-        // local store update failed) is excluded from the retry by
-        // `proveWithFallback`'s `isApplyAfterSubmitError` gate, so that row still
-        // classifies as landed. Keeping the retry matters because consume is the
-        // wallet's highest-frequency write (auto-claim) and a remote prove that misses
-        // its deadline is its most common failure — historically the SDK's own ~10s
-        // one, which the explicit prover below replaces.
-        recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
-        try {
-          // Delegating means `prover === undefined`, which makes the SDK build its own
-          // remote prover from `proverUrl` — with the ~10s default gRPC deadline, since
-          // `createClient` takes no timeout option. Name ours instead so the deadline is
-          // `DELEGATED_PROVE_TIMEOUT_MS`; see `remoteProver`. Control flow below still
-          // keys off the ORIGINAL `prover` so "delegated" keeps its meaning.
-          //
-          // Opaque whole-op write: it proves internally, so the #775 watchdog pause
-          // can only be scoped to the whole call (a passthrough on the delegated
-          // attempt). The DELEGATED call alone is bounded — a timeout here can land
-          // after submit, which is survivable for THIS caller and no other, for the
-          // same reason it is the only one that already permits a whole-op retry
-          // (see the comment above): the re-run consumes the SAME input notes, so an
-          // attempt that did reach the chain makes the retry fail on the spent
-          // nullifier rather than move funds twice. Local proving is deliberately
-          // left unbounded — it is the fallback, so capping it would leave nothing
-          // to fall back to.
-          const { result } = await attempt.pauseWatchdogForLocalProve(() => {
-            const consuming = this.client.transactions.consume({
-              account: accountId,
-              notes: targetNoteIds,
-              prover: prover ?? remoteProver()
-            });
-            return prover === undefined ? withDelegatedProveTimeout(consuming, 'Delegated consume') : consuming;
-          });
-          recordProveTiming('consumeNoteId SDK consume returned');
+          if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt);
+          // A prove failure is pre-submit, so `proveWithFallback` may re-run this attempt locally on
+          // the same notes; a submit failure is never re-run.
+          const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'consume');
+          recordProveTiming('consumeNoteId staged consume returned');
           return result;
         } catch (error) {
           const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-          recordProveTiming(`consumeNoteId SDK consume THREW ${detail}`);
+          recordProveTiming(`consumeNoteId staged consume THREW ${detail}`);
           throw error;
         }
       },
@@ -1721,11 +1671,11 @@ export class MidenClientInterface {
    *
    * A delegated attempt proves remotely. A local attempt proves in the prove
    * worker where the realm has a local prove transport (the offscreen document,
-   * #945), and otherwise inside the SDK's all-in-one submit with the realm's local
-   * prover (native on mobile); the service worker's `proveLocallyViaOffscreen`
-   * path has no PSWAP builder. A delegated attempt that fails before
-   * `markSubmitting()` falls back to a local one through `proveWithFallback`;
-   * nothing falls back once it has run.
+   * #945), and otherwise in this realm with its local prover (native on mobile);
+   * the service worker's `proveLocallyViaOffscreen` path has no PSWAP builder.
+   * Every attempt is staged, so the apply after the submit is reachable (#1233).
+   * A delegated attempt that fails before `markSubmitting()` falls back to a
+   * local one through `proveWithFallback`; nothing falls back once it has run.
    */
   async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
@@ -1757,30 +1707,13 @@ export class MidenClientInterface {
           )
         );
         const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
-        if (attempt.provesInWorker()) {
-          // Staged so the proof can come from the prove worker (#945). The point of no
-          // return moves to `submitProven`, the first network write; a local leg is
-          // never retried, so no retry boundary moves.
-          const executed = await this.client.transactions.executeRequest(canonicalId, request);
-          return await this.submitWorkerProof(executed, attempt);
-        }
-        // Point of no return. `submit` executes, proves and submits in one call, so
-        // a whole-op retry past here would draw a fresh serial from
-        // `newPswapCreateTransactionRequest` above, build a SECOND PSWAP note and
-        // lock the offered asset twice. Marking it costs this swap its
-        // delegated→local prove fallback; a duplicated swap note is unrecoverable,
-        // a failed swap is not.
-        attempt.markSubmitting();
-        // Explicit prover on the delegated path for the same reason as the consume
-        // above: the SDK's own remote prover carries a ~10s gRPC deadline. Opaque
-        // whole-op write: proves internally, so the #775 watchdog pause covers the
-        // whole call (a passthrough on the delegated attempt).
-        const { result } = await attempt.pauseWatchdogForLocalProve(() =>
-          this.client.transactions.submit(canonicalId, request, {
-            prover: prover ?? remoteProver()
-          })
-        );
-        return result;
+        // Staged for every attempt (#1233): a worker leg proves in the prove worker (#945), every
+        // other leg proves here, and both submit and apply themselves, so the apply after the submit
+        // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
+        // delegated prove that fails falls back to a local attempt with a freshly built request.
+        const executed = await this.client.transactions.executeRequest(canonicalId, request);
+        if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt);
+        return await this.proveInRealmAndSubmit(executed, prover, attempt, 'swap');
       },
       transaction.delegateTransaction,
       this.liveness
@@ -1814,44 +1747,19 @@ export class MidenClientInterface {
         // SDK borrows the request in `executeRequest` too (its own `executeTransaction`
         // call - see the doc above buildSendExecuteArgs), so this stays correct however
         // a later SDK passes it.
-        recordProveTiming(`newTransaction delegated: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
+        recordProveTiming(`newTransaction staged: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
         const executed = await this.client.transactions.executeRequest(
           accountId,
           TransactionRequest.deserialize(requestBytes)
         );
-        recordProveTiming('newTransaction delegated: executeRequest returned; proving');
+        recordProveTiming('newTransaction staged: executeRequest returned; proving');
         if (attempt.provesInWorker()) return await this.submitWorkerProof(executed, attempt);
-        // Hand `prove()` an EXPLICIT remote prover rather than letting it fall back to
-        // the client's default. Per the SDK: with an explicit prover this is a pure
-        // computation over the TransactionResult that "works on a bare WebClient that
-        // never ran createClient()", and "only the default-prover fallback requires an
-        // initialized client" — naming a chrome.offscreen document as exactly the
-        // prover-only host that has none. Flag-on, this runs offscreen, so `prove({})`
-        // took the fallback and never dispatched: the earn deposit sat here forever
-        // while the remote prover logged no request at all, holding the WASM mutex and
-        // starving sync (#718). The delegated consume alongside it was unaffected
-        // because it is a whole-op `transactions.consume` on the initialized client.
-        const delegatedProver = prover ?? remoteProver();
-        // Bounded for the same reason as the guardian pipeline's identical
-        // `prove({})` and the delegated consume: a delegated prove has no deadline of
-        // its own, so a remote prover that never answers parks the write forever while
-        // it holds the offscreen WASM mutex — starving sync until its circuit breaker
-        // opens (#718). Observed on the earn deposit, where the prove was never even
-        // dispatched to the prover. Safe to bound HERE specifically because proving
-        // strictly precedes `markSubmitting()`: nothing has been broadcast yet, so the
-        // fallback re-proves locally rather than risking a second submission. The #775
-        // watchdog pause covers the local attempt (a passthrough when delegated).
-        const proven = await attempt.pauseWatchdogForLocalProve(() => {
-          const proving = executed.prove(delegatedProver ? { prover: delegatedProver } : {});
-          return prover === undefined ? withDelegatedProveTimeout(proving, 'Delegated newTransaction prove') : proving;
-        });
-        recordProveTiming('newTransaction delegated: prove returned; submitting');
-        attempt.markSubmitting();
-        const submitted = await proven.submit();
-        recordProveTiming('newTransaction delegated: submit returned; applying');
-        await submitted.apply();
-        recordProveTiming('newTransaction delegated: apply returned');
-        return executed.result;
+        // A dApp transaction or an Agglayer bridge the node accepted must not end Failed, which
+        // hides the L1 claim (#1233). With no result to return, the dApp's `waitForTransaction`
+        // still answers with an error, one saying the network accepted it and naming its id.
+        const result = await this.proveInRealmAndSubmit(executed, prover, attempt, 'newTransaction');
+        recordProveTiming('newTransaction staged: apply returned');
+        return result;
       },
       delegateTransaction,
       this.liveness
@@ -1889,12 +1797,63 @@ export class MidenClientInterface {
     await onStage?.('submitting');
     attempt.markSubmitting();
     const submitted = await this.client.transactions.submitProven(proof, executed.result);
-    try {
-      await submitted.apply();
-    } catch (error) {
-      // The node already has the transaction, so this must classify as submitted.
-      throw new ApplyAfterSubmitError(error);
+    // The node already has the transaction: a failed apply is retried while that is safe, and one
+    // that outlasts the retries classifies as submitted (#1233).
+    await applyAfterSubmit({
+      apply: () => submitted.apply(),
+      result: executed.result,
+      readLocalAccount: accountId => this.client.accounts.get(accountId),
+      holdIsCurrent: () => attempt.holdIsCurrent()
+    });
+    return executed.result;
+  }
+
+  /**
+   * The in-realm leg of a staged attempt, shared by the four plain writes so their point of no
+   * return sits in one place (#1233): prove `executed` in this realm, then submit it and apply it.
+   * Everything before `markSubmitting()` is pre-submit, so `proveWithFallback` may re-run a
+   * delegated attempt locally; nothing after it is ever re-run.
+   */
+  private async proveInRealmAndSubmit(
+    executed: TransactionExecution,
+    prover: TransactionProver | undefined,
+    attempt: ProveAttempt,
+    write: 'send' | 'newTransaction' | 'consume' | 'swap',
+    onStage?: (stage: ITransactionStage) => Promise<void> | void
+  ): Promise<TransactionResult> {
+    // An explicit prover on the delegated path, see `remoteProver`: `prove({})` selects the SDK's
+    // default-prover fallback, which needs an initialized client and so never dispatched in the
+    // offscreen realm, where an earn deposit sat forever with the WASM mutex held while the remote
+    // prover logged no request at all (#718).
+    const inRealmProver = prover ?? remoteProver();
+    // Only the delegated prove is bounded: it has no deadline of its own, so a remote prover that
+    // never answers parks the write with the mutex held and starves sync (#718). Bounding it is safe
+    // because it precedes `markSubmitting()`: the fallback re-proves locally rather than submitting
+    // twice. The #775 watchdog pause covers the local attempt (a passthrough when delegated).
+    const proven = await attempt.pauseWatchdogForLocalProve(() => {
+      const proving = executed.prove(inRealmProver ? { prover: inRealmProver } : {});
+      return prover === undefined ? withDelegatedProveTimeout(proving, `Delegated ${write} prove`) : proving;
+    });
+    recordProveTiming(`${write} staged: prove returned; submitting`);
+    await onStage?.('submitting');
+    // The prove and the stage stamp both park, and an eviction during either hands the client to a
+    // successor: submitting on it would be a second borrow of a client this write no longer owns.
+    if (attempt.evicted()) {
+      throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned after the ${write} prove`));
     }
+    // Point of no return: a retry past here would build a fresh request (a new note serial; for a
+    // swap, a second PSWAP note locking the offered asset twice) and submit a second write.
+    attempt.markSubmitting();
+    const submitted = await proven.submit();
+    recordProveTiming(`${write} staged: submit returned; applying`);
+    // The node has the write now: a failed apply is retried while that is safe, and one that
+    // outlasts the retries classifies as submitted, so a Retry cannot pay twice.
+    await applyAfterSubmit({
+      apply: () => submitted.apply(),
+      result: executed.result,
+      readLocalAccount: accountId => this.client.accounts.get(accountId),
+      holdIsCurrent: () => attempt.holdIsCurrent()
+    });
     return executed.result;
   }
 
@@ -1984,7 +1943,14 @@ export class MidenClientInterface {
         const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
         const height = await inner.submitProvenTransaction(proven, txResult);
         recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
-        await inner.applyTransaction(txResult, height);
+        // Same rule as the staged applies (#1233). This block holds the SDK lock and the wallet's,
+        // re-taken after the prove's yield, so the retry reads the account on this inner client.
+        await applyAfterSubmit({
+          apply: () => inner.applyTransaction(txResult, height),
+          result: txResult,
+          readLocalAccount: accountId => inner.getAccount(accountId),
+          holdIsCurrent: () => attempt.holdIsCurrent()
+        });
         recordProveTiming('proveLocallyViaOffscreen apply returned');
       });
       console.log(`[mt-offscreen-prove] tx_completed prove_ms=${durationMs.toFixed(0)}`);
@@ -2114,10 +2080,8 @@ export interface ProveAttempt {
    * delegated proving is down, so capping it would leave nothing to fall back to
    * — while a delegated prove has its own deadline and stays on the clock.
    *
-   * Callers must wrap the prove as tightly as their write allows: the seam if
-   * they own one (`executed.prove(...)`), otherwise the opaque SDK call that
-   * proves internally (`transactions.consume` / `transactions.submit`). Pausing
-   * the whole callback where a seam exists would disable the watchdog across
+   * Callers wrap only the prove (`executed.prove(...)`), never the whole
+   * callback: pausing the callback would disable the watchdog across
    * execute → prove → submit → apply, i.e. across exactly the operation #775
    * wedges.
    */
@@ -2135,6 +2099,20 @@ export interface ProveAttempt {
    * an evicted flow's entry hold may already be its successor's.
    */
   proveInWorker(result: Pick<TransactionResult, 'serialize'>): Promise<ProvenTransaction>;
+  /**
+   * True while this write still owns the WASM lock it took and its client is live: what a retry
+   * after a parking await has to ask before its next WASM call (#1233). False for a write that
+   * holds no lock, for the reason `proveInWorker` refuses one.
+   */
+  holdIsCurrent(): boolean;
+  /**
+   * True once recovery took this write's client away: the client is disposed or marked poisoned,
+   * or the lock hold the write took is no longer the lock's (#1233). A write that took no hold
+   * answers from its client alone, so the lockless unit tests still run. A pre-submit step that sees
+   * true stops with `WasmClientPoisonedError`: its next WASM call would borrow a client the flow no
+   * longer owns.
+   */
+  evicted(): boolean;
 }
 
 /**
@@ -2264,7 +2242,9 @@ export async function proveWithFallback<T>(
     proveInWorker: result =>
       liveness.disposed || hold === null
         ? Promise.reject(new WasmClientPoisonedError('watchdog', new Error('worker prove refused: no live hold')))
-        : proveInWorker(result, hold)
+        : proveInWorker(result, hold),
+    holdIsCurrent: () => !liveness.disposed && hold !== null && getCurrentWasmLockHold() === hold,
+    evicted: () => liveness.disposed || (hold !== null && getCurrentWasmLockHold() !== hold)
   };
 
   const startedAt = performance.now();
@@ -2307,6 +2287,12 @@ export async function proveWithFallback<T>(
       !isApplyAfterSubmitError(err) &&
       !(err instanceof WebAssembly.RuntimeError)
     ) {
+      // An evicted write must not re-run: the fallback would execute, prove and submit on a client
+      // recovery took away, while the row already takes the kill path (#1233).
+      if (attempt.evicted()) {
+        reportProve({ startedAt, step: 'prove_delegate', error: err });
+        throw new WasmClientPoisonedError('watchdog', new Error('operation abandoned before the local fallback'));
+      }
       const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is

@@ -2879,12 +2879,13 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       // The REAL classifier extractor — asserting it returns the code proves the SW
       // takes the `=== 'ApplyTransactionAfterSubmitFailed'` → mark-Completed branch,
       // exactly as the flag-off inline path does.
-      const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');
+      const { extractLanded, extractSdkErrorCode } = await import('../sdk/sdk-error-code');
       fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
         ok: false,
         op_id: env.op_id,
         error: 'local apply failed after submit',
-        errorCode: APPLY
+        errorCode: APPLY,
+        errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
       }));
 
       const p = invoke(midenClientProxy).catch((e: unknown) => e);
@@ -2898,6 +2899,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       // ...AND the stable code rides the rejection in the exact shape the classifier
       // reads → Completed, never Failed → requeue → double-spend.
       expect(extractSdkErrorCode(err)).toBe(APPLY);
+      expect(extractLanded(err)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 2 });
     }
   );
 
@@ -3172,12 +3174,13 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
 
   it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {
     const { dispatchGuardianPipeline } = await loadProxy(true);
-    const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');
+    const { extractLanded, extractSdkErrorCode } = await import('../sdk/sdk-error-code');
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: false,
       op_id: env.op_id,
       error: 'local apply failed after submit',
-      errorCode: 'ApplyTransactionAfterSubmitFailed'
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
     }));
 
     const p = dispatchGuardianPipeline(
@@ -3194,6 +3197,7 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect((err as Error).message).toContain('local apply failed after submit');
     // The stable code rides the rejection in the shape the guardian classifier reads.
     expect(extractSdkErrorCode(err)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(extractLanded(err)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 2 });
   });
 
   it('flag ON → the executeRequest sign reverses through the op-registered callback over the EXISTING OFFSCREEN_SIGN_REQUEST channel', async () => {

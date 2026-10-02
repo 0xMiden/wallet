@@ -68,6 +68,7 @@ import {
   type OffscreenStageEvent
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
@@ -87,7 +88,7 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { extractLanded, extractSdkErrorCode, type LandedTransaction } from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -845,9 +846,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     } as unknown as SwapTransaction;
     const result = await client.swapTransaction(tx);
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
-    // applied) by the time it returns, through the delegated leg's all-in-one
-    // `transactions.submit` or the local leg's staged `submitProven`, so the PSWAP
-    // note may already be on the network. Post-submit, completing beats aborting.
+    // applied) by the time it returns, through its staged submit (in this realm, or
+    // `submitProven` for a worker proof), so the PSWAP note may already be on the
+    // network. Post-submit, completing beats aborting.
     return result.serialize() as Uint8Array;
   },
 
@@ -1050,7 +1051,17 @@ const DISPATCH: Record<string, DispatchFn> = {
     postStageEvent(context, 'submitting');
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
-    await submittedTx.apply();
+    // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has
+    // the write, so a failed local apply is retried in this hold while that is safe, and one that
+    // outlasts the retries crosses back as submitted. Its code survives the crossing and its cause
+    // does not, so each failed attempt names the store's reason on the harness's own record.
+    await applyAfterSubmit({
+      apply: () => submittedTx.apply(),
+      result: txResult,
+      readLocalAccount: accountId => client.client.accounts.get(accountId),
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold,
+      onApplyFailed: error => recordProveTiming(`guardianPipeline apply FAILED after submit (${String(error)})`)
+    });
     recordProveTiming('guardianPipeline apply returned');
     return executedTx.result.serialize() as Uint8Array;
   },
@@ -1514,9 +1525,13 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // owed. A placeholder string is worth strictly more than that.
     let error = 'offscreen call failed (error details unreadable)';
     let errorCode: string | undefined;
+    let errorLanded: LandedTransaction | undefined;
     try {
       error = String((err as { message?: string })?.message ?? err);
       errorCode = extractSdkErrorCode(err);
+      // What a landed apply failure knows about its transaction, which only this reply can carry across (#1233).
+      const landed = extractLanded(err);
+      errorLanded = Object.keys(landed).length > 0 ? landed : undefined;
     } catch {
       /* unreadable error object — the reply below still carries the class */
     }
@@ -1525,6 +1540,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       op_id: msg?.op_id,
       error,
       errorCode,
+      errorLanded,
       // The error CLASS, for the classifications that key off it rather than off
       // a code — today `WasmClientPoisonedError` from this realm's own lock
       // recovery (issue #775). Without it the SW rebuilds a bare `Error` and

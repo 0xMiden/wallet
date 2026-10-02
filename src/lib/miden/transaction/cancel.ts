@@ -1,7 +1,8 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import * as Repo from 'lib/miden/repo';
-import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
+import { syncBeforeVerdict } from 'lib/miden/sync-lock';
 import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
@@ -101,6 +102,7 @@ export const cancelTransaction = async (
     typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  const nodeDiscarded = isGuardianWriteDiscardedError(error);
   let applied = false;
   let racedTerminal = false;
   let committed: ITransaction | undefined;
@@ -121,6 +123,8 @@ export const cancelTransaction = async (
     if (displayError !== rawError) dbTx.rawError = rawError;
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
+    // The node's verdict is recorded in the write that fails the row, so no reader sees it unmarked (#1233).
+    if (nodeDiscarded) dbTx.extraInputs = { ...dbTx.extraInputs, nodeDiscarded: true };
     // Copied from the row this write is committing, not from the `existing` read
     // above it, so a submit stamp that lands between that read and this write is
     // seen by the notice below (#1250).
@@ -689,7 +693,9 @@ export type ConsumeLandedVerdict =
  *
  * When `sync` is true, best-effort syncs first so the note state reflects the
  * latest chain head (a sync failure falls back to the last-synced state, which is
- * still authoritative for a consumed note — a consumed note never reverts). The
+ * still authoritative for a consumed note, since a consumed note never reverts;
+ * a watchdog eviction of that sync reads nothing and gives `'unknown'`, per
+ * `syncBeforeVerdict`). The
  * immediate killed-consume path passes `true` because it resolves ONE tx and wants
  * the freshest state before deciding; the background reaper passes `false` because
  * it runs alongside AutoSync and must NOT fire one sync per stuck consume (that
@@ -706,17 +712,9 @@ export type ConsumeLandedVerdict =
  */
 export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean): Promise<ConsumeLandedVerdict> => {
   try {
-    if (sync) {
-      // Best-effort fresh sync so the note state reflects the latest chain head. A
-      // sync failure must not block the check: the last-synced state is still
-      // authoritative for a consumed note (it cannot un-consume), and for a
-      // not-yet-consumed note it can only under-report "landed" → a safe Fail.
-      try {
-        await syncUnderBoundedLock();
-      } catch (syncError) {
-        console.warn('[verifyConsumeLanded] sync failed; reading last-synced note state for tx', tx.id, syncError);
-      }
-    }
+    // Best-effort: after a failed sync the last-synced state is still authoritative for a consumed
+    // note (it cannot un-consume) and can only under-report "landed" for the rest → a safe Fail.
+    if (sync && !(await syncBeforeVerdict('consume-verdict-sync', `reading note ${tx.noteId}`))) return 'unknown';
 
     const noteDetails = await withWasmClientLock(async hold =>
       midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] }, () =>
@@ -743,9 +741,10 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
  *   - `'landed'`  the tx's captured `transactionId` is committed OR pending
  *                 (submitted) on the node — its effect already happened, so a
  *                 Retry must NOT resubmit it (that would be a double-send).
- *   - `'unknown'` no captured `transactionId`, or the node/client has no record
- *                 of it — INDETERMINATE. We cannot prove it landed, so the caller
- *                 keeps the funds-safe default (surface it, don't auto-complete).
+ *   - `'unknown'` no captured `transactionId`, the node/client has no record
+ *                 of it, or its sync was evicted: INDETERMINATE. We cannot prove
+ *                 it landed, so the caller keeps the funds-safe default (surface
+ *                 it, don't auto-complete).
  */
 export type SendLandedVerdict = 'landed' | 'unknown';
 
@@ -761,11 +760,13 @@ export type SendLandedVerdict = 'landed' | 'unknown';
  *
  * Mirrors {@link verifyConsumeLanded} (which checks the INPUT note's consumed
  * state) but for the OUTPUT side, via the tx id. Best-effort syncs first for the
- * freshest node state; a sync failure falls back to the last-synced record.
+ * freshest node state; a sync failure falls back to the last-synced record, except
+ * a watchdog eviction, which reads nothing and gives `'unknown'` (`syncBeforeVerdict`).
  *
  * COVERAGE LIMIT — read before relying on this as the only double-send guard.
- * `ITransaction.transactionId` is written ONLY by the completion handlers in
- * `complete.ts` (the success path) and by `updateBridgedReceivePhase`. A row
+ * `ITransaction.transactionId` is written only by the completion handlers in
+ * `complete.ts` (the success path), by `updateBridgedReceivePhase`, and by the
+ * landed arms of a failed apply after submit (#1233). A row
  * failed by a route that killed it from OUTSIDE its own write pipeline — the
  * stuck reaper, the cold-start sweep, an offscreen deadline kill, a user Cancel
  * mid-flight — therefore arrives here with no id at all and short-circuits to
@@ -779,10 +780,8 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
   if (!tx.transactionId) return 'unknown';
   const txId = tx.transactionId;
   try {
-    try {
-      await syncUnderBoundedLock();
-    } catch (syncError) {
-      console.warn('[verifySendLanded] sync failed; reading last-synced tx state for', tx.id, syncError);
+    if (!(await syncBeforeVerdict('send-verdict-sync', `reading the node-side state of transaction ${txId}`))) {
+      return 'unknown';
     }
     const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(txId));
     // `'discarded'` is deliberately NOT `'landed'`: the node rejected the tx, so

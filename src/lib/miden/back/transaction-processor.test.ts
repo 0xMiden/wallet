@@ -81,7 +81,8 @@ jest.mock('lib/platform', () => ({
 
 const mockWithUnlocked = jest.fn();
 jest.mock('./store', () => ({
-  withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
+  withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn),
+  accountsUpdated: jest.fn()
 }));
 
 /**
@@ -501,6 +502,32 @@ describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
     expect((caught as { reason?: string }).reason).toBe('locked');
     // …not the opaque null-vault TypeError the unguarded sign path threw.
     expect(message).not.toMatch(/Cannot read propert/i);
+  });
+});
+
+describe('vaultGuardianProvider.swapHotKey', () => {
+  const vaultSwapping = () => {
+    const swapHotKey = jest.fn(async () => ({ accounts: [], currentAccount: undefined }));
+    mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault: { swapHotKey } }));
+    return swapHotKey;
+  };
+
+  it('passes the expectation to the vault (#1233)', async () => {
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
+
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+  });
+
+  it('passes no expectation when the caller passes none (#1233)', async () => {
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
+
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
   });
 });
 

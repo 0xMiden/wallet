@@ -125,7 +125,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
-  swapHotKey: async (accountPublicKey: string, newHotPubKey: string) => {
+  swapHotKey: async (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => {
     // Fire `accountsUpdated` after the vault swap so the SW's Effector store
     // reflects the new hotPublicKey. Without this, storage is correct but the
     // Effector snapshot served via frontStore stays at the pre-rotation
@@ -143,7 +143,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // clearing its flag) would drop one of the two writes.
     return withUnlocked(({ vault }) =>
       getAccountsWriteQueue().add(async () => {
-        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
         accountsUpdated(updated);
       })
     );

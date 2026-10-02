@@ -5,6 +5,7 @@
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { getMessage } from 'lib/i18n';
+import { deserializeError, serializeError } from 'lib/intercom/helpers';
 import { importedAccountBackupFailure } from 'lib/miden/backup-file';
 import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
@@ -13,7 +14,7 @@ import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transac
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { PublicError } from './defaults';
+import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from './defaults';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import {
   encryptAndSaveMany,
@@ -1494,6 +1495,133 @@ describe('Vault.withAccountFileKeyReader', () => {
     await expect(
       Vault.withAccountFileKeyReader('acc-pub-key-1', 'pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])))
     ).rejects.toThrow('Failed to export account file');
+  });
+});
+
+describe('Vault.swapHotKey', () => {
+  const seedGuardianAccount = async (extraKeys: [string, string][] = []) => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex'
+    };
+    await encryptAndSaveMany(
+      [[keys.accounts, [account]], [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT'], ...extraKeys],
+      vaultKey
+    );
+    return vault;
+  };
+
+  // A swap to a key this vault lacks would point the account at nothing: an encrypted-file restore
+  // keeps the rotation rows but not necessarily the key a rotation minted (#1233).
+  it('swapHotKey refuses a key this wallet does not hold', async () => {
+    const vault = await seedGuardianAccount();
+
+    const swap = vault.swapHotKey('guardian-acc-1', 'missing-pub');
+    await expect(swap).rejects.toBeInstanceOf(PublicError);
+    // The heal closes its budget on this code alone, never on the message (#1233).
+    await expect(swap).rejects.toMatchObject({ code: HOT_KEY_NOT_STORED });
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
+  });
+
+  it('swapHotKey repoints and releases the old key when the new one is stored', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub');
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(false);
+    expect(mockDeleteHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+  });
+
+  // A background heal swaps only if the pointer is still where it read it; a rotation that completed
+  // meanwhile owns the account's key (#1233).
+  it('refuses a stale expectation and changes nothing (#1233)', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    const caught = await vault.swapHotKey('guardian-acc-1', 'new-pub', 'stale-pub').then(
+      () => undefined,
+      (e: unknown) => e
+    );
+
+    expect(caught).toBeInstanceOf(PublicError);
+    expect(caught).toMatchObject({ code: HOT_KEY_CHANGED });
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+    expect(await isStored(keys.accAuthSecretKey('new-pub'))).toBe(true);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
+    // The extension's port carries the code the heal matches on.
+    expect(deserializeError(serializeError(caught)).code).toBe(HOT_KEY_CHANGED);
+  });
+
+  it('refuses a keyless expectation once the account has a key (#1233)', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    await expect(vault.swapHotKey('guardian-acc-1', 'new-pub', null)).rejects.toMatchObject({
+      code: HOT_KEY_CHANGED
+    });
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+  });
+
+  it('reports a moved pointer before a missing key (#1233)', async () => {
+    const vault = await seedGuardianAccount();
+
+    await expect(vault.swapHotKey('guardian-acc-1', 'missing-pub', 'stale-pub')).rejects.toMatchObject({
+      code: HOT_KEY_CHANGED
+    });
+  });
+
+  it('swaps when the expectation matches (#1233)', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub', 'hot-pub-hex');
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(false);
+    expect(mockDeleteHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+  });
+
+  it('swaps a keyless record when the expectation is null (#1233)', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const pending: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      coldPublicKey: 'cold-pub-hex',
+      requiresHotKeyRotation: true
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [pending]],
+        [keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']
+      ],
+      vaultKey
+    );
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub', null);
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(account?.requiresHotKeyRotation).toBe(false);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
   });
 });
 

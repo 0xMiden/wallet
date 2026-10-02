@@ -437,6 +437,12 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `reopen()`. Returns `''` if unset or the store is unavailable.
    */
   currentGuardianEndpoint(): Promise<string>;
+  /**
+   * What the guardian operator at `endpoint` holds for this account: its stored state's commitment
+   * and whether it released the account, read with this device's hot key through the E2E-only
+   * `__TEST_GUARDIAN_OPERATOR_VIEW__` hook (#1233).
+   */
+  guardianOperatorView(accountPublicKey: string, endpoint: string): Promise<GuardianOperatorView>;
   /** Create another HD account through the E2E-only frontend store hook. */
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
   /** Create a Guardian wallet through every current extension onboarding screen. */
@@ -582,6 +588,13 @@ export interface GuardianAuthInfo {
    * guardian slot set, or the hook predates this field (older builds).
    */
   guardianCommitment?: string;
+  error?: string;
+}
+
+/** What one guardian operator holds for an account (#1233): its stored state, and whether it released it. */
+export interface GuardianOperatorView {
+  commitment?: string;
+  released?: boolean;
   error?: string;
 }
 
@@ -1065,6 +1078,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       }
       return await fn(pk);
     }, accountPublicKey);
+  }
+
+  async guardianOperatorView(accountPublicKey: string, endpoint: string): Promise<GuardianOperatorView> {
+    return this.page.evaluate(
+      async ({ pk, url }: { pk: string; url: string }) => {
+        const fn = (
+          globalThis as unknown as {
+            __TEST_GUARDIAN_OPERATOR_VIEW__?: (pk: string, url: string) => Promise<GuardianOperatorView>;
+          }
+        ).__TEST_GUARDIAN_OPERATOR_VIEW__;
+        if (!fn) return { error: '__TEST_GUARDIAN_OPERATOR_VIEW__ unavailable (needs MIDEN_E2E_TEST build)' };
+        return await fn(pk, url);
+      },
+      { pk: accountPublicKey, url: endpoint }
+    );
   }
 
   // ── Guardian switch / recovery ───────────────────────────────────────────────

@@ -817,6 +817,7 @@ describe('completeCustomTransaction', () => {
 
   it('processes private output notes by sending them via the WASM client', async () => {
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => ({ valid: true }) as any
     };
@@ -836,6 +837,7 @@ describe('completeCustomTransaction', () => {
   it('handles sendPrivateNote rejections gracefully and still marks the tx complete', async () => {
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => ({}) as any
     };
@@ -852,6 +854,7 @@ describe('completeCustomTransaction', () => {
 
   it('skips notes whose intoFull returns undefined', async () => {
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => undefined
     };
@@ -869,6 +872,7 @@ describe('completeCustomTransaction', () => {
 
   it('skips notes whose intoFull throws', async () => {
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => {
         throw new Error('boom');
@@ -888,6 +892,7 @@ describe('completeCustomTransaction', () => {
   it('handles transactions without secondaryAccountId by skipping the note', async () => {
     txStore[0]!.secondaryAccountId = undefined;
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => ({}) as any
     };
@@ -917,6 +922,73 @@ describe('completeCustomTransaction', () => {
     const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
+  });
+
+  it('records only the private note as owed a relay when a public note rides along', async () => {
+    // `outputNoteIds` lists both, so without this the sweep cannot tell which id its verdict is about.
+    const note = (id: string, noteType: string) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => ({ noteType: () => noteType }),
+      intoFull: () => ({}) as any
+    });
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({ notes: () => [note('0xpublic', 'public'), note('0xprivate', 'private')] })
+      })
+    } as any;
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, txResult);
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(txStore[0]!.relayNoteIds).toEqual(['0xprivate']);
+  });
+
+  it('still counts a private note it could not convert as owed a relay', async () => {
+    // The row's label and state cover this note too, so a verdict on the other one must not speak for it.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const note = (id: string, full: unknown) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => ({ noteType: () => 'private' }),
+      intoFull: () => full
+    });
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({ notes: () => [note('0xsent', {}), note('0xunconvertible', undefined)] })
+      })
+    } as any;
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, txResult);
+    errSpy.mockRestore();
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(txStore[0]!.relayNoteIds).toEqual(['0xsent', '0xunconvertible']);
+  });
+
+  it('records the recipient the relay used, not the sender a consume reading puts in its place', async () => {
+    jest
+      .requireMock('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce((tx: any) =>
+        Object.assign(tx, { type: 'consume', secondaryAccountId: 'sender', displayMessage: 'Received' })
+      );
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () => [
+            {
+              id: () => ({ toString: () => '0xprivate' }),
+              metadata: () => ({ noteType: () => 'private' }),
+              intoFull: () => ({}) as any
+            }
+          ]
+        })
+      })
+    } as any;
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, txResult);
+
+    expect(mockSendPrivateNote).toHaveBeenCalledWith({}, 'acc-2');
+    expect(txStore[0]).toMatchObject({ secondaryAccountId: 'sender', relayRecipientId: 'acc-2' });
   });
 });
 

@@ -14,9 +14,15 @@
 import { Account } from '@miden-sdk/miden-sdk/lazy';
 import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
 
-import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
+import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
+import {
+  GuardianReRegisterRefusedError,
+  isGuardianAuthRejection,
+  MultisigService,
+  POST_COMMIT_GUARDIAN_TIMEOUT_MS
+} from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Fire retry BACKOFFS immediately without disabling request DEADLINES.
@@ -84,6 +90,8 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 let currentWasmHold: object | null = null;
 // Set by the one test that needs the watchdog to land mid-build.
 let evictDuringClientBuild = false;
+// Runs before a hold begins: the time a caller spends queued for the mutex.
+let beforeWasmHold: (() => void) | undefined;
 const wasmLockOptionsSeen: unknown[] = [];
 jest.mock('../sdk/miden-client', () => {
   // The real error class, so the code under test's poison classifiers see the
@@ -106,6 +114,7 @@ jest.mock('../sdk/miden-client', () => {
     },
     withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
       wasmLockOptionsSeen.push(options);
+      beforeWasmHold?.();
       const hold = {};
       currentWasmHold = hold;
       try {
@@ -241,6 +250,12 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   abandonCandidate: jest.fn(async () => ({ state: 'pending' })),
   executeProposal: jest.fn(async () => {}),
   syncState: jest.fn(async () => {}),
+  // Local IS the on-chain state unless a test says otherwise: the re-register's guard (#1233).
+  verifyStateCommitment: jest.fn(async () => ({
+    accountId: 'acc-id',
+    localCommitment: '0xc0',
+    onChainCommitment: '0xc0'
+  })),
   getConsumableNotes: jest.fn(async () => ['note-a']),
   createSwitchGuardianProposal: jest.fn(async () => ({
     nonce: 7,
@@ -457,6 +472,116 @@ describe('MultisigService', () => {
     });
   });
 
+  describe('pushSwitchDelta (#1233)', () => {
+    it('pushes the executed switch delta to the guardian the service loaded from, with its summary as the payload', async () => {
+      const txSummary = { data: 'txs-b64' };
+      const delta = {
+        accountId: 'acc-id',
+        nonce: 7,
+        prevCommitment: '0xprev',
+        newCommitment: '0xnew',
+        deltaPayload: { txSummary, signatures: [] },
+        status: { status: 'pending' }
+      };
+      const getDeltaProposal = jest.fn(async () => delta);
+      const pushDelta = jest.fn(async () => ({ accountId: 'acc-id', nonce: 7 }));
+      const service = new MultisigService(
+        makeMultisig() as never,
+        { guardianClient: { getDeltaProposal, pushDelta } } as never,
+        'https://old.guardian'
+      );
+
+      await service.pushSwitchDelta('0xprop');
+
+      expect(getDeltaProposal).toHaveBeenCalledWith('acc-id', '0xprop');
+      expect(pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: txSummary });
+    });
+
+    it('surfaces a failed fetch to its caller, which treats the push as best-effort', async () => {
+      const pushDelta = jest.fn();
+      const service = new MultisigService(
+        makeMultisig() as never,
+        {
+          guardianClient: {
+            getDeltaProposal: jest.fn(async () => {
+              throw new Error('proposal not found');
+            }),
+            pushDelta
+          }
+        } as never,
+        'https://old.guardian'
+      );
+
+      await expect(service.pushSwitchDelta('0xprop')).rejects.toThrow('proposal not found');
+      expect(pushDelta).not.toHaveBeenCalled();
+    });
+
+    const boundedPush = (pushDelta: () => Promise<unknown>) =>
+      new MultisigService(
+        makeMultisig() as never,
+        {
+          guardianClient: {
+            getDeltaProposal: jest.fn(async () => ({ deltaPayload: { txSummary: {} } })),
+            pushDelta: jest.fn(pushDelta)
+          }
+        } as never,
+        'https://old.guardian'
+      );
+
+    it('pushSwitchDeltaBounded reads a push that lands in time as pushed, outside the WASM lock', async () => {
+      wasmLockOptionsSeen.length = 0;
+
+      await expect(boundedPush(async () => ({})).pushSwitchDeltaBounded('0xprop')).resolves.toBe('pushed');
+      expect(wasmLockOptionsSeen).toHaveLength(0);
+    });
+
+    it('pushSwitchDeltaBounded reads an outgoing guardian that stays silent past the budget as silent', async () => {
+      jest.useFakeTimers();
+      try {
+        const outcome = boundedPush(() => new Promise(() => {})).pushSwitchDeltaBounded('0xprop');
+        await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
+        await expect(outcome).resolves.toBe('silent');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    // Only a timeout is silent: an unreachable answer came back at once, so it holds nothing next lap.
+    it('pushSwitchDeltaBounded reads an unreachable guardian and any other answer as refused', async () => {
+      const unreachable = Object.assign(new Error('Service Unavailable'), { status: 503 });
+      const conflict = Object.assign(new Error('a pending delta exists'), { status: 409 });
+
+      await expect(
+        boundedPush(async () => {
+          throw unreachable;
+        }).pushSwitchDeltaBounded('0xprop')
+      ).resolves.toBe('refused');
+      await expect(
+        boundedPush(async () => {
+          throw conflict;
+        }).pushSwitchDeltaBounded('0xprop')
+      ).resolves.toBe('refused');
+    });
+  });
+
+  describe('probeGuardianState (#1233)', () => {
+    it('probeGuardianState reads the state over guardian HTTP and never takes the WASM lock', async () => {
+      wasmLockOptionsSeen.length = 0;
+      const getState = jest.fn(async () => ({ accountId: 'acc-id' }));
+      const service = new MultisigService(
+        makeMultisig() as never,
+        { guardianClient: { getState } } as never,
+        'https://old.guardian'
+      );
+
+      await service.probeGuardianState();
+
+      expect(getState).toHaveBeenCalledTimes(1);
+      expect(getState).toHaveBeenCalledWith('acc-id');
+      expect(wasmLockOptionsSeen).toHaveLength(0);
+    });
+  });
+
   describe('sync retry logic', () => {
     it('resets retry count after a successful sync', async () => {
       const multisig = makeMultisig();
@@ -479,6 +604,31 @@ describe('MultisigService', () => {
       await service.adoptGuardianStateOnce();
 
       expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }]);
+    });
+
+    it('reports how long adoptGuardianStateOnce held its lock, from acquisition, even when it fails', async () => {
+      let now = 0;
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      beforeWasmHold = () => {
+        now += 4_000;
+      };
+      const multisig = makeMultisig({
+        syncState: jest.fn(async () => {
+          now += 7_000;
+          throw new Error('504 Gateway Timeout');
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onHeld = jest.fn();
+
+      try {
+        await expect(service.adoptGuardianStateOnce(onHeld)).rejects.toThrow('504 Gateway Timeout');
+      } finally {
+        beforeWasmHold = undefined;
+        perfSpy.mockRestore();
+      }
+
+      expect(onHeld).toHaveBeenCalledWith(7_000);
     });
 
     it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
@@ -585,11 +735,76 @@ describe('MultisigService', () => {
       const multisig = makeMultisig({ syncState, registerOnGuardian });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+      wasmLockOptionsSeen.length = 0;
 
       try {
         await service.sync();
+        expect(multisig.verifyStateCommitment).toHaveBeenCalledTimes(1);
         expect(registerOnGuardian).toHaveBeenCalledTimes(1); // last-resort re-register, once
         expect(syncState).toHaveBeenCalledTimes(32); // 31 lag failures + 1 success after re-register
+        // The idle loop reaches this re-register, so its hold is bounded and labelled like the sync's.
+        expect(
+          wasmLockOptionsSeen.filter(options => (options as { label?: string } | undefined)?.label !== 'guardian-sync')
+        ).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync-realign' }]);
+      } finally {
+        restoreTimers();
+      }
+    });
+
+    // #1233: Stage 2 pushes local state only when it IS the chain's. Each refusal below persists
+    // against a local copy that is not the on-chain state, or a chain that cannot be read, so
+    // nothing is pushed and the run ends on the original refusal: form 2 is the common real trigger
+    // (another device's newer state that the guardian is still canonicalizing), and form 1 with the
+    // guardian matching the chain would push a phantom.
+    const FORM_2 =
+      'Refusing to overwrite local state: incoming commitment does not match on-chain commitment for account acc-id';
+    const FORM_1 =
+      'Refusing to overwrite local state: incoming nonce 4 equals local nonce 4 but commitments differ for account acc-id';
+    const LOCAL_NOT_CHAIN = 'Local account commitment does not match on-chain commitment for account acc-id';
+    it.each([
+      ['form 2, a guardian ahead of a stale local copy', FORM_2, LOCAL_NOT_CHAIN],
+      ['form 1, a guardian that matches the chain', FORM_1, LOCAL_NOT_CHAIN],
+      ['form 2 with a chain that cannot be read', FORM_2, 'On-chain account details not found for account acc-id']
+    ])('does not push local state at Stage 2 on %s (#1233)', async (_label, refusal, verifyFailure) => {
+      const restoreTimers = skipRetryBackoffs();
+      const syncState = jest.fn(async () => {
+        throw new Error(refusal);
+      });
+      const registerOnGuardian = jest.fn(async () => {});
+      const verifyStateCommitment = jest.fn(async () => {
+        throw new Error(verifyFailure);
+      });
+      const multisig = makeMultisig({ syncState, registerOnGuardian, verifyStateCommitment });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+
+      try {
+        await expect(service.sync()).rejects.toThrow(refusal);
+        expect(verifyStateCommitment).toHaveBeenCalledTimes(1);
+        expect(mockGetAccount).not.toHaveBeenCalled();
+        expect(registerOnGuardian).not.toHaveBeenCalled();
+        // The initial attempt and the thirty waited retries; the last-resort push was refused.
+        expect(syncState).toHaveBeenCalledTimes(31);
+      } finally {
+        restoreTimers();
+      }
+    });
+
+    it('rethrows a sync error that only mentions a commitment mismatch at once (#1233)', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const syncState = jest.fn(async () => {
+        throw new Error('GUARDIAN public key commitment mismatch');
+      });
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ syncState, registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
+
+      try {
+        await expect(service.sync()).rejects.toThrow('GUARDIAN public key commitment mismatch');
+        // Not a canonicalizing guardian: no wait, and never the last-resort push.
+        expect(syncState).toHaveBeenCalledTimes(1);
+        expect(registerOnGuardian).not.toHaveBeenCalled();
       } finally {
         restoreTimers();
       }
@@ -606,6 +821,7 @@ describe('MultisigService', () => {
       await service.reRegisterCurrentStateOnGuardian();
 
       expect(mockSyncState).toHaveBeenCalled();
+      expect(multisig.verifyStateCommitment).toHaveBeenCalledTimes(1);
       expect(registerOnGuardian).toHaveBeenCalledTimes(1);
     });
 
@@ -613,8 +829,95 @@ describe('MultisigService', () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       mockGetAccount.mockResolvedValue(null);
+      const onPushStart = jest.fn();
 
-      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toThrow(
+        'missing from local client'
+      );
+      expect(onPushStart).not.toHaveBeenCalled();
+    });
+
+    it('fails a state sync before the push starts, and registers nothing', async () => {
+      const syncError = new Error('node unreachable');
+      mockSyncState.mockRejectedValueOnce(syncError);
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onPushStart = jest.fn();
+
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toBe(syncError);
+      expect(onPushStart).not.toHaveBeenCalled();
+      expect(multisig.verifyStateCommitment).not.toHaveBeenCalled();
+      expect(mockGetAccount).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('fails a watchdog rejection of the hold itself before the push starts', async () => {
+      const evicted = new WasmClientPoisonedError('watchdog');
+      beforeWasmHold = () => {
+        throw evicted;
+      };
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onPushStart = jest.fn();
+
+      try {
+        await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toBe(evicted);
+      } finally {
+        beforeWasmHold = undefined;
+      }
+      expect(onPushStart).not.toHaveBeenCalled();
+      expect(mockSyncState).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('starts the push once, before the first registration attempt, when the push fails', async () => {
+      const restoreTimers = skipRetryBackoffs();
+      const registerOnGuardian = jest.fn(async () => {
+        throw new Error('guardian down');
+      });
+      const multisig = makeMultisig({ registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      const onPushStart = jest.fn();
+
+      let error: unknown;
+      try {
+        error = await service
+          .reRegisterCurrentStateOnGuardian(undefined, onPushStart)
+          .catch((caught: unknown) => caught);
+      } finally {
+        restoreTimers();
+      }
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(GuardianReRegisterRefusedError);
+      expect(registerOnGuardian).toHaveBeenCalledTimes(8);
+      expect(onPushStart).toHaveBeenCalledTimes(1);
+      expect(onPushStart.mock.invocationCallOrder[0]).toBeLessThan(registerOnGuardian.mock.invocationCallOrder[0]!);
+    });
+
+    it('hands the push-start callback the signer set it derived from the chain-verified account (#1233)', async () => {
+      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+      const onPushStart = jest.fn();
+
+      await service.reRegisterCurrentStateOnGuardian(undefined, onPushStart);
+
+      expect(onPushStart).toHaveBeenCalledTimes(1);
+      expect(onPushStart).toHaveBeenCalledWith(['0xnewhot', '0xcold']);
+    });
+
+    it('holds its lock on the options a caller passes, and on the default hold otherwise', async () => {
+      const service = new MultisigService(makeMultisig() as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+      const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-reregister' };
+      wasmLockOptionsSeen.length = 0;
+
+      await service.reRegisterCurrentStateOnGuardian(options);
+      await service.reRegisterCurrentStateOnGuardian();
+
+      expect(wasmLockOptionsSeen).toEqual([options, undefined]);
     });
 
     it('re-derives the guardian allowlist from the fresh on-chain account before registering (#619 gap 3)', async () => {
@@ -658,10 +961,12 @@ describe('MultisigService', () => {
       mockSyncState.mockImplementationOnce(async () => {
         currentWasmHold = null;
       });
+      const onPushStart = jest.fn();
 
-      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toMatchObject({
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
+      expect(onPushStart).not.toHaveBeenCalled();
       expect(mockGetAccount).not.toHaveBeenCalled();
       expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     });
@@ -674,10 +979,12 @@ describe('MultisigService', () => {
         currentWasmHold = null;
         return { serialize };
       });
+      const onPushStart = jest.fn();
 
-      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toMatchObject({
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
+      expect(onPushStart).not.toHaveBeenCalled();
       // Both post-read touches are borrows: the inspector walks account storage
       // and serialize() reads through the same RefCell.
       expect(mockAccountInspectorFromAccount).not.toHaveBeenCalled();
@@ -701,6 +1008,57 @@ describe('MultisigService', () => {
       // cached set preserved, and the state blob is still pushed (best-effort).
       expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual(['0xhot', '0xcold']);
       expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a local copy that is not the on-chain state, writing nothing (#1233)', async () => {
+      const mismatch = new Error('Local account commitment does not match on-chain commitment for account acc-id');
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({
+        registerOnGuardian,
+        verifyStateCommitment: jest.fn(async () => {
+          throw mismatch;
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      const error = await service.reRegisterCurrentStateOnGuardian().catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(GuardianReRegisterRefusedError);
+      expect(error).toHaveProperty('cause', mismatch);
+      expect(mockGetAccount).not.toHaveBeenCalled();
+      expect(registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('does not push when the chain commitment cannot be read (#1233)', async () => {
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({
+        registerOnGuardian,
+        verifyStateCommitment: jest.fn(async () => {
+          throw new Error('On-chain account details not found for account acc-id');
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toBeInstanceOf(GuardianReRegisterRefusedError);
+      expect(registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('stops before the account read when the hold is evicted during the chain check (#1233)', async () => {
+      const multisig = makeMultisig({
+        verifyStateCommitment: jest.fn(async () => {
+          currentWasmHold = null;
+          return { accountId: 'acc-id', localCommitment: '0xc0', onChainCommitment: '0xc0' };
+        })
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onPushStart = jest.fn();
+
+      await expect(service.reRegisterCurrentStateOnGuardian(undefined, onPushStart)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(onPushStart).not.toHaveBeenCalled();
+      expect(mockGetAccount).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
     });
   });
 
@@ -812,6 +1170,42 @@ describe('MultisigService', () => {
       await expect(
         MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian')
       ).rejects.toThrow('load failed');
+    });
+
+    it('holds its lock on the options a caller passes, and on the default hold otherwise', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt-init' };
+      wasmLockOptionsSeen.length = 0;
+
+      await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian', options);
+      await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian');
+
+      expect(wasmLockOptionsSeen).toEqual([options, undefined]);
+    });
+
+    it('reports how long it held its lock, from acquisition, even when load fails', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      let now = 0;
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      beforeWasmHold = () => {
+        now += 4_000;
+      };
+      multisigClientConfig.load.mockImplementationOnce(async () => {
+        now += 7_000;
+        throw new Error('load failed');
+      });
+      const onHeld = jest.fn();
+
+      try {
+        await expect(
+          MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian', undefined, onHeld)
+        ).rejects.toThrow('load failed');
+      } finally {
+        beforeWasmHold = undefined;
+        perfSpy.mockRestore();
+      }
+
+      expect(onHeld).toHaveBeenCalledWith(7_000);
     });
   });
 
@@ -1248,6 +1642,19 @@ describe('MultisigService', () => {
         /missing coldPublicKey/
       );
       expect(multisigClientConfig.load).not.toHaveBeenCalled();
+    });
+
+    it('holds its init on the options a caller passes, and on the default hold otherwise', async () => {
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      const walletAccount = { publicKey: 'acc-id', coldPublicKey: 'cold-pub' } as never;
+      const options = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' };
+      mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'cold-commit-no-prefix' });
+      wasmLockOptionsSeen.length = 0;
+
+      await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig', options);
+      await MultisigService.buildColdMultisigService(account, walletAccount, async () => 'sig');
+
+      expect(wasmLockOptionsSeen).toEqual([options, undefined]);
     });
   });
 

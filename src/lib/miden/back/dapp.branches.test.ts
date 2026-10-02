@@ -566,6 +566,16 @@ describe('waitForTransaction', () => {
     expect(res.transactionOutput).toEqual({ status: 'completed' });
   });
 
+  it("forwards a landed transaction's accepted-by-the-network answer to the dApp unchanged (#1233)", async () => {
+    const landed = { errorMessage: 'Transaction 0xabc was accepted by the network, but its result is not available' };
+    mockWaitForTransactionCompletion.mockResolvedValueOnce(landed);
+    const res = await dapp.waitForTransaction({
+      type: MidenDAppMessageType.WaitForTransactionRequest,
+      txId: 'tx-landed'
+    } as never);
+    expect(res.transactionOutput).toEqual(landed);
+  });
+
   it('throws InvalidParams when txId is empty', async () => {
     await expect(
       dapp.waitForTransaction({

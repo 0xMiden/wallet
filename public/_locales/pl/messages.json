@@ -2736,6 +2736,22 @@
     "message": "Zmiana została wysłana, ale to urządzenie nie mogło potwierdzić, że weszła w życie w łańcuchu. Portfel nie potwierdzi tego za Ciebie — zarówno ustawienia Guardiana, jak i wpis tej transakcji w Aktywności i tak wskażą nowego Guardiana. Jeśli późniejsza transakcja zostanie odrzucona z powodu braku współpodpisu, wykonaj zmianę ponownie.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
   },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "Nie zostało jeszcze zapisane na tym urządzeniu.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Zmiana Guardiana dotarła do sieci, ale to urządzenie nie mogło jeszcze zapisać nowego stanu Twojego konta. Portfel nadal próbuje to zrobić w tle i dopóki mu się to nie uda, transakcje z tego urządzenia mogą nie zostać zrealizowane. Nie musisz ponownie przeprowadzać zmiany Guardiana.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "Nie jest zapisane na tym urządzeniu.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Zmiana Guardiana dotarła do sieci, ale to urządzenie nie mogło zapisać nowego stanu Twojego konta i nie jest w stanie samodzielnie go odtworzyć. Nie przeprowadzaj ponownie zmiany Guardiana. Skontaktuj się z pomocą techniczną.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
+  },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "To urządzenie nie zdołało też zapisać adresu nowego Guardiana, więc nadal pokazuje poprzedni. Portfel poprosi o ponowne wprowadzenie go — ten monit nie rozpoczyna kolejnej zmiany.",
     "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."

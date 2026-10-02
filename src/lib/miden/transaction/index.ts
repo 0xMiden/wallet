@@ -9,6 +9,7 @@ import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
+  clearGuardianServiceFor,
   getOrCreateMultisigService,
   isGuardianAccount,
   type GuardianAccountProvider
@@ -17,9 +18,14 @@ import { MultisigService } from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  GuardianWriteDiscardedError,
   isGuardianAccountUnusable,
-  isGuardianUnreachableError
+  isGuardianSwitchDiscardedError,
+  isGuardianUnreachableError,
+  readChainAccountCommitment,
+  readLastSyncedVerdict
 } from 'lib/miden/guardian/direct-switch';
+import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import {
   guardianRetryAfterSec,
   isGuardianPendingConflict,
@@ -30,6 +36,7 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
@@ -69,9 +76,11 @@ import {
 } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
-  isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
+  landedTransactionIdFields,
+  landedValueRowFields,
+  type LandedWithoutResult,
   markMayHaveSubmitted,
   setTransactionStage,
   updateTransactionStatus
@@ -97,12 +106,14 @@ import {
   ITransactionType,
   ReplaceHotKeyTransaction,
   SendTransaction,
+  STRUCTURAL_GUARDIAN_TYPES,
   SwapTransaction,
   SwitchGuardianTransaction,
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
+import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
   accountIdStringToSdk,
   accountRefToSdk,
@@ -125,12 +136,13 @@ import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '.
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
+  extractLanded,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
   isStaleInitialCommitmentError,
   isTransactionDiscardedError
 } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -217,8 +229,8 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
  * Both are the Miden half of an Epoch flow: a recallable P2IDE collateral note whose
  * id the caller needs before it can submit the surrounding intent.
  *
- * A post-submit failure (a local apply throw, or a guardian canonicalization race)
- * leaves NO `TransactionResult` to repopulate those fields from. Marking such a row
+ * A post-submit failure (an apply-after-submit error, the one landed shape) leaves
+ * NO `TransactionResult` to repopulate those fields from. Marking such a row
  * Completed would hand the waiter `TransactionResult.deserialize(undefined)`, which
  * throws inside the liveQuery observer AFTER `cleanup()` has already cleared the
  * timeout — the promise then never settles and the Epoch flow hangs forever while the
@@ -250,19 +262,6 @@ const isResultAwaitingRow = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): bo
   if (tx.type === 'earn-deposit') return true;
   if (tx.type === 'bridged-send') return bridgeProviderOf(tx) === RESULT_AWAITING_BRIDGE_PROVIDER;
   return false;
-};
-
-/**
- * Activity label for a guardian row whose submit LANDED on chain but whose local
- * reconcile failed. There is no `TransactionResult` here, so the label is derived
- * from the type alone and must match what the happy-path completion handler would
- * have written: `completeConsumeTransaction` → "Claimed",
- * `completeBridgedSendTransaction` → "Bridged to EVM", everything else → "Sent".
- */
-const applyLandedDisplayMessage = (type: ITransactionType): string => {
-  if (type === 'consume') return 'Claimed';
-  if (type === 'bridged-send') return 'Bridged to EVM';
-  return 'Sent';
 };
 
 // Cooldown (seconds) applied to a tx requeued after a transient guardian
@@ -905,23 +904,79 @@ async function requeueWithWake(
   );
 }
 
+/** The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. */
+const landedRowFields = (tx: ITransaction, error: unknown) => {
+  const landed = extractLanded(error);
+  return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
+};
+
 /**
- * Run the structural side effects a structural Guardian op needs after its
- * submit landed on chain but the LOCAL apply failed (`ApplyTransactionAfterSubmitFailed`).
- * Without this the generic apply-failure handler would mark the tx Completed and
- * skip reconciliation, stranding the account.
+ * Stamp a landed row's transaction id before a result-awaiting arm fails it (#1233), so its receipt
+ * still names the transaction. Guard-free like `markMayHaveSubmitted`: the cancel that follows is
+ * what makes the row terminal. A failed write is logged, never thrown: the store that just failed the
+ * apply can fail this one too, and the cancel is what releases the awaiting caller.
+ */
+const recordLandedTransactionId = async (txId: string, error: unknown): Promise<void> => {
+  const { transactionId } = extractLanded(error);
+  if (transactionId === undefined) return;
+  try {
+    await Repo.transactions.where({ id: txId }).modify(row => {
+      row.transactionId = transactionId;
+    });
+  } catch (recordError) {
+    console.warn('Could not record the landed transaction id', { txId, recordError });
+  }
+};
+
+/**
+ * Run the side effects a structural Guardian op needs after its submit landed on
+ * chain but its local apply failed (an apply-after-submit error). Without this the
+ * op would be cancelled with the account unreconciled.
  *
  * replace-hot-key → swap the vault hot pointer (idempotent).
- * switch-guardian → rebuild a service to drive `finalizeGuardianSwitch` (which
- *   re-syncs the post-switch account state itself) + persist the per-account
- *   endpoint. Both completion handlers tolerate a missing TransactionResult.
+ * update-procedure-threshold → evict the cached service, then mark Completed
+ *   without the result fields. No re-register: the apply failed, so the local
+ *   store still holds the pre-update account, and pushing it would put the
+ *   guardian behind the chain. The guardian learns the update when the
+ *   co-signed candidate canonicalizes.
+ * Both complete only on the node's committed verdict (`requireLandedCommit`): a resolved
+ *   submit is not a commit, and the rotation's swap deletes the old hot key. No verdict or no
+ *   id fails the row with nothing completed, and the cold heal finishes a rotation that lands
+ *   later; a discard abandons the co-signed candidate first.
+ * switch-guardian → rebuild the outgoing service, which completion uses to adopt
+ *   the post-switch state before `finalizeGuardianSwitch` registers the LOCAL
+ *   account (after a failed apply that is the pre-switch state, #1233) + persist
+ *   the per-account endpoint. The replace-hot-key and switch-guardian completion
+ *   handlers tolerate a missing TransactionResult. When the node discarded the
+ *   switch, completion throws `GuardianSwitchDiscardedError`; a coordinated row
+ *   first abandons its proposal's candidate on the outgoing guardian through
+ *   `abandonDiscardedCandidate`, the helper the coordinated commit wait shares, with
+ *   the nonce the row recorded, then rethrows that error so the caller fails the row
+ *   on the node's verdict. Any other rejection is rethrown without the abandon.
+ * `landed` is what the failure said about the write: the id the receipt shows (#1233).
  */
 async function reconcileStructuralApplyFailure(
   tx: ITransaction,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  landed: LandedWithoutResult
 ): Promise<void> {
   if (tx.type === 'replace-hot-key') {
-    await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider);
+    await requireLandedCommit(tx, guardianProvider, landed);
+    await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider, landed);
+    return;
+  }
+  if (tx.type === 'update-procedure-threshold') {
+    // Evict first: evicting a cache is harmless whether or not the update landed, and the
+    // cached hot service may hold the pre-update threshold map.
+    clearGuardianServiceFor(tx.accountId);
+    await requireLandedCommit(tx, guardianProvider, landed);
+    // `completeUpdateProcedureThresholdTransaction` minus the fields only a TransactionResult
+    // carries, and minus its re-register: the local store still holds the pre-update account.
+    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...landedTransactionIdFields(landed),
+      displayMessage: 'Account secured',
+      completedAt: Math.floor(Date.now() / 1000) // seconds
+    });
     return;
   }
   // A switch that ran the DIRECT fallback (old guardian unreachable) can't
@@ -964,14 +1019,32 @@ async function reconcileStructuralApplyFailure(
       console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
     }
   }
-  // `commitUnconfirmed: true`, unconditionally. This reconcile is reached from
-  // `isApplyAfterSubmitError`, i.e. the submit SUCCEEDED and the local apply then
-  // failed — which establishes that the node accepted the transaction, and
-  // nothing more. No commit wait ran here and `didDirectSwitchLand` was never
-  // called, so this path has strictly LESS evidence of a commit than the direct
-  // path's `landed === undefined` case that the flag was introduced for.
-  // Defaulting it to false let this exit render the full-confidence receipt.
-  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider, true);
+  // `commitUnconfirmed: true`, unconditionally. This reconcile is reached only after the
+  // submit SUCCEEDED (an apply-after-submit error, which no pre-submit step produces),
+  // which establishes that the node accepted the transaction, and nothing more. No
+  // commit wait ran here and `didDirectSwitchLand` was
+  // never called, so this path has strictly LESS evidence of a commit than the direct
+  // path's `landed === undefined` case that the flag was introduced for. Defaulting it
+  // to false let this exit render the full-confidence receipt.
+  try {
+    await completeSwitchGuardianTransaction(
+      tx as SwitchGuardianTransaction,
+      undefined,
+      service,
+      guardianProvider,
+      true,
+      landed
+    );
+  } catch (error) {
+    // The outgoing guardian may hold the executed delta for a nonce the chain will never see, and a
+    // later switch meets that candidate as a 409. Not gated on `switchDeltaPushed`: a silent push can
+    // still land after its deadline, and the guardian refuses an abandon for a nonce with no candidate.
+    const nonce = (tx as SwitchGuardianTransaction).extraInputs?.switchProposalNonce;
+    if (isGuardianSwitchDiscardedError(error) && service && typeof nonce === 'number') {
+      await abandonDiscardedCandidate(service, nonce);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -1050,6 +1123,9 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // under-report "landed", which fails safe.
   const committed = await Repo.transactions.where({ id: transaction.id }).first();
   const freshSyncWorthTrying = committed?.stage !== 'syncing';
+  // A watchdog-evicted pre-flight sync fails without a read (#1233): nothing executed in this attempt,
+  // and the read would be the first hold after the eviction.
+  if (committed?.stage === 'syncing' && isSyncWatchdogEviction(error)) return false;
   const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).
@@ -1204,23 +1280,28 @@ const generateTransactionWithProvider = async (
       if (isLockedError(error)) {
         throw error;
       }
-      // Submit-succeeded-but-local-apply-failed on a structural op (replace-hot-key
-      // / switch-guardian) is special: the change IS on chain, but the failure
-      // happened before generateGuardianTransaction's completion handler ran, so
-      // the vault hot pointer / guardian re-registration are un-reconciled. Cancelling
-      // would strand the account (signing with a rotated-out key, or talking to the
-      // old guardian). Run the same finalization the happy path would; only cancel if
-      // that reconcile itself fails.
-      if (
-        isApplyAfterSubmitError(error) &&
-        (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian')
-      ) {
+      // A structural op whose submit landed and whose local apply then failed never ran its
+      // completion handler, so the vault hot pointer, the guardian registration or the cached
+      // threshold map is un-reconciled. Cancelling would strand the account. Run the
+      // finalization the happy path would, minus a threshold update's re-register (the local
+      // store still holds the pre-update account). The apply-after-submit error is the one
+      // landed shape (#1233): every leaf wraps a post-submit failure in it, so a canonicalization
+      // refusal here was raised before submit and must take the non-landed arms below.
+      if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type) && isApplyAfterSubmitError(error)) {
         try {
-          await reconcileStructuralApplyFailure(transaction, guardianProvider);
-          return;
+          await reconcileStructuralApplyFailure(transaction, guardianProvider, extractLanded(error));
         } catch (reconcileError) {
-          console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
+          console.error('Structural-op landed reconcile failed; cancelling (apply-after-submit)', reconcileError);
+          // A rotation or threshold update fails on the reconcile's verdict error; a switch only on the
+          // node's discard, as the direct path's discard does (#1233).
+          await cancelTransactionAfterPipelineStopped(
+            transaction,
+            transaction.type !== 'switch-guardian' || isGuardianSwitchDiscardedError(reconcileError)
+              ? reconcileError
+              : error
+          );
         }
+        return;
       }
       // Value-moving guardian op (consume/send/swap/execute) whose submit landed on
       // chain but whose LOCAL apply failed. The tx IS live — cancelling would leave
@@ -1228,14 +1309,15 @@ const generateTransactionWithProvider = async (
       // and verifyStuckTransactionsFromNode only scans in-progress rows so it can't
       // recover a Failed one. Mirror generateTransactionsLoop's generic
       // ApplyTransactionAfterSubmitFailed handler: mark Completed so the next sync
-      // reconciles the note state via ConsumedExternal. (Structural ops are handled
-      // above and never reach here on success.)
+      // reconciles the note state via ConsumedExternal. (A structural op never reaches
+      // here with a post-submit error: the reconcile above returns whether it finalizes
+      // the row or fails it.)
       //
       // The result-awaiting exception among value-moving guardian ops
       // (earn-deposit and EPOCH bridged-send): their callers read `resultBytes` /
-      // `outputNoteIds` back off the finished row, and a post-submit failure — a
-      // local apply throw OR a canonicalization race — leaves no TransactionResult
-      // to repopulate them from. Marking the row Completed (as the branches below do
+      // `outputNoteIds` back off the finished row, and a post-submit failure (an
+      // apply-after-submit error) leaves no TransactionResult to repopulate them
+      // from. Marking the row Completed (as the branches below do
       // for send/consume/swap/execute/agglayer bridged-send) would hang the awaiting
       // Epoch flow forever; see the `isResultAwaitingRow` doc comment for the full
       // mechanism. Fail the row instead so the caller resolves via its error branch.
@@ -1246,14 +1328,12 @@ const generateTransactionWithProvider = async (
       // (The 409, 429, prover-outage and unreachable arms below DO requeue an
       // earn-deposit, with its bytes, but only on a pre-submit failure; a Failed row
       // is terminal.)
-      if (
-        isResultAwaitingRow(transaction) &&
-        (isApplyAfterSubmitError(error) || isGuardianCanonicalizationError(error))
-      ) {
+      if (isResultAwaitingRow(transaction) && isApplyAfterSubmitError(error)) {
         console.warn(
           `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
           error
         );
+        await recordLandedTransactionId(transaction.id, error);
         await cancelTransactionAfterPipelineStopped(transaction, error);
         return;
       }
@@ -1277,25 +1357,7 @@ const generateTransactionWithProvider = async (
         );
         try {
           await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            displayMessage: applyLandedDisplayMessage(transaction.type),
-            completedAt: Math.floor(Date.now() / 1000) // seconds
-          });
-        } catch (markErr) {
-          // updateTransactionStatus throws if the tx is already finalized — fine.
-          console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
-        }
-        return;
-      }
-      // Guardian canonicalization is eventually-consistent: the SDK can throw
-      // "Refusing to overwrite local state: incoming nonce N is not greater
-      // than local nonce M" when the guardian's view lags the local client.
-      // The on-chain tx is fine — only the local sync refused. Mark Completed
-      // so the user sees the success state; the next sync tick will reconcile.
-      if (isGuardianCanonicalizationError(error)) {
-        console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
-        try {
-          await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-            displayMessage: applyLandedDisplayMessage(transaction.type),
+            ...landedRowFields(transaction, error),
             completedAt: Math.floor(Date.now() / 1000) // seconds
           });
         } catch (markErr) {
@@ -2130,7 +2192,15 @@ const runGuardianPipeline = async (
     await setStage('submitting');
     assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
-    await submittedTx.apply();
+    // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
+    // does, so a failed local apply is retried in this hold while that is safe, and one that
+    // outlasts the retries classifies as submitted (#1233).
+    await applyAfterSubmit({
+      apply: () => submittedTx.apply(),
+      result: executedTx.result,
+      readLocalAccount: accountId => midenClient.client.accounts.get(accountId),
+      holdIsCurrent: () => getCurrentWasmLockHold() === hold
+    });
     return executedTx.result;
   });
 };
@@ -2145,18 +2215,6 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' &&
   isOffscreenAvailable() &&
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
-
-/**
- * Wall-clock ceiling on one round-trip to the OUTGOING guardian during a
- * switch-guardian, after which the wallet stops waiting and treats the operator
- * as unreachable.
- *
- * Generous — this is a backstop against an operator that has stopped answering,
- * not a latency target. It has to sit above an honestly slow guardian on a cold
- * start, because expiring early costs the user a coordinated switch they could
- * have had.
- */
-const OUTGOING_GUARDIAN_DEADLINE_MS = 30_000;
 
 /**
  * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
@@ -2218,6 +2276,150 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
       reject(syncError);
     }
   });
+
+/**
+ * Hand the outgoing guardian the executed switch delta (#1233), so it canonicalizes the switch,
+ * releases the account and serves the post-switch state, which the landed reconcile and the
+ * background self-heal adopt from. Best-effort and deadline-bounded like the other outgoing-guardian
+ * cleanups: a guardian that is down, or already holds a pending delta, must not cost the switch.
+ * True only when the push landed inside its deadline.
+ */
+const pushSwitchDeltaToOutgoingGuardian = async (service: MultisigService, proposalId: string): Promise<boolean> =>
+  (await service.pushSwitchDeltaBounded(proposalId)) === 'pushed';
+
+/**
+ * Abandon the candidate a discarded structural write left on its guardian (#1233), deadline-bounded and
+ * best-effort like the other outgoing-guardian cleanups. Safe although the submit resolved: a discarded
+ * transaction has left the mempool and never lands, and the guardian refuses the abandon if it did.
+ */
+const abandonDiscardedCandidate = async (service: MultisigService, nonce: number): Promise<void> => {
+  try {
+    await withOutgoingGuardianDeadline(
+      () => service.abandonCandidate(nonce),
+      'abandoning the discarded candidate on its guardian'
+    );
+  } catch (abandonError) {
+    console.warn(`[Guardian] could not abandon the discarded candidate at nonce ${nonce}:`, abandonError);
+  }
+};
+
+/** How long a landed write with no record verdict waits for the node to show its final commitment. */
+export const LANDED_CONFIRM_BOUND_MS = 60_000;
+/** The wait before each of those reads. */
+export const LANDED_CONFIRM_POLL_MS = 3_000;
+
+/**
+ * Hold a landed rotation or threshold update to the node's committed verdict before the reconcile
+ * completes it (#1233). The record is read first, after one verdict sync, because only the record can
+ * show a discard. The failed apply left no record if it failed at or before writing it and a Pending one
+ * otherwise, so that read rarely answers. When it does not and the landed facts carry the executed final
+ * commitment, the node's commitment for the account confirms a commit without the record: polled for
+ * LANDED_CONFIRM_BOUND_MS from the first read, inside the FIFO loop's processing lock and outside the WASM
+ * client lock.
+ * Returns only on committed. No id or no verdict throws with nothing abandoned, since the write may
+ * still land. A discard abandons the candidate on a cold service, the kind both writes were proposed
+ * on, which needs no hot key; a discarded write never lands, so the guardian still accepts the old one.
+ */
+const requireLandedCommit = async (
+  tx: ITransaction,
+  guardianProvider: GuardianAccountProvider,
+  landed: LandedWithoutResult
+): Promise<void> => {
+  const id = landed.transactionId;
+  if (id === undefined) {
+    throw new Error(
+      `Guardian ${tx.type} was submitted, but its transaction id could not be read, so the node cannot confirm it; not completing it.`
+    );
+  }
+  const deadline = monotonicNowMs() + LANDED_CONFIRM_BOUND_MS;
+  let verdict = await didDirectSwitchLand(id);
+  const finalCommitment = landed.finalAccountCommitment;
+  // The record comes first because only it can show a discard. The node's commitment can confirm a commit
+  // without it: the commitment binds the nonce and all storage, so only the executed post-state equals it.
+  if (verdict === undefined && finalCommitment !== undefined) {
+    verdict = await pollLandedCommit(tx.accountId, id, finalCommitment, deadline);
+  }
+  if (verdict === true) return;
+  if (verdict === undefined) {
+    throw new Error(`Guardian ${tx.type} ${id} was submitted, but the node has not confirmed it; not completing it.`);
+  }
+  const nonce = tx.extraInputs?.proposalNonce;
+  if (typeof nonce === 'number') {
+    try {
+      const service = await withOutgoingGuardianDeadline(
+        () => buildColdServiceForAccount(tx.accountId, guardianProvider),
+        'loading the cold service to abandon a discarded candidate'
+      );
+      await abandonDiscardedCandidate(service, nonce);
+    } catch (buildError) {
+      console.warn(
+        `[Guardian] could not build the cold service to abandon the discarded candidate at nonce ${nonce}:`,
+        buildError
+      );
+    }
+  }
+  throw new GuardianWriteDiscardedError(`Guardian ${tx.type} ${id} did not land: the node discarded it.`);
+};
+
+/**
+ * `requireLandedCommit`'s wait for a verdict the first record read did not give: true on committed,
+ * false on discarded, undefined at the deadline. Each round reads the record without a sync, since the
+ * realm's own sync keeps it current, and caps its wait and its node read to the time left as it began.
+ * No round runs after a watchdog eviction of the first read's sync: its ceiling is longer than the bound.
+ */
+const pollLandedCommit = async (
+  accountId: string,
+  id: string,
+  finalCommitment: string,
+  deadline: number
+): Promise<boolean | undefined> => {
+  for (let remaining = deadline - monotonicNowMs(); remaining > 0; remaining = deadline - monotonicNowMs()) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(LANDED_CONFIRM_POLL_MS, remaining)));
+    if ((await readChainAccountCommitment(accountId, remaining)) === finalCommitment) return true;
+    const verdict = await readLastSyncedVerdict(id);
+    if (verdict !== undefined) return verdict;
+  }
+  return undefined;
+};
+
+/**
+ * The commit wait of a coordinated structural write, settled on the node's verdict (#1233). `service`'s
+ * guardian holds a candidate for `nonce` by now: the switch's pushed delta, or the co-sign's for a
+ * rotation or a threshold update.
+ *
+ * A wait that fails without the node's own discard asks the node once. Committed: return, and the
+ * caller completes as after a resolved wait. Discarded: abandon the candidate, then fail. No verdict:
+ * fail with the wait's error and abandon nothing, since the write may still land. Unlike the direct
+ * path, no verdict never completes: a rotation's completion deletes the old hot key, so completing one
+ * that never lands leaves the device without an on-chain signer. A wait the watchdog evicted asks
+ * nothing and is the no-verdict arm: it parked the realm's sync, and a verdict sync would join it.
+ */
+const waitForStructuralCommit = async (
+  id: string,
+  service: MultisigService,
+  nonce: number,
+  type: ITransactionType
+): Promise<void> => {
+  try {
+    await midenClientProxy.waitForTransactionCommit(id);
+  } catch (waitError) {
+    if (isSyncWatchdogEviction(waitError)) throw waitError;
+    const discardedAtWait = isTransactionDiscardedError(waitError);
+    const landed = discardedAtWait ? false : await didDirectSwitchLand(id);
+    if (landed === true) {
+      console.warn(
+        `Guardian ${type} ${id} is confirmed on chain despite the failed commit wait; completing:`,
+        waitError
+      );
+      return;
+    }
+    if (landed === undefined) throw waitError;
+    await abandonDiscardedCandidate(service, nonce);
+    throw new GuardianWriteDiscardedError(`Guardian ${type} ${id} did not land: the node discarded it.`, {
+      cause: waitError
+    });
+  }
+};
 
 /**
  * One-line description of a classified guardian failure, for the audit field on
@@ -2371,12 +2573,17 @@ const generateDirectSwitchGuardianTransaction = async (
   // the rotation into the local store, so an account read here would only ever
   // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
   const id = result.executedTransaction().id().toHex();
+  const discardedMessage =
+    `Direct guardian switch ${id} did not land: the node discarded it. ` +
+    'Leaving the stored guardian endpoint untouched.';
   await setTransactionStage(transaction.id, 'confirming');
   let commitConfirmed = true;
   try {
     await midenClientProxy.waitForTransactionCommit(id);
   } catch (waitError) {
-    if (isTransactionDiscardedError(waitError)) throw waitError;
+    if (isTransactionDiscardedError(waitError)) {
+      throw new GuardianWriteDiscardedError(discardedMessage, { cause: waitError });
+    }
     commitConfirmed = false;
     console.warn(
       `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
@@ -2391,13 +2598,9 @@ const generateDirectSwitchGuardianTransaction = async (
   // stops asserting a confirmation nothing established.
   let commitUnconfirmed = false;
   if (!commitConfirmed) {
+    // Asked after an evicted wait too: the finalize holds this node anyway, and this is the only discard check.
     const landed = await didDirectSwitchLand(id);
-    if (landed === false) {
-      throw new Error(
-        `Direct guardian switch ${id} did not land: the node discarded it. ` +
-          'Leaving the stored guardian endpoint untouched.'
-      );
-    }
+    if (landed === false) throw new GuardianWriteDiscardedError(discardedMessage);
     commitUnconfirmed = landed === undefined;
     console.warn(
       landed === true
@@ -3155,26 +3358,58 @@ const generateGuardianTransaction = async (
       // pending-conflict path reconcile instead (issue #775).
       throw error;
     }
-    try {
-      // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
-      // This call reaches the same operator, over the same transport, that the
-      // failure above may have been its silence — so unbounded it does not delay
-      // the failure, it replaces it with a hang, and moves the wedge fifteen
-      // lines rather than closing it. Worse than the row itself: this runs inside
-      // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
-      // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
-      // the same loop) down with it, so the row is not even reaped.
-      await withOutgoingGuardianDeadline(
-        () => service.abandonCandidate(proposalResult.nonce),
-        'abandoning the guardian candidate after a failed submission'
-      );
-    } catch (abandonError) {
-      // Cleanup must never mask the transaction failure. The abandonment call
-      // is idempotent, so a later recovery path can safely retry it.
-      console.error('Failed to request Guardian candidate abandonment', {
-        nonce: proposalResult.nonce,
-        error: abandonError
-      });
+    // The landed shape proves the submit resolved (#1233): the node has the write, so this
+    // candidate WILL land. Abandoning it anyway asks the guardian to discard a delta the chain is
+    // about to consume; on slow inclusion the guardian finalizes that, drops the landed delta and
+    // releases the account onto stale state for up to a minute. Only a failure that cannot show
+    // the submit resolved (a kill, a pre-submit error, a canonicalization refusal) abandons: both
+    // leaves wrap every post-submit failure as the apply-after-submit error.
+    const submitResolved = isApplyAfterSubmitError(error);
+    // The same hand-over as the success path below, for a switch whose submit resolved and whose
+    // local apply then failed (#1233); never after a kill or a pre-submit failure, whose delta the
+    // chain may never see.
+    if (submitResolved && transaction.type === 'switch-guardian') {
+      const switchDeltaPushed = await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+      // In memory, as the direct path marks `switchedDirectly`: completion persists them with the row's
+      // extraInputs. The reconcile adopts only from a guardian that took the delta, and the self-heal
+      // re-pushes one that did not.
+      transaction.extraInputs = {
+        ...transaction.extraInputs,
+        switchDeltaPushed,
+        switchProposalId: proposalResult.id,
+        switchProposalNonce: proposalResult.nonce
+      };
+    }
+    // In memory too: the landed reconcile runs in this call stack and abandons this nonce's candidate
+    // when the node discards the write.
+    if (
+      submitResolved &&
+      (transaction.type === 'replace-hot-key' || transaction.type === 'update-procedure-threshold')
+    ) {
+      transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
+    }
+    if (!submitResolved) {
+      try {
+        // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
+        // This call reaches the same operator, over the same transport, that the
+        // failure above may have been its silence - so unbounded it does not delay
+        // the failure, it replaces it with a hang, and moves the wedge fifteen
+        // lines rather than closing it. Worse than the row itself: this runs inside
+        // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
+        // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
+        // the same loop) down with it, so the row is not even reaped.
+        await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(proposalResult.nonce),
+          'abandoning the guardian candidate after a failed submission'
+        );
+      } catch (abandonError) {
+        // Cleanup must never mask the transaction failure. The abandonment call
+        // is idempotent, so a later recovery path can safely retry it.
+        console.error('Failed to request Guardian candidate abandonment', {
+          nonce: proposalResult.nonce,
+          error: abandonError
+        });
+      }
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the
     // other three. A `switch-guardian` that reaches here because the operator is
@@ -3237,6 +3472,10 @@ const generateGuardianTransaction = async (
   // `submittedTransaction.id.toHex()`.
   const id = result.executedTransaction().id().toHex();
 
+  // Before the commit wait, so the outgoing guardian can canonicalize the switch as soon as the
+  // block lands (#1233).
+  if (transaction.type === 'switch-guardian') await pushSwitchDeltaToOutgoingGuardian(service, proposalResult.id);
+
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
   // without this wait finalizeGuardianSwitch would serialize the pre-switch
@@ -3262,7 +3501,7 @@ const generateGuardianTransaction = async (
     // structural completion below (e.g. leaving replace-hot-key's chain rotation done
     // but the local hot-key pointer stale). Flag-off, the proxy runs the exact same
     // `withWasmClientLock(getMidenClient().waitForTransactionCommit)` block as before.
-    await midenClientProxy.waitForTransactionCommit(id);
+    await waitForStructuralCommit(id, service, proposalResult.nonce, transaction.type);
   }
 
   // Sync the cached hot service so the next consumer sees post-tx state.
@@ -3526,7 +3765,10 @@ export const generateTransactionsLoop = async (
         logger.warning(
           `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
-        if (tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
+        if (tx.status !== ITransactionStatus.Failed) {
+          await recordLandedTransactionId(tx.id, e);
+          await cancelTransactionAfterPipelineStopped(tx, e);
+        }
         return false;
       }
 
@@ -3537,44 +3779,18 @@ export const generateTransactionsLoop = async (
       // apply-after-submit into a throw out of the catch block. Nothing is lost
       // by skipping — the row already has a terminal state.
       if (tx && tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
-        // Guardian ops never reach here — they're routed through the guardian branch
-        // of `generateTransaction`, whose own catch handles apply-after-submit-failed
-        // for value-moving ops (send/consume/swap/execute) by marking Completed, and
-        // for replace-hot-key/switch-guardian via `reconcileStructuralApplyFailure`.
-        // (update-procedure-threshold is currently handled by neither and still falls
-        // through to cancel there — a separate, pre-existing gap.) This generic path
-        // covers non-guardian send/consume, whose note states the next sync reconciles
-        // via ConsumedExternal.
+        // Guardian ops never reach here: they route through the guardian branch of
+        // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
+        // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
+        // value-moving ops, and `reconcileStructuralApplyFailure` for the three structural
+        // ops. This generic path covers the non-guardian ops the guard above leaves (send,
+        // consume, swap, execute and Agglayer bridged-send), whose note states, if any, the
+        // next sync reconciles via ConsumedExternal.
         //
-        // A PRIVATE send reaching here has strictly worse consequences than "the next
-        // sync reconciles it", and they are invisible from the row alone. The apply
-        // threw, so `completeSendTransaction` never ran — and that is the only code
-        // that hands a private note to the transport. The transaction is on chain and
-        // its note was never relayed to anyone, which no amount of syncing repairs:
-        // sync reconciles what the CHAIN knows, and the chain holds a commitment, not
-        // the note body the recipient needs. Marking this Completed with a bare
-        // "Completed" is therefore the same silent loss this field exists to expose.
-        //
-        // There is nothing to retry from here — the apply threw before a
-        // `TransactionResult` could be captured, so the note bytes are gone with the
-        // call frame — which is exactly why it has to be surfaced rather than
-        // absorbed.
-        // `isPrivateNoteType`, not a bare compare against the string enum: a row can
-        // hold the SDK's NUMERIC note type, which a string compare reads as public —
-        // and that would report this exact loss as a clean "Completed". Unreadable
-        // values resolve toward private, since over-reporting a delivery problem
-        // costs a stale warning while under-reporting costs the funds.
-        let isPrivateSend = tx.type === 'send';
-        if (isPrivateSend) {
-          try {
-            isPrivateSend = isPrivateNoteType(tx.noteType);
-          } catch {
-            isPrivateSend = true;
-          }
-        }
+        // A private send's note, or an execute's private notes, were never relayed, and the row says so
+        // (`landedValueRowFields`, which every landed writer shares so none can disagree about one landed row).
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          displayMessage: isPrivateSend ? 'Completed — the private note could not be delivered' : 'Completed',
-          ...(isPrivateSend ? { noteDelivery: 'undelivered' as const } : {}),
+          ...landedRowFields(tx, e),
           completedAt: Math.floor(Date.now() / 1000)
         });
       }
