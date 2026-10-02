@@ -62,10 +62,15 @@ const unavailableMessage = ({ reason, managedProfile }: BiometricSetup, t: TFunc
   switch (reason) {
     case 'none-enrolled':
       return managedProfile ? t('biometricNotEnrolledWork') : t('biometricNotEnrolled');
+    case 'strong-not-enrolled':
+      return managedProfile ? t('biometricStrongNotEnrolledWork') : t('biometricStrongNotEnrolled');
     case 'no-strong-biometric':
       return t('biometricNotStrong');
     case 'hardware-unavailable':
-      return t('biometricHardwareUnavailable');
+      // iOS reports biometryNotAvailable both for missing hardware and for a Face ID the
+      // user denied this app, so the generic Android message would send an iOS user to a
+      // sensor that was never broken.
+      return isIOS() ? t('biometricUnavailableIOS') : t('biometricHardwareUnavailable');
     case 'security-update-required':
       return t('biometricSecurityUpdate');
     case 'passcode-not-set':
@@ -136,7 +141,8 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [blocked, tryAuthenticate]);
 
-  const showOpenSettings = blocked?.reason === 'none-enrolled' && isAndroid();
+  const showOpenSettings =
+    (blocked?.reason === 'none-enrolled' || blocked?.reason === 'strong-not-enrolled') && isAndroid();
 
   const handleRetry = () => {
     hapticLight();

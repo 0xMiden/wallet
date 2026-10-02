@@ -2183,6 +2183,14 @@
     "message": "Set up a fingerprint or face in Settings to use biometric unlock.",
     "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
   },
+  "biometricStrongNotEnrolledWork": {
+    "message": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
   "biometricNotStrong": {
     "message": "This device's biometrics can't protect a wallet. Use a passcode instead.",
     "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
@@ -2190,6 +2198,10 @@
   "biometricHardwareUnavailable": {
     "message": "The biometric sensor isn't available right now. Try again, or use a passcode.",
     "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
   },
   "biometricSecurityUpdate": {
     "message": "Install the latest security update to use biometric unlock.",

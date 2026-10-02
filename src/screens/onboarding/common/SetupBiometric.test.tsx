@@ -346,9 +346,10 @@ describe('SetupBiometricScreen', () => {
     it.each([
       ['none-enrolled', false, 'biometricNotEnrolled'],
       ['none-enrolled', true, 'biometricNotEnrolledWork'],
+      ['strong-not-enrolled', false, 'biometricStrongNotEnrolled'],
+      ['strong-not-enrolled', true, 'biometricStrongNotEnrolledWork'],
       ['no-strong-biometric', false, 'biometricNotStrong'],
       ['no-strong-biometric', true, 'biometricNotStrong'],
-      ['hardware-unavailable', false, 'biometricHardwareUnavailable'],
       ['security-update-required', false, 'biometricSecurityUpdate'],
       ['passcode-not-set', false, 'biometricPasscodeNotSet'],
       ['locked-out', false, 'biometricLockedOut'],
@@ -373,6 +374,29 @@ describe('SetupBiometricScreen', () => {
       expect(screen.getByText('biometricNotEnrolled')).toBeInTheDocument();
       expect(screen.queryByText('biometricNotEnrolledWork')).not.toBeInTheDocument();
     });
+
+    // 'hardware-unavailable' is the one reason whose remedy depends on the platform, not
+    // managedProfile: iOS also reports it when the user denied the app Face ID, which a
+    // generic "sensor unavailable" message does not fix.
+    it('shows the Android unavailable message', async () => {
+      mockIsAndroid.mockReturnValue(true);
+      mockCheckSetup.mockResolvedValue(blockedBy('hardware-unavailable'));
+
+      renderComponent();
+      await flush();
+
+      expect(screen.getByText('biometricHardwareUnavailable')).toBeInTheDocument();
+    });
+
+    it('shows the iOS unavailable message', async () => {
+      mockIsIOS.mockReturnValue(true);
+      mockCheckSetup.mockResolvedValue(blockedBy('hardware-unavailable'));
+
+      renderComponent();
+      await flush();
+
+      expect(screen.getByText('biometricUnavailableIOS')).toBeInTheDocument();
+    });
   });
 
   describe('Open Settings', () => {
@@ -394,6 +418,7 @@ describe('SetupBiometricScreen', () => {
 
     it.each([
       ['none-enrolled', 'iOS', false],
+      ['strong-not-enrolled', 'iOS', false],
       ['no-strong-biometric', 'Android', true],
       ['hardware-unavailable', 'Android', true],
       ['security-update-required', 'Android', true],
@@ -407,6 +432,16 @@ describe('SetupBiometricScreen', () => {
 
       expect(screen.getByTestId('btn-usePasscodeInstead')).toBeInTheDocument();
       expect(screen.queryByTestId('btn-openSettings')).not.toBeInTheDocument();
+    });
+
+    it('offers Open Settings for strong-not-enrolled on Android', async () => {
+      mockIsAndroid.mockReturnValue(true);
+      mockCheckSetup.mockResolvedValue(blockedBy('strong-not-enrolled'));
+
+      renderComponent();
+      await flush();
+
+      expect(screen.getByTestId('btn-openSettings')).toBeInTheDocument();
     });
 
     it('is not offered after a failed prompt on Android', async () => {

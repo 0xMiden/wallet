@@ -65,20 +65,23 @@ class HardwareSecurityPlugin : Plugin() {
     }
 
     /**
-     * Strong-biometric status for the current user: `code` is the raw
-     * canAuthenticate(BIOMETRIC_STRONG) result, which JS maps to a reason.
+     * Strong- and weak-biometric status for the current user: `code` is the raw
+     * canAuthenticate(BIOMETRIC_STRONG) result, `weakCode` is canAuthenticate(BIOMETRIC_WEAK),
+     * which together let JS tell a class-2-only enrollment from no enrollment at all.
      */
     @PluginMethod
     fun biometricStatus(call: PluginCall) {
-        val code = BiometricManager.from(context)
-            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        val biometricManager = BiometricManager.from(context)
+        val code = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        val weakCode = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
         val managedProfile = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                 context.getSystemService(UserManager::class.java)?.isManagedProfile == true
 
-        Log.d(TAG, "biometricStatus: code=$code managedProfile=$managedProfile")
+        Log.d(TAG, "biometricStatus: code=$code weakCode=$weakCode managedProfile=$managedProfile")
 
         val jsResult = JSObject()
         jsResult.put("code", code)
+        jsResult.put("weakCode", weakCode)
         jsResult.put("managedProfile", managedProfile)
         call.resolve(jsResult)
     }

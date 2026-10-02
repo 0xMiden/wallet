@@ -132,6 +132,7 @@ export async function checkBiometricAvailability(): Promise<BiometricAvailabilit
 /** Why biometric setup cannot go ahead; see {@link checkBiometricSetup}. */
 export type BiometricUnavailableReason =
   | 'none-enrolled'
+  | 'strong-not-enrolled'
   | 'no-strong-biometric'
   | 'hardware-unavailable'
   | 'security-update-required'
@@ -148,16 +149,20 @@ export interface BiometricSetup {
 }
 
 /**
- * Map a raw `BiometricManager.canAuthenticate(BIOMETRIC_STRONG)` result (androidx.biometric 1.1.0)
- * to why setup is blocked, or null for BIOMETRIC_SUCCESS. Asked for STRONG, NO_HARDWARE (12) also
- * covers a device whose only biometric is class 2.
+ * Map a raw `BiometricManager.canAuthenticate(BIOMETRIC_STRONG)` result (androidx.biometric 1.1.0),
+ * plus the BIOMETRIC_WEAK result for the NONE_ENROLLED case, to why setup is blocked, or null for
+ * BIOMETRIC_SUCCESS. Asked for STRONG, NO_HARDWARE (12) also covers a device whose only biometric
+ * is class 2 but which has nothing enrolled either way (`weakCode` not 0): there `weakCode` can't
+ * tell the two apart, so NO_HARDWARE stays 'no-strong-biometric' regardless.
  */
-export function reasonForAndroidStatus(code: number): BiometricUnavailableReason | null {
+export function reasonForAndroidStatus(code: number, weakCode?: number): BiometricUnavailableReason | null {
   switch (code) {
     case 0: // BIOMETRIC_SUCCESS
       return null;
     case 11: // BIOMETRIC_ERROR_NONE_ENROLLED
-      return 'none-enrolled';
+      // weakCode 0 (BIOMETRIC_SUCCESS for WEAK) means a class-2 biometric IS enrolled, just not
+      // a strong one - fixable by enrolling a stronger biometric, unlike having none at all.
+      return weakCode === 0 ? 'strong-not-enrolled' : 'none-enrolled';
     case 12: // BIOMETRIC_ERROR_NO_HARDWARE
       return 'no-strong-biometric';
     case 1: // BIOMETRIC_ERROR_HW_UNAVAILABLE
@@ -197,8 +202,8 @@ export function reasonForPluginError(code: number | undefined): BiometricUnavail
 export async function checkBiometricSetup(): Promise<BiometricSetup> {
   try {
     if (isAndroid()) {
-      const { code, managedProfile } = await HardwareSecurity.biometricStatus();
-      const reason = reasonForAndroidStatus(code);
+      const { code, weakCode, managedProfile } = await HardwareSecurity.biometricStatus();
+      const reason = reasonForAndroidStatus(code, weakCode);
       return { available: reason === null, reason, managedProfile };
     }
     if (isIOS()) {

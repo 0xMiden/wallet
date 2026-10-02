@@ -244,6 +244,20 @@ describe('biometric service', () => {
 
       expect(mod.reasonForAndroidStatus(code)).toBe(reason);
     });
+
+    // A class-2-only enrollment (weakCode 0, strong code 11) is distinct from no
+    // enrollment at all (weakCode 11 or missing): only the former can be fixed by
+    // enrolling a stronger biometric rather than any biometric.
+    it.each([
+      [11, 0, 'strong-not-enrolled'],
+      [11, 11, 'none-enrolled'],
+      [11, undefined, 'none-enrolled'],
+      [0, 0, null]
+    ])('maps canAuthenticate(BIOMETRIC_STRONG) %s with BIOMETRIC_WEAK %s to %s', (code, weakCode, reason) => {
+      const { mod } = load({ platform: ANDROID });
+
+      expect(mod.reasonForAndroidStatus(code, weakCode)).toBe(reason);
+    });
   });
 
   describe('reasonForPluginError', () => {
@@ -279,6 +293,22 @@ describe('biometric service', () => {
       expect(hardware.biometricStatus).toHaveBeenCalledTimes(1);
       expect(native.isAvailable).not.toHaveBeenCalled();
     });
+
+    it.each([false, true])(
+      'on Android reads strong-not-enrolled from biometricStatus weakCode (managed profile: %s)',
+      async managedProfile => {
+        const hardware = makePlugin({
+          biometricStatus: jest.fn().mockResolvedValue({ code: 11, weakCode: 0, managedProfile })
+        });
+        const { mod } = load({ platform: ANDROID, hardware });
+
+        expect(await mod.checkBiometricSetup()).toEqual({
+          available: false,
+          reason: 'strong-not-enrolled',
+          managedProfile
+        });
+      }
+    );
 
     it.each([
       [
