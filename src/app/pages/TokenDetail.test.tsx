@@ -596,11 +596,11 @@ describe('TokenDetail', () => {
       [0.99999, '$0.999990'],
       [0.9999995, '$1.000000'],
       [0.0000001234, '$0.00000012']
-    ])('shows the USDC unit price %p with its quote precision', (price, display) => {
+    ])('shows the USDC unit price %p with six decimals', (price, display) => {
       renderPage(
         {
           balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
-          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0, minimumFormatDecimals: 6 } }
+          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0 } }
         },
         MIDEN_USDC_FAUCET
       );

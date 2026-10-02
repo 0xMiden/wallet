@@ -59,6 +59,11 @@ const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
 const CHART_CONFIG = { price: { color: 'var(--accent-primary)' } };
 const CHART_STROKE = 'var(--color-price)';
 
+// The fewest decimals the unit price shows, by price symbol. A stablecoin moves in its fourth to
+// sixth decimal, which three would round away (#1239).
+const PRICE_MINIMUM_DECIMALS: Record<string, number> = { USDC: 6 };
+const DEFAULT_PRICE_MINIMUM_DECIMALS = 3;
+
 function formatTooltipTime(timestamp: number, tf: Timeframe): string {
   const date = new Date(timestamp);
   if (tf === '1H' || tf === '1D') return format(date, 'HH:mm');
@@ -236,8 +241,8 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const yDomain: [number, number] = [minVal - padding, maxVal + padding];
 
   const change = priceChange(priceInfo.change24h);
-  // The quote sets the minimum precision. Pin it to the destination so the count keeps one shape.
-  const minimumFormatDecimals = priceInfo.minimumFormatDecimals ?? 3;
+  // Pinned to the destination so the count keeps one shape.
+  const minimumFormatDecimals = PRICE_MINIMUM_DECIMALS[symbol] ?? DEFAULT_PRICE_MINIMUM_DECIMALS;
   const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, minimumFormatDecimals);
   const formatPrice = (value: number) => `$${formatAdaptivePrice(value)}`;
 

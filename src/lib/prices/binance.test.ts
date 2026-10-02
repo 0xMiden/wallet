@@ -34,9 +34,9 @@ describe('binance', () => {
 
       const result = await fetchTokenPrices();
       expect(result).toEqual({
-        ETH: { price: 3000.5, change24h: 10.5, percentageChange24h: 0.35, minimumFormatDecimals: 3 },
-        BTC: { price: 65000, change24h: -250, percentageChange24h: -0.38, minimumFormatDecimals: 3 },
-        USDC: { price: 1.0001, change24h: 0.0001, percentageChange24h: 0.01, minimumFormatDecimals: 6 }
+        ETH: { price: 3000.5, change24h: 10.5, percentageChange24h: 0.35 },
+        BTC: { price: 65000, change24h: -250, percentageChange24h: -0.38 },
+        USDC: { price: 1.0001, change24h: 0.0001, percentageChange24h: 0.01 }
       });
       expect(mockedAxios.get).toHaveBeenCalledWith(
         expect.stringContaining('/api/v3/ticker/24hr'),
@@ -56,7 +56,7 @@ describe('binance', () => {
 
       const result = await fetchTokenPrices();
       expect(result).toEqual({
-        BTC: { price: 50000, change24h: 0, percentageChange24h: 0, minimumFormatDecimals: 3 }
+        BTC: { price: 50000, change24h: 0, percentageChange24h: 0 }
       });
     });
 
@@ -69,7 +69,7 @@ describe('binance', () => {
       } as any);
       const result = await fetchTokenPrices();
       expect(result).toEqual({
-        ETH: { price: 3000, change24h: 0, percentageChange24h: 0, minimumFormatDecimals: 3 }
+        ETH: { price: 3000, change24h: 0, percentageChange24h: 0 }
       });
     });
 
