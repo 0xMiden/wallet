@@ -7,6 +7,7 @@
  */
 import { isLockedError } from 'lib/miden/transaction/helper';
 import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import {
   __resetRecoveryCooldownForTests,
@@ -1183,38 +1184,32 @@ describe('watchdog pause and yield', () => {
 });
 
 describe('watchdog counts foreground time only (#473)', () => {
-  let hidden = false;
+  let doc: HiddenDocument;
 
   beforeEach(() => {
     jest.useFakeTimers();
     __resetRecoveryCooldownForTests();
     __resetBackgroundTimeForTest();
-    hidden = false;
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    doc = installHiddenDocument();
     initBackgroundTimeTracking();
   });
 
   afterEach(() => {
     // Left open, a hidden stretch would freeze the lock clock for every later suite.
     __resetBackgroundTimeForTest();
-    Reflect.deleteProperty(document, 'hidden');
+    doc.restore();
     jest.useRealTimers();
   });
-
-  const setHidden = (value: boolean) => {
-    hidden = value;
-    document.dispatchEvent(new Event('visibilitychange'));
-  };
 
   it('a hold that spends 400 s hidden and 10 s visible is not evicted', async () => {
     const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
     await jest.advanceTimersByTimeAsync(5_000);
-    setHidden(true);
+    doc.setHidden(true);
     // The 300 s wall-clock timer comes due inside this stretch.
     await jest.advanceTimersByTimeAsync(400_000);
-    setHidden(false);
+    doc.setHidden(false);
     await jest.advanceTimersByTimeAsync(5_000);
     expect(isWasmClientBusy()).toBe(true);
 
@@ -1244,10 +1239,10 @@ describe('watchdog counts foreground time only (#473)', () => {
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
     await jest.advanceTimersByTimeAsync(0);
-    setHidden(true);
+    doc.setHidden(true);
     // Past the 30 min paused ceiling on the wall clock, none of it in the foreground.
     await jest.advanceTimersByTimeAsync(2_400_000);
-    setHidden(false);
+    doc.setHidden(false);
     expect(isWasmClientBusy()).toBe(true);
 
     await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 1);
@@ -1266,9 +1261,9 @@ describe('watchdog counts foreground time only (#473)', () => {
         })
     );
 
-    setHidden(true);
+    doc.setHidden(true);
     await jest.advanceTimersByTimeAsync(400_000);
-    setHidden(false);
+    doc.setHidden(false);
     finish();
     await held;
 

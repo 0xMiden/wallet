@@ -6,6 +6,7 @@ import {
   setForegroundTimeout,
   __resetBackgroundTimeForTest
 } from './background-time';
+import { installHiddenDocument, type HiddenDocument } from './testing/hidden-document';
 
 describe('hiddenMsWithin (pure)', () => {
   const s = (start: number, end: number) => ({ start, end });
@@ -43,30 +44,25 @@ describe('hiddenMsWithin (pure)', () => {
 });
 
 describe('hiddenSecondsSince (module state via visibilitychange)', () => {
-  let hidden = false;
+  let doc: HiddenDocument;
 
   beforeEach(() => {
     __resetBackgroundTimeForTest();
-    hidden = false;
-    Object.defineProperty(document, 'hidden', {
-      configurable: true,
-      get: () => hidden
-    });
+    doc = installHiddenDocument();
   });
 
-  const setHidden = (v: boolean) => {
-    hidden = v;
-    document.dispatchEvent(new Event('visibilitychange'));
-  };
+  afterEach(() => {
+    doc.restore();
+  });
 
   it('accumulates a completed hidden interval and reports seconds since a timestamp', () => {
     initBackgroundTimeTracking();
     const nowSpy = jest.spyOn(Date, 'now');
 
     nowSpy.mockReturnValue(10_000); // t = 10s: go hidden
-    setHidden(true);
+    doc.setHidden(true);
     nowSpy.mockReturnValue(13_000); // t = 13s: become visible → 3s hidden
-    setHidden(false);
+    doc.setHidden(false);
 
     // since t=5s (epoch seconds), now t=20s: the whole 3s hidden window counts
     expect(hiddenSecondsSince(5, 20_000)).toBe(3);
@@ -87,9 +83,9 @@ describe('hiddenSecondsSince (module state via visibilitychange)', () => {
 
     const nowSpy = jest.spyOn(Date, 'now');
     nowSpy.mockReturnValue(10_000);
-    setHidden(true);
+    doc.setHidden(true);
     nowSpy.mockReturnValue(12_000);
-    setHidden(false);
+    doc.setHidden(false);
     // 2s hidden, recorded once (not twice)
     expect(hiddenSecondsSince(0, 20_000)).toBe(2);
 
@@ -98,12 +94,12 @@ describe('hiddenSecondsSince (module state via visibilitychange)', () => {
   });
 
   it('seeds the open interval when the app starts already hidden', () => {
-    hidden = true; // relaunched in the background — no visibilitychange→hidden fires
+    doc.setHidden(true, { dispatch: false }); // relaunched in the background - no visibilitychange→hidden fires
     const nowSpy = jest.spyOn(Date, 'now');
     nowSpy.mockReturnValue(5_000); // init at t = 5s while hidden
     initBackgroundTimeTracking();
     nowSpy.mockReturnValue(9_000); // becomes visible at t = 9s
-    setHidden(false);
+    doc.setHidden(false);
     // the [5s, 9s] startup-hidden stretch is counted (4s)
     expect(hiddenSecondsSince(0, 20_000)).toBe(4);
     nowSpy.mockRestore();
@@ -115,10 +111,10 @@ describe('hiddenSecondsSince (module state via visibilitychange)', () => {
     let t = 0;
     const flapHidden = (durationMs: number) => {
       nowSpy.mockReturnValue(t);
-      setHidden(true);
+      doc.setHidden(true);
       t += durationMs;
       nowSpy.mockReturnValue(t);
-      setHidden(false);
+      doc.setHidden(false);
       t += 10; // brief visible gap between intervals
     };
     // MAX_HIDDEN_INTERVALS is 1000; push one more so the oldest is pruned.
@@ -130,55 +126,46 @@ describe('hiddenSecondsSince (module state via visibilitychange)', () => {
 });
 
 describe('foregroundNow and setForegroundTimeout (#473)', () => {
-  let hidden = false;
+  let doc: HiddenDocument;
 
   beforeEach(() => {
     jest.useFakeTimers();
     __resetBackgroundTimeForTest();
-    hidden = false;
-    Object.defineProperty(document, 'hidden', {
-      configurable: true,
-      get: () => hidden
-    });
+    doc = installHiddenDocument();
   });
 
   afterEach(() => {
     __resetBackgroundTimeForTest();
-    Reflect.deleteProperty(document, 'hidden');
+    doc.restore();
     jest.useRealTimers();
   });
-
-  const setHidden = (v: boolean) => {
-    hidden = v;
-    document.dispatchEvent(new Event('visibilitychange'));
-  };
 
   it('stands still while hidden, counting a stretch that is still open', () => {
     initBackgroundTimeTracking();
     jest.advanceTimersByTime(10_000);
-    setHidden(true);
+    doc.setHidden(true);
     jest.advanceTimersByTime(40_000);
     expect(foregroundNow()).toBe(10_000);
-    setHidden(false);
+    doc.setHidden(false);
     jest.advanceTimersByTime(5_000);
     expect(foregroundNow()).toBe(15_000);
     expect(performance.now()).toBe(55_000);
   });
 
   it('freezes from init when the app starts hidden', () => {
-    hidden = true;
+    doc.setHidden(true, { dispatch: false });
     jest.advanceTimersByTime(2_000);
     initBackgroundTimeTracking();
     jest.advanceTimersByTime(30_000);
     expect(foregroundNow()).toBe(2_000);
-    setHidden(false);
+    doc.setHidden(false);
     jest.advanceTimersByTime(1_000);
     expect(foregroundNow()).toBe(3_000);
   });
 
   it('equals performance.now() while tracking is not initialised', () => {
     jest.advanceTimersByTime(1_000);
-    setHidden(true);
+    doc.setHidden(true);
     jest.advanceTimersByTime(60_000);
     expect(foregroundNow()).toBe(performance.now());
     expect(foregroundNow()).toBe(61_000);
@@ -199,11 +186,11 @@ describe('foregroundNow and setForegroundTimeout (#473)', () => {
     const fired = jest.fn();
     setForegroundTimeout(fired, 120_000);
     jest.advanceTimersByTime(10_000);
-    setHidden(true);
+    doc.setHidden(true);
     // The wall-clock timer comes due at 120 s, inside the hidden stretch.
     jest.advanceTimersByTime(140_000);
     expect(fired).not.toHaveBeenCalled();
-    setHidden(false);
+    doc.setHidden(false);
     jest.advanceTimersByTime(109_999);
     expect(fired).not.toHaveBeenCalled();
     jest.advanceTimersByTime(1);
@@ -216,9 +203,9 @@ describe('foregroundNow and setForegroundTimeout (#473)', () => {
     setForegroundTimeout(fired, 120_000);
     for (let i = 0; i < 3; i++) {
       jest.advanceTimersByTime(20_000);
-      setHidden(true);
+      doc.setHidden(true);
       jest.advanceTimersByTime(50_000);
-      setHidden(false);
+      doc.setHidden(false);
     }
     // 60 s visible and 150 s hidden so far.
     jest.advanceTimersByTime(59_999);
@@ -231,9 +218,9 @@ describe('foregroundNow and setForegroundTimeout (#473)', () => {
     initBackgroundTimeTracking();
     const fired = jest.fn();
     const cancel = setForegroundTimeout(fired, 120_000);
-    setHidden(true);
+    doc.setHidden(true);
     jest.advanceTimersByTime(130_000);
-    setHidden(false);
+    doc.setHidden(false);
     cancel();
     expect(jest.getTimerCount()).toBe(0);
     jest.advanceTimersByTime(300_000);
@@ -249,5 +236,36 @@ describe('foregroundNow and setForegroundTimeout (#473)', () => {
     } finally {
       Object.defineProperty(globalThis, 'performance', { configurable: true, writable: true, value: fakePerformance });
     }
+  });
+});
+
+describe('installHiddenDocument (test fixture)', () => {
+  let doc: HiddenDocument;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    doc = installHiddenDocument();
+  });
+
+  afterEach(() => {
+    doc.restore();
+    jest.useRealTimers();
+  });
+
+  it('freezeFor moves both clocks and runs a timer that came due once, at the end', () => {
+    expect(() => doc.freezeFor(90_000)).toThrow('freezeFor needs a hidden document');
+    doc.setHidden(true);
+    const ranAt: number[] = [];
+    const pulse = jest.fn(() => ranAt.push(performance.now()));
+    setInterval(pulse, 15_000);
+    const monoBefore = performance.now();
+    const epochBefore = Date.now();
+
+    doc.freezeFor(90_000);
+
+    expect(performance.now() - monoBefore).toBe(90_000);
+    expect(Date.now() - epochBefore).toBe(90_000);
+    expect(pulse).toHaveBeenCalledTimes(1);
+    expect(ranAt).toEqual([monoBefore + 90_000]);
   });
 });

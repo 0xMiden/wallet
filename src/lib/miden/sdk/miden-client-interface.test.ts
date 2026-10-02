@@ -1,3 +1,5 @@
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
+
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
 import type { WasmLockHold } from './miden-client';
 
@@ -1211,26 +1213,20 @@ describe('MidenClientInterface', () => {
   });
 
   describe('withDelegatedProveTimeout counts foreground time only (#473)', () => {
-    let hidden = false;
+    let doc: HiddenDocument;
     let stopTracking: (() => void) | null = null;
 
     beforeEach(() => {
       jest.useFakeTimers();
-      hidden = false;
-      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+      doc = installHiddenDocument();
     });
 
     afterEach(() => {
       stopTracking?.();
       stopTracking = null;
-      Reflect.deleteProperty(document, 'hidden');
+      doc.restore();
       jest.useRealTimers();
     });
-
-    const setHidden = (value: boolean) => {
-      hidden = value;
-      document.dispatchEvent(new Event('visibilitychange'));
-    };
 
     // One module registry for both, so the deadline reads the tracker these tests drive.
     async function loadWithTracking() {
@@ -1267,10 +1263,10 @@ describe('MidenClientInterface', () => {
       );
 
       await jest.advanceTimersByTimeAsync(10_000);
-      setHidden(true);
+      doc.setHidden(true);
       // The 120 s wall-clock deadline comes due inside this stretch.
       await jest.advanceTimersByTimeAsync(140_000);
-      setHidden(false);
+      doc.setHidden(false);
       expect(outcome()).toBeUndefined();
       answer('proof');
       // Also drains the zero-delay job a visibilitychange queues from another listener
