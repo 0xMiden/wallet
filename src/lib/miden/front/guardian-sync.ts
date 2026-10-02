@@ -17,7 +17,7 @@ import {
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { readPostSwitchLocalGuardian } from 'lib/miden/guardian/post-switch-state';
-import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
+import { guardianRetryAfterSec, isGuardianRateLimited, isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
@@ -354,16 +354,20 @@ function markGuardianUnrepairable(accountPublicKey: string, reason: string): voi
   notifyOutageListeners();
 }
 
+/** Flag this account's guardian as down, which surfaces the switch-guardian prompt. Arms once. */
+function armGuardianOutage(accountPublicKey: string, reason: string): void {
+  if (outageAccounts.has(accountPublicKey)) return;
+  console.warn(
+    `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${reason}) - surfacing the switch-guardian prompt`
+  );
+  outageAccounts.add(accountPublicKey);
+  notifyOutageListeners();
+}
+
 function recordGuardianServerFailure(accountPublicKey: string): void {
   const fails = (consecutiveServerFailures.get(accountPublicKey) ?? 0) + 1;
   consecutiveServerFailures.set(accountPublicKey, fails);
-  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD && !outageAccounts.has(accountPublicKey)) {
-    console.warn(
-      `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${fails} consecutive failures) — surfacing the switch-guardian prompt`
-    );
-    outageAccounts.add(accountPublicKey);
-    notifyOutageListeners();
-  }
+  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD) armGuardianOutage(accountPublicKey, `${fails} consecutive failures`);
 }
 
 /** The server answered (success, 401, 429) — it is alive, so the outage is over. */
@@ -1020,7 +1024,8 @@ async function attemptColdReRegisterSelfHeal(
   let rotation: OwnRotation | undefined;
   let verifiedSigners: readonly string[] | undefined;
   // What the heal's holds did, booked once on the heal fuse when the probe settles (#1233). An eviction
-  // spends no attempt, so without the fuse a parked node would take a two-minute hold every cooldown.
+  // spends no attempt, so without the fuse a parked node would take a two-minute hold every cooldown. A Guardian
+  // request timeout books as one: it is the same silent Guardian, cut off at 60 s before the watchdog (#312).
   let evicted = false;
   let failed = false;
   try {
@@ -1094,7 +1099,7 @@ async function attemptColdReRegisterSelfHeal(
           );
           return true;
         }
-        if (isSyncWatchdogEviction(e)) {
+        if (isSyncWatchdogEviction(e) || isGuardianRequestTimeout(e)) {
           evicted = true;
         } else {
           failed = true;
@@ -1223,7 +1228,7 @@ async function attemptColdReRegisterSelfHeal(
     });
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
-    if (isSyncWatchdogEviction(e)) {
+    if (isSyncWatchdogEviction(e) || isGuardianRequestTimeout(e)) {
       evicted = true;
     } else {
       failed = true;
@@ -1730,10 +1735,19 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // exact defeat-by-ordering the split ledger was written to fix: this loop is
       // sequential, so a healthy sibling's `noteSyncSuccess` erased the parked account's
       // increment inside the same lap and the threshold could never be reached.
-      if (isSyncWatchdogEviction(error)) {
+      //
+      // A Guardian request timeout counts as an eviction (#312): the fetch boundary now cuts a silent Guardian off at
+      // 60 s, before the watchdog would evict the hold, so it is the same parked-Guardian evidence arriving sooner.
+      const guardianTimedOut = isGuardianRequestTimeout(error);
+      if (isSyncWatchdogEviction(error) || guardianTimedOut) {
         noteSyncWatchdogEviction(fuseKey);
       } else {
         noteNonEvictionSyncFailure(fuseKey);
+      }
+      // The fuse lights below the outage threshold and a fused account skips this catch until its next probe, half an
+      // hour away, so a silent Guardian would otherwise reach the switch-guardian prompt only an hour later.
+      if (guardianTimedOut && isSyncFused(fuseKey)) {
+        armGuardianOutage(account.publicKey, 'its requests keep timing out');
       }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }

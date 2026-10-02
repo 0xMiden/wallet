@@ -228,6 +228,13 @@ jest.mock('../sdk/miden-client', () => ({
   assertWasmHoldCurrent: (hold: unknown, where: string) => mockAssertWasmHoldCurrent(hold, where)
 }));
 
+// What the Guardian fetch boundary rejects with when it cuts a request off (#312), duck-typed by name as the
+// production check reads it, and worded as the real error is.
+const guardianRequestTimeout = () =>
+  Object.assign(new Error('Guardian request to https://guardian.test/state timed out after 60000 ms'), {
+    name: 'GuardianRequestTimeoutError'
+  });
+
 describe('zustandProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -658,6 +665,65 @@ describe('syncGuardianAccounts', () => {
     await syncGuardianAccounts();
 
     expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked', 'https://guardian.test'))).toBeNull();
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
+  // The fetch boundary cuts a silent Guardian off at 60 s, before the watchdog would evict the hold, so the cut-off is
+  // the same parked-Guardian evidence and has to light the same fuse (#312).
+  it.each([
+    ['directly', guardianRequestTimeout],
+    ['as the cause of the failure', () => new Error('Guardian sync failed', { cause: guardianRequestTimeout() })]
+  ])(
+    'counts a Guardian request timeout %s as an eviction, lighting the fuse and the outage prompt together (#312)',
+    async (_label, timeout) => {
+      __resetSyncFuseStateForTests();
+      jest.spyOn(console, 'warn').mockImplementation();
+      jest.spyOn(console, 'error').mockImplementation();
+      storeState.accounts = [{ publicKey: 'guardian-silent', type: WalletType.Guardian, hotPublicKey: 'hot-silent' }];
+      const key = guardianSyncFuseKey('guardian-silent', 'https://guardian.test');
+      const sync = jest.fn(async () => {
+        throw timeout();
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+      expect(syncFuseUntilMs(key)).toBeNull();
+      expect(isGuardianSyncOutage('guardian-silent')).toBe(false);
+
+      await syncGuardianAccounts();
+      expect(isSyncFused(key)).toBe(true);
+      // The lit fuse skips this account's sync, and with it the outage count, so the prompt arms on this lap.
+      expect(isGuardianSyncOutage('guardian-silent')).toBe(true);
+
+      __resetSyncFuseStateForTests();
+      jest.restoreAllMocks();
+    }
+  );
+
+  it('withdraws Guardian request timeout evidence on a failure of another kind (#312)', async () => {
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [{ publicKey: 'guardian-flaky', type: WalletType.Guardian, hotPublicKey: 'hot-flaky' }];
+    const key = guardianSyncFuseKey('guardian-flaky', 'https://guardian.test');
+    const sync = jest.fn(async () => {
+      throw guardianRequestTimeout();
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    sync.mockImplementationOnce(async () => {
+      throw new Error('recursive use of an object');
+    });
+    await syncGuardianAccounts();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    expect(syncFuseUntilMs(key)).toBeNull();
+    expect(isGuardianSyncOutage('guardian-flaky')).toBe(false);
+
+    await syncGuardianAccounts();
+    expect(isSyncFused(key)).toBe(true);
 
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
@@ -1432,6 +1498,26 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-adopt-fused', 'https://guardian.test'))).toBe(true);
+  });
+
+  // The fetch boundary now ends a silent Guardian's answer at 60 s, before the watchdog would (#312).
+  it("books a Guardian request timeout of the heal's cold init on the same fuse (#312)", async () => {
+    mockBuildColdMultisigService.mockRejectedValue(guardianRequestTimeout());
+
+    await runHealLaps('acct-heal-init-timeout');
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-init-timeout', 'https://guardian.test'))).toBe(true);
+  });
+
+  it("books a Guardian request timeout of the heal's adopt on the same fuse (#312)", async () => {
+    mockAdoptGuardianState.mockRejectedValue(guardianRequestTimeout());
+
+    await runHealLaps('acct-heal-adopt-timeout');
+
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-adopt-timeout', 'https://guardian.test'))).toBe(true);
   });
 
   it("withdraws the heal's eviction evidence when a heal lap gets through (#1233)", async () => {
