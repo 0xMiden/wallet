@@ -1,5 +1,6 @@
 package com.miden.wallet
 
+import androidx.biometric.BiometricManager
 import java.math.BigInteger
 import java.security.ProviderException
 import org.junit.Assert.assertArrayEquals
@@ -160,6 +161,21 @@ class HotKeyLogicTest {
     fun isHardwareUnavailable_rejectsOrdinaryErrors() {
         assertFalse(HotKeyLogic.isHardwareUnavailable(RuntimeException("boom")))
         assertFalse(HotKeyLogic.isHardwareUnavailable(IllegalStateException("nope", RuntimeException("inner"))))
+    }
+
+    // -- promptAuthenticators ------------------------------------------------
+
+    @Test
+    fun promptAuthenticators_isBiometricOnlyOnApi28And29() {
+        assertEquals(BiometricManager.Authenticators.BIOMETRIC_STRONG, HotKeyLogic.promptAuthenticators(28))
+        assertEquals(BiometricManager.Authenticators.BIOMETRIC_STRONG, HotKeyLogic.promptAuthenticators(29))
+    }
+
+    @Test
+    fun promptAuthenticators_allowsTheDeviceCredentialFromApi30() {
+        val both = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        assertEquals(both, HotKeyLogic.promptAuthenticators(30))
+        assertEquals(both, HotKeyLogic.promptAuthenticators(35))
     }
 
     // -- describeThrowable ----------------------------------------------------

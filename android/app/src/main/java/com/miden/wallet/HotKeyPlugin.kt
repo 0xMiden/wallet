@@ -426,7 +426,7 @@ class HotKeyPlugin : Plugin() {
         }
         val mine = Pending(call, op, payload = payload, digest = digest)
         pending = mine
-        promptForBiometric(mine, cipher, subtitle, allowedAuthenticators())
+        promptForBiometric(mine, cipher, subtitle, HotKeyLogic.promptAuthenticators(Build.VERSION.SDK_INT))
     }
 
     /// Presence gate for revealHotKey on current (non-auth-bound) keys: hold
@@ -435,7 +435,7 @@ class HotKeyPlugin : Plugin() {
     /// `secret` (zeroed on every terminal path). This prompt carries no
     /// CryptoObject, so a device credential (PIN/pattern/password) is an
     /// acceptable presence proof wherever androidx supports the combination
-    /// (see presenceAuthenticators) — a secure-lock-screen user without an
+    /// (see HotKeyLogic.promptAuthenticators) - a secure-lock-screen user without an
     /// enrolled biometric keeps a working Reveal. If no usable authenticator
     /// exists at all, the reveal is REJECTED (AUTH_UNAVAILABLE) — an
     /// INTENTIONAL trade-off (do not "fix" by skipping the gate): a user who
@@ -453,7 +453,7 @@ class HotKeyPlugin : Plugin() {
             call.reject("Another hot-key operation is in progress", "BIOMETRIC_BUSY")
             return
         }
-        val authenticators = presenceAuthenticators()
+        val authenticators = HotKeyLogic.promptAuthenticators(Build.VERSION.SDK_INT)
         val canAuthenticate = BiometricManager.from(context).canAuthenticate(authenticators)
         if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
             zero(secret)
@@ -480,32 +480,6 @@ class HotKeyPlugin : Plugin() {
             zero(secret)
         }
     }
-
-    /// Authenticators for CryptoObject-carrying prompts (legacy auth-bound
-    /// keys): CryptoObject + DEVICE_CREDENTIAL is rejected below API 30, so
-    /// older versions get BIOMETRIC_STRONG with an explicit negative button.
-    private fun allowedAuthenticators(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        } else {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG
-        }
-
-    /// Authenticators for the CryptoObject-LESS presence gate (reveal): with
-    /// no crypto binding, a device credential is a safe presence proof, so
-    /// allow it wherever androidx supports the combination. Per the androidx
-    /// setAllowedAuthenticators contract, BIOMETRIC_STRONG|DEVICE_CREDENTIAL
-    /// is valid on API 30+ but NOT on API 28-29 - those two releases stay
-    /// biometric-only with a negative button (a PIN-only user there can enroll
-    /// a biometric and retry).
-    private fun presenceAuthenticators(): Int =
-        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P || Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG
-        } else {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        }
 
     private fun promptForBiometric(mine: Pending, cipher: Cipher?, subtitle: String, authenticators: Int) {
         val activity = activity as? FragmentActivity
