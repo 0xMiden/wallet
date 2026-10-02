@@ -45,7 +45,12 @@ import {
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
-import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionHeroState } from './types';
+import type {
+  GeneratingTransactionPageProps,
+  GeneratingTransactionProps,
+  TransactionHeroState,
+  TransactionStepState
+} from './types';
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
@@ -385,6 +390,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // the spinner — while the title already reads "Transaction completed".
   const failedHeroState: TransactionHeroState = unconfirmed ? 'unconfirmed' : 'failed';
   const heroState: TransactionHeroState = !transactionComplete ? 'processing' : hasErrors ? failedHeroState : 'success';
+  // While the Guardian is busy, its step waits rather than spinning (#312).
+  const guardianWaitState: TransactionStepState = 'pending';
   const actionTitle = transactionComplete ? t('done') : t('hide');
 
   if (showSuccessReceipt) {
@@ -497,7 +504,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             {steps.map((step, index) => {
               const waitingOnGuardian = guardianBusy && index === 0;
               const state = waitingOnGuardian
-                ? 'pending'
+                ? guardianWaitState
                 : getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors, unconfirmed);
               return (
                 <TransactionStepRow
