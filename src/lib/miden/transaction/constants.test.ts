@@ -1,4 +1,5 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
@@ -416,5 +417,42 @@ describe('RotationGateConsumeRefusal', () => {
   it('is never read as a guardian outage, whatever its text (#779)', () => {
     // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
     expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
+  });
+});
+
+describe('a Guardian request timeout as an outage (#1313)', () => {
+  const timeout = () =>
+    new GuardianRequestTimeoutError('https://guardian.test/delta/proposal', GUARDIAN_REQUEST_TIMEOUT_MS);
+  const wrap = (cause: Error) => Object.assign(new Error('could not create the proposal'), { cause });
+
+  it('is an outage wherever it sits in the cause chain', () => {
+    expect(isGuardianOutage(timeout())).toBe(true);
+    expect(isGuardianOutage(wrap(timeout()))).toBe(true);
+    expect(resolveTransactionErrorMessage(wrap(timeout()), 'creating-proposal')).toBe(GUARDIAN_UNREACHABLE_ERROR);
+  });
+
+  it('is never an outage under a killed pipeline, at any depth', () => {
+    // A requeue would re-broadcast a write that may have submitted, and the copy would say it was not sent.
+    const poisoned = new WasmClientPoisonedError('realm-error', timeout());
+    const aborted = Object.assign(new OperationAbortedError('op-1', 'deadline'), { cause: timeout() });
+    expect(isGuardianOutage(poisoned)).toBe(false);
+    expect(isGuardianOutage(aborted)).toBe(false);
+    expect(isGuardianOutage(wrap(poisoned))).toBe(false);
+    expect(isGuardianOutage(wrap(aborted))).toBe(false);
+  });
+
+  it('never reads a wrapped kill as an outage, even with no timeout in its chain', () => {
+    const abort = new OperationAbortedError('op-1', 'deadline');
+    const wrapped = Object.assign(new Error(`could not create the proposal: ${abort.message}`), { cause: abort });
+    expect(isGuardianOutage(wrapped)).toBe(false);
+    expect(resolveTransactionErrorMessage(wrapped, 'creating-proposal')).not.toBe(GUARDIAN_UNREACHABLE_ERROR);
+  });
+
+  it('ends on a cyclic cause chain', () => {
+    const a: Error & { cause?: unknown } = new Error('a');
+    const b: Error & { cause?: unknown } = new Error('b');
+    a.cause = b;
+    b.cause = a;
+    expect(isGuardianOutage(a)).toBe(false);
   });
 });

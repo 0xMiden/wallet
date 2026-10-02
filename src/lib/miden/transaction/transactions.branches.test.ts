@@ -1686,6 +1686,15 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
       error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS),
       arm: 'guardian-unreachable',
       cooldownSec: 60
+    },
+    // The same timeout carried as the cause of an error whose own message names no network failure (#1313).
+    {
+      label: 'a Guardian request timeout wrapped under another message',
+      error: Object.assign(new Error('could not create the proposal'), {
+        cause: new GuardianRequestTimeoutError('https://guardian.test/delta/proposal', GUARDIAN_REQUEST_TIMEOUT_MS)
+      }),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
     }
   ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error, arm, cooldownSec }) => {
     const requeuedFrom = nowSec();

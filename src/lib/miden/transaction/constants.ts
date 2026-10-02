@@ -1,4 +1,5 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import {
@@ -422,6 +423,17 @@ export const GUARDIAN_UNREACHABLE_ERROR =
   'The guardian or the Miden network could not be reached, so this transaction was not sent. Your funds are safe; ' +
   'try again in a moment.';
 
+/** A killed pipeline anywhere in `error`'s cause chain. Visited links are tracked, since a cause chain can be cyclic. */
+function isKilledPipelineInChain(error: unknown): boolean {
+  const seen = new Set<object>();
+  for (let link: unknown = error; typeof link === 'object' && link !== null && !seen.has(link); ) {
+    seen.add(link);
+    if (isWasmClientPoisonedError(link) || isOperationAbortedError(link)) return true;
+    link = 'cause' in link ? link.cause : undefined;
+  }
+  return false;
+}
+
 /**
  * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
  * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
@@ -430,6 +442,12 @@ export const GUARDIAN_UNREACHABLE_ERROR =
  */
 export function isGuardianOutage(error: unknown): boolean {
   if (error instanceof RotationGateConsumeRefusal) return false;
+  // A killed pipeline stays a kill at any depth: a requeue would re-broadcast it and the copy would say it was not
+  // sent (#1313).
+  if (isKilledPipelineInChain(error)) return false;
+  // The fetch boundary's cut-off is the Guardian not answering wherever a caller wrapped it, which the message check
+  // below cannot see.
+  if (isGuardianRequestTimeout(error)) return true;
   if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
   const raw = formatRawTransactionError(error);
   return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
