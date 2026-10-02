@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -134,9 +135,16 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             amount={offerAmount}
             isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
             error={offerAmountError}
+            // The fee shortfall keeps the amount red but says so under the token.
+            hideErrorText={feeAssetMissing}
             onAmountChange={onOfferAmountChange}
             onSelectToken={onSelectOfferToken}
           />
+          {feeAssetMissing && (
+            <ErrorLine role="note" data-testid="swap-fee-notice" className="mt-3">
+              {t('insufficientFeeAssetShort')}
+            </ErrorLine>
+          )}
         </motion.div>
 
         <div className="flex items-center gap-3">

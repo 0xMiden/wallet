@@ -374,7 +374,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // byte-identical to before.
       try {
         const noteId = await withWasmClientLock(async hold => {
-          const id = await midenClientProxy.importNoteBytes(noteBytes);
+          const id = await midenClientProxy.importNoteBytes(noteBytes, hold);
           // The import is a network round trip, and an eviction during it releases the
           // mutex without stopping this callback — so the sync below would run with no
           // mutex held, concurrently with whoever holds it now. Throwing instead takes

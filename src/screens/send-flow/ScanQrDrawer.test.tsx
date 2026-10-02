@@ -129,6 +129,19 @@ describe('ScanQrDrawer', () => {
     expect(screen.getByTestId('scan-qr-video')).toBeInTheDocument();
   });
 
+  // `black` is ink, white in dark theme, so the frame shown before the stream covers it must be pure black.
+  it('paints the camera frame pure black while the camera is still being requested', async () => {
+    getUserMediaMock.mockReturnValue(new Promise(() => {}));
+
+    render(<ScanQrDrawer open {...noopProps()} />);
+    await flushAsync();
+
+    expect(screen.getByText('requestingCamera')).toBeInTheDocument();
+    const frame = screen.getByTestId('scan-qr-video').parentElement;
+    expect(frame).toHaveClass('bg-pure-black');
+    expect(frame).not.toHaveClass('bg-black');
+  });
+
   it('does not request the camera while closed', async () => {
     render(<ScanQrDrawer open={false} {...noopProps()} />);
     await flushAsync();

@@ -50,6 +50,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
 // in flight" downgrade is exercised against real bookkeeping, not a stub.
 
 type OnMessageListener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
+type WasmLockHold = import('lib/miden/sdk/miden-client').WasmLockHold;
 
 let fakeChrome: any;
 let docExists = false;
@@ -161,9 +162,12 @@ function resetControl() {
     inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
     inlineRecoverPublicNotesRange: jest.fn(async () => ({ imported: 3, failures: 0 })),
     inlineResolveRecoveryScanRange: jest.fn(async () => ({ startBlock: 7, latestBlock: 99 })),
+    inlineDecodeGuardianHistory: jest.fn(async () => ({ __inlineSummary: true })),
+    inlineGetGuardianResultCommitment: jest.fn(async () => '0xinlinecommitment'),
+    inlineHold: { mock: 'inline-hold' },
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
-    withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
+    withWasmClientLock: jest.fn(async (fn: (hold: unknown) => Promise<unknown>) => fn(G.__px.inlineHold)),
     getMidenClient: jest.fn(async () => ({
       getAccount: (...a: any[]) => G.__px.inlineGetAccount(...a),
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
@@ -187,6 +191,8 @@ function resetControl() {
       importRecoveryNoteBytes: (...a: any[]) => G.__px.inlineImportRecoveryNoteBytes(...a),
       recoverPublicNotesRange: (...a: any[]) => G.__px.inlineRecoverPublicNotesRange(...a),
       resolveRecoveryScanRange: (...a: any[]) => G.__px.inlineResolveRecoveryScanRange(...a),
+      decodeGuardianHistory: (...a: any[]) => G.__px.inlineDecodeGuardianHistory(...a),
+      getGuardianResultCommitment: (...a: any[]) => G.__px.inlineGetGuardianResultCommitment(...a),
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
@@ -320,7 +326,7 @@ describe('MidenClientProxy — flag routing', () => {
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(4);
     expect(G.__px.inlineDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
-    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes);
+    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes, G.__px.inlineHold);
     expect(G.__px.inlineResolveRecoveryScanRange).toHaveBeenCalledWith(1_700_000_000);
     expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200, 0);
     expect(imported).toEqual({ imported: 2, failures: 0 });
@@ -1398,12 +1404,15 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
   });
 
   // ── importNoteBytes (store WRITE) ─────────────────────────────────────────
+  const callerHold = { mock: 'caller-hold' } as unknown as WasmLockHold;
+
   it('flag OFF → importNoteBytes imports into the inline client store and returns the id', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const bytes = new Uint8Array([1, 2, 3]);
-    const id = await midenClientProxy.importNoteBytes(bytes);
+    const id = await midenClientProxy.importNoteBytes(bytes, callerHold);
 
-    expect(G.__px.inlineImportNoteBytes).toHaveBeenCalledWith(bytes);
+    expect(G.__px.inlineImportNoteBytes).toHaveBeenCalledWith(bytes, callerHold);
+    expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
     expect(id).toBe('0ximportedid');
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -1417,7 +1426,7 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
       durationMs: 3
     }));
 
-    const p = midenClientProxy.importNoteBytes(new Uint8Array([0xab, 0xcd]));
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([0xab, 0xcd]), callerHold);
     await flush();
     fireReady();
     const id = await p;
@@ -1427,7 +1436,8 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('importNoteBytes');
     expect(env.deadline_ms).toBe(15_000);
-    // Note bytes cross as RAW base64 (the 'b:' tag), never JSON.
+    // Note bytes cross as RAW base64 (the 'b:' tag), never JSON, and the hold stays in this realm.
+    expect(env.argsB64).toHaveLength(1);
     expect(env.argsB64[0].startsWith('b:')).toBe(true);
     expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xab, 0xcd]);
     expect(id).toBe('0xoffscreenid');
@@ -1441,13 +1451,42 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
       resultB64: null,
       durationMs: 1
     }));
-    const p = midenClientProxy.importNoteBytes(new Uint8Array([1])).catch((e: Error) => e);
+    const p = midenClientProxy.importNoteBytes(new Uint8Array([1]), callerHold).catch((e: Error) => e);
     await flush();
     fireReady();
     const err = await p;
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('no note id');
   });
+});
+
+describe('MidenClientProxy - Guardian history ops', () => {
+  it.each([
+    {
+      name: 'decodeGuardianHistory',
+      invoke: (proxy: any) => proxy.decodeGuardianHistory('summary'),
+      inline: () => G.__px.inlineDecodeGuardianHistory,
+      args: () => ['summary', G.__px.inlineHold],
+      expected: { __inlineSummary: true }
+    },
+    {
+      name: 'getGuardianResultCommitment',
+      invoke: (proxy: any) => proxy.getGuardianResultCommitment(new Uint8Array([4, 2])),
+      inline: () => G.__px.inlineGetGuardianResultCommitment,
+      args: () => [new Uint8Array([4, 2]), G.__px.inlineHold],
+      expected: '0xinlinecommitment'
+    }
+  ])(
+    'flag ON but no chrome.offscreen API → $name runs inline under withWasmClientLock, with the hold it took',
+    async ({ invoke, inline, args, expected }) => {
+      installChromeMock({ withOffscreen: false });
+      const { midenClientProxy } = await loadProxy(true);
+      await expect(invoke(midenClientProxy)).resolves.toEqual(expected);
+      expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+      expect(inline()).toHaveBeenCalledWith(...args());
+      expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('MidenClientProxy — slice-7-reads getSerializedInputNoteDetails (invalid-note detail batch)', () => {
@@ -2893,6 +2932,88 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       expect((err as { reason?: string }).reason).toBe('realm-error');
     }
   );
+
+  it('preserves a terminal history fee error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian history fee metadata is unavailable',
+      errorName: 'GuardianHistoryFeeUnavailableError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary');
+    await flush();
+    fireReady();
+    await expect(result).rejects.toMatchObject({ name: 'GuardianHistoryFeeUnavailableError' });
+  });
+
+  it('preserves a history fee lookup error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryFeeLookupError } = await import('../guardian/history-errors');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian history fee metadata is not available yet',
+      errorName: 'GuardianHistoryFeeLookupError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary');
+    await flush();
+    fireReady();
+    await expect(result).rejects.toBeInstanceOf(GuardianHistoryFeeLookupError);
+  });
+
+  it('preserves a history data error across the offscreen boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryDataError } = await import('../guardian/history-errors');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'Guardian summary is too large',
+      errorName: 'GuardianHistoryDataError'
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary').catch((reason: unknown) => reason);
+    await flush();
+    fireReady();
+    const error = await result;
+    expect({ name: (error as Error).name, message: (error as Error).message }).toEqual({
+      name: 'GuardianHistoryDataError',
+      message: 'Guardian summary is too large'
+    });
+    expect(error).toBeInstanceOf(GuardianHistoryDataError);
+  });
+
+  const summaryB64 = (text: string) => Buffer.from(text).toString('base64');
+  const validSummary = { accountId: 'account', inputNotes: [], outputNotes: [] };
+  const sharedNoteSummary = { ...validSummary, inputNotes: [{ id: 'note', assets: [], visibility: 'shared' }] };
+  it.each<[string, string | null, 'data' | 'transport' | 'valid']>([
+    ['text that is not JSON', summaryB64('{'), 'data'],
+    ['JSON that fails the summary schema', summaryB64(JSON.stringify(sharedNoteSummary)), 'data'],
+    ['no summary', null, 'transport'],
+    ['a valid summary', summaryB64(JSON.stringify(validSummary)), 'valid']
+  ])('settles an ok history decode reply carrying %s by what failed', async (_label, resultB64, kind) => {
+    const { midenClientProxy } = await loadProxy(true);
+    const { GuardianHistoryDataError } = await import('../guardian/history-errors');
+    const outcomes = {
+      data: { name: 'GuardianHistoryDataError', message: 'Guardian summary fails its schema' },
+      transport: { name: 'Error', message: 'Missing Guardian summary response' },
+      valid: validSummary
+    };
+    const classes = { data: GuardianHistoryDataError, transport: Error, valid: Object };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64,
+      durationMs: 1
+    }));
+    const result = midenClientProxy.decodeGuardianHistory('summary').catch((reason: unknown) => reason);
+    await flush();
+    fireReady();
+    const settled = await result;
+    expect(settled instanceof Error ? { name: settled.name, message: settled.message } : settled).toEqual(
+      outcomes[kind]
+    );
+    expect(settled).toBeInstanceOf(classes[kind]);
+  });
 
   it('a poison reply whose errorReason is missing or garbled is still classified as an eviction', async () => {
     // The classification is what protects the funds; the mechanism name is only

@@ -131,7 +131,8 @@ jest.mock('lib/miden/back/guardian-drift', () => ({
 }));
 
 jest.mock('lib/miden/back/guardian-recovery', () => ({
-  maybeStartGuardianRecovery: jest.fn()
+  maybeStartGuardianRecovery: jest.fn(),
+  releaseGuardianRecoveriesOnLock: jest.fn()
 }));
 
 const mockVaultGetKey = jest.fn();
@@ -404,6 +405,19 @@ describe('actions', () => {
       await lock();
 
       expect(mockLocked).toHaveBeenCalled();
+    });
+
+    it('releases the Guardian recoveries a failed source kept, once, under the WASM lock before locked', async () => {
+      const { releaseGuardianRecoveriesOnLock } = jest.requireMock('lib/miden/back/guardian-recovery');
+      releaseGuardianRecoveriesOnLock.mockClear();
+      await lock();
+      expect(releaseGuardianRecoveriesOnLock).toHaveBeenCalledTimes(1);
+      expect(releaseGuardianRecoveriesOnLock.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockWithWasmClientLock.mock.invocationCallOrder[0]!
+      );
+      expect(releaseGuardianRecoveriesOnLock.mock.invocationCallOrder[0]).toBeLessThan(
+        mockLocked.mock.invocationCallOrder[0]!
+      );
     });
 
     it('retires the vault it locks: its insert-key sink leaves the realm with it (#878)', async () => {

@@ -179,6 +179,8 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
     return (
       <SubPageLayout
         data-testid="contact-detail"
+        // Set wholly in Nunito, like the Settings sub-pages it opens from.
+        bodyClassName="face-heading"
         title={t('editContact')}
         // The error node below lives in THIS branch, so leaving edit mode mid-write destroys the
         // only thing that can report a failure - restoring the silent failure the delete fix
@@ -228,6 +230,8 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
   return (
     <SubPageLayout
       data-testid="contact-detail"
+      // Set wholly in Nunito, like the Settings sub-pages it opens from.
+      bodyClassName="face-heading"
       title={contact.name}
       headerActions={
         <Pill onClick={startEditing} data-testid="contact-edit">

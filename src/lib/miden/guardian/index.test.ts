@@ -12,6 +12,7 @@
  */
 
 import { Account } from '@miden-sdk/miden-sdk/lazy';
+import { GuardianHttpClient } from '@openzeppelin/miden-multisig-client';
 
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
 import {
@@ -139,10 +140,14 @@ const guardianConfig: {
   getPubkey: jest.Mock;
   getState: jest.Mock;
   setSigner: jest.Mock;
+  getDeltaProposal: jest.Mock;
+  pushDelta: jest.Mock;
 } = {
   getPubkey: jest.fn(),
   getState: jest.fn(),
-  setSigner: jest.fn()
+  setSigner: jest.fn(),
+  getDeltaProposal: jest.fn(),
+  pushDelta: jest.fn()
 };
 const multisigClientConfig: { load: jest.Mock } = {
   load: jest.fn()
@@ -164,7 +169,9 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   GuardianHttpClient: jest.fn().mockImplementation(() => ({
     getPubkey: (...a: unknown[]) => guardianConfig.getPubkey(...a),
     getState: (...a: unknown[]) => guardianConfig.getState(...a),
-    setSigner: (...a: unknown[]) => guardianConfig.setSigner(...a)
+    setSigner: (...a: unknown[]) => guardianConfig.setSigner(...a),
+    getDeltaProposal: guardianConfig.getDeltaProposal,
+    pushDelta: guardianConfig.pushDelta
   })),
   MultisigClient: jest.fn().mockImplementation(() => ({
     load: (...a: unknown[]) => multisigClientConfig.load(...a)
@@ -1281,6 +1288,123 @@ describe('MultisigService', () => {
       }
       expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
       expect(mockProbeVerdicts).toEqual([['https://new', false]]);
+    });
+
+    // A service that has signed a switch proposal, ready to finalize it; the history read answers with `delta`.
+    const setUpSignedSwitch = async () => {
+      const multisig = makeMultisig({
+        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'switch_guardian' } }))
+      });
+      multisigClientConfig.load.mockResolvedValueOnce(multisig);
+      mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
+      const account = Account.deserialize(new Uint8Array());
+      const service = await MultisigService.init(account, 'key', 'commitment', jest.fn(), 'https://old');
+      const delta = {
+        accountId: 'acc-id',
+        nonce: 5,
+        prevCommitment: 'previous',
+        deltaPayload: { txSummary: { data: 'summary' }, signatures: [] }
+      };
+      guardianConfig.getDeltaProposal.mockResolvedValueOnce(delta);
+      await service.signAndCreateTransactionRequest('proposal-id');
+      return { multisig, service, delta };
+    };
+    const queueFinalize = () => {
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT });
+    };
+    const flushPush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    it.each([false, true])(
+      'records switch history on the old operator without holding up registration (old source fails: %s)',
+      async fails => {
+        const { multisig, service, delta } = await setUpSignedSwitch();
+        guardianConfig.pushDelta.mockImplementationOnce(async () => {
+          if (fails) throw new Error('Old Guardian is unavailable');
+        });
+        queueFinalize();
+
+        expect(guardianConfig.pushDelta).not.toHaveBeenCalled();
+        await service.finalizeGuardianSwitch('https://new');
+        await flushPush();
+
+        expect(guardianConfig.getDeltaProposal).toHaveBeenCalledWith('acc-id', 'proposal-id');
+        expect(guardianConfig.pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: { data: 'summary' } });
+        expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
+        const constructed = jest.mocked(GuardianHttpClient).mock;
+        const pushedOn = constructed.results.findIndex(
+          result => result.value === guardianConfig.pushDelta.mock.contexts[0]
+        );
+        expect(constructed.calls[pushedOn]?.[0]).toBe('https://old');
+      }
+    );
+
+    it('registers on the new Guardian while the old operator never answers, and returns once the history read times out', async () => {
+      const { multisig, service } = await setUpSignedSwitch();
+      guardianConfig.getDeltaProposal.mockReset();
+      guardianConfig.getDeltaProposal.mockImplementationOnce(() => new Promise(() => {}));
+      queueFinalize();
+
+      jest.useFakeTimers();
+      try {
+        let settled = false;
+        void service.finalizeGuardianSwitch('https://new').then(() => {
+          settled = true;
+        });
+        await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS - 1);
+        expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
+        expect(settled).toBe(false);
+
+        await jest.advanceTimersByTimeAsync(2);
+        expect(settled).toBe(true);
+      } finally {
+        jest.useRealTimers();
+        // A finalize left waiting on the push would leave its queued results to the next test.
+        mockGetAccount.mockReset();
+        guardianConfig.getPubkey.mockReset();
+      }
+    });
+
+    it('returns only after the history push, so the push signs inside the switch', async () => {
+      const { multisig, service, delta } = await setUpSignedSwitch();
+      let answerHistory: (value: typeof delta) => void = () => {};
+      guardianConfig.getDeltaProposal.mockReset();
+      guardianConfig.getDeltaProposal.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            answerHistory = resolve;
+          })
+      );
+      queueFinalize();
+
+      let settled = false;
+      const finalized = service.finalizeGuardianSwitch('https://new').then(() => {
+        settled = true;
+      });
+      // A macrotask at a time: finalize would resolve a few microtasks after registration if it did not wait.
+      while (!multisig.registerOnGuardian.mock.calls.length) await flushPush();
+      await flushPush();
+      expect(settled).toBe(false);
+      expect(guardianConfig.pushDelta).not.toHaveBeenCalled();
+
+      answerHistory(delta);
+      await finalized;
+      expect(guardianConfig.pushDelta).toHaveBeenCalledWith({ ...delta, deltaPayload: { data: 'summary' } });
+    });
+
+    it("pushes a switch's history at most once, even after a failed push", async () => {
+      const { multisig, service } = await setUpSignedSwitch();
+      guardianConfig.pushDelta.mockRejectedValueOnce(new Error('Old Guardian is unavailable'));
+      queueFinalize();
+      queueFinalize();
+
+      await service.finalizeGuardianSwitch('https://new');
+      await flushPush();
+      await service.finalizeGuardianSwitch('https://new');
+      await flushPush();
+
+      expect(guardianConfig.getDeltaProposal).toHaveBeenCalledTimes(1);
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
     });
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {

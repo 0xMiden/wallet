@@ -278,7 +278,11 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     if (isMobile()) {
       return (
         <SubPageLayout title={t('verifySeedPhrase')} onBack={back} data-testid="verify-seed-auth">
-          <SubPageSection title={t('enterYourPasscode')} description={t('verifySeedPhrasePasswordBody')} />
+          <SubPageSection
+            title={t('enterYourPasscode')}
+            titleSize="md"
+            description={t('verifySeedPhrasePasswordBody')}
+          />
           <PasscodeEntry
             onSubmit={code => revealPhrase(code)}
             onChange={() => clearErrors()}
@@ -306,7 +310,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
           />
         }
       >
-        <SubPageSection title={t('enterPassword')} description={t('verifySeedPhrasePasswordBody')}>
+        <SubPageSection title={t('enterPassword')} titleSize="md" description={t('verifySeedPhrasePasswordBody')}>
           {/* One password field and no submit button: Enter submits the form on its own. */}
           <form onSubmit={handleSubmit(onPasswordSubmit)}>
             <TextField

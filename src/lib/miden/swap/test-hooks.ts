@@ -214,7 +214,7 @@ export function installSwapConsumeHooks(): void {
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the client build');
             await signMc.syncState();
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the first sync');
-            const importedId = await signMc.importNoteBytes(Buffer.from(a.noteFileHex!, 'hex'));
+            const importedId = await signMc.importNoteBytes(Buffer.from(a.noteFileHex!, 'hex'), hold);
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the import');
             await signMc.syncState();
             assertWasmHoldCurrent(hold, 'pswap-fill-handoff after the second sync');
