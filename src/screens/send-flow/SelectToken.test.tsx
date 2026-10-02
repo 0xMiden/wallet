@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
@@ -13,8 +14,9 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 // The fiat values under test follow the default rule, no figure without a quote; pinned here against
-// Developer Settings' nominal $1 switch (lib/prices/unquoted-default).
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
 // component consumes so we can drive account / balances / metadata by hand.
@@ -129,6 +131,14 @@ const XYZ: Balance = {
   fiatPrice: 1
 };
 
+// The native token: it stands for nothing the feed quotes, so it has no price symbol.
+const MIDEN: Balance = {
+  tokenId: 't-miden',
+  metadata: { symbol: 'MIDEN', name: 'Miden', decimals: 6 },
+  balance: 4,
+  fiatPrice: 0
+};
+
 // A swap test token that stands for ETH, held under its registry faucet id.
 const IETH: Balance = {
   tokenId: TOKEN_IETH.faucetId,
@@ -157,6 +167,10 @@ beforeEach(() => {
   mockUseAllBalances.mockReturnValue({ data: [] });
   mockStoreState = { tokenPrices: {} };
   mockHiddenIds.clear();
+});
+
+afterEach(() => {
+  mockedHasUnquotedDefaultPrice.mockReturnValue(false);
 });
 
 describe('SelectTokenDrawer', () => {
@@ -345,6 +359,18 @@ describe('SelectTokenDrawer', () => {
     renderDrawer();
 
     expect(within(screen.getByTestId('send-token-ETH')).queryByText(/^\$/)).not.toBeInTheDocument();
+  });
+
+  it('values the native token at the nominal $1 with the nominal rate on, and hands the amount step that price', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
+    setBalances([MIDEN]);
+    const { onSelect } = renderDrawer();
+
+    const row = screen.getByTestId('send-token-MIDEN');
+    expect(within(row).getByText('$4.00')).toBeInTheDocument();
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 't-miden', fiatPrice: 1 }));
   });
 
   it('values a swap token at the asset it stands for and hands the amount step that price', () => {

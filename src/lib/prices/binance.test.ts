@@ -258,6 +258,11 @@ describe('listedPrice', () => {
   it('returns 0 for a quote that is not a price, as quotedPrice does', () => {
     expect(listedPrice({ ETH: { price: -1, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBe(0);
   });
+
+  it('returns the nominal $1 for a symbol the feed does not list with the nominal rate on, as quotedPrice does', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(listedPrice(prices, 'IMIDEN')).toBe(1);
+  });
 });
 
 describe('listedFiatValue', () => {
@@ -277,5 +282,10 @@ describe('listedFiatValue', () => {
 
   it('gives no figure for a zero balance, never a zero figure', () => {
     expect(listedFiatValue(prices, 'ETH', 0, true)).toBeUndefined();
+  });
+
+  it('values a symbol the feed does not list at the nominal $1 with the nominal rate on', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(listedFiatValue(prices, 'IMIDEN', 3, true)).toBe(3);
   });
 });

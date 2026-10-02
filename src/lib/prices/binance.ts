@@ -104,18 +104,22 @@ export function quotedPrice(prices: TokenPrices, symbol: string | undefined): To
 }
 
 /**
- * The feed's price for a symbol, or 0 when the feed does not list it, never a $1 default: the
- * token pickers (`listedFiatValue`) read 0 as no price, so an unlisted token shows no fiat there.
+ * The price `quotedPrice` gives a symbol, or 0 for none, which the token pickers
+ * (`listedFiatValue`) read as no price. An unquoted token, as `quotedPrice` defines it, gets 0 and
+ * so shows no fiat there, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is
+ * priced at $1 like every other fiat figure.
  */
 export function listedPrice(prices: TokenPrices, symbol: string | undefined): number {
   return quotedPrice(prices, symbol)?.price ?? 0;
 }
 
 /**
- * The fiat value for a token picker's row, or none: only when the feed lists the symbol, the
- * balance's scale is known and there is a balance to value. Never a $1 default, which would turn
- * every unlisted token into a dollar figure equal to its token count. A number,
- * so the row can count it (`AnimatedNumber`) with a formatter bound to it.
+ * The fiat value for a token picker's row, or none: only when the symbol has a price
+ * (`listedPrice`), the balance's scale is known and there is a balance to value. An unquoted
+ * token, as `quotedPrice` defines it (an absent symbol included), gets no figure rather than one
+ * equal to its token count, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is
+ * valued at $1 like every other fiat figure. A number, so the row can count it (`AnimatedNumber`)
+ * with a formatter bound to it.
  */
 export function listedFiatValue(
   prices: TokenPrices,
