@@ -176,7 +176,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
         </DrawerHeader>
         <div data-testid="scan-qr-drawer" className="flex flex-col items-center gap-4 px-4 pb-6">
           {(scanState === 'requesting' || scanState === 'scanning') && (
-            <div className="relative w-full overflow-hidden rounded-2xl bg-black" style={{ aspectRatio: '1 / 1' }}>
+            <div className="relative w-full overflow-hidden rounded-2xl bg-pure-black" style={{ aspectRatio: '1 / 1' }}>
               <video
                 ref={videoRef}
                 data-testid="scan-qr-video"

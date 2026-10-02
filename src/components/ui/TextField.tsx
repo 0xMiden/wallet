@@ -84,7 +84,7 @@ const SecretCover: React.FC<{ multiline: boolean; onReveal: () => void }> = ({ m
       onClick={onReveal}
       className={cn(
         'absolute inset-0 flex cursor-text flex-col items-center justify-center gap-1',
-        'bg-page/60 backdrop-blur-sm',
+        'bg-page/60 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)]',
         multiline ? 'rounded-lg-token' : 'rounded-full'
       )}
     >
