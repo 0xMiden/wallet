@@ -204,6 +204,24 @@ describe('DappConfirmationModal', () => {
     expect(onResolve.mock.calls[0]![0].privateDataPermission).toBe(PrivateDataPermission.Auto);
   });
 
+  // Both render sites reuse one modal instance across requests, so a tick on one
+  // standing-access request must not grant the next one without its own gesture.
+  it('does not carry a ticked risk box over to the next request shown', () => {
+    const onResolve = jest.fn();
+    const { rerender } = render(
+      <DappConfirmationModal request={autoRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+    fireEvent.click(screen.getByLabelText('confirmRisk'));
+
+    const next = { ...autoRequest(), id: 'req-2', origin: 'https://other.example' };
+    rerender(<DappConfirmationModal request={next} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />);
+    expect(screen.getByLabelText('confirmRisk')).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    expect(onResolve.mock.calls[0]![0].privateDataPermission).toBe(PrivateDataPermission.UponRequest);
+    expect(onResolve.mock.calls[0]![1]).toBe('req-2');
+  });
+
   it('shows the upon-request scope (and no risk box) when standing access is not requested', () => {
     render(<DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
 

@@ -109,6 +109,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     currentRequestIdRef.current = request.id;
     setShowSpendingLimitChallenge(false);
     setApprovalError(null);
+    setStandingAccessAcknowledged(false);
     return () => {
       currentRequestIdRef.current = null;
     };
