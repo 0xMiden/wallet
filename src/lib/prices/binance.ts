@@ -90,6 +90,16 @@ export function pricesLoaded(prices: TokenPrices): boolean {
 const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
 
 /**
+ * Whether a quote is the nominal $1 that `quotedPrice` gives an unquoted token, not a feed quote.
+ * The nominal rate is a display figure, so a computation that weighs a token's value against a
+ * real-dollar amount (the Fast route's fee) treats it as no price. Identity rather than shape,
+ * since a feed quote of a stablecoin at par has the same fields.
+ */
+export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
+  return quote === TEST_NETWORK_UNQUOTED_PRICE;
+}
+
+/**
  * The feed's quote for a price symbol, or none; a zero price is not a quote. An unquoted token (a
  * symbol the feed never lists, not a `KNOWN_SYMBOLS` key, or no price symbol at all) has no fiat
  * value unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is quoted at $1. A

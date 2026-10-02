@@ -5,6 +5,7 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import {
   fetchKlineData,
   fetchTokenPrices,
+  isNominalQuote,
   listedFiatValue,
   listedPrice,
   pricesLoaded,
@@ -255,6 +256,25 @@ describe('quotedPrice', () => {
   it('keeps the feed quote of a listed symbol off mainnet, never the $1 default', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
     expect(quotedPrice({ ETH: eth }, 'ETH')).toEqual(eth);
+  });
+});
+
+describe('isNominalQuote', () => {
+  it('is true for the nominal quote of a symbol the feed does not list', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(isNominalQuote(quotedPrice({}, 'IMIDEN'))).toBe(true);
+  });
+
+  // A stablecoin trading at par has the nominal quote's shape and is still a real-dollar figure.
+  it('is false for a feed quote, even one at $1 with no movement', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    const par = { price: 1, change24h: 0, percentageChange24h: 0 };
+    expect(isNominalQuote(quotedPrice({ USDC: par }, 'USDC'))).toBe(false);
+    expect(isNominalQuote(par)).toBe(false);
+  });
+
+  it('is false for no quote', () => {
+    expect(isNominalQuote(undefined)).toBe(false);
   });
 });
 
