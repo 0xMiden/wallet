@@ -169,16 +169,16 @@ jest.mock('lib/miden/guardian', () => {
 const mockGetSignerDetails = jest.fn();
 const mockGetGuardianCommitmentFromAccount = jest.fn();
 // The operator the sync actually binds: the per-account field when set, otherwise
-// the legacy global key and then the network default. The rotation detector keys
-// on THIS rather than on the raw field, so the default has to be a stable value
-// here — a per-call one would look like a rotation on every tick.
-const resolveEndpointDefault = async (account: { guardianEndpoint?: string }) =>
+// the network default. The rotation detector keys on THIS rather than on the raw
+// field, so the default has to be a stable value here, a per-call one would look
+// like a rotation on every tick.
+const resolveEndpointDefault = (account: { guardianEndpoint?: string }) =>
   account.guardianEndpoint ?? 'https://guardian.test';
 const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
-// The pointer the account CHOSE: field, then the legacy global key, and NEVER the
-// network default. The self-heal writes this device's private account state to it,
-// so an account with no pointer must resolve to `undefined` and be refused.
-const resolveChosenDefault = async (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
+// The pointer the account CHOSE: its own field, and NEVER the network default.
+// The self-heal writes this device's private account state to it, so an account
+// with no pointer must resolve to `undefined` and be refused.
+const resolveChosenDefault = (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
 const mockResolveChosenGuardianEndpoint = jest.fn(resolveChosenDefault);
 jest.mock('lib/miden/guardian/account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
@@ -770,14 +770,13 @@ describe('syncGuardianAccounts', () => {
     expect(sync).toHaveBeenCalledTimes(1);
   });
 
-  it('skips legacy Guardian accounts with no hot key (un-migrated / upgrade window)', async () => {
-    // A pre-3-key Guardian record carries neither hotPublicKey nor the
-    // requiresHotKeyRotation flag — e.g. right after a wallet upgrade and before
-    // the forced re-unlock runs migrateLegacyGuardianAccounts. getOrCreateMultisigService
-    // would throw "missing hotPublicKey" on it every cycle; skip it instead. The
-    // account is recovered by migration → Activate Device Key banner, not here.
+  it('skips a Guardian record with neither a hot key nor the rotation flag', async () => {
+    // Neither hotPublicKey nor requiresHotKeyRotation is set.
+    // getOrCreateMultisigService would throw "missing hotPublicKey" on it every
+    // cycle; skip it instead. There is no hot-bound service to build for this
+    // record, and it must fail loudly elsewhere, not spam the sync loop.
     storeState.accounts = [
-      { publicKey: 'guardian-legacy', type: WalletType.Guardian }, // no hotPublicKey, no rotation flag
+      { publicKey: 'guardian-no-hot-key', type: WalletType.Guardian }, // no hotPublicKey, no rotation flag
       { publicKey: 'guardian-active', type: WalletType.Guardian, hotPublicKey: 'hot-active' }
     ];
     const sync = jest.fn(async () => {});
@@ -785,7 +784,7 @@ describe('syncGuardianAccounts', () => {
 
     await expect(syncGuardianAccounts()).resolves.toBeUndefined();
 
-    // Only the active account is synced; the legacy one is skipped, no throw.
+    // Only the active account is synced; the record with no hot key is skipped, no throw.
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider, true);
   });
@@ -1804,35 +1803,6 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
     });
 
-    // The operator the sync talks to is whatever `resolveGuardianEndpoint`
-    // returns, so the detector has to key on THAT and not on the raw field.
-    // Keying on the field was wrong in both directions.
-    it('does not fire on the unlock-time backfill, which stamps the endpoint already in use', async () => {
-      const pk = 'rotate-backfill';
-      // No per-account endpoint: this account resolves through the fallback.
-      storeState.accounts = [at(pk, undefined)] as never;
-      const sync = jest.fn().mockResolvedValue(undefined);
-      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
-
-      await runSyncs(1);
-      const stamped = getGuardianLastSyncAt(pk);
-      expect(stamped).toEqual(expect.any(Number));
-
-      // The backfill writes the value the account was ALREADY resolving to.
-      // Nothing about the operator changed, so nothing may be dropped — keying on
-      // the raw field saw `'' !== 'https://…'`, called it a rotation, and threw
-      // away a valid sync stamp (flipping the pill Online → Checking) along with
-      // the 401 streak and the self-heal budget.
-      //
-      // The tick behind the backfill FAILS, so a dropped stamp cannot be masked
-      // by the same tick re-earning one: only the absence of a reset preserves it.
-      storeState.accounts = [at(pk, 'https://guardian.test')] as never;
-      sync.mockRejectedValue(new Error('Failed to fetch'));
-      await runSyncs(1);
-
-      expect(getGuardianLastSyncAt(pk)).toBe(stamped);
-    });
-
     it('fires when the resolved default moves under an account with no endpoint of its own', async () => {
       const pk = 'rotate-default';
       storeState.accounts = [at(pk, undefined)] as never;
@@ -1847,7 +1817,7 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       // while the account's own field stays `undefined`. Keying on the field, this
       // was the F-137 defect itself surviving its own fix: no reset fired and the
       // previous operator's entire verdict set carried over to one never contacted.
-      mockResolveGuardianEndpoint.mockResolvedValue('https://override.guardian.test');
+      mockResolveGuardianEndpoint.mockReturnValue('https://override.guardian.test');
       sync.mockRejectedValue(new Error('Failed to fetch'));
       await runSyncs(1);
 
@@ -2159,78 +2129,6 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
-  });
-
-  // The pointer the account CHOSE, which is neither the raw field nor the fully
-  // resolved value. A pre-per-account-endpoint account on a custom operator has an
-  // EMPTY field and the legacy global key as its only pointer — the unlock backfill
-  // leaves the field empty rather than stamping a guess — so reading the field
-  // refused the repair for exactly the population this arm serves, and refused it
-  // BEFORE the unrepairable mark, leaving the account in the "Checking forever"
-  // state that mark exists to name.
-  it('repairs a legacy account that points at its operator through the global key', async () => {
-    storeState.accounts = [{ ...account, guardianEndpoint: undefined }] as never;
-    mockResolveChosenGuardianEndpoint.mockResolvedValue(endpoint);
-
-    await runUntilPersistent();
-    await syncGuardianAccounts();
-
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
-    // Against the operator that answered, not `undefined`.
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
-      account.publicKey,
-      endpoint,
-      expect.anything(),
-      PREFLIGHT_LOCK_OPTIONS,
-      expect.any(Function)
-    );
-  });
-
-  // An unreadable pointer gets the SAME refusal as no pointer at all. This call
-  // POSTs the device's serialized private account state, so "we could not read
-  // which operator the account chose" is the one condition under which it must
-  // not guess — and the resolver deliberately propagates that failure rather than
-  // flattening it into the `undefined` that means "chose nothing".
-  it('does not register when the account\u2019s guardian pointer cannot be read', async () => {
-    mockResolveChosenGuardianEndpoint.mockRejectedValue(new Error('storage unavailable'));
-
-    await runUntilPersistent();
-    await syncGuardianAccounts();
-
-    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
-  });
-
-  // ...and the read failure must not escape into the sync loop, which iterates
-  // every account: one account's storage hiccup would otherwise abort the tick
-  // for all of them.
-  //
-  // Driven through `resolveGuardianEndpoint`, NOT `resolveChosenGuardianEndpoint`.
-  // The loop's own resolution at the top of each iteration is the call that
-  // escapes — it sits outside the per-account try — and the two are separate
-  // mocks here, so rejecting only the self-heal's resolver leaves the escaping
-  // path healthy and the test green either way. It also needs a SECOND account:
-  // with one, "the pass resolved" and "the remaining accounts were served" are
-  // the same assertion, and any abort is invisible.
-  it('keeps syncing the remaining accounts when one account\u2019s pointer read throws', async () => {
-    const healthy = {
-      publicKey: 'healthy-pk',
-      type: WalletType.Guardian,
-      hotPublicKey: 'hot',
-      guardianEndpoint: endpoint
-    };
-    storeState.accounts = [account, healthy] as never;
-    mockResolveGuardianEndpoint.mockImplementation(async (acc: { guardianEndpoint?: string; publicKey?: string }) => {
-      if (acc.publicKey === account.publicKey) throw new Error('storage unavailable');
-      return endpoint;
-    });
-    const sync = jest.fn(async () => {});
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
-
-    await expect(syncGuardianAccounts()).resolves.toBeUndefined();
-
-    // The account AFTER the failing one still got its tick.
-    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('healthy-pk', zustandProvider, true);
-    expect(sync).toHaveBeenCalled();
   });
 
   it('does not register once this device is no longer the account\u2019s on-chain hot signer', async () => {

@@ -768,15 +768,6 @@
     "message": "我明白该密钥无法被旋转或撤销。",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "此旧钱包文件中缺少的已导入账户：$importedCount$。请分别使用各自的私钥备份进行恢复。",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "编辑账户名称",
     "englishSource": "Edit Account Name"
@@ -2065,10 +2056,6 @@
   "enterDecryptionPassword": {
     "message": "输入您导出钱包时设置的密码。这将解密文件并恢复访问权限。",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
-  },
-  "continueImport": {
-    "message": "继续导入",
-    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "选择您希望如何保护您的钱包",

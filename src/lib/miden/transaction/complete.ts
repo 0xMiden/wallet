@@ -715,10 +715,9 @@ export const completeSwitchGuardianTransaction = async (
       );
     });
 
-    // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
-    // Guardian accounts on different operators aren't clobbered. Backend
-    // providers implement setGuardianEndpoint; the optional-call guard keeps a
-    // frontend provider without it from throwing.
+    // Persist the endpoint PER-ACCOUNT so other Guardian accounts on different
+    // operators aren't clobbered. Backend providers implement setGuardianEndpoint;
+    // the optional-call guard keeps a frontend provider without it from throwing.
     try {
       // BOUNDED, because a hang here is worse than a rejection. On the frontend
       // this provider method is an intercom request, and `request()` in

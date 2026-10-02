@@ -28,7 +28,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
-import { clearStorage, dropLegacyGuardianUrl } from 'lib/miden/reset';
+import { clearStorage } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -237,7 +237,6 @@ export function registerNewWallet(
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
-        await dropLegacyGuardianUrlAfterSetup('registerNewWallet');
         console.log('[Actions.registerNewWallet] Completed');
       } catch (err: unknown) {
         console.error('[Actions.registerNewWallet] FAILED:', err);
@@ -246,14 +245,6 @@ export function registerNewWallet(
         syncRealmInsertKeySink();
       }
     })
-  );
-}
-
-// The wallet is already set up, so a failed drop only warns: the key then lingers as it did
-// before #1174, read only by an account that has no guardianEndpoint of its own.
-async function dropLegacyGuardianUrlAfterSetup(caller: string) {
-  await dropLegacyGuardianUrl().catch(err =>
-    console.warn(`[Actions.${caller}] could not drop the legacy guardian URL:`, err)
   );
 }
 
@@ -276,7 +267,6 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
-        await dropLegacyGuardianUrlAfterSetup('registerWalletFromHotKey');
       } finally {
         syncRealmInsertKeySink();
       }
@@ -285,11 +275,10 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
 }
 
 export function registerImportedWallet(
-  password?: string,
-  mnemonic?: string,
-  walletAccounts: WalletAccount[] = [],
-  formatVersion?: number,
-  importedAccounts: ImportedAccountBackup[] = []
+  password: string | undefined,
+  mnemonic: string | undefined,
+  walletAccounts: WalletAccount[],
+  importedAccounts: ImportedAccountBackup[]
 ) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
@@ -298,13 +287,7 @@ export function registerImportedWallet(
       try {
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await Vault.spawnFromMidenClient(
-          password ?? '',
-          mnemonic ?? '',
-          walletAccounts,
-          formatVersion,
-          importedAccounts
-        );
+        vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -318,7 +301,6 @@ export function registerImportedWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
-        await dropLegacyGuardianUrlAfterSetup('registerImportedWallet');
       } finally {
         if (!published && vault) {
           // The spawn's own undo cannot fire here: it already RESOLVED, and the
@@ -366,11 +348,11 @@ export function unlock(password?: string) {
       // construction throws (#878).
       try {
         const vault = await Vault.setup(password);
-        // Resuming an interrupted removal is best-effort like the two migrations
-        // below it. It reaches the keystore, a client build and the offscreen
-        // document, and it throws seedRemovalFailed by design; letting that
-        // escape would leave the wallet permanently unopenable, because the
-        // status stays 'removing' and every retry re-runs the same failing step.
+        // Resuming an interrupted removal is best-effort. It reaches the keystore, a
+        // client build and the offscreen document, and it throws seedRemovalFailed by
+        // design; letting that escape would leave the wallet permanently unopenable,
+        // because the status stays 'removing' and every retry re-runs the same failing
+        // step.
         // Staying at 'removing' is the designed outcome - it is what the
         // seedRemovalIncomplete notice asks the user to retry.
         // It also takes the same mutual exclusion the explicit Settings removal
@@ -386,13 +368,6 @@ export function unlock(password?: string) {
             })
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
-        // Bring any pre-3-key Guardian accounts into the 3-key model in place
-        // (best-effort, never throws) so they surface the Activate Device Key
-        // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
-        await vault.migrateLegacyGuardianAccounts();
-        // Stamp wallet-derived EVM addresses on pre-existing HD accounts
-        // (best-effort, never throws) before the accounts list is read below.
-        await vault.backfillEvmAddresses();
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -405,16 +380,6 @@ export function unlock(password?: string) {
           ownMnemonic,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
-        // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
-        // predate the field, by resolving their on-chain guardian commitment to a
-        // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
-        // unlike the local-only migrations above it makes external guardian HTTP,
-        // which must never gate the unlock UI transition. Best-effort +
-        // idempotent; resolveGuardianDrift and the next unlock reconcile anything
-        // left unresolved.
-        void vault
-          .backfillGuardianEndpoints()
-          .catch(e => console.warn('[unlock] guardian-endpoint backfill failed (non-fatal):', e));
       } finally {
         syncRealmInsertKeySink();
       }
@@ -645,9 +610,9 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
 // practice: `resolveGuardianDrift` fires them on unlock, which is exactly when
 // the recovery is running.
 //
-// Queued HERE rather than inside the Vault methods, because
-// `migrateLegacyGuardianAccounts` calls two of those methods while unlock
-// already holds this queue — queueing inside them would deadlock it.
+// Queued HERE rather than inside the Vault methods, for the reason
+// `Vault.updateGuardianBinding` documents: callers that already hold this queue
+// reach those methods directly, so queueing inside them would deadlock.
 
 export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
   return withUnlocked(({ vault }) =>

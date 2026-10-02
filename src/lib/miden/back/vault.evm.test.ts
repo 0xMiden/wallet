@@ -2,7 +2,6 @@
  * Wallet-derived EVM identity tests for `lib/miden/back/vault.ts`:
  *   - `Vault.spawn` stamps `evmAddress` + persists the encrypted leaf key
  *   - `createHDAccount` stamps the next address index
- *   - `backfillEvmAddresses` is idempotent and skips imported accounts
  *   - `signEvm` round-trips (message / typed-data digest / transaction)
  *     recover to the stamped address
  *   - rejection branches surface as PublicError
@@ -28,7 +27,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOne, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 const memoryStore: Record<string, any> = {};
@@ -98,13 +97,10 @@ jest.mock('lib/miden/reset', () => {
   const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
   return {
     PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
-    SETUP_PRESERVED_STORAGE_KEYS: actual.SETUP_PRESERVED_STORAGE_KEYS,
-    // Mirrors the real reset: every key but the kept list goes (the setup list by default).
-    clearStorage: jest.fn(
-      async (_clearDb: boolean = true, keep: readonly string[] = actual.SETUP_PRESERVED_STORAGE_KEYS) => {
-        for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
-      }
-    )
+    // Mirrors the real reset: every key but the kept list goes.
+    clearStorage: jest.fn(async (_clearDb: boolean = true, keep: readonly string[] = actual.PRESERVED_STORAGE_KEYS) => {
+      for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
+    })
   };
 });
 
@@ -197,10 +193,7 @@ describe('Vault.spawn: EVM identity stamping', () => {
     expect(accounts[0]!.evmAddress).toBe(EVM_ADDR_0);
 
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    const privateKeyHex = await fetchAndDecryptOneWithLegacyFallBack<`0x${string}`>(
-      keys.accEvmSecretKey(EVM_ADDR_0),
-      vaultKey
-    );
+    const privateKeyHex = await fetchAndDecryptOne<`0x${string}`>(keys.accEvmSecretKey(EVM_ADDR_0), vaultKey);
     expect(privateKeyToAccount(privateKeyHex).address).toBe(EVM_ADDR_0);
   });
 });
@@ -217,34 +210,11 @@ describe('Vault.createHDAccount: EVM identity stamping', () => {
   });
 });
 
-describe('Vault.backfillEvmAddresses', () => {
-  it('stamps missing addresses, skips imported accounts, and is idempotent', async () => {
-    const vault = await seedVault([hdAccount('acc-pub-key-1', 0), { ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
-
-    await vault.backfillEvmAddresses();
-    const first = await vault.fetchAccounts();
-    expect(first.find(acc => acc.publicKey === 'acc-pub-key-1')!.evmAddress).toBe(EVM_ADDR_0);
-    expect(first.find(acc => acc.publicKey === 'acc-imported')!.evmAddress).toBeUndefined();
-
-    await vault.backfillEvmAddresses();
-    const second = await vault.fetchAccounts();
-    expect(second).toEqual(first);
-  });
-
-  it('leaves accounts untouched when the vault has no mnemonic', async () => {
-    const vault = await seedVault([hdAccount('acc-pub-key-1', 0)], '');
-    await vault.backfillEvmAddresses();
-    const accounts = await vault.fetchAccounts();
-    expect(accounts[0]!.evmAddress).toBeUndefined();
-  });
-});
-
 describe('Vault.signEvm round-trips', () => {
   let vault: Vault;
 
   beforeEach(async () => {
-    vault = await seedVault([hdAccount('acc-pub-key-1', 0)]);
-    await vault.backfillEvmAddresses();
+    vault = await Vault.spawn(WalletType.OnChain, 'pw', TEST_MNEMONIC, false);
   });
 
   it('message: recovers the stamped address', async () => {

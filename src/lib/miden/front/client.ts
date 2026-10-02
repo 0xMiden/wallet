@@ -138,10 +138,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       walletAccounts: WalletAccount[],
-      formatVersion?: number,
-      importedAccounts?: ImportedAccountBackup[]
+      importedAccounts: ImportedAccountBackup[]
     ) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts, formatVersion, importedAccounts);
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts);
     },
     [storeImportWalletFromClient]
   );

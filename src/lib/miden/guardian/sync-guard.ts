@@ -9,9 +9,9 @@ import type { GuardianSyncStatus } from 'lib/shared/types';
  * operator. Throws synchronously so the operation fails fast with a clear
  * error instead of hitting that operator.
  *
- * Absent `guardianSyncStatus` (non-Guardian accounts, or legacy records
- * written before this field existed) is treated as in-sync — the historical
- * default (see `WalletAccount.guardianSyncStatus` in `lib/shared/types`).
+ * Absent `guardianSyncStatus` (non-Guardian accounts, or a Guardian account the
+ * drift reconciler has not written yet) is treated as in-sync, the default
+ * (see `WalletAccount.guardianSyncStatus` in `lib/shared/types`).
  *
  * Deliberately dependency-free: kept out of `guardian/account.ts` so pulling
  * it into a call site (e.g. `activity/transactions.ts`) doesn't drag that

@@ -430,8 +430,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * Read the current account's active guardian endpoint straight from the
    * frontend Zustand store's `currentAccount.guardianEndpoint` -- the exact
    * field `useCurrentGuardianEndpoint()` (`app/hooks/useCurrentGuardianEndpoint.ts`,
-   * backing GuardianSettings / RotateGuardian) prioritizes over the legacy
-   * global storage key. `completeSwitchGuardianTransaction`
+   * backing GuardianSettings / RotateGuardian) reads. `completeSwitchGuardianTransaction`
    * (`lib/miden/transaction/complete.ts`) persists this PER-ACCOUNT (not just
    * in-memory) via `setGuardianEndpoint`, so it's also what should survive a
    * `reopen()`. Returns `''` if unset or the store is unavailable.
@@ -670,9 +669,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // the `guardianUrl` query param instead. Welcome.tsx reads it into its
     // guardianEndpoint state and register() forwards it as the OVERRIDE, the
     // same path production uses, so fetchGuardianCreateKey (create) and
-    // Vault.spawn's recovery scan (import) both bind to it. Decoupled from the
-    // retired global GUARDIAN_URL_STORAGE_KEY: create never reads that key,
-    // and recovery only consults it as a frozen last-resort fallback.
+    // Vault.spawn's recovery scan (import) both bind to it.
     // `createGuardianWallet` / `createNewWallet` always pass a URL (required by
     // their signatures); `recoverGuardianFromSeed(..., { viaUI: false })` passes
     // one whenever it needs a specific operator.

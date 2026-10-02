@@ -554,7 +554,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
       name,
       isPublic: type !== WalletType.Guardian,
       type,
-      hdIndex
+      hdIndex,
+      authScheme: 'ecdsa'
     });
 
     it('names every hot-key Guardian account the file does not restore, before the consent (#1114)', async () => {

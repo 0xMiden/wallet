@@ -57,8 +57,24 @@ describe('useWalletStore', () => {
 
       syncFromBackend({
         status: WalletStatus.Ready,
-        accounts: [{ publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
-        currentAccount: { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+        accounts: [
+          {
+            publicKey: 'pk1',
+            name: 'Account 1',
+            isPublic: true,
+            type: WalletType.OnChain,
+            hdIndex: 0,
+            authScheme: 'ecdsa'
+          }
+        ],
+        currentAccount: {
+          publicKey: 'pk1',
+          name: 'Account 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        },
         networks: [],
         settings: { contacts: [] },
         ownMnemonic: true
@@ -81,8 +97,22 @@ describe('useWalletStore', () => {
 
   describe('editAccountName', () => {
     const mockAccounts = [
-      { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-      { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OnChain, hdIndex: 1 }
+      {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      },
+      {
+        publicKey: 'pk2',
+        name: 'Account 2',
+        isPublic: false,
+        type: WalletType.OnChain,
+        hdIndex: 1,
+        authScheme: 'ecdsa' as const
+      }
     ];
 
     beforeEach(() => {
@@ -146,8 +176,22 @@ describe('useWalletStore', () => {
 
   describe('updateCurrentAccount', () => {
     const mockAccounts = [
-      { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-      { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OnChain, hdIndex: 1 }
+      {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      },
+      {
+        publicKey: 'pk2',
+        name: 'Account 2',
+        isPublic: false,
+        type: WalletType.OnChain,
+        hdIndex: 1,
+        authScheme: 'ecdsa' as const
+      }
     ];
 
     beforeEach(() => {
@@ -425,14 +469,13 @@ describe('useWalletStore', () => {
       ];
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words', [], 2, importedAccounts);
+      await importWalletFromClient('password123', 'mnemonic words', [], importedAccounts);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
         mnemonic: 'mnemonic words',
         walletAccounts: [],
-        formatVersion: 2,
         importedAccounts
       });
     });
@@ -1101,11 +1144,10 @@ describe('useWalletStore', () => {
       const importedAccounts = [
         { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
       ];
-      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], 2, importedAccounts);
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], importedAccounts);
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({
           type: WalletMessageType.ImportFromClientRequest,
-          formatVersion: 2,
           importedAccounts
         })
       );

@@ -19,7 +19,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
-  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint, refresh: jest.fn() })
+  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint })
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({

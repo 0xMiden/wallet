@@ -768,15 +768,6 @@
     "message": "Ich habe verstanden, dass dieser Schlüssel weder geändert noch widerrufen werden kann.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "In dieser älteren Wallet-Datei fehlende importierte Konten: $importedCount$. Stellen Sie sie separat aus den Sicherungskopien ihrer privaten Schlüssel wieder her.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Kontonamen bearbeiten",
     "englishSource": "Edit Account Name"
@@ -2065,10 +2056,6 @@
   "enterDecryptionPassword": {
     "message": "Geben Sie das Passwort ein, das Sie beim Exportieren Ihres Wallets festgelegt haben. Dadurch wird die Datei entschlüsselt und der Zugriff wiederhergestellt.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
-  },
-  "continueImport": {
-    "message": "Fahren Sie mit dem Import fort",
-    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Entscheiden Sie, wie Sie Ihr Portemonnaie schützen möchten",
