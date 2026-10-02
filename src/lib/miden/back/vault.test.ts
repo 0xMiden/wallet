@@ -2147,6 +2147,105 @@ describe('Vault.spawn', () => {
     // Once at step 5, once more from inside the lock after finding it disposed.
     expect(mockGetMidenClient).toHaveBeenCalledTimes(2);
   });
+
+  it('leaves no protector behind when creation is rejected, and keeps what every setup keeps (#946)', async () => {
+    memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
+    memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+
+    expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
+    expect(memoryStore['guardian_url_setting']).toBe('https://my-guardian.example');
+    expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
+  });
+
+  it('undoes a creation that fails after its check key landed, so a reload does not open Unlock (#946)', async () => {
+    // The current-account pointer is the last write but one, after the check key, the mnemonic and the accounts.
+    Object.defineProperty(memoryStore, keys.currentAccPubKey, {
+      configurable: true,
+      get: () => undefined,
+      set: () => {
+        throw new Error('disk full');
+      }
+    });
+    try {
+      await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+    } finally {
+      delete memoryStore[keys.currentAccPubKey];
+    }
+
+    expect(await Vault.isExist()).toBe(false);
+    expect(await isStored(keys.mnemonic)).toBe(false);
+    expect(await Vault.hasPasswordProtector()).toBe(false);
+  });
+
+  it('leaves the existing wallet untouched when creation fails before its opening wipe (#946)', async () => {
+    await seedVault('old-pw');
+    const protector = await getPlain(keys.vaultKeyPassword);
+    expect(protector).toEqual(expect.any(String));
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    mockResolveGuardianEndpoint.mockRejectedValueOnce(new Error('guardian setting unreadable'));
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+
+    expect(clearStorage).not.toHaveBeenCalled();
+    expect(await Vault.isExist()).toBe(true);
+    expect(await getPlain(keys.vaultKeyPassword)).toBe(protector);
+  });
+
+  it('retires its provisional realm sink when creation is rejected (#946)', async () => {
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    (globalThis as any).__vaultTestRealmUninstalled = null;
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+
+    expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
+    expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+  });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the spawn is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    let settled = false;
+    const spawning = Vault.spawn(WalletType.OnChain, 'pw');
+    spawning.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(spawning).rejects.toThrow('Failed to create wallet');
+  });
 });
 
 const MALFORMED = 'Encrypted file contains malformed imported account data';
@@ -2647,6 +2746,51 @@ describe('Vault.spawnFromMidenClient', () => {
     const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
     expect((insertedSecret as any).__marker).toBe('rpo-falcon-secret');
   });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the restore is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    let settled = false;
+    const restoring = restoreVersionTwo();
+    restoring.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(restoring).rejects.toThrow(PublicError);
+  });
 });
 
 describe('Vault.importAccountFromPrivateKey', () => {
@@ -2887,6 +3031,7 @@ describe('Vault hardware branches', () => {
     generateHardwareKey: jest.fn(),
     encryptWithHardwareKey: jest.fn().mockResolvedValue('enc-hw-key'),
     decryptWithHardwareKey: jest.fn().mockResolvedValue(''),
+    deleteHardwareKey: jest.fn(),
     tauriLog: jest.fn().mockResolvedValue(undefined)
   };
   const mockMobileBiometric = {
@@ -2968,6 +3113,21 @@ describe('Vault hardware branches', () => {
     await Vault.spawn(WalletType.OnChain, undefined as any);
     expect(mockDesktopSecureStorage.generateHardwareKey).not.toHaveBeenCalled();
     expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
+  });
+
+  it('leaves no wrapped vault key after a rejected hardware creation, and keeps the device key (#946)', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
+    mockDesktopSecureStorage.hasHardwareKey.mockResolvedValue(true);
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    await expect(Vault.spawn(WalletType.OnChain, '')).rejects.toThrow('Failed to create wallet');
+
+    // The wrapped key was written before the rejection, so its absence is the undo's doing.
+    expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
+    expect(await Vault.hasHardwareProtector()).toBe(false);
+    expect(mockDesktopSecureStorage.deleteHardwareKey).not.toHaveBeenCalled();
   });
 
   it('setupHardwareProtector on desktop catches errors and returns false', async () => {
@@ -4758,6 +4918,64 @@ describe('Vault.spawnFromHotKey', () => {
   it('requires a password when hardware protection is unavailable', async () => {
     await expect(Vault.spawnFromHotKey(undefined, PAIR, ENDPOINT)).rejects.toThrow(PublicError);
     expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+  });
+
+  it('leaves no protector behind when the guardian lookup rejects after the wipe (#946)', async () => {
+    memoryStore['guardian_url_setting'] = 'https://my-guardian.example';
+    memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    (globalThis as any).__vaultTestRealmUninstalled = null;
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('guardian unreachable'));
+
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('guardian unreachable');
+
+    expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
+    expect(memoryStore['guardian_url_setting']).toBe('https://my-guardian.example');
+    expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
+    expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
+    expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+  });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the spawn is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('guardian unreachable'));
+
+    let settled = false;
+    const spawning = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+    spawning.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(spawning).rejects.toThrow('guardian unreachable');
   });
 
   it('falls back to the network default endpoint when none is passed', async () => {
