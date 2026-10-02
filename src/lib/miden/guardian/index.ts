@@ -120,6 +120,20 @@ export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
 // The per-attempt backoff (capped exponential, and Retry-After-aware on 429s)
 // lives in `guardianRegisterBackoffMs` (./serialize, #619).
 
+/**
+ * Ceiling on the settlement read before a proposal (#312). Short, because it is
+ * a hint: no answer only means the proposal goes ahead and meets the Guardian's
+ * own 409 if the previous delta is still settling.
+ */
+export const PRIOR_CANDIDATE_CHECK_TIMEOUT_MS = 10_000;
+
+/** Where the delta a previous write left stands: still a `candidate`, `settled`, or `unknown`. */
+export type PriorCandidateState = 'candidate' | 'settled' | 'unknown';
+
+/** The Guardian holds no delta at that nonce. Duck-typed like the other Guardian error checks. */
+const isGuardianDeltaNotFound = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'code' in err && err.code === 'delta_not_found';
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -453,6 +467,38 @@ export class MultisigService {
    */
   async probeGuardianState(): Promise<void> {
     await this.client.guardianClient.getState(this.accountId);
+  }
+
+  /**
+   * Where the delta at `nonce` stands on this service's Guardian, for the
+   * settlement gate before a proposal (#312): `'candidate'` while the Guardian
+   * still holds it as a candidate, `'settled'` once it canonicalized, discarded
+   * or retained it or holds no such delta, and `'unknown'` for any other answer,
+   * a failed read or no answer within PRIOR_CANDIDATE_CHECK_TIMEOUT_MS. HTTP
+   * only, never under the WASM lock, and never rejects.
+   */
+  async priorCandidateState(nonce: number): Promise<PriorCandidateState> {
+    try {
+      const delta = await withTimeout(
+        this.client.guardianClient.getDelta(this.accountId, nonce),
+        PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+        `reading guardian candidate ${nonce}`
+      );
+      switch (delta.status.status) {
+        case 'candidate':
+          return 'candidate';
+        case 'canonical':
+        case 'discarded':
+        case 'retained':
+          return 'settled';
+        default:
+          return 'unknown';
+      }
+    } catch (error) {
+      if (isGuardianDeltaNotFound(error)) return 'settled';
+      console.warn(`[Guardian] could not read candidate ${nonce}; the proposal goes ahead`, error);
+      return 'unknown';
+    }
   }
 
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
