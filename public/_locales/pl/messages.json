@@ -3457,6 +3457,22 @@
     "message": "Powoli",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "Niedostępne",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Sprawdzanie, czy ten token obsługuje trasę Slow…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Ten token nie obsługuje trasy Slow.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Nie udało się zweryfikować tego tokenu. Cofnij się i spróbuj ponownie.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "Sekundy",
     "englishSource": "Seconds"
@@ -4405,8 +4421,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "~6 godzin",
-    "englishSource": "~6 hours"
+    "message": "~30 minut",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Dokonujesz wpłaty",
