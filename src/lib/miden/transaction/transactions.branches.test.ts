@@ -9,6 +9,7 @@
  * error subscription).
  */
 
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 
@@ -1703,6 +1704,16 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
     expect(txStore[0]!.requeueStreak).toEqual({ arm, count: 1 });
     expect(txStore[0]!.nextEligibleAt).toBeGreaterThanOrEqual(requeuedFrom + cooldownSec);
     expect(txStore[0]!.guardianBusy).toBeUndefined();
+  });
+
+  // The outer message reads as a network failure; only the kill in its cause keeps it off the unreachable arm (#1313).
+  it('returns processed, never requeued, when a killed pipeline is the cause of a Guardian send failure', async () => {
+    const error = Object.assign(new Error('proposal request aborted'), {
+      cause: new OperationAbortedError('op-1', 'deadline')
+    });
+    await expect(runGuardianSendRejecting(error)).resolves.toBe('processed');
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.requeueStreak).toBeUndefined();
   });
 
   it('returns requeued, releasing the loop, when a pending-delta 409 marks a Guardian send busy (#312)', async () => {
