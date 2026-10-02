@@ -19,6 +19,7 @@ import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
+import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
   encryptAndSaveMany,
   fetchAndDecryptOneWithLegacyFallBack,
@@ -311,19 +312,16 @@ async function persistEvmKey(vaultKey: CryptoKey, evmAddress: Hex, privateKeyHex
 }
 
 /**
- * Puts the profile back as a rejected spawn's opening wipe left it: the key-value store is cleared again,
- * keeping what every setup keeps, so the protector and every other plain key the attempt wrote go. Only when
- * that wipe has run, since a spawn that failed before it never touched a profile that may still hold a wallet.
- * The device's hardware key stays, as no reset removes it: it is one per install, not per vault,
- * `setupHardwareProtector` reuses it, and without the wrapped key it opens nothing. A failed undo is logged,
- * never thrown over the spawn's own error.
+ * The pre-wipe guard: a spawn that failed before its opening wipe ran never touched a
+ * profile that may still hold a wallet, so only `retire` undoes it. Once the wipe has run,
+ * delegates to the shared `undoFailedSetup`.
  */
 async function undoRejectedSpawn(spawned: Vault | undefined, protectorInstalled: boolean, caller: string) {
-  spawned?.retire();
-  if (!protectorInstalled) return;
-  await clearStorage(false).catch(undoError =>
-    console.error(`[Vault.${caller}] could not undo a failed setup:`, undoError)
-  );
+  if (protectorInstalled) {
+    await undoFailedSetup(spawned, `Vault.${caller}`);
+  } else {
+    spawned?.retire();
+  }
 }
 
 export class Vault {

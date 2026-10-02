@@ -8,6 +8,7 @@ import { getMessage } from 'lib/i18n';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
+import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift
@@ -27,7 +28,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
-import { clearStorage, dropLegacyGuardianUrl } from 'lib/miden/reset';
+import { dropLegacyGuardianUrl } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -245,7 +246,7 @@ export function registerNewWallet(
         console.error('[Actions.registerNewWallet] FAILED:', err);
         throw err;
       } finally {
-        if (!published && vault) await undoUnpublishedSetup(vault, 'registerNewWallet');
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerNewWallet');
         syncRealmInsertKeySink();
       }
     })
@@ -257,17 +258,6 @@ export function registerNewWallet(
 async function dropLegacyGuardianUrlAfterSetup(caller: string) {
   await dropLegacyGuardianUrl().catch(err =>
     console.warn(`[Actions.${caller}] could not drop the legacy guardian URL:`, err)
-  );
-}
-
-// A setup whose spawn resolved but which was never published. The spawn's own undo cannot fire, since it
-// resolved, so without this the profile keeps a complete vault - protector, mnemonic, accounts, current-account
-// pointer - that a reload routes straight to Unlock while the UI reported a failure. A failed undo is logged,
-// never thrown: this runs in a finally, where a throw would replace the real failure.
-async function undoUnpublishedSetup(vault: Vault, caller: string) {
-  vault.retire();
-  await clearStorage(false).catch(undoError =>
-    console.error(`[Actions.${caller}] could not undo a failed setup:`, undoError)
   );
 }
 
@@ -295,7 +285,7 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
         published = true;
         await dropLegacyGuardianUrlAfterSetup('registerWalletFromHotKey');
       } finally {
-        if (!published && vault) await undoUnpublishedSetup(vault, 'registerWalletFromHotKey');
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerWalletFromHotKey');
         syncRealmInsertKeySink();
       }
     })
@@ -338,7 +328,7 @@ export function registerImportedWallet(
         published = true;
         await dropLegacyGuardianUrlAfterSetup('registerImportedWallet');
       } finally {
-        if (!published && vault) await undoUnpublishedSetup(vault, 'registerImportedWallet');
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerImportedWallet');
         syncRealmInsertKeySink();
       }
     })
