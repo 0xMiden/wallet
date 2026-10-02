@@ -3924,6 +3924,54 @@ describe('generateTransaction — Guardian routing', () => {
     errorSpy.mockRestore();
   });
 
+  it('Guardian send: an eviction wrapped in another error does NOT abandon the candidate either (#1313)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const txId = 'send-guardian-wrapped-eviction';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    client.transactions.prove.mockRejectedValue(
+      new Error('prove failed', { cause: new WasmClientPoisonedError('watchdog') })
+    );
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      tx as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   it('Guardian send (delegated): a remote prover that never answers falls back on the client-side deadline (#718)', async () => {
     // The rejection case above is the FRIENDLY failure: the prover says no, and the
     // catch runs. The stall is the one that hung the wallet — the local E2E prover
@@ -10091,6 +10139,34 @@ describe('completeReplaceHotKeyTransaction', () => {
     expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
     // The best-effort hardening would build a service against the node that just parked (F-059).
     expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  it('stops the post-rotation re-register when an eviction arrives wrapped in another error (#1313)', async () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const syncState = jest.fn(async () => {
+      throw new Error('sync failed', { cause: new WasmClientPoisonedError('watchdog') });
+    });
+    mockGetMidenClient.mockResolvedValue({
+      syncState,
+      getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
+    });
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey: jest.fn(async () => {})
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect((row.extraInputs as Record<string, unknown>).reRegisterFailed).toBe(true);
   });
 
   it('retries a post-rotation re-register a realm teardown aborted (F-057)', async () => {

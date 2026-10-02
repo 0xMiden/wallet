@@ -98,7 +98,6 @@ import { clearConnectivityIssue, markConnectivityIssue } from '../activity/conne
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
-import { isOperationAbortedError } from '../back/offscreen-codec';
 import { isOffscreenAvailable } from '../back/offscreen-prover';
 import {
   BridgedSendTransaction,
@@ -146,10 +145,13 @@ import {
   extractLanded,
   extractSdkErrorCode,
   isApplyAfterSubmitError,
+  isKilledPipeline,
+  isPoisonedPipeline,
   isStaleInitialCommitmentError,
-  isTransactionDiscardedError
+  isTransactionDiscardedError,
+  someInCauseChain
 } from '../sdk/sdk-error-code';
-import { isSyncWatchdogEviction, isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -1121,7 +1123,8 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // A lock-recovery eviction (issue #775) is the same shape as an offscreen
   // deadline kill: the consume was killed from outside with its outcome
   // unknown, so it gets the same node adjudication instead of a blind Failed.
-  if (!isOperationAbortedError(error) && !isWasmClientPoisonedError(error)) return false;
+  // Either one counts wherever a caller wrapped it (#1313).
+  if (!isKilledPipeline(error)) return false;
   if (transaction.type !== 'consume') return false;
   const consumeTx = transaction as ConsumeTransaction;
   if (!consumeTx.noteId) return false;
@@ -1154,7 +1157,7 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   const freshSyncWorthTrying = committed?.stage !== 'syncing';
   // A watchdog-evicted pre-flight sync fails without a read (#1233): nothing executed in this attempt,
   // and the read would be the first hold after the eviction.
-  if (committed?.stage === 'syncing' && isSyncWatchdogEviction(error)) return false;
+  if (committed?.stage === 'syncing' && someInCauseChain(error, isSyncWatchdogEviction)) return false;
   const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).
@@ -1457,16 +1460,17 @@ const generateTransactionWithProvider = async (
       // This arm and the ones below read the failure's stage and the row's requeue streak off the stored row: the
       // in-memory `transaction` is the row as the loop picked it.
       const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
-      // Both kill shapes, matching `cancel.ts` and the locked-vault gate below: a
-      // requeue re-broadcasts, so the classifier that permits one must name the whole
-      // abandonment class rather than half of it. (Every `OperationAbortedError` that
+      // Both kill shapes, at any depth of the cause chain, matching `cancel.ts` and the
+      // locked-vault gate below: a requeue re-broadcasts, so the backpressure,
+      // delegated-prove, 429, unreachable and unauthorized arms below refuse the whole
+      // abandonment class rather than half of it (#1313). (Every `OperationAbortedError` that
       // can carry a guardian pipeline today is produced next to a realm teardown, so
       // the pipeline really is dead and the requeue would be legitimate - this is the
       // invariant made local rather than inherited from that adjacency.)
-      const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
+      const abandonedWrite = isKilledPipeline(error);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
-      if (REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
+      if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-pending-conflict');
         const cooldown = guardianRequeueBackoffSec(PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC, requeueStreak.count);
         console.warn(`[Guardian] Guardian still settling the previous delta, requeueing in ${cooldown}s`, error);
@@ -1544,7 +1548,12 @@ const generateTransactionWithProvider = async (
       //
       // A repeat doubles the guardian's figure (#1223): a row that came back when told and was refused again was told
       // too short a wait, and several rows refused that way keep one eligible, and oldest, at every lap.
-      if (isGuardianRateLimited(error) && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && failedAtProposal) {
+      if (
+        !abandonedWrite &&
+        isGuardianRateLimited(error) &&
+        REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) &&
+        failedAtProposal
+      ) {
         const requeueStreak = nextRequeueStreak(currentRow, 'guardian-rate-limited');
         const cooldown = guardianRequeueBackoffSec(
           Math.min(
@@ -1635,6 +1644,9 @@ const generateTransactionWithProvider = async (
       const unauthorizedDeadline =
         currentRow?.unauthorizedRetryUntil ?? nowSec + UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC;
       if (
+        // The text proves the execute step failed, not that the pipeline stopped there: a kill in the chain
+        // may have abandoned one that still submits (#1313).
+        !abandonedWrite &&
         isGuardianUnauthorizedExecutionError(error) &&
         UNAUTHORIZED_EXECUTION_REQUEUEABLE.has(transaction.type) &&
         // Room for the retry to actually RUN, not merely to be scheduled. The
@@ -2444,7 +2456,7 @@ const waitForStructuralCommit = async (
   try {
     await midenClientProxy.waitForTransactionCommit(id);
   } catch (waitError) {
-    if (isSyncWatchdogEviction(waitError)) throw waitError;
+    if (someInCauseChain(waitError, isSyncWatchdogEviction)) throw waitError;
     const discardedAtWait = isTransactionDiscardedError(waitError);
     const landed = discardedAtWait ? false : await didDirectSwitchLand(id);
     if (landed === true) {
@@ -3426,7 +3438,7 @@ const generateGuardianTransaction = async (
       }`,
       { error }
     );
-    if (isWasmClientPoisonedError(error)) {
+    if (isPoisonedPipeline(error)) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the
       // chain may be about to consume — let the next cycle's 409
@@ -3764,7 +3776,8 @@ export const generateTransactionsLoop = async (
     // is exactly what an abandonment breaks. BOTH kill shapes, not just poison: an
     // offscreen deadline arrives as `OperationAbortedError` from the identical
     // point and is equally still running (`cancel.ts` treats the two as one class).
-    const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+    // Either one counts at any depth of the cause chain (#1313).
+    const abandoned = isKilledPipeline(e);
 
     // The initial sync is the only pipeline step that runs while the committed
     // row is still Queued at `syncing`. An ordinary failure at that boundary is

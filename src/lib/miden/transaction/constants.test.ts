@@ -122,6 +122,16 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(aborted, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 
+  it('hedges the same way for a kill wrapped in another error (#1313)', () => {
+    const wrapped = new Error('could not create the proposal', {
+      cause: new OperationAbortedError('op-1', 'deadline')
+    });
+    expect(resolveTransactionErrorMessage(wrapped, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(wrapped, 'syncing', false, true)).toBe(
+      TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+    );
+  });
+
   it('still maps a generic delegated proving failure to the remote-prover message', () => {
     expect(resolveTransactionErrorMessage(new Error('prover exploded'), 'proving', true)).toBe(
       REMOTE_PROVER_FAILED_ERROR

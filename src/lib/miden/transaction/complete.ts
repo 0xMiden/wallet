@@ -69,7 +69,7 @@ import {
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isPoisonedPipeline } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -518,8 +518,8 @@ export const completeReplaceHotKeyTransaction = async (
         break;
       } catch (e) {
         reRegisterError = e;
-        // After an eviction the next attempt's sync would join the abandoned one and park again.
-        if (isWasmClientPoisonedError(e)) break;
+        // After an eviction, wrapped or not, the next attempt's sync would join the abandoned one and park again.
+        if (isPoisonedPipeline(e)) break;
         if (attempt < POST_ROTATION_REREGISTER_ATTEMPTS) {
           console.warn(
             `Post-rotation guardian re-register attempt ${attempt}/${POST_ROTATION_REREGISTER_ATTEMPTS} failed; retrying:`,
@@ -532,7 +532,7 @@ export const completeReplaceHotKeyTransaction = async (
         }
       }
     }
-    const reRegisterEvicted = isWasmClientPoisonedError(reRegisterError);
+    const reRegisterEvicted = isPoisonedPipeline(reRegisterError);
     if (reRegisterError) {
       reRegisterFailed = true;
       console.error(

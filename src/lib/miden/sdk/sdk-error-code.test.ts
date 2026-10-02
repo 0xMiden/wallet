@@ -30,6 +30,14 @@ const REAL_APPLY_AFTER_SUBMIT_MESSAGES = [
     'finalized in a block, because the account (and network) state has already been mutated by the accepted copy.'
 ];
 
+/** `text` two links down, under a lock-recovery eviction or under a plain wrapper of the same depth (#1313). */
+const underWrappedEviction = (text: string): Error => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  return new Error('Offscreen call failed', { cause: new WasmClientPoisonedError('realm-error', new Error(text)) });
+};
+const underWrapper = (text: string): Error =>
+  new Error('Offscreen call failed', { cause: new Error('trap', { cause: new Error(text) }) });
+
 describe('extractSdkErrorCode', () => {
   it('reads `code`, the property web-sdk actually sets', () => {
     expect(extractSdkErrorCode(Object.assign(new Error('x'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' }))).toBe(
@@ -155,6 +163,11 @@ describe('isApplyAfterSubmitError', () => {
     );
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('realm-error', trapWithSdkText))).toBe(false);
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+
+  it('never classifies an error wrapping a lock-recovery eviction as apply-after-submit (#1313)', () => {
+    expect(isApplyAfterSubmitError(underWrapper(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]!))).toBe(true);
+    expect(isApplyAfterSubmitError(underWrappedEviction(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]!))).toBe(false);
   });
 });
 
@@ -287,6 +300,11 @@ describe('isTransactionDiscardedError', () => {
     );
     expect(isTransactionDiscardedError(new WasmClientPoisonedError('watchdog'))).toBe(false);
   });
+
+  it('never reads an error wrapping a lock-recovery eviction as a node verdict (#1313)', () => {
+    expect(isTransactionDiscardedError(underWrapper(DISCARDED_MESSAGE))).toBe(true);
+    expect(isTransactionDiscardedError(underWrappedEviction(DISCARDED_MESSAGE))).toBe(false);
+  });
 });
 
 /**
@@ -345,6 +363,11 @@ describe('isStaleInitialCommitmentError', () => {
       )
     ).toBe(false);
   });
+
+  it('never reads an error wrapping a lock-recovery eviction as a node verdict (#1313)', () => {
+    expect(isStaleInitialCommitmentError(underWrapper(STALE_INITIAL_COMMITMENT_REFUSAL))).toBe(true);
+    expect(isStaleInitialCommitmentError(underWrappedEviction(STALE_INITIAL_COMMITMENT_REFUSAL))).toBe(false);
+  });
 });
 
 describe('isGuardianCanonicalizationError', () => {
@@ -383,6 +406,11 @@ describe('isGuardianCanonicalizationError', () => {
       isGuardianCanonicalizationError(new WasmClientPoisonedError('realm-error', new Error(CANONICALIZATION_MESSAGE)))
     ).toBe(false);
     expect(isGuardianCanonicalizationError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+
+  it('never reads an error wrapping a lock-recovery eviction as a canonicalization race (#1313)', () => {
+    expect(isGuardianCanonicalizationError(underWrapper(CANONICALIZATION_MESSAGE))).toBe(true);
+    expect(isGuardianCanonicalizationError(underWrappedEviction(CANONICALIZATION_MESSAGE))).toBe(false);
   });
 });
 
@@ -463,6 +491,11 @@ describe('isAccountNotFoundOnChainError', () => {
     expect(isAccountNotFoundOnChainError(new WasmClientPoisonedError('realm-error', new Error(NODE_016_MISS)))).toBe(
       false
     );
+  });
+
+  it('never reads an error wrapping a poisoned client as a miss (#1313)', () => {
+    expect(isAccountNotFoundOnChainError(underWrapper(NODE_016_MISS))).toBe(true);
+    expect(isAccountNotFoundOnChainError(underWrappedEviction(NODE_016_MISS))).toBe(false);
   });
 });
 

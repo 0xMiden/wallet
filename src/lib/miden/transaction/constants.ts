@@ -1,7 +1,6 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
-import { isOperationAbortedError } from '../back/offscreen-codec';
 import {
   IBridgedSendExtraInputs,
   ITransaction,
@@ -10,7 +9,6 @@ import {
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
 import { causeChain, isKilledPipeline } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -468,7 +466,8 @@ function classifyTransactionError(
   // `mayHaveSubmitted` for both — so leaving abort out put "No funds moved — please
   // try again" on the very row whose Retry then refuses with "may already have been
   // submitted". Two contradictory statements about the same money, from one error.
-  if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) {
+  // Both read the whole cause chain, so a kill a caller wrapped is still one (#1313).
+  if (isKilledPipeline(error)) {
     return abandonedPreWrite === true
       ? TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
       : TRANSACTION_ENGINE_RECOVERED_ERROR;

@@ -188,7 +188,7 @@ export function isGuardianCanonicalizationError(error: unknown): boolean {
   // what the recovery listener evicts on) would read an abandoned hold as the
   // guardian's answer, and the self-heal would re-register on it. Poison is never
   // a statement about the guardian's view of the account.
-  if (isWasmClientPoisonedError(error)) return false;
+  if (isPoisonedPipeline(error)) return false;
   return errorMessageParts(error).some(
     part => /Refusing to overwrite local state/i.test(part) || /is not greater than local nonce/i.test(part)
   );
@@ -220,8 +220,9 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
   // `cause` carries the raw realm error VERBATIM — and this classifier walks
   // the cause chain. Without the type check a trap whose text happened to
   // embed the SDK's mempool phrasing would mark a row Completed that never
-  // submitted (issue #775). Checked first, mirroring isLockedError.
-  if (isWasmClientPoisonedError(err)) return false;
+  // submitted (issue #775). Checked first, mirroring isLockedError, and at any
+  // depth, since a caller wrapping the eviction does not make its text a verdict (#1313).
+  if (isPoisonedPipeline(err)) return false;
   if (extractSdkErrorCode(err) === 'ApplyTransactionAfterSubmitFailed') return true;
   // Both phrases must come from the SAME error in the chain, not from the
   // flattened join. On the flattened form the `[\s\S]*` spans the separator, so
@@ -323,7 +324,7 @@ export function isTransactionDiscardedError(err: unknown): boolean {
   // Same ordering rationale as isApplyAfterSubmitError: an eviction carries the
   // raw realm error in its `cause`, and this walks the chain, so a trap whose
   // text happened to embed the phrase must not be read as a node verdict.
-  if (isWasmClientPoisonedError(err)) return false;
+  if (isPoisonedPipeline(err)) return false;
   return errorMessageParts(err).some(part => /transaction rejected/i.test(part));
 }
 
@@ -341,7 +342,7 @@ export function isTransactionDiscardedError(err: unknown): boolean {
  * in the chain, and a lock-recovery eviction is never a node verdict.
  */
 export function isStaleInitialCommitmentError(error: unknown): boolean {
-  if (isWasmClientPoisonedError(error)) return false;
+  if (isPoisonedPipeline(error)) return false;
   return errorMessageParts(error).some(part =>
     /initial account commitment[\s\S]*does not match the current commitment/i.test(part)
   );
@@ -360,7 +361,7 @@ export function isStaleInitialCommitmentError(error: unknown): boolean {
  * account behind an empty one.
  */
 export function isAccountNotFoundOnChainError(err: unknown): boolean {
-  if (isWasmClientPoisonedError(err)) return false;
+  if (isPoisonedPipeline(err)) return false;
   if (extractSdkErrorCode(err) === 'ACCOUNT_NOT_FOUND_ON_CHAIN') return true;
   return errorMessageParts(err).some(
     part =>

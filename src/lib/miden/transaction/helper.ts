@@ -19,8 +19,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
-import { errorMessageParts, type LandedTransaction } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { errorMessageParts, isPoisonedPipeline, type LandedTransaction } from '../sdk/sdk-error-code';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
@@ -107,9 +106,9 @@ export function isGuardianUnauthorizedExecutionError(error: unknown): boolean {
   // whole safety argument: it holds because the execute step STOPPED the
   // pipeline before prove and submit, whereas an eviction only rejects the
   // caller — the abandoned pipeline runs on and can still submit, so requeueing
-  // would broadcast the transfer a second time. Checked first, mirroring
-  // `isApplyAfterSubmitError` and `isLockedError`.
-  if (isWasmClientPoisonedError(error)) return false;
+  // would broadcast the transfer a second time. Checked first and at any depth,
+  // mirroring `isApplyAfterSubmitError` and `isLockedError`.
+  if (isPoisonedPipeline(error)) return false;
   return errorMessageParts(error).some(
     part => /transaction is unauthorized/i.test(part) && /transaction execution failed/i.test(part)
   );
@@ -145,8 +144,10 @@ export function isLockedError(err: unknown): boolean {
   // eviction is the one failure where that does not hold, since the abandoned
   // pipeline runs on and can still submit. Belt-and-braces with the closed-set
   // message in `WasmClientPoisonedError`: this is the classifier whose false
-  // positive turns into a second payment, so it checks the TYPE too.
-  if (isWasmClientPoisonedError(err)) return false;
+  // positive turns into a second payment, so it checks the TYPE too, at any
+  // depth: a wrapper's own locked text or tag does not make an eviction a
+  // locked vault (#1313).
+  if (isPoisonedPipeline(err)) return false;
   if (err && typeof err === 'object' && (err as { reason?: unknown }).reason === 'locked') {
     return true;
   }
