@@ -1348,54 +1348,63 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
   // sign would pause the successor's watchdog. That is the pre-#775 wedge reached
   // through the fix's own recovery path.
   const yieldCeilingMs = pausedCeilingFor(holder);
-  const yieldWatchdog = setTimeout(() => {
-    if (holder.killed) return;
-    holder.killed = true;
-    lastRecoveryAt = monotonicNow();
-    const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
-    // Marking, not freeing: this holder is suspended mid-yield and keeps using
-    // the reference it already has. It is freed once every flow holding that
-    // instance has settled — this one included, so it needs no special case
-    // (it is still a member of `yieldedHolders` here; the set settles below).
-    // `currentHolder` is whoever legitimately took the mutex while this flow
-    // slept, and it resolved the SAME instance inside its own hold, so it
-    // retains it exactly as a yielded sibling does. Omitting it was safe only
-    // transitively (a yielded flow cannot settle while an owner holds the
-    // lock), and that stops being true the moment the owner is itself evicted:
-    // its abandoned callback keeps running while the mutex is already released.
-    const retainers = currentHolder ? [currentHolder, ...yieldedHolders] : [...yieldedHolders];
-    // Logged AFTER the census and as `retainers`, not as `yieldedHolders.size`: this
-    // holder is still a member of that set here (it settles below), so the raw count
-    // means something different than the identically-named field
-    // `recoverFromWedgedHolder` logs, where the evicted holder is the mutex owner and
-    // is NOT in the set. Reporting the census is unambiguous either way, and it is
-    // the number that decides when the instance can be reclaimed.
-    console.error('[miden-client] evicting holder wedged while yielded:', {
-      hold: holder.label ?? 'unlabelled',
-      // The OPEN yield included. Banked into `pausedElapsedMs` only when the yield
-      // settles (in the `finally` below), so the bare field reports every yield but
-      // the one that just expired — which on the common shape, a single yield that
-      // never returns, is a flat `pausedMs: 0` beside a 30-minute eviction. The one
-      // number the reader came for was the only one missing.
-      pausedMs: Math.round(holder.pausedElapsedMs + Math.max(0, monotonicNow() - yieldStartedAt)),
-      runningMs: Math.round(holder.unpausedElapsedMs),
-      // The ceiling that actually fired. It is computed from the pause ledger, so
-      // it is not derivable from the constants by a reader of the log.
-      ceilingMs: yieldCeilingMs,
-      pausedGraceUsed: holder.pausedGraceUsed,
-      retainers: retainers.length,
-      liveMutexOwner: currentHolder !== null,
-      error
-    });
-    replaceClientSingletons(true, reclaimWhenIdle(retainers));
-    settleYieldCount();
-    holder.abort(error);
-  }, yieldCeilingMs);
+  // On the running clock, like `armWatchdogFor`: a freeze must not expire it on resume (#473).
+  const cancelYieldWatchdog = setRunningTimeout(
+    () => {
+      if (holder.killed) return;
+      holder.killed = true;
+      lastRecoveryAt = monotonicNow();
+      const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
+      // Marking, not freeing: this holder is suspended mid-yield and keeps using
+      // the reference it already has. It is freed once every flow holding that
+      // instance has settled - this one included, so it needs no special case
+      // (it is still a member of `yieldedHolders` here; the set settles below).
+      // `currentHolder` is whoever legitimately took the mutex while this flow
+      // slept, and it resolved the SAME instance inside its own hold, so it
+      // retains it exactly as a yielded sibling does. Omitting it was safe only
+      // transitively (a yielded flow cannot settle while an owner holds the
+      // lock), and that stops being true the moment the owner is itself evicted:
+      // its abandoned callback keeps running while the mutex is already released.
+      const retainers = currentHolder ? [currentHolder, ...yieldedHolders] : [...yieldedHolders];
+      // Logged AFTER the census and as `retainers`, not as `yieldedHolders.size`: this
+      // holder is still a member of that set here (it settles below), so the raw count
+      // means something different than the identically-named field
+      // `recoverFromWedgedHolder` logs, where the evicted holder is the mutex owner and
+      // is NOT in the set. Reporting the census is unambiguous either way, and it is
+      // the number that decides when the instance can be reclaimed.
+      console.error('[miden-client] evicting holder wedged while yielded:', {
+        hold: holder.label ?? 'unlabelled',
+        // The OPEN yield included. Banked into `pausedElapsedMs` only when the yield
+        // settles (in the `finally` below), so the bare field reports every yield but
+        // the one that just expired - which on the common shape, a single yield that
+        // never returns, is a flat `pausedMs: 0` beside a 30-minute eviction. The one
+        // number the reader came for was the only one missing.
+        pausedMs: Math.round(holder.pausedElapsedMs + Math.max(0, monotonicNow() - yieldStartedAt)),
+        runningMs: Math.round(holder.unpausedElapsedMs),
+        // The ceiling that actually fired. It is computed from the pause ledger, so
+        // it is not derivable from the constants by a reader of the log.
+        ceilingMs: yieldCeilingMs,
+        pausedGraceUsed: holder.pausedGraceUsed,
+        retainers: retainers.length,
+        liveMutexOwner: currentHolder !== null,
+        error
+      });
+      replaceClientSingletons(true, reclaimWhenIdle(retainers));
+      settleYieldCount();
+      holder.abort(error);
+    },
+    yieldCeilingMs,
+    leftMs =>
+      console.warn('[miden-client] yield watchdog re-armed after a frozen stretch:', {
+        hold: holder.label ?? 'unlabelled',
+        leftMs: Math.round(leftMs)
+      })
+  );
   wasmClientMutex.release();
   try {
     return await operation();
   } finally {
-    clearTimeout(yieldWatchdog);
+    cancelYieldWatchdog();
     holder.pausedElapsedMs += Math.max(0, monotonicNow() - yieldStartedAt);
     await wasmClientMutex.acquire();
     settleYieldCount();

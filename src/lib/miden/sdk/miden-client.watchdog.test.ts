@@ -1317,6 +1317,51 @@ describe('watchdog counts running time only (#473)', () => {
     expect(isWasmClientBusy()).toBe(false);
   });
 
+  it('a yielded wait that never settles is not evicted across a freeze longer than its ceiling', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      let outcome: unknown = 'pending';
+      withWasmClientLock(hold => yieldWasmClientLock(() => new Promise<never>(() => {}), hold), {
+        label: 'frozen-yield'
+      }).then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error;
+        }
+      );
+
+      // The hold yields at once, arming the yield watchdog at the 30 min relaxed ceiling.
+      await jest.advanceTimersByTimeAsync(0);
+      doc.setHidden(true);
+      doc.freezeFor(WASM_LOCK_PAUSED_WATCHDOG_MS + 600_000);
+      doc.setHidden(false);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(outcome).toBe('pending');
+      // All but one pulse of the freeze is frozen, so 5 s of the ceiling are spent.
+      expect(warnSpy).toHaveBeenCalledWith('[miden-client] yield watchdog re-armed after a frozen stretch:', {
+        hold: 'frozen-yield',
+        leftMs: WASM_LOCK_PAUSED_WATCHDOG_MS - 5_000
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 5_000 - 1);
+      expect(outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome).toMatchObject({
+        name: 'WasmClientPoisonedError',
+        reason: 'watchdog',
+        cause: { message: 'yielded WASM lock wait never settled' }
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
   it('a hold that ends after its watchdog re-armed leaves no timer behind', async () => {
     let finish!: () => void;
     const held = withWasmClientLock(
