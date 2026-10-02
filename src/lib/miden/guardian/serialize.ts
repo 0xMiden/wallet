@@ -18,6 +18,7 @@
  * wait it out in process instead of failing the transaction.
  */
 
+import { someInCauseChain } from 'lib/miden/sdk/sdk-error-code';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 
 const noop = (): void => {};
@@ -123,14 +124,7 @@ export function isGuardianPendingConflict(err: unknown): boolean {
  * ./native-http and its platform imports out of this module.
  */
 export function isGuardianRequestTimeout(err: unknown): boolean {
-  const seen = new Set<object>();
-  let current: unknown = err;
-  while (typeof current === 'object' && current !== null && !seen.has(current)) {
-    seen.add(current);
-    if ('name' in current && current.name === 'GuardianRequestTimeoutError') return true;
-    current = 'cause' in current ? current.cause : undefined;
-  }
-  return false;
+  return someInCauseChain(err, link => 'name' in link && link.name === 'GuardianRequestTimeoutError');
 }
 
 /**

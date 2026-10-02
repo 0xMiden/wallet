@@ -369,6 +369,15 @@ describe('isGuardianUnreachableError', () => {
     expect(isGuardianUnreachableError(aborted)).toBe(false);
   });
 
+  it('does not treat a local offscreen kill wrapped in another error as the guardian being unreachable (#1313)', () => {
+    const error = Object.assign(new Error('proposal request aborted'), {
+      cause: new OperationAbortedError('op-1', 'deadline')
+    });
+
+    expect(mockedMultisigClient.isLikelyNetworkError(error)).toBe(true);
+    expect(isGuardianUnreachableError(error)).toBe(false);
+  });
+
   it('does not treat a WASM lock eviction as the guardian being unreachable', () => {
     expect(isGuardianUnreachableError(new WasmClientPoisonedError('watchdog'))).toBe(false);
     expect(isGuardianUnreachableError(new WasmClientPoisonedError('realm-error', new Error('unreachable')))).toBe(
