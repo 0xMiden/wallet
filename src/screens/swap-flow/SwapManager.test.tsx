@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 // Import after the mocks are registered.
@@ -27,7 +28,6 @@ let mockWalletState: {
   setLastCompletedTxHash: jest.Mock;
   assessSpendingLimit: jest.Mock;
   readSpendingLimit: jest.Mock;
-  getStrictAuthenticationProtectors: jest.Mock;
 };
 let mockSwapEtaResult: { loading: boolean; eta?: Record<string, unknown>; error?: string };
 let mockBalanceData: Array<{ tokenId: string; balance: number }>;
@@ -222,6 +222,10 @@ jest.mock('lib/biometric', () => ({
     mockConfirmSensitive(reason, hasHardwareProtector)
 }));
 
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
+}));
+
 jest.mock('lib/i18n/numbers', () => ({
   stringToBigInt: (str: string, decimals: number) => mockStringToBigInt(str, decimals)
 }));
@@ -308,8 +312,7 @@ beforeEach(() => {
       revision: 'revision-1',
       createdAt: 1,
       updatedAt: 2
-    }),
-    getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: false, password: true })
+    })
   };
   mockSwapEtaResult = {
     loading: false,
@@ -1131,17 +1134,14 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
     });
 
-    it("wires the confirmation probe to the store's protector check", async () => {
-      mockWalletState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+    it('confirms with the shared hardware-only protector probe', async () => {
       renderFlow();
       setOffer('10');
       await act(async () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
 
-      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', expect.any(Function));
-      const probe = mockConfirmSensitive.mock.calls[0][1];
-      await expect(probe()).resolves.toBe(true);
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', probeHardwareProtector);
     });
 
     it("shows the review screen's own error, and swaps nothing, when the protector probe rejects", async () => {

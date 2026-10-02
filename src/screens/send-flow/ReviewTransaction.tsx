@@ -21,6 +21,7 @@ import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -228,7 +229,6 @@ export const ReviewTransaction: React.FC = () => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
-  const getStrictAuthenticationProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   // The account's spending-limit revision never crosses the intercom port - `serializeError` /
   // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
@@ -427,12 +427,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      if (
-        !(await confirmSensitiveAction(
-          t('confirmSendReason'),
-          async () => (await getStrictAuthenticationProtectors()).hardware
-        ))
-      ) {
+      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector))) {
         setIsSubmitting(false);
         return;
       }
@@ -461,7 +456,6 @@ export const ReviewTransaction: React.FC = () => {
   }, [
     amountBaseUnits,
     assessSpendingLimit,
-    getStrictAuthenticationProtectors,
     isBridge,
     isSubmitting,
     openUnpricedChallenge,

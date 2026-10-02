@@ -10,6 +10,7 @@ import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { deserializeError, serializeError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -41,8 +42,7 @@ const mockWalletStoreState = {
   tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
-  readSpendingLimit: jest.fn(),
-  getStrictAuthenticationProtectors: jest.fn()
+  readSpendingLimit: jest.fn()
 };
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
@@ -171,6 +171,10 @@ jest.mock('components/Button', () => ({
 
 jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
+}));
+
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
 }));
 
 jest.mock('lib/agglayer/allowed-faucets', () => ({
@@ -378,7 +382,6 @@ beforeEach(() => {
     createdAt: 1,
     updatedAt: 2
   });
-  mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: false, password: true });
 
   // Base route state.
   mockSearch = '';
@@ -1192,17 +1195,14 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(initiateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("wires the confirmation probe to the store's protector check", async () => {
+  it('confirms with the shared hardware-only protector probe', async () => {
     setValidRoute();
-    mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
     render(<ReviewTransaction />);
     await flush();
 
     await clickSubmit();
 
-    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
-    const probe = confirmMock.mock.calls[0][1];
-    await expect(probe()).resolves.toBe(true);
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', probeHardwareProtector);
   });
 
   it("shows the review screen's own error, and sends nothing, when the protector probe rejects", async () => {

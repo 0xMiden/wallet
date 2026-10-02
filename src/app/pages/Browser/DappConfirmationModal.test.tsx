@@ -7,6 +7,7 @@ import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 import { useDappConfirmation } from 'lib/dapp-browser/use-dapp-confirmation';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
 
@@ -45,9 +46,8 @@ jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
 }));
 
-const mockWalletStoreState = { getStrictAuthenticationProtectors: jest.fn() };
-jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (state: typeof mockWalletStoreState) => unknown) => selector(mockWalletStoreState)
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
 }));
 
 jest.mock('framer-motion', () => {
@@ -330,12 +330,9 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
   beforeEach(() => {
     confirmMock.mockReset();
     confirmMock.mockResolvedValue(true);
-    mockWalletStoreState.getStrictAuthenticationProtectors.mockReset();
-    mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: false, password: true });
   });
 
-  it("confirms with the dApp-transaction reason and a probe wired to the store's protector check", async () => {
-    mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+  it('confirms with the dApp-transaction reason and the shared hardware-only protector probe', async () => {
     render(
       <DappConfirmationModal request={plainTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />
     );
@@ -345,9 +342,7 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     });
     await flush();
 
-    expect(confirmMock).toHaveBeenCalledWith('confirmDappTransactionReason', expect.any(Function));
-    const probe = confirmMock.mock.calls[0]![1];
-    await expect(probe()).resolves.toBe(true);
+    expect(confirmMock).toHaveBeenCalledWith('confirmDappTransactionReason', probeHardwareProtector);
   });
 
   it('resolves the request once the prompt succeeds', async () => {

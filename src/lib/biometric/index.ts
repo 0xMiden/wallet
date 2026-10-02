@@ -270,7 +270,10 @@ export async function authenticate(reason: string): Promise<boolean> {
  * the caller shows its error and the action does not proceed.
  *
  * @param reason - Prompt text shown to the user (e.g. "Confirm your send").
- * @param hasHardwareProtector - Whether the vault holds its hardware protector.
+ * @param hasHardwareProtector - Whether the vault holds its hardware protector. Callers pass
+ *   `probeHardwareProtector` (`lib/miden/back/protector-probe`) by reference, which answers from the
+ *   hardware key read and rejects only when both protector reads fail. It is a parameter rather than
+ *   an import because the vault imports this module.
  */
 export async function confirmSensitiveAction(
   reason: string,

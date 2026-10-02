@@ -15,6 +15,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -67,7 +68,6 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
-  const getStrictAuthenticationProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   const amountBaseUnits = useMemo(() => {
     try {
       return stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS);
@@ -188,12 +188,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         setIsSubmitting(false);
         return;
       }
-      if (
-        !(await confirmSensitiveAction(
-          t('confirmEarnDepositReason'),
-          async () => (await getStrictAuthenticationProtectors()).hardware
-        ))
-      ) {
+      if (!(await confirmSensitiveAction(t('confirmEarnDepositReason'), probeHardwareProtector))) {
         setIsSubmitting(false);
         return;
       }

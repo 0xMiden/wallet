@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 
 import { confirmSensitiveAction } from 'lib/biometric';
 import { openEarnPosition } from 'lib/epoch';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
@@ -61,6 +62,10 @@ jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
 }));
 
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
+}));
+
 // --- Epoch SDK barrel (wasm + network clients): only the deposit entry point
 //     and the USDC decimals constant are used by this screen.
 jest.mock('lib/epoch', () => ({
@@ -71,8 +76,7 @@ jest.mock('lib/epoch', () => ({
 
 const mockWalletStoreState = {
   assessSpendingLimit: jest.fn(),
-  readSpendingLimit: jest.fn(),
-  getStrictAuthenticationProtectors: jest.fn()
+  readSpendingLimit: jest.fn()
 };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockWalletStoreState) => unknown) => selector(mockWalletStoreState)
@@ -279,7 +283,6 @@ describe('EarnDepositReview', () => {
       updatedAt: 2
     });
     mockConfirmSensitive.mockResolvedValue(true);
-    mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: false, password: true });
   });
 
   describe('deposit amount header', () => {
@@ -388,17 +391,14 @@ describe('EarnDepositReview', () => {
       expect(call.deps.signTransaction).toBe(mockSignTransaction);
     });
 
-    it("confirms the deposit with the earn-deposit reason and a probe wired to the store's protector check", async () => {
-      mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+    it('confirms the deposit with the earn-deposit reason and the shared hardware-only protector probe', async () => {
       renderReview('aave-usdc-ethereum-1', '?amount=1,000');
 
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
       await waitFor(() =>
-        expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmEarnDepositReason', expect.any(Function))
+        expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmEarnDepositReason', probeHardwareProtector)
       );
-      const probe = mockConfirmSensitive.mock.calls[0]![1];
-      await expect(probe()).resolves.toBe(true);
       await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
     });
 

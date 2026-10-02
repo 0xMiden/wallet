@@ -36,11 +36,11 @@ import {
   type DAppConfirmationResult
 } from 'lib/dapp-browser/confirmation-store';
 import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
 
 interface DappConfirmationModalProps {
@@ -78,7 +78,6 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     request.allowedPrivateData
   );
   const allowedPrivateDataList = formatAllowedPrivateData(request.allowedPrivateData);
-  const getStrictAuthenticationProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   const [standingAccessAcknowledged, setStandingAccessAcknowledged] = useState(false);
   const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
   // Kept with the request whose prompt failed and shown only while that request is on screen, so a
@@ -239,10 +238,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     pendingApprovalRef.current = true;
     if (request.type === 'transaction') {
       try {
-        const confirmed = await confirmSensitiveAction(
-          t('confirmDappTransactionReason'),
-          async () => (await getStrictAuthenticationProtectors()).hardware
-        );
+        const confirmed = await confirmSensitiveAction(t('confirmDappTransactionReason'), probeHardwareProtector);
         // This request may have been superseded (a new one replaced it at the same
         // session slot) or the modal may have unmounted while the prompt was open -
         // either way `currentRequestIdRef` no longer names it, and resolving now
