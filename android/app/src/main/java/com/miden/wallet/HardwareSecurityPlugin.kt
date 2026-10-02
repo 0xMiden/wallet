@@ -1,6 +1,10 @@
 package com.miden.wallet
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Build
+import android.os.UserManager
+import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -58,6 +62,54 @@ class HardwareSecurityPlugin : Plugin() {
 
         val jsResult = JSObject()
         jsResult.put("available", available)
+        call.resolve(jsResult)
+    }
+
+    /**
+     * Strong-biometric status for the current user: `code` is the raw
+     * canAuthenticate(BIOMETRIC_STRONG) result, which JS maps to a reason.
+     */
+    @PluginMethod
+    fun biometricStatus(call: PluginCall) {
+        val code = BiometricManager.from(context)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        val managedProfile = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                context.getSystemService(UserManager::class.java)?.isManagedProfile == true
+
+        Log.d(TAG, "biometricStatus: code=$code managedProfile=$managedProfile")
+
+        val jsResult = JSObject()
+        jsResult.put("code", code)
+        jsResult.put("managedProfile", managedProfile)
+        call.resolve(jsResult)
+    }
+
+    /**
+     * Open strong-biometric enrollment (API 30+), or the security settings below it.
+     * Resolves `opened: false` when no activity handles the intent.
+     */
+    @PluginMethod
+    fun openBiometricSettings(call: PluginCall) {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(Settings.ACTION_BIOMETRIC_ENROLL).putExtra(
+                Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
+                BiometricManager.Authenticators.BIOMETRIC_STRONG
+            )
+        } else {
+            Intent(Settings.ACTION_SECURITY_SETTINGS)
+        }
+
+        val host = activity
+        val opened = host != null && try {
+            host.startActivity(intent)
+            true
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "No activity handles ${intent.action}: ${e.message}")
+            false
+        }
+
+        val jsResult = JSObject()
+        jsResult.put("opened", opened)
         call.resolve(jsResult)
     }
 
