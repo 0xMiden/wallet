@@ -16,7 +16,7 @@ import {
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
-import { readPostSwitchLocalState } from 'lib/miden/guardian/post-switch-state';
+import { readPostSwitchLocalGuardian } from 'lib/miden/guardian/post-switch-state';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -526,23 +526,23 @@ function clearMissingRegistrationState(accountPublicKey: string): void {
  * Bring an account whose landed switch could not save its post-switch state to that state (#1233),
  * from the endpoint that switch's row names as previous. That operator holds it once it canonicalized
  * the switch delta the wallet pushed, and keeps serving reads after it released the account. Signs
- * with this device's hot key, which the previous operator's allowlist still carries. True once the
- * local copy names `endpoint`'s key; anything else leaves the repair to a later tick.
+ * with this device's hot key, which the previous operator's allowlist still carries. The guardian key
+ * the local copy names once it is `endpoint`'s; undefined leaves the repair to a later tick.
  */
 async function adoptFromPreviousGuardian(
   account: WalletAccount,
   endpoint: string,
   hotCommitment: string
-): Promise<boolean> {
-  if (!account.hotPublicKey) return false;
+): Promise<string | undefined> {
+  if (!account.hotPublicKey) return undefined;
   const unsaved = await findUnsavedSwitchRow(account.publicKey, endpoint).catch(() => undefined);
   // A direct switch fled that operator, so it never received the switch delta, and it may take the
   // connection and go silent until the watchdog.
-  if (!unsaved || unsaved.switchedDirectly) return false;
+  if (!unsaved || unsaved.switchedDirectly) return undefined;
   // An adopt that parked the realm's WASM lock would park it again on the next lap.
   const fuseKey = guardianAdoptFuseKey(account.publicKey, unsaved.previousGuardianEndpoint);
-  if (isSyncFused(fuseKey)) return false;
-  let postSwitch = false;
+  if (isSyncFused(fuseKey)) return undefined;
+  let adoptedGuardian: string | undefined;
   let parked = false;
   // The lock time of the holds that reach that operator, each from its acquisition.
   let heldMs = 0;
@@ -581,7 +581,8 @@ async function adoptFromPreviousGuardian(
       } else {
         await previous.adoptGuardianStateOnce(onHeld);
         // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
-        postSwitch = (await readPostSwitchLocalState(account.publicKey, endpoint)) === 'post-switch';
+        const adopted = await readPostSwitchLocalGuardian(account.publicKey, endpoint);
+        if (adopted.state === 'post-switch') adoptedGuardian = adopted.localGuardian;
       }
     }
   } catch (error) {
@@ -599,7 +600,7 @@ async function adoptFromPreviousGuardian(
   // of the time.
   if (parked || heldMs > PARKED_SYNC_FAILURE_MS) noteSyncParked(fuseKey);
   else noteSyncSuccess(fuseKey);
-  return postSwitch;
+  return adoptedGuardian;
 }
 
 /**
@@ -699,7 +700,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   const onChainGuardian = snapshot.guardian;
   // The endpoint's canonical form, so a respelling of the same operator does not
   // arrive with a fresh budget.
-  const healKey = `${account.publicKey}|${canonicalGuardianEndpoint(endpoint)}|${onChainGuardian ?? 'no-guardian-key'}`;
+  let healKey = `${account.publicKey}|${canonicalGuardianEndpoint(endpoint)}|${onChainGuardian ?? 'no-guardian-key'}`;
   const now = monotonicNowMs();
   const prior = missingRegistrationState.get(healKey);
   if (!isMissingRegistrationPushDue(now, prior)) {
@@ -718,7 +719,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   // that left the clock untouched would re-run these checks on every ~3s tick
   // for as long as the condition behind it holds. The attempt count is spent
   // only on a real push, so three transient refusals cannot burn the budget.
-  const attempts = prior?.attempts ?? 0;
+  let attempts = prior?.attempts ?? 0;
   missingRegistrationState.set(healKey, { attempts, lastAttemptAt: now });
 
   // STOP unless this device is PROVABLY still the account's on-chain hot signer
@@ -795,11 +796,18 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   // A landed switch whose apply failed leaves this device's copy naming the OLD guardian (#1233),
   // which the new operator must not be handed. Adopt the post-switch state from the previous one
   // first, then check again.
-  if (
-    endpointHoldsGuardianKey === 'mismatch' &&
-    (await adoptFromPreviousGuardian(account, endpoint, onChainHot.commitment))
-  ) {
-    endpointHoldsGuardianKey = 'match';
+  if (endpointHoldsGuardianKey === 'mismatch') {
+    const adoptedGuardian = await adoptFromPreviousGuardian(account, endpoint, onChainHot.commitment);
+    if (adoptedGuardian !== undefined) {
+      endpointHoldsGuardianKey = 'match';
+      healKey = `${account.publicKey}|${canonicalGuardianEndpoint(endpoint)}|${adoptedGuardian}`;
+      const adoptedPrior = missingRegistrationState.get(healKey);
+      attempts = adoptedPrior?.attempts ?? 0;
+      if (!isMissingRegistrationPushDue(now, adoptedPrior)) {
+        missingRegistrationState.set(healKey, { attempts, lastAttemptAt: now });
+        return;
+      }
+    }
   }
   if (endpointHoldsGuardianKey !== 'match') {
     console.warn(

@@ -42,6 +42,15 @@ export async function readPostSwitchLocalState(
   newGuardianEndpoint: string,
   timeoutMs?: number
 ): Promise<PostSwitchLocalState> {
+  return (await readPostSwitchLocalGuardian(accountPublicKey, newGuardianEndpoint, timeoutMs)).state;
+}
+
+/** `readPostSwitchLocalState`'s verdict, with the guardian key the local copy names (undefined when unread). */
+export async function readPostSwitchLocalGuardian(
+  accountPublicKey: string,
+  newGuardianEndpoint: string,
+  timeoutMs?: number
+): Promise<{ state: PostSwitchLocalState; localGuardian: string | undefined }> {
   const localGuardian = await withWasmClientLock(
     async hold => {
       const account = await midenClientProxy.getAccount(accountPublicKey);
@@ -51,10 +60,10 @@ export async function readPostSwitchLocalState(
     },
     { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'post-switch-state-read' }
   );
-  if (!localGuardian) return 'unknown';
+  if (!localGuardian) return { state: 'unknown', localGuardian: undefined };
   const verdict = await checkEndpointCommitment(newGuardianEndpoint, localGuardian, timeoutMs);
-  if (verdict === 'match') return 'post-switch';
-  return verdict === 'mismatch' ? 'pre-switch' : 'unknown';
+  if (verdict === 'match') return { state: 'post-switch', localGuardian };
+  return { state: verdict === 'mismatch' ? 'pre-switch' : 'unknown', localGuardian };
 }
 
 /**

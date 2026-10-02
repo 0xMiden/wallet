@@ -2,6 +2,7 @@ import {
   adoptPostSwitchState,
   POST_SWITCH_ADOPT_DEADLINE_MS,
   POST_SWITCH_ADOPT_POLL_MS,
+  readPostSwitchLocalGuardian,
   readPostSwitchLocalState
 } from './post-switch-state';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -82,6 +83,21 @@ describe('readPostSwitchLocalState (#1233)', () => {
 
     await expect(readPostSwitchLocalState('acc', NEW)).resolves.toBe(expected);
     expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(NEW, 'localkey', undefined);
+  });
+
+  it('readPostSwitchLocalGuardian returns the guardian key it compared (#1233)', async () => {
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('localkey');
+    mockCheckEndpointCommitment.mockResolvedValue('match');
+
+    await expect(readPostSwitchLocalGuardian('acc', NEW)).resolves.toEqual({
+      state: 'post-switch',
+      localGuardian: 'localkey'
+    });
+    await expect(readPostSwitchLocalState('acc', NEW)).resolves.toBe('post-switch');
+    expect(mockCheckEndpointCommitment.mock.calls).toEqual([
+      [NEW, 'localkey', undefined],
+      [NEW, 'localkey', undefined]
+    ]);
   });
 
   it.each([

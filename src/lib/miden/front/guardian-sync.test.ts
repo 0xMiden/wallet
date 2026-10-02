@@ -3292,6 +3292,41 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       expect(mockClearLocalStateNotSaved).toHaveBeenCalledWith('unregistered-pk', endpoint);
     });
 
+    it('books a push after an adopt on the guardian key it writes (#1233)', async () => {
+      mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = performance.now();
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      const lapAt = async (offset: number) => {
+        dateSpy.mockReturnValue(t0 + offset);
+        perfSpy.mockReturnValue(p0 + offset);
+        await syncGuardianAccounts();
+      };
+      try {
+        await runUntilPersistent();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+        await lapAt(3_000);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+        let offset = MISSING_REGISTRATION_BACKOFF_MS + 1;
+        await lapAt(offset);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+
+        for (const backoffs of [2, 4, 8]) {
+          offset += backoffs * MISSING_REGISTRATION_BACKOFF_MS + 1;
+          await lapAt(offset);
+        }
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      } finally {
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      }
+    });
+
     it('does not adopt for an account with no such row', async () => {
       mockFindUnsavedSwitchRow.mockResolvedValue(undefined);
 
