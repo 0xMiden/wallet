@@ -1,5 +1,7 @@
 import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
 
+import { foregroundNow } from 'lib/mobile/background-time';
+
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
 // module's own body reads — the three ceilings in `armWatchdogFor`, the error
@@ -223,9 +225,13 @@ interface LockHolder {
  * cooldown, the watchdog's elapsed accounting). `Date.now()` is wall-clock, so
  * an NTP correction or a manual clock change can expire a window early or
  * stretch it; every consumer here only ever measures a short local interval.
+ *
+ * Foreground time (#473): on mobile it stands still while the app is in the
+ * background, so a hold whose JS the platform froze, such as a delegated prove,
+ * is not charged for that stretch. Elsewhere it is `performance.now()`.
  */
 function monotonicNow(): number {
-  return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
+  return foregroundNow();
 }
 
 /**
@@ -742,9 +748,35 @@ function armWatchdogFor(holder: LockHolder): void {
       ceiling = Math.max(remaining, 0);
     }
   }
-  holder.watchdogTimer = setTimeout(() => {
-    recoverFromWedgedHolder(holder, 'watchdog');
-  }, ceiling);
+  holder.watchdogTimer = setTimeout(() => onWatchdogFired(holder), ceiling);
+}
+
+/**
+ * The foreground budget `holder` has left on the ceiling it is armed at, its open
+ * segment included: the arithmetic `armWatchdogFor` does at a transition, read at
+ * a fire instead. No grace here; the finishing slices are granted at transitions.
+ */
+function watchdogBudgetLeftMs(holder: LockHolder): number {
+  if (holder.pauseCount > 0) {
+    const open = holder.pausedSegmentStartedAt === null ? 0 : monotonicNow() - holder.pausedSegmentStartedAt;
+    return WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs - open;
+  }
+  const open = holder.segmentStartedAt === null ? 0 : monotonicNow() - holder.segmentStartedAt;
+  return holder.normalCeilingMs - holder.unpausedElapsedMs - open;
+}
+
+/**
+ * A fire is not proof the ceiling was spent (#473): a frozen WebView runs the
+ * overdue timer the moment it resumes. Re-arm for the foreground budget left and
+ * evict only once it is gone.
+ */
+function onWatchdogFired(holder: LockHolder): void {
+  const leftMs = watchdogBudgetLeftMs(holder);
+  if (leftMs > 0) {
+    holder.watchdogTimer = setTimeout(() => onWatchdogFired(holder), leftMs);
+    return;
+  }
+  recoverFromWedgedHolder(holder, 'watchdog');
 }
 
 /**
