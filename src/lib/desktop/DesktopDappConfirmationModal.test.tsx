@@ -22,7 +22,7 @@
 import React from 'react';
 
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import {
   dappConfirmationStore,
@@ -215,6 +215,32 @@ describe('DesktopDappConfirmationModal', () => {
     await flush();
 
     expect(result.get()).toEqual({ confirmed: false });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps a newer request on screen when Deny lands on the request it replaced', async () => {
+    render(<DesktopDappConfirmationModal />);
+    const first = pushRequest(buildRequest({ id: 'req-1', origin: 'https://first.test' }));
+    await flush();
+
+    // Outside act, so React has not re-rendered: the Deny below is still the first request's.
+    let second: DAppConfirmationResult | undefined;
+    void dappConfirmationStore
+      .requestConfirmation(buildRequest({ id: 'req-2', origin: 'https://second.test' }))
+      .then(result => {
+        second = result;
+      });
+    fireEvent.click(screen.getByRole('button', { name: 'deny' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('https://second.test'));
+    expect(first.get()).toEqual({ confirmed: false });
+    expect(second).toBeUndefined();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'deny' }));
+    });
+    await flush();
+    expect(second).toEqual({ confirmed: false });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

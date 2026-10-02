@@ -5,7 +5,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { confirmSensitiveAction } from 'lib/biometric';
-import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+import { useDappConfirmation } from 'lib/dapp-browser/use-dapp-confirmation';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
 
@@ -251,7 +252,8 @@ describe('DappConfirmationModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));
 
     expect(onResolve).toHaveBeenCalledWith(
-      expect.objectContaining({ confirmed: true, spendingLimitAuthenticated: true })
+      expect.objectContaining({ confirmed: true, spendingLimitAuthenticated: true }),
+      'req-1'
     );
     expect(onResolve.mock.calls[0]![0]).not.toHaveProperty('spendingLimitAuthorization');
   });
@@ -265,7 +267,7 @@ describe('DappConfirmationModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
     fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
 
-    expect(onResolve).toHaveBeenCalledWith({ confirmed: false });
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
   });
 
   it('resolves only once when a strict-authentication completion is delivered twice', () => {
@@ -288,7 +290,39 @@ describe('DappConfirmationModal', () => {
       <DappConfirmationModal request={limitedTransactionRequest()} accountId="mtst1different" onResolve={onResolve} />
     );
 
-    expect(onResolve).toHaveBeenCalledWith({ confirmed: false });
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-1');
+  });
+
+  // Escape and the back handler register once, at mount, so they must still deny the request shown now.
+  it.each([
+    ['Escape', () => fireEvent.keyDown(document, { key: 'Escape' })],
+    [
+      'the back handler',
+      () => {
+        const [backHandler] = jest.mocked(useMobileBackHandler).mock.calls[0]!;
+        act(() => {
+          backHandler();
+        });
+      }
+    ]
+  ] as const)('denies the request on screen from %s after the request changed', (_label, deny) => {
+    jest.mocked(useMobileBackHandler).mockClear();
+    const onResolve = jest.fn();
+    const { rerender } = render(
+      <DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+    rerender(
+      <DappConfirmationModal
+        request={buildRequest({ id: 'req-2' })}
+        accountId={FULL_ACCOUNT_ID}
+        onResolve={onResolve}
+      />
+    );
+
+    deny();
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false }, 'req-2');
   });
 });
 
@@ -329,7 +363,8 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
 
     expect(onResolve).toHaveBeenCalledTimes(1);
     expect(onResolve).toHaveBeenCalledWith(
-      expect.objectContaining({ confirmed: true, accountPublicKey: FULL_ACCOUNT_ID })
+      expect.objectContaining({ confirmed: true, accountPublicKey: FULL_ACCOUNT_ID }),
+      'req-1'
     );
   });
 
@@ -454,7 +489,7 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     expect(confirmMock).toHaveBeenCalledTimes(2);
     expect(confirmMock.mock.calls[1]![0]).toBe('confirmDappTransactionReason');
     expect(onResolve).toHaveBeenCalledTimes(1);
-    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed: true }));
+    expect(onResolve).toHaveBeenCalledWith(expect.objectContaining({ confirmed: true }), 'req-2');
   });
 
   it('never resolves an approval once the modal has unmounted', async () => {
@@ -512,6 +547,84 @@ describe('DappConfirmationModal - dApp transaction biometric confirmation', () =
     expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
     expect(confirmMock).not.toHaveBeenCalled();
     expect(onResolve).not.toHaveBeenCalled();
+  });
+});
+
+/** Records a promise's result without awaiting it, so a test can assert that it is still pending. */
+function track<T>(promise: Promise<T>): { result?: T } {
+  const tracked: { result?: T } = {};
+  void promise.then(result => {
+    tracked.result = result;
+  });
+  return tracked;
+}
+
+function StoreHarness() {
+  const { request, resolve } = useDappConfirmation('s1');
+  return request ? <DappConfirmationModal request={request} accountId={FULL_ACCOUNT_ID} onResolve={resolve} /> : null;
+}
+
+// With the real store and hook, `requestConfirmation` replaces a pending entry before React re-renders,
+// so a decision made on the replaced request's render must not resolve its replacement.
+describe('DappConfirmationModal - resolving through the store', () => {
+  const sessionTransaction = (id: string) =>
+    buildRequest({
+      id,
+      sessionId: 's1',
+      type: 'transaction',
+      sourcePublicKey: FULL_ACCOUNT_ID,
+      transactionMessages: [`Send from ${id}`]
+    });
+
+  beforeEach(() => {
+    confirmMock.mockReset();
+  });
+
+  afterEach(() => {
+    act(() => {
+      for (const pending of dappConfirmationStore.getAllPendingRequests()) {
+        dappConfirmationStore.resolveConfirmation(pending.sessionId, { confirmed: false });
+      }
+    });
+  });
+
+  it('leaves the replacing request pending when the prompt opened for the replaced one succeeds', async () => {
+    let releaseA: (confirmed: boolean) => void = () => {};
+    confirmMock.mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        releaseA = resolve;
+      })
+    );
+    const first = track(dappConfirmationStore.requestConfirmation(sessionTransaction('req-1')));
+    render(<StoreHarness />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    });
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+
+    // Outside act and released before any act runs, so A's approval lands before React renders B.
+    const second = track(dappConfirmationStore.requestConfirmation(sessionTransaction('req-2')));
+    releaseA(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await flush();
+
+    expect(second.result).toBeUndefined();
+    expect(first.result).toEqual({ confirmed: false });
+  });
+
+  it('leaves the replacing request pending when Deny is tapped on the replaced one', async () => {
+    const first = track(dappConfirmationStore.requestConfirmation(sessionTransaction('req-1')));
+    render(<StoreHarness />);
+
+    const second = track(dappConfirmationStore.requestConfirmation(sessionTransaction('req-2')));
+    fireEvent.click(screen.getByRole('button', { name: 'deny' }));
+    await flush();
+
+    expect(second.result).toBeUndefined();
+    expect(first.result).toEqual({ confirmed: false });
   });
 });
 

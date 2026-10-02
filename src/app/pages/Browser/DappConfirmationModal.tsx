@@ -47,8 +47,8 @@ interface DappConfirmationModalProps {
   /** Full bech32 account id — sent back to the dApp on approve and
    *  truncated locally for the connection-panel display. */
   accountId: string | null;
-  /** Called when the user approves or denies. The store updates inside this callback. */
-  onResolve: (result: DAppConfirmationResult) => void;
+  /** Called with the id of the request the user approved or denied. The store updates inside this callback. */
+  onResolve: (result: DAppConfirmationResult, requestId: string) => void;
 }
 
 export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request, accountId, onResolve }) => {
@@ -113,8 +113,8 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   useEffect(() => {
     if (request.type !== 'transaction' || transactionAccountMatches || resolvedRef.current) return;
     resolvedRef.current = true;
-    onResolve({ confirmed: false });
-  }, [onResolve, request.type, transactionAccountMatches]);
+    onResolve({ confirmed: false }, request.id);
+  }, [onResolve, request.id, request.type, transactionAccountMatches]);
 
   useEffect(() => {
     const previouslyFocused = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null;
@@ -138,10 +138,14 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Escape and the back handler register once, so they deny through this to reach the request on screen now.
+  const handleDenyRef = useRef(handleDeny);
+  handleDenyRef.current = handleDeny;
+
   // Hardware back / iOS swipe-back closes the modal as a deny.
   useMobileBackHandler(
     () => {
-      handleDeny();
+      handleDenyRef.current();
       return true;
     },
     [],
@@ -152,7 +156,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleDeny();
+        handleDenyRef.current();
         return;
       }
       if (e.key === 'Tab') {
@@ -190,7 +194,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     if (resolvedRef.current) return;
     resolvedRef.current = true;
     hapticLight();
-    onResolve({ confirmed: false });
+    onResolve({ confirmed: false }, request.id);
   }
 
   function resolveApproval(spendingLimitAuthenticated?: true) {
@@ -198,22 +202,25 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     if (resolvedRef.current) return;
     resolvedRef.current = true;
     hapticMedium();
-    onResolve({
-      confirmed: true,
-      accountPublicKey: accountId ?? undefined,
-      // Standing access is granted only on an explicit affirmative gesture.
-      // Approving without ticking the box downgrades to `UponRequest` (each
-      // read prompts) instead of silently honouring what the dApp asked for.
-      privateDataPermission:
-        requestsStandingPrivateData && !standingAccessAcknowledged
-          ? PrivateDataPermission.UponRequest
-          : (request.privateDataPermission ?? PrivateDataPermission.UponRequest),
-      // Mobile has no confirm-popup equivalent of ConfirmPage, which reads this
-      // for the extension; without it the backend hard-coded delegated proving
-      // and silently overrode the user's Delegated-proving setting.
-      delegate: isDelegateProofEnabled(),
-      ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
-    });
+    onResolve(
+      {
+        confirmed: true,
+        accountPublicKey: accountId ?? undefined,
+        // Standing access is granted only on an explicit affirmative gesture.
+        // Approving without ticking the box downgrades to `UponRequest` (each
+        // read prompts) instead of silently honouring what the dApp asked for.
+        privateDataPermission:
+          requestsStandingPrivateData && !standingAccessAcknowledged
+            ? PrivateDataPermission.UponRequest
+            : (request.privateDataPermission ?? PrivateDataPermission.UponRequest),
+        // Mobile has no confirm-popup equivalent of ConfirmPage, which reads this
+        // for the extension; without it the backend hard-coded delegated proving
+        // and silently overrode the user's Delegated-proving setting.
+        delegate: isDelegateProofEnabled(),
+        ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
+      },
+      request.id
+    );
   }
 
   async function handleApprove() {
