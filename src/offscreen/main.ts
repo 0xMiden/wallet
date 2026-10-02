@@ -983,7 +983,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     } else {
       try {
-        // Explicit remote prover rather than `prove({})`, and BOUNDED — the same fix
+        // Explicit remote prover rather than `prove({})`, and BOUNDED: the same fix
         // the inline `runGuardianPipeline` (transaction/index.ts) and
         // `MidenClientInterface.newTransaction` already carry. It was missed here, and
         // here is the copy that actually runs on Chrome: the service-worker bundle
@@ -1001,6 +1001,10 @@ const DISPATCH: Record<string, DispatchFn> = {
         // Safe to bound here in the strongest sense available, exactly as inline: this
         // pipeline drives execute/prove/submit itself, so the deadline provably
         // expires BEFORE any submit and the local re-prove cannot broadcast twice.
+        // Unlike those two, this copy calls `withDelegatedProveTimeout` directly, without
+        // `proveDelegated`'s freeze retry: the extension never starts the running-time
+        // clock (`initBackgroundTimeTracking` runs only at mobile startup), so `frozenMs()`
+        // never grows in this realm and a retry could never fire.
         const delegatedProver = remoteProver();
         recordProveTiming(`guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`);
         const provenTx = await withDelegatedProveTimeout(
