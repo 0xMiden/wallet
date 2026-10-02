@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "생성된 증명",
   "transactionStepSubmitting": "제출",
   "transactionStepSyncingGuardian": "Guardian와의 동기화",
+  "guardianBusyStep": "Guardian를 기다리는 중",
+  "guardianBusyDescription": "Guardian는 여전히 이전 거래를 처리 중입니다. 이번 거래는 자동으로 이어집니다.",
   "transactionStepDurationSec": "$seconds$ 초",
   "transactionStageSyncing": "계정 동기화",
   "transactionStageSyncingDescription": "최신 계정 상태를 불러오고 있습니다.",

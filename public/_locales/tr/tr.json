@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Kanıt oluşturuldu",
   "transactionStepSubmitting": "Gönderme",
   "transactionStepSyncingGuardian": "Guardian ile senkronizasyon",
+  "guardianBusyStep": "Guardian'ınızı bekliyorsunuz",
+  "guardianBusyDescription": "Guardian'ınız hala önceki işleminizi tamamlamaktadır. Bu işlem otomatik olarak devam eder.",
   "transactionStepDurationSec": "$seconds$ sn",
   "transactionStageSyncing": "Hesap senkronizasyonu",
   "transactionStageSyncingDescription": "En son hesap durumunuz alınıyor.",

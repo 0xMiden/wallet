@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Створено доказ",
   "transactionStepSubmitting": "Відправлення",
   "transactionStepSyncingGuardian": "Синхронізація з Guardian",
+  "guardianBusyStep": "Очікування вашого «Guardian»",
+  "guardianBusyDescription": "Ваш «Guardian» все ще завершує вашу попередню транзакцію. Ця транзакція продовжується автоматично.",
   "transactionStepDurationSec": "$seconds$ сек",
   "transactionStageSyncing": "Синхронізація облікового запису",
   "transactionStageSyncingDescription": "Завантажується інформація про поточний стан вашого рахунку.",

@@ -894,6 +894,14 @@
     "message": "Синхронізація з Guardian",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "Очікування вашого «Guardian»",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Ваш «Guardian» все ще завершує вашу попередню транзакцію. Ця транзакція продовжується автоматично.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ сек",
     "englishSource": "$seconds$ sec",

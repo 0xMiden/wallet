@@ -183,6 +183,8 @@
   "transactionStepProofGenerated": "Beweis erstellt",
   "transactionStepSubmitting": "Einreichen",
   "transactionStepSyncingGuardian": "Synchronisierung mit Guardian",
+  "guardianBusyStep": "Warten auf Ihren „Guardian“",
+  "guardianBusyDescription": "Ihr „Guardian“ schließt gerade noch Ihre vorherige Transaktion ab. Diese wird automatisch fortgesetzt.",
   "transactionStepDurationSec": "$seconds$ Sek.",
   "transactionStageSyncing": "Konto synchronisieren",
   "transactionStageSyncingDescription": "Der aktuelle Kontostand wird abgerufen.",

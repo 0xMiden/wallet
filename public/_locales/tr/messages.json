@@ -894,6 +894,14 @@
     "message": "Guardian ile senkronizasyon",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "Guardian'ınızı bekliyorsunuz",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Guardian'ınız hala önceki işleminizi tamamlamaktadır. Bu işlem otomatik olarak devam eder.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ sn",
     "englishSource": "$seconds$ sec",

@@ -894,6 +894,14 @@
     "message": "Synchronizacja z Guardian",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "Czekasz na swój Guardian",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Twój portfel Guardian nadal finalizuje poprzednią transakcję. Ta transakcja jest kontynuowana automatycznie.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ sek.",
     "englishSource": "$seconds$ sec",

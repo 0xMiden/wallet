@@ -894,6 +894,14 @@
     "message": "Guardianとの同期",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "Guardianの到着をお待ちください",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Guardianは、まだ前回の取引を処理中です。今回の取引は自動的に続行されます。",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ 秒",
     "englishSource": "$seconds$ sec",

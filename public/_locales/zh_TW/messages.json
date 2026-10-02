@@ -894,6 +894,14 @@
     "message": "與 Guardian 同步",
     "englishSource": "Syncing with Guardian"
   },
+  "guardianBusyStep": {
+    "message": "等待您的 Guardian",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "您的 Guardian 仍在處理您之前的交易。這筆交易將自動繼續進行。",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
+  },
   "transactionStepDurationSec": {
     "message": "$seconds$ sec",
     "englishSource": "$seconds$ sec",
