@@ -71,6 +71,7 @@ const SwapManager: React.FC = () => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  const getStrictAuthenticationProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   // The account's spending-limit revision never crosses the intercom port - `serializeError` /
   // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
@@ -439,7 +440,12 @@ const SwapManager: React.FC = () => {
         setSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction('Confirm your swap'))) {
+      if (
+        !(await confirmSensitiveAction(
+          'Confirm your swap',
+          async () => (await getStrictAuthenticationProtectors()).hardware
+        ))
+      ) {
         setSubmitting(false);
         return;
       }
@@ -466,6 +472,7 @@ const SwapManager: React.FC = () => {
     }
   }, [
     assessSpendingLimit,
+    getStrictAuthenticationProtectors,
     offerAmountBaseUnits,
     openUnpricedChallenge,
     submitting,

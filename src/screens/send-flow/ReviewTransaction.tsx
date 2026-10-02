@@ -228,6 +228,7 @@ export const ReviewTransaction: React.FC = () => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  const getStrictAuthenticationProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   // The account's spending-limit revision never crosses the intercom port - `serializeError` /
   // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
@@ -426,7 +427,12 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction('Confirm your send'))) {
+      if (
+        !(await confirmSensitiveAction(
+          'Confirm your send',
+          async () => (await getStrictAuthenticationProtectors()).hardware
+        ))
+      ) {
         setIsSubmitting(false);
         return;
       }
@@ -455,6 +461,7 @@ export const ReviewTransaction: React.FC = () => {
   }, [
     amountBaseUnits,
     assessSpendingLimit,
+    getStrictAuthenticationProtectors,
     isBridge,
     isSubmitting,
     openUnpricedChallenge,

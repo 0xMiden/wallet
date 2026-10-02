@@ -41,7 +41,8 @@ const mockWalletStoreState = {
   tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
-  readSpendingLimit: jest.fn()
+  readSpendingLimit: jest.fn(),
+  getStrictAuthenticationProtectors: jest.fn()
 };
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
@@ -377,6 +378,7 @@ beforeEach(() => {
     createdAt: 1,
     updatedAt: 2
   });
+  mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: false, password: true });
 
   // Base route state.
   mockSearch = '';
@@ -700,7 +702,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('Confirm your send', expect.any(Function));
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
@@ -1038,7 +1040,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('Confirm your send', expect.any(Function));
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1188,6 +1190,31 @@ describe('ReviewTransaction — onSubmit', () => {
     confirmMock.mockResolvedValue(true);
     await clickSubmit();
     expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("wires the confirmation probe to the store's protector check", async () => {
+    setValidRoute();
+    mockWalletStoreState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(confirmMock).toHaveBeenCalledWith('Confirm your send', expect.any(Function));
+    const probe = confirmMock.mock.calls[0][1];
+    await expect(probe()).resolves.toBe(true);
+  });
+
+  it("shows the review screen's own error, and sends nothing, when the protector probe rejects", async () => {
+    setValidRoute();
+    confirmMock.mockRejectedValue(new Error('protector check failed'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('protector check failed');
   });
 
   it('logs and resets when transaction creation throws', async () => {

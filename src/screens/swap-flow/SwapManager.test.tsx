@@ -27,6 +27,7 @@ let mockWalletState: {
   setLastCompletedTxHash: jest.Mock;
   assessSpendingLimit: jest.Mock;
   readSpendingLimit: jest.Mock;
+  getStrictAuthenticationProtectors: jest.Mock;
 };
 let mockSwapEtaResult: { loading: boolean; eta?: Record<string, unknown>; error?: string };
 let mockBalanceData: Array<{ tokenId: string; balance: number }>;
@@ -217,7 +218,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 }));
 
 jest.mock('lib/biometric', () => ({
-  confirmSensitiveAction: (reason: string) => mockConfirmSensitive(reason)
+  confirmSensitiveAction: (reason: string, hasHardwareProtector: () => Promise<boolean>) =>
+    mockConfirmSensitive(reason, hasHardwareProtector)
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -306,7 +308,8 @@ beforeEach(() => {
       revision: 'revision-1',
       createdAt: 1,
       updatedAt: 2
-    })
+    }),
+    getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: false, password: true })
   };
   mockSwapEtaResult = {
     loading: false,
@@ -1114,7 +1117,7 @@ describe('SwapFlow / SwapManager', () => {
       });
     });
 
-    it('does not submit when biometric confirmation is declined', async () => {
+    it('does not submit when biometric confirmation is declined, and leaves the button usable', async () => {
       mockConfirmSensitive.mockResolvedValue(false);
       renderFlow();
       setOffer('10');
@@ -1122,9 +1125,35 @@ describe('SwapFlow / SwapManager', () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
 
-      expect(mockConfirmSensitive).toHaveBeenCalledWith('Confirm your swap');
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('Confirm your swap', expect.any(Function));
       expect(mockInitiateSwap).not.toHaveBeenCalled();
       expect(mockWalletState.setLastCompletedTxHash).not.toHaveBeenCalled();
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+    });
+
+    it("wires the confirmation probe to the store's protector check", async () => {
+      mockWalletState.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('Confirm your swap', expect.any(Function));
+      const probe = mockConfirmSensitive.mock.calls[0][1];
+      await expect(probe()).resolves.toBe(true);
+    });
+
+    it("shows the review screen's own error, and swaps nothing, when the protector probe rejects", async () => {
+      mockConfirmSensitive.mockRejectedValue(new Error('protector check failed'));
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('protector check failed');
     });
 
     it('submits, nudges the service worker on extension, and hands off to the progress page', async () => {
