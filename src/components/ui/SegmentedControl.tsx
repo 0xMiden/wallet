@@ -44,12 +44,15 @@ export interface SegmentedControlProps<T extends string = string> {
 
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
 // bubble's shadow and the focus ring, which a scrolling row would otherwise clip; 8px between the
-// items, because each one is outlined and two hairlines 4px apart read as one seam.
-const container = cva('flex items-center gap-2 py-1', {
+// items, because each one is outlined and two hairlines 4px apart read as one seam. `fill` is a grid
+// because a fill row is often sized to its content (a settings row's trailing slot): under
+// max-content sizing fr columns each take the widest item, while basis-0 flex items split the row
+// into the average and cut the longest label.
+const container = cva('items-center gap-2 py-1', {
   variants: {
     layout: {
-      scroll: 'overflow-x-auto no-scrollbar',
-      fill: 'w-full'
+      scroll: 'flex overflow-x-auto no-scrollbar',
+      fill: 'grid w-full grid-flow-col auto-cols-fr'
     }
   },
   defaultVariants: { layout: 'scroll' }
@@ -74,7 +77,7 @@ const segment = cva(
       },
       layout: {
         scroll: 'shrink-0',
-        fill: 'min-w-0 flex-1'
+        fill: 'min-w-0'
       },
       // Every item is an outlined pill on the page; the selected one hands its outline over to
       // the raised bubble that covers it, keeping the border transparent so the item's width,

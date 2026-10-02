@@ -125,6 +125,16 @@ describe('isGuardianUnauthorizedExecutionError', () => {
     expect(isGuardianUnauthorizedExecutionError(new WasmClientPoisonedError('watchdog'))).toBe(false);
   });
 
+  it('does not match an error wrapping such an eviction (#1313)', () => {
+    const wrap = (cause: Error) => new Error("Offscreen call 'guardianPipeline' failed", { cause });
+    expect(isGuardianUnauthorizedExecutionError(wrap(new Error('trap', { cause: new Error(REAL_MESSAGE) })))).toBe(
+      true
+    );
+    expect(
+      isGuardianUnauthorizedExecutionError(wrap(new WasmClientPoisonedError('realm-error', new Error(REAL_MESSAGE))))
+    ).toBe(false);
+  });
+
   it('does not match a rejection that merely contains the word unauthorized', () => {
     expect(isGuardianUnauthorizedExecutionError(new Error('401 Unauthorized'))).toBe(false);
   });

@@ -1,5 +1,16 @@
+import { MIDEN_AGGLAYER_FAUCET_ID } from '../../../../src/lib/agglayer/b2agg/constant';
 import { expect, test } from '../../fixtures/two-wallets';
-import { bridgeOutSlow, fundBridgeToken, readBridgedSendRows } from '../../helpers/bridge';
+import {
+  allowAgglayerFaucetForE2E,
+  backToAmountStep,
+  confirmAmountStep,
+  expectRegistryApproves,
+  expectSlowRouteUnsupported,
+  fundBridgeToken,
+  openRouteStep,
+  readBridgedSendRows,
+  selectSlowAndSubmit
+} from '../../helpers/bridge';
 import { newEvmDestination } from '../../helpers/sepolia';
 
 /**
@@ -18,9 +29,17 @@ import { newEvmDestination } from '../../helpers/sepolia';
  * would assert the fake, not wallet code. It is deliberately NOT covered here.
  *
  * The real AggLayer bridge faucet is a custom transfer-policy faucet the test
- * can't mint, so the test bridges a runtime-created faucet token instead: the
- * Slow route carries whichever token is picked. Requires public Miden testnet +
- * the delegated prover, so this is testnet/nightly, not a per-PR gate.
+ * can't mint, so the test bridges a runtime-created faucet token instead. The
+ * bridge registry does not list that faucet, so the spec first asserts the route
+ * step refuses it on the real registry, then allowlists it through the E2E-only
+ * page hook and bridges it through the real route step, review and submit. The
+ * allowlist lives in the page's memory, so the spec steps back to the amount
+ * step and confirms again (a fresh route step checks again) instead of reloading,
+ * which would drop it; a same-hash goto would not reset the flow's steps either.
+ * Before any of that, the bridge's own faucet must read as approved, so the
+ * registry's approving answer is checked against a real node as well as its refusal.
+ * Requires public Miden testnet + the delegated prover, so this is
+ * testnet/nightly, not a per-PR gate.
  */
 test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
   test.describe.configure({ mode: 'serial' });
@@ -48,15 +67,21 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     timeline
   }) => {
     await walletA.createNewWallet();
-    await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
+    await expectRegistryApproves(walletA.page, MIDEN_AGGLAYER_FAUCET_ID);
+    const { faucetHex } = await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
 
     const destination = newEvmDestination();
 
-    await bridgeOutSlow(walletA, {
+    await openRouteStep(walletA, {
       destAddress: destination,
       tokenSymbol: TOKEN_SYMBOL,
       amount: BRIDGE_AMOUNT
     });
+    await expectSlowRouteUnsupported(walletA);
+    await backToAmountStep(walletA);
+    await allowAgglayerFaucetForE2E(walletA.page, faucetHex);
+    await confirmAmountStep(walletA);
+    await selectSlowAndSubmit(walletA);
 
     // The Miden-side bridge-send is the wallet's real work: create + prove +
     // submit the B2AGG note. Poll the agglayer `bridged-send` row to Completed(2).

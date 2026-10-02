@@ -1,6 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
 export interface IInputNote {
@@ -132,6 +133,31 @@ export interface ISwitchGuardianExtraInputs {
   // endpoint. The receipt is the last place the user can be told, which is why
   // this is persisted rather than merely logged.
   commitUnconfirmed?: boolean;
+  // `localStateNotSaved`: the switch reached the network, but its local apply failed and the
+  // reconcile could not bring this device's copy of the account to the post-switch state, so it did
+  // not register it on the new operator, which refuses a copy naming the old one (#1233). The
+  // background self-heal adopts that state from `previousGuardianEndpoint`, registers it and clears
+  // this. `registerFailed` is not set on its own for this case: its self-heal cannot repair it.
+  // Coordinated rows only: the flag means that repair path exists.
+  localStateNotSaved?: boolean;
+  // `localStateUnrecoverable`: the same failure on a DIRECT switch, which has no repair path. The heal
+  // skips it, the previous guardian never received a delta, the new one was never handed a state, the
+  // account is private so the chain holds only its commitment, and running the switch again builds on
+  // the stale copy. Nothing clears it; the receipt sends the user to support.
+  // It also covers a direct switch whose registration was refused because the copy names another guardian key.
+  localStateUnrecoverable?: boolean;
+  // `switchProposalId` / `switchDeltaPushed`: a landed coordinated switch's proposal, and whether the
+  // outgoing guardian took its executed delta inside the deadline (#1233). The reconcile adopts only
+  // from a guardian that did, and the self-heal re-pushes the delta by this id to one that did not.
+  switchProposalId?: string;
+  switchDeltaPushed?: boolean;
+  // `switchProposalNonce`: that proposal's nonce. When the node discards the switch, the reconcile
+  // abandons this nonce's candidate on the outgoing guardian before the row fails, through
+  // `abandonDiscardedCandidate`, the helper the coordinated commit wait shares (#1233). Its sibling on
+  // a rotation or a threshold update is `proposalNonce`.
+  switchProposalNonce?: number;
+  // `nodeDiscarded`: the node discarded the switch; `cancelTransaction` writes it, `isNodeDiscardedRow` reads it.
+  nodeDiscarded?: boolean;
 }
 
 /**
@@ -165,10 +191,23 @@ export interface IBridgedSendExtraInputs {
   recallBlocks?: number;
   /**
    * epoch: absolute Miden block after which the P2IDE bridge note becomes
-   * reclaimable by the sender. Recorded when the row is demoted to Failed so the
-   * activity detail can gate the "Reclaim funds" affordance.
+   * reclaimable by the sender, which gates the activity detail's "Reclaim funds"
+   * affordance. Stamped from the note when the row is created; older rows hold the
+   * intent's estimate, written when they were demoted to Failed.
    */
   reclaimHeight?: number;
+  /**
+   * epoch: id of the P2IDE bridge note, stamped when it is built. Unlike
+   * `outputNoteIds` it does not say the note was produced, so the reclaim UI reads
+   * it only for a row whose note may exist.
+   */
+  reclaimNoteId?: string;
+  /**
+   * epoch: written by `claimBridgeSubmit` when the pipeline commits to submitting
+   * the collateral note, so a row `markBridgedSendFailed` demotes afterwards may
+   * hold that note under `reclaimNoteId`.
+   */
+  submitClaimed?: boolean;
   /**
    * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
@@ -396,9 +435,10 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     nothing. This is the state the wallet previously had no way
  *                     to represent, which is why an interrupted relay was
  *                     indistinguishable from a successful one.
- *   - `relayed`     — the transport is believed to HOLD the note: either it accepted
- *                     the push, or it rejected a re-push as a duplicate, which is
- *                     itself evidence the body is already there. Deliberately not
+ *   - `relayed`     - the transport is believed to HOLD the note: it acknowledged
+ *                     the push, which it also does for a note it already stores
+ *                     (the SDK fetch boundary turns that duplicate into an ACK,
+ *                     `sdk/note-relay-fetch.mjs`). Deliberately not
  *                     terminal, for two separate reasons. An empty
  *                     `SendNoteResponse` means acceptance is not proof of storage, so
  *                     the row stays eligible for the re-push sweep, which tests
@@ -431,6 +471,17 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /**
+   * Set on a row rebuilt from a Guardian operator's retained history, and the
+   * only field that means so; `recovery` is the data such a row, or a local row
+   * it matched, carries. History and HistoryDetails key the recovered title and
+   * icon and the suppressed bridge, swap and earn-settlement UI on it, and the
+   * history merge replaces or merges only rows carrying it. `restoredFromBackup`,
+   * set with it, is what keeps the processing loop, retry and the delivery
+   * sweep away from such a row.
+   */
+  recovered?: boolean;
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -508,6 +559,10 @@ export interface ITransaction {
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
   outputNoteIds?: string[];
+  /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
+  relayNoteIds?: string[];
+  /** The account a custom row's private notes were relayed to, kept apart from `secondaryAccountId`; see `relayRecipientOf`. */
+  relayRecipientId?: string;
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
@@ -584,6 +639,14 @@ export interface ITransaction {
    * requeue, if any, was not a guardian arm's.
    */
   requeueStreak?: IRequeueStreak;
+  /**
+   * Set while this Queued row waits for its Guardian to settle the account's previous delta (#312): a pending-delta
+   * 409 or the settlement gate requeued it. A Guardian request timeout requeues without it. The pickup that runs the
+   * row again clears it, as do any other requeue and a user's retry, but it can stay set on a row that ends Failed
+   * (MAX_QUEUED_AGE expiry, the wake ceiling, a user cancel), so readers gate on Queued. GeneratingTransaction reads it
+   * to say the Guardian is busy instead of showing the row as in flight.
+   */
+  guardianBusy?: true;
   /**
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
@@ -711,6 +774,8 @@ export interface IFailedTransactionOutput {
 export type TransactionOutput = ISuccessTransactionOutput | IFailedTransactionOutput;
 
 export class Transaction implements ITransaction {
+  recovered?: boolean;
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -998,6 +1063,9 @@ export interface IBridgedSendNoteParams {
   recipientId: string;
   noteType: NoteType;
   recallBlocks: number;
+  /** Epoch bridged-send only: the note's absolute reclaim height and id from `buildEpochCollateralRequestBytes`. */
+  reclaimHeight?: number;
+  reclaimNoteId?: string;
 }
 
 export class BridgedSendTransaction implements ITransaction {
@@ -1055,7 +1123,9 @@ export class BridgedSendTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
-      recallBlocks: sendParams?.recallBlocks
+      recallBlocks: sendParams?.recallBlocks,
+      reclaimHeight: sendParams?.reclaimHeight,
+      reclaimNoteId: sendParams?.reclaimNoteId
     };
   }
 }
@@ -1301,7 +1371,14 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // allowlist push needs the self-heal to catch up.
   // `guardianEndpoint`: the co-signer the rotation ran under, recorded when it is queued so the
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
-  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean; guardianEndpoint?: string };
+  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  extraInputs: {
+    newHotPublicKey?: string;
+    reRegisterFailed?: boolean;
+    guardianEndpoint?: string;
+    proposalNonce?: number;
+    nodeDiscarded?: boolean;
+  };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {
@@ -1337,7 +1414,8 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { procedure: string; threshold: number };
+  // `proposalNonce`: the landed reconcile abandons this nonce's candidate when the node discards the write.
+  extraInputs: { procedure: string; threshold: number; proposalNonce?: number; nodeDiscarded?: boolean };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, procedure: string, threshold: number, delegateTransaction?: boolean) {

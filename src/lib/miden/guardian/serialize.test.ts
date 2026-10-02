@@ -1,12 +1,17 @@
 import {
   clearGuardianAccountLocks,
+  clearGuardianCandidate,
+  getGuardianCandidate,
   GUARDIAN_REGISTER_RETRY_BASE_DELAY_MS,
   GUARDIAN_REGISTER_RETRY_RATE_LIMITED_MAX_DELAY_MS,
   GUARDIAN_RETRY_MAX_ATTEMPTS,
+  GuardianBackpressureError,
   guardianRegisterBackoffMs,
   guardianRetryAfterSec,
   isGuardianPendingConflict,
   isGuardianRateLimited,
+  isGuardianRequestTimeout,
+  recordGuardianCandidate,
   withGuardianAccountLock,
   withGuardianConflictRetry,
   withGuardianRateLimitRetry
@@ -404,5 +409,90 @@ describe('withGuardianRateLimitRetry (#906)', () => {
       expect(fn).toHaveBeenCalledTimes(1);
       expect(waits).toEqual([]);
     });
+  });
+});
+
+describe('isGuardianRequestTimeout (#312)', () => {
+  // The shape of native-http's GuardianRequestTimeoutError, matched by name; native-http.test.ts pins the real class.
+  const timeout = (): Error =>
+    Object.assign(new Error('Guardian request to https://g.test/delta/proposal timed out after 60000 ms'), {
+      name: 'GuardianRequestTimeoutError'
+    });
+
+  it('recognizes the boundary timeout itself', () => {
+    expect(isGuardianRequestTimeout(timeout())).toBe(true);
+  });
+
+  it('recognizes it anywhere in a cause chain', () => {
+    const wrapped = new Error('proposal failed', { cause: new Error('request failed', { cause: timeout() }) });
+    expect(isGuardianRequestTimeout(wrapped)).toBe(true);
+  });
+
+  it.each([
+    ['a caller abort', new DOMException('The operation was aborted.', 'AbortError')],
+    ['a probe deadline', Object.assign(new Error('timed out after 30000ms'), { name: 'GuardianProbeTimeoutError' })],
+    ['a pending-delta 409', { status: 409, code: 'conflict_pending_delta' }],
+    ['null', null],
+    ['the name as a bare string', 'GuardianRequestTimeoutError']
+  ])('does not recognize %s', (_label, err) => {
+    expect(isGuardianRequestTimeout(err)).toBe(false);
+  });
+
+  it('ends on a cause chain that loops back on itself', () => {
+    const first: { name: string; cause?: unknown } = { name: 'Error' };
+    first.cause = { name: 'Error', cause: first };
+    expect(isGuardianRequestTimeout(first)).toBe(false);
+  });
+
+  it('answers false, without throwing, when a cause getter throws (#1313)', () => {
+    const err = Object.defineProperty(new Error('proposal failed'), 'cause', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    expect(() => isGuardianRequestTimeout(err)).not.toThrow();
+    expect(isGuardianRequestTimeout(err)).toBe(false);
+  });
+});
+
+describe('GuardianBackpressureError (#312)', () => {
+  it('names the account and the candidate it waits on', () => {
+    const error = new GuardianBackpressureError('acc-1', 7);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({ name: 'GuardianBackpressureError', accountId: 'acc-1', nonce: 7 });
+  });
+});
+
+describe('the settlement record (#312)', () => {
+  it('reads back the candidate recorded for an account, and none for another', () => {
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
+
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 7 });
+    expect(getGuardianCandidate('B')).toBeUndefined();
+  });
+
+  it("replaces an account's candidate with its next write's", () => {
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 8 });
+
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 8 });
+  });
+
+  it('clears only the nonce it was asked about, so a newer write survives a stale clear', () => {
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 8 });
+
+    clearGuardianCandidate('A', 7);
+    expect(getGuardianCandidate('A')).toEqual({ endpoint: 'https://g.test', nonce: 8 });
+
+    clearGuardianCandidate('A', 8);
+    expect(getGuardianCandidate('A')).toBeUndefined();
+  });
+
+  it('is dropped with the account locks', () => {
+    recordGuardianCandidate('A', { endpoint: 'https://g.test', nonce: 7 });
+
+    clearGuardianAccountLocks();
+
+    expect(getGuardianCandidate('A')).toBeUndefined();
   });
 });

@@ -1,7 +1,9 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  formatRawTransactionError,
   GUARDIAN_UNREACHABLE_ERROR,
   INVALID_NOTE_ERROR,
   isGuardianOutage,
@@ -118,6 +120,16 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(aborted, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
     expect(resolveTransactionErrorMessage(aborted, 'proving', false)).not.toBe(LOCAL_PROVER_FAILED_ERROR);
     expect(resolveTransactionErrorMessage(aborted, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('hedges the same way for a kill wrapped in another error (#1313)', () => {
+    const wrapped = new Error('could not create the proposal', {
+      cause: new OperationAbortedError('op-1', 'deadline')
+    });
+    expect(resolveTransactionErrorMessage(wrapped, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(wrapped, 'syncing', false, true)).toBe(
+      TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+    );
   });
 
   it('still maps a generic delegated proving failure to the remote-prover message', () => {
@@ -338,6 +350,18 @@ describe('isUnconfirmedFailure', () => {
     [
       'a bridged-send whose fill confirmed, mayHaveSubmitted',
       failed({ type: 'bridged-send', mayHaveSubmitted: true, extraInputs: { epochStatus: 'confirmed' } })
+    ],
+    [
+      'a send row carrying the discard marker, mayHaveSubmitted',
+      failed({ mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a rotation whose error names the discard but carries no marker, mayHaveSubmitted',
+      failed({
+        type: 'replace-hot-key',
+        error: 'Guardian replace-hot-key 0xabc did not land: the node discarded it.',
+        mayHaveSubmitted: true
+      })
     ]
   ])('is true for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(true);
@@ -368,6 +392,18 @@ describe('isUnconfirmedFailure', () => {
     [
       'a rotation row with no extraInputs at all',
       { type: 'replace-hot-key', status: ITransactionStatus.Failed, error: 'guardian unreachable' }
+    ],
+    [
+      'a switch-guardian row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'switch-guardian', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a replace-hot-key row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'replace-hot-key', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
+    ],
+    [
+      'a update-procedure-threshold row the node discarded, mayHaveSubmitted (#1233)',
+      failed({ type: 'update-procedure-threshold', mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } })
     ]
   ])('is false for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(false);
@@ -392,5 +428,99 @@ describe('RotationGateConsumeRefusal', () => {
   it('is never read as a guardian outage, whatever its text (#779)', () => {
     // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
     expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
+  });
+});
+
+describe('a Guardian request timeout as an outage (#1313)', () => {
+  const timeout = () =>
+    new GuardianRequestTimeoutError('https://guardian.test/delta/proposal', GUARDIAN_REQUEST_TIMEOUT_MS);
+  const wrap = (cause: Error) => Object.assign(new Error('could not create the proposal'), { cause });
+
+  it('is an outage wherever it sits in the cause chain', () => {
+    expect(isGuardianOutage(timeout())).toBe(true);
+    expect(isGuardianOutage(wrap(timeout()))).toBe(true);
+    expect(resolveTransactionErrorMessage(wrap(timeout()), 'creating-proposal')).toBe(GUARDIAN_UNREACHABLE_ERROR);
+  });
+
+  it('is never an outage under a killed pipeline, at any depth', () => {
+    // A requeue would re-broadcast a write that may have submitted, and the copy would say it was not sent.
+    const poisoned = new WasmClientPoisonedError('realm-error', timeout());
+    const aborted = Object.assign(new OperationAbortedError('op-1', 'deadline'), { cause: timeout() });
+    expect(isGuardianOutage(poisoned)).toBe(false);
+    expect(isGuardianOutage(aborted)).toBe(false);
+    expect(isGuardianOutage(wrap(poisoned))).toBe(false);
+    expect(isGuardianOutage(wrap(aborted))).toBe(false);
+  });
+
+  it('never reads a wrapped kill as an outage, even with no timeout in its chain', () => {
+    const abort = new OperationAbortedError('op-1', 'deadline');
+    const wrapped = Object.assign(new Error(`could not create the proposal: ${abort.message}`), { cause: abort });
+    expect(isGuardianOutage(wrapped)).toBe(false);
+    expect(resolveTransactionErrorMessage(wrapped, 'creating-proposal')).not.toBe(GUARDIAN_UNREACHABLE_ERROR);
+  });
+
+  it('ends on a cyclic cause chain', () => {
+    const a: Error & { cause?: unknown } = new Error('a');
+    const b: Error & { cause?: unknown } = new Error('b');
+    a.cause = b;
+    b.cause = a;
+    expect(isGuardianOutage(a)).toBe(false);
+  });
+});
+
+describe('formatRawTransactionError', () => {
+  it('prints each link of the cause chain, and a trailing non-Error value as text', () => {
+    const chain = new Error('outer', { cause: new TypeError('middle', { cause: new RangeError('inner') }) });
+    expect(formatRawTransactionError(chain)).toBe(
+      'Error: outer <- caused by TypeError: middle <- caused by RangeError: inner'
+    );
+    expect(formatRawTransactionError(new Error('outer', { cause: 'socket hang up' }))).toBe(
+      'Error: outer <- caused by socket hang up'
+    );
+  });
+
+  it('stops at the first link that is not an Error', () => {
+    const chain = new Error('outer', { cause: { code: 7, cause: new Error('hidden') } });
+    expect(formatRawTransactionError(chain)).toBe('Error: outer <- caused by [object Object]');
+  });
+
+  it('prints at most five links', () => {
+    let deep = new Error('link 6');
+    for (let i = 5; i >= 0; i--) deep = new Error(`link ${i}`, { cause: deep });
+    expect(formatRawTransactionError(deep)).toBe([0, 1, 2, 3, 4].map(i => `Error: link ${i}`).join(' <- caused by '));
+  });
+});
+
+describe('an error whose cause getter throws (#1313)', () => {
+  const withThrowingCause = <T extends Error>(error: T): T =>
+    Object.defineProperty(error, 'cause', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+
+  const proposal = () => withThrowingCause(new Error('could not create the proposal'));
+
+  it('is classified from the links before the getter', () => {
+    expect(() => isGuardianOutage(proposal())).not.toThrow();
+    expect(isGuardianOutage(proposal())).toBe(false);
+  });
+
+  it('is printed from the links before the getter', () => {
+    expect(formatRawTransactionError(proposal())).toBe('Error: could not create the proposal');
+  });
+
+  it('drops only the text of a link whose name cannot be read', () => {
+    const unreadable = Object.defineProperty(new Error('outer', { cause: new Error('inner') }), 'name', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    expect(formatRawTransactionError(unreadable)).toBe('Error: inner');
+  });
+
+  it('still reads a deadline kill as a recovered engine', () => {
+    const aborted = withThrowingCause(new OperationAbortedError('op-1', 'deadline'));
+    expect(resolveTransactionErrorMessage(aborted, 'creating-proposal')).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 });

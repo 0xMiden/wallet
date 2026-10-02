@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
@@ -28,7 +29,13 @@ const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => 
 }));
 // Items the claims hook returns. A test that changes statuses between renders swaps in a new array,
 // the way the hook publishes a change, so the memoized list sees it.
-const mockState = { items: mockItems };
+const mockState = { items: mockItems, isLoadingNotes: false, isLoadingHistory: false };
+let mockRecovery: GuardianNoteRecoveryProgress | null = null;
+let mockRecoveryPending: boolean | undefined = true;
+jest.mock('lib/wallet-prompts', () => ({
+  ...jest.requireActual('lib/wallet-prompts'),
+  useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
+}));
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
@@ -45,9 +52,10 @@ jest.mock('react-i18next', () => ({
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
     items: mockState.items,
+    isLoadingNotes: mockState.isLoadingNotes,
     accept: mockAccept,
     acceptMany: mockAcceptMany,
-    account: { publicKey: 'account' }
+    account: { publicKey: 'account', guardianNoteRecoveryPending: mockRecoveryPending }
   })
 }));
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
@@ -89,6 +97,7 @@ const mockHistoryRenders: Array<{
   drawnPendingItems?: PendingActivityItem[];
   renderPendingItem: unknown;
   filter?: string;
+  hideLoadingSpinner?: boolean;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -96,14 +105,21 @@ jest.mock('./History', () => ({
     pendingItems,
     drawnPendingItems,
     renderPendingItem,
-    filter
+    filter,
+    onLoadingChange,
+    hideLoadingSpinner
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
+    onLoadingChange: (loading: boolean) => void;
     filter?: string;
+    hideLoadingSpinner?: boolean;
   }) => {
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter });
+    jest.requireActual<typeof import('react')>('react').useEffect(() => {
+      onLoadingChange(mockState.isLoadingHistory);
+    }, [onLoadingChange, mockState.isLoadingHistory]);
+    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter, hideLoadingSpinner });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -144,6 +160,10 @@ beforeEach(() => {
     item.status = 'pending';
   });
   mockState.items = mockItems;
+  mockState.isLoadingNotes = false;
+  mockState.isLoadingHistory = false;
+  mockRecovery = null;
+  mockRecoveryPending = true;
   mockHidden.ids = new Set();
   mockHistoryRenders.length = 0;
   mockConfirm.mockResolvedValue(true);
@@ -155,6 +175,55 @@ function expandCard(noteId: string): HTMLElement {
   fireEvent.click(within(card).getByRole('button', { expanded: false }));
   return card;
 }
+
+it('hides the list spinner under its own progress bar', () => {
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(mockHistoryRenders.at(-1)?.hideLoadingSpinner).toBe(true);
+});
+
+it('uses one progress bar for notes, history rows, and Guardian recovery', () => {
+  const view = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockState.isLoadingNotes = true;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('progressbar')).toHaveAccessibleName('activityFetchingHistoryAndNotes');
+  expect(screen.getByRole('status')).toHaveTextContent('activityFetchingHistoryAndNotes');
+
+  mockState.isLoadingNotes = false;
+  mockState.isLoadingHistory = true;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+
+  mockState.isLoadingHistory = false;
+  mockRecovery = { accountId: 'account', step: 'history' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'public' };
+  view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'history-partial' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'history-failed' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockRecovery = null;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  view.unmount();
+});
+
+it('shows no recovery progress for an account whose recovery flag is not set', () => {
+  mockRecoveryPending = undefined;
+  mockRecovery = { accountId: 'account', step: 'history' };
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+});
 
 it('requires confirmation before hiding a transfer', async () => {
   mockHidden.ids = new Set(['third']);

@@ -107,6 +107,12 @@ describe('AdvancedSettings (page)', () => {
     expect(isNominalUnquotedPriceEnabled()).toBe(false);
   });
 
+  it('titles the Account section with the 16px section label', async () => {
+    await renderWithResolvedKey();
+
+    expect(screen.getByRole('heading', { name: 'account' })).toHaveClass('text-row-title', 'text-muted');
+  });
+
   it('resolves the account public key and displays the truncated chip', async () => {
     await renderWithResolvedKey();
 

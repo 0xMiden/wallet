@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
+import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
@@ -305,9 +306,9 @@ function configure(o: Overrides = {}) {
   });
 }
 
-const renderPage = (o?: Overrides) => {
+const renderPage = (o?: Overrides, tokenId: string = TOKEN_ID) => {
   configure(o);
-  return render(<TokenDetail tokenId={TOKEN_ID} />);
+  return render(<TokenDetail tokenId={tokenId} />);
 };
 
 beforeEach(() => {
@@ -593,6 +594,24 @@ describe('TokenDetail', () => {
   });
 
   describe('price chart', () => {
+    it.each([
+      [1.0001, '$1.000100'],
+      [0.99999, '$0.999990'],
+      [0.9999995, '$1.000000'],
+      [0.0000001234, '$0.00000012']
+    ])('shows the USDC unit price %p with six decimals', (price, display) => {
+      renderPage(
+        {
+          balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
+          tokenPrices: { USDC: { price, change24h: 0, percentageChange24h: 0 } }
+        },
+        MIDEN_USDC_FAUCET
+      );
+
+      expect(within(screen.getByTestId('token-detail-price')).getByText(display)).toBeInTheDocument();
+      expect(within(screen.getByTestId('tt-active-time')).getByText('$1.234500')).toBeInTheDocument();
+    });
+
     it('renders a positive 24h change with a plus sign and the formatted price', () => {
       renderPage({ priceInfo: { price: 12.3456, change24h: 3.2 } });
 
@@ -669,9 +688,9 @@ describe('TokenDetail', () => {
       renderPage();
 
       // active + payload with a time -> value + formatted time rendered.
-      expect(within(screen.getByTestId('tt-active-time')).getByText('$1.23')).toBeInTheDocument();
+      expect(within(screen.getByTestId('tt-active-time')).getByText('$1.235')).toBeInTheDocument();
       // active + payload without a time -> value only, no time node.
-      expect(within(screen.getByTestId('tt-active-notime')).getByText('$2.50')).toBeInTheDocument();
+      expect(within(screen.getByTestId('tt-active-notime')).getByText('$2.500')).toBeInTheDocument();
       // inactive / empty payload / no payload -> null (nothing rendered).
       expect(screen.getByTestId('tt-inactive')).toBeEmptyDOMElement();
       expect(screen.getByTestId('tt-empty')).toBeEmptyDOMElement();
@@ -718,9 +737,14 @@ describe('TokenDetail', () => {
       const option = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
       const bubbleIn = (tf: string) => option(tf).querySelector('[data-slot="motion-highlight"]');
 
-      // Equal-width segments across the chart, 32px tall.
-      expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-      expect(option('1D')).toHaveClass('flex-1', 'h-10');
+      // Equal-width segments across the chart: the columns of the group's grid, 40px tall.
+      expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass(
+        'grid',
+        'w-full',
+        'grid-flow-col',
+        'auto-cols-fr'
+      );
+      expect(option('1D')).toHaveClass('min-w-0', 'h-10');
 
       expect(option('1D')).toHaveAttribute('role', 'radio');
       expect(option('1D')).toHaveAttribute('aria-checked', 'true');

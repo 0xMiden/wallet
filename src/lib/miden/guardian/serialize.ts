@@ -11,10 +11,14 @@
  * "stuck claim" hangs under concurrent load (see OpenZeppelin/guardian#303).
  *
  * Fix: (1) serialize guardian transactions per account so at most one is ever
- * in flight, and (2) when a proposal still conflicts (e.g. the prior delta is
- * mid-canonicalization), wait it out instead of failing the transaction.
+ * in flight, (2) before a send, consume, swap, earn-deposit or execute proposal,
+ * ask the guardian whether the candidate this realm's previous write left there
+ * has settled, and requeue the row while it has not (#312), and (3) for a
+ * structural proposal or a bridged send (Epoch or Agglayer) that still conflicts,
+ * wait it out in process instead of failing the transaction.
  */
 
+import { someInCauseChain } from 'lib/miden/sdk/sdk-error-code';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 
 const noop = (): void => {};
@@ -45,9 +49,39 @@ export function withGuardianAccountLock<T>(accountId: string, fn: () => Promise<
   return run;
 }
 
-/** Drop all per-account guardian transaction locks (e.g. on lock/logout). */
+/**
+ * The candidate a Guardian write left on its Guardian once its submit resolved:
+ * the Guardian (`endpoint`, spelled as the service that proposed it spells it)
+ * and the delta's `nonce`. The next proposal on the account asks the Guardian
+ * about it before proposing (#312).
+ */
+export interface GuardianCandidate {
+  endpoint: string;
+  nonce: number;
+}
+
+// Per realm, keyed like the lock chains above (the canonical account id), and dropped with them.
+const guardianCandidates = new Map<string, GuardianCandidate>();
+
+/** Record the candidate a write on `accountId` left on its Guardian, replacing any earlier one. */
+export function recordGuardianCandidate(accountId: string, candidate: GuardianCandidate): void {
+  guardianCandidates.set(accountId, candidate);
+}
+
+/** The candidate recorded for `accountId`, if any. */
+export function getGuardianCandidate(accountId: string): GuardianCandidate | undefined {
+  return guardianCandidates.get(accountId);
+}
+
+/** Forget `accountId`'s candidate, unless a later write has since recorded another nonce. */
+export function clearGuardianCandidate(accountId: string, nonce: number): void {
+  if (guardianCandidates.get(accountId)?.nonce === nonce) guardianCandidates.delete(accountId);
+}
+
+/** Drop all per-account guardian transaction locks and recorded candidates. */
 export function clearGuardianAccountLocks(): void {
   guardianTxChains.clear();
+  guardianCandidates.clear();
 }
 
 /**
@@ -81,6 +115,32 @@ export function isGuardianPendingConflict(err: unknown): boolean {
   // A paused or released account is not transient — retrying just delays the
   // inevitable.
   return !/paused|released/i.test(detail);
+}
+
+/**
+ * A Guardian request the fetch boundary cut off at its deadline
+ * (`GuardianRequestTimeoutError` in ./native-http), anywhere in `err`'s cause
+ * chain. Duck-typed by `name`, like the checks around it, which also keeps
+ * ./native-http and its platform imports out of this module.
+ */
+export function isGuardianRequestTimeout(err: unknown): boolean {
+  return someInCauseChain(err, link => 'name' in link && link.name === 'GuardianRequestTimeoutError');
+}
+
+/**
+ * The settlement gate's refusal (#312): the candidate this realm's previous write
+ * on the account left on its Guardian is still settling, so a proposal now would
+ * only meet the pending-delta 409. Thrown before any proposal work; the
+ * transaction loop requeues a value-moving row on it.
+ */
+export class GuardianBackpressureError extends Error {
+  constructor(
+    readonly accountId: string,
+    readonly nonce: number
+  ) {
+    super(`Guardian account ${accountId} still has candidate ${nonce} settling; the next proposal waits`);
+    this.name = 'GuardianBackpressureError';
+  }
 }
 
 /**
@@ -186,6 +246,9 @@ interface ConflictRetryOptions {
  * ticks ~every 10s, so a prior delta typically finalizes within a handful of
  * ticks; retrying with backoff lets the next proposal land instead of failing
  * the transaction. Non-409 errors (and paused-account 409s) propagate immediately.
+ * Only structural proposals and a bridged send, on either bridge provider, still
+ * use it: a send, consume, swap, earn-deposit or execute proposal requeues on a
+ * 409 instead (#312).
  */
 export async function withGuardianConflictRetry<T>(fn: () => Promise<T>, opts: ConflictRetryOptions = {}): Promise<T> {
   const maxAttempts = opts.maxAttempts ?? 12;

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
@@ -143,6 +143,8 @@ const agglayer = (o: Partial<IHistoryEntry> = {}) =>
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // clearAllMocks keeps a queued *Once, so a block read a test never reaches would leak into the next.
+    mockGetCurrentMidenBlock.mockReset().mockImplementation(async () => 0);
     mockEvm = { provider: null, address: undefined, isConnected: false, connect: jest.fn() };
   });
 
@@ -183,12 +185,169 @@ describe('BridgeClaimSection', () => {
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
     });
 
-    it('still shows the reclaim UI when the row is also unconfirmed (#1250)', async () => {
-      // The reclaim gate reads the raw status, not the shared not-confirmed rule: a reclaim of a
-      // note that never landed fails before it moves funds, so it stays keyed on transactionFailed.
+    it('offers Reclaim for an unconfirmed failed row from its stamped height and note id (#1250)', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
-      renderSection({ entry: entry({ isUnconfirmed: true }) });
-      expect(await screen.findByText('t:reclaimFunds')).toBeInTheDocument();
+      renderSection({
+        entry: entry({
+          isUnconfirmed: true,
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
+        })
+      });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() =>
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+      );
+    });
+
+    it('offers no Reclaim for an unconfirmed row whose submit was never claimed (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          isUnconfirmed: true,
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped'
+        })
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers no Reclaim for a failure before the note was sent, even with the stamped fields (#1250)', () => {
+      renderSection({
+        entry: entry({ bridgeEpochStatus: undefined, outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
+      });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers no Reclaim for a definite failure whose note committed (#1250)', () => {
+      renderSection({ entry: entry({ bridgeEpochStatus: undefined }) });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers no Reclaim for a route-failed row whose note never committed (#1250)', () => {
+      // A row markBridgedSendFailed demoted before its pipeline claimed the submit never sent its
+      // note, so without bridgeSubmitClaimed the stamped id is not read.
+      renderSection({
+        entry: entry({ bridgeEpochStatus: 'failed', outputNoteIds: undefined, bridgeReclaimNoteId: 'note-stamped' })
+      });
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('offers Reclaim for a row demoted after its pipeline claimed the submit, consuming its stamped note (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          bridgeEpochStatus: 'failed',
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
+        })
+      });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() =>
+        expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-stamped', false, true)
+      );
+    });
+
+    it('offers no Reclaim for a definite failure whose pipeline had claimed its submit (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({
+        entry: entry({
+          bridgeEpochStatus: undefined,
+          outputNoteIds: undefined,
+          bridgeReclaimNoteId: 'note-stamped',
+          bridgeSubmitClaimed: true
+        })
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+    });
+
+    it('still offers Reclaim for an allocator-rejected row, consuming its committed note (#1250)', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+      renderSection({ entry: entry({ bridgeReclaimNoteId: 'note-stamped' }) });
+      fireEvent.click(await screen.findByText('t:reclaimFunds'));
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+    });
+
+    describe('a completed bridge-out', () => {
+      // Its note committed; whether its intent was ever submitted is told by the intent fields alone.
+      const completed = (o: Partial<IHistoryEntry> = {}) =>
+        entry({ status: 2, bridgeEpochStatus: undefined, bridgeIntentNonce: undefined, ...o });
+      const settle = () => act(async () => await new Promise(resolve => setTimeout(resolve, 0)));
+
+      it('offers Reclaim for a completed bridge-out whose intent was never recorded, once its height passes (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed() });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      });
+
+      it('shows no countdown for a completed bridge-out whose intent is not recorded yet (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(900); // below 1000
+        renderSection({ entry: completed() });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out with its intent recorded (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers Reclaim for a completed bridge-out whose fill failed, once its height passes (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
+        fireEvent.click(await screen.findByText('t:reclaimFunds'));
+        await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
+      });
+
+      it('shows the countdown for a completed bridge-out whose fill failed (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(900); // below 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'failed' }) });
+        expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out whose fill is still pending (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeIntentNonce: 'user:1', bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a completed bridge-out whose recorded intent carries no nonce (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed({ bridgeEpochStatus: 'pending' }) });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      });
+
+      it('offers nothing for a restored completed bridge-out without its intent (#1250)', async () => {
+        mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
+        renderSection({ entry: completed(), restoredFromBackup: true });
+        await settle();
+        expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+        expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+      });
     });
 
     it('shows Not confirmed while unconfirmed and pending, then the live fill once it reports confirmed', async () => {

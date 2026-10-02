@@ -80,6 +80,34 @@ describe('EmptyState', () => {
     expect(root).toHaveClass('flex', 'flex-col', 'items-center', 'justify-center', 'rounded-2xl', 'bg-fill');
   });
 
+  it('takes the default size unless asked: 40px padding, a 56px circle, the 20px title', () => {
+    const { container } = render(<EmptyState icon={IconName.Home} title="Title" />);
+
+    const root = container.firstChild as HTMLElement;
+    expect(root).toHaveClass('flex-col', 'py-10', 'gap-3', 'text-center');
+    expect(screen.getByTestId('icon').parentElement).toHaveClass('h-14', 'w-14');
+    expect(screen.getByRole('heading', { level: 3 })).toHaveClass('text-title-section');
+  });
+
+  it('shrinks to a compact centred stack: the 40px circle on top, then the 16px title and its line', () => {
+    const { container } = render(
+      <EmptyState icon={IconName.Home} surface="dashed" size="compact" title="Title" description="Desc" />
+    );
+
+    const root = container.firstChild as HTMLElement;
+    expect(root).toHaveClass('flex-col', 'items-center', 'text-center', 'gap-2', 'py-4', 'border-dashed');
+    expect(root).not.toHaveClass('py-10');
+    const icon = screen.getByTestId('icon');
+    expect(icon).toHaveAttribute('data-size', 'sm');
+    const circle = icon.parentElement as HTMLElement;
+    expect(circle).toHaveClass('h-10', 'w-10');
+    // The circle is the block's first child, on top of the copy.
+    expect(root.firstElementChild).toBe(circle);
+    const heading = screen.getByRole('heading', { level: 3 });
+    expect(heading).toHaveClass('text-row-title');
+    expect(screen.getByText('Desc')).toHaveClass('text-body-sm', 'text-muted');
+  });
+
   it('merges a custom className with the base classes', () => {
     const { container } = render(
       <EmptyState icon={IconName.Home} title="Title" description="Desc" className="custom-class" />

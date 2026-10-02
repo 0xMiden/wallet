@@ -210,6 +210,14 @@ describe('SubPageSection', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'Details' })).toBeInTheDocument();
   });
 
+  it('draws the label as the 16px section title on request', () => {
+    render(<SubPageSection title="Account" titleSize="md" />);
+
+    const heading = screen.getByRole('heading', { level: 2, name: 'Account' });
+    expect(heading).toHaveClass('text-row-title', 'text-muted');
+    expect(heading).not.toHaveClass('text-label');
+  });
+
   it('renders only what it is given', () => {
     render(
       <SubPageSection data-testid="s">
