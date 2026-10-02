@@ -1,6 +1,5 @@
 package com.miden.wallet
 
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.os.UserManager
@@ -85,32 +84,36 @@ class HardwareSecurityPlugin : Plugin() {
     }
 
     /**
-     * Open strong-biometric enrollment (API 30+), or the security settings below it.
-     * Resolves `opened: false` when no activity handles the intent.
+     * Open strong-biometric enrollment (API 30+), falling back through the security and
+     * general Settings screens so the tap always reaches a Settings screen when any of
+     * the three exists, and never crashes when none do (e.g. a locked-down work profile).
      */
     @PluginMethod
     fun openBiometricSettings(call: PluginCall) {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Intent(Settings.ACTION_BIOMETRIC_ENROLL).putExtra(
-                Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
-                BiometricManager.Authenticators.BIOMETRIC_STRONG
-            )
-        } else {
-            Intent(Settings.ACTION_SECURITY_SETTINGS)
+        val actions = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) add(Settings.ACTION_BIOMETRIC_ENROLL)
+            add(Settings.ACTION_SECURITY_SETTINGS)
+            add(Settings.ACTION_SETTINGS)
         }
 
         val host = activity
-        val opened = host != null && try {
+        val launched = if (host == null) null else BiometricSettingsLogic.launchFirst(actions) { action ->
+            val intent = Intent(action)
+            if (action == Settings.ACTION_BIOMETRIC_ENROLL) {
+                intent.putExtra(
+                    Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG
+                )
+            }
             host.startActivity(intent)
-            true
-        } catch (e: ActivityNotFoundException) {
-            Log.w(TAG, "No activity handles ${intent.action}: ${e.message}")
-            false
         }
 
-        val jsResult = JSObject()
-        jsResult.put("opened", opened)
-        call.resolve(jsResult)
+        if (launched != null) {
+            Log.d(TAG, "openBiometricSettings: opened $launched")
+        } else {
+            Log.w(TAG, "openBiometricSettings: no activity handled any Settings action")
+        }
+        call.resolve()
     }
 
     /**

@@ -47,7 +47,7 @@ function makePlugin(overrides: Record<string, any> = {}): Record<string, any> {
     decryptWithHardwareKey: jest.fn().mockResolvedValue({ decrypted: 'DEC' }),
     deleteHardwareKey: jest.fn().mockResolvedValue(undefined),
     biometricStatus: jest.fn().mockResolvedValue({ code: 0, managedProfile: false }),
-    openBiometricSettings: jest.fn().mockResolvedValue({ opened: true }),
+    openBiometricSettings: jest.fn().mockResolvedValue(undefined),
     ...overrides
   };
 }
@@ -333,30 +333,30 @@ describe('biometric service', () => {
   });
 
   describe('openBiometricSettings', () => {
-    it.each([true, false])('on Android resolves whether Settings opened (%s)', async opened => {
-      const hardware = makePlugin({ openBiometricSettings: jest.fn().mockResolvedValue({ opened }) });
+    it('on Android asks the plugin to open Settings', async () => {
+      const hardware = makePlugin();
       const { mod } = load({ platform: ANDROID, hardware });
 
-      expect(await mod.openBiometricSettings()).toBe(opened);
+      await expect(mod.openBiometricSettings()).resolves.toBeUndefined();
       expect(hardware.openBiometricSettings).toHaveBeenCalledTimes(1);
     });
 
     it.each([
       ['on iOS', IOS],
       ['off mobile', NOT_MOBILE]
-    ])('resolves false %s without calling the plugin', async (_label, platform) => {
+    ])('resolves undefined %s without calling the plugin', async (_label, platform) => {
       const hardware = makePlugin();
       const { mod } = load({ platform, hardware });
 
-      expect(await mod.openBiometricSettings()).toBe(false);
+      await expect(mod.openBiometricSettings()).resolves.toBeUndefined();
       expect(hardware.openBiometricSettings).not.toHaveBeenCalled();
     });
 
-    it('resolves false when the plugin rejects, as on a native build without it', async () => {
+    it('resolves undefined when the plugin rejects, as on a native build without it', async () => {
       const hardware = makePlugin({ openBiometricSettings: jest.fn().mockRejectedValue(new Error('not implemented')) });
       const { mod } = load({ platform: ANDROID, hardware });
 
-      await expect(mod.openBiometricSettings()).resolves.toBe(false);
+      await expect(mod.openBiometricSettings()).resolves.toBeUndefined();
     });
   });
 

@@ -214,17 +214,15 @@ export async function checkBiometricSetup(): Promise<BiometricSetup> {
 }
 
 /**
- * Open the system screen that enrolls a strong biometric (Android only). Resolves whether
- * Settings opened: false off Android or when the call fails. Never rejects.
+ * Open the system screen that enrolls a strong biometric (Android only). A no-op off
+ * Android or when the call fails. Never rejects.
  */
-export async function openBiometricSettings(): Promise<boolean> {
+export async function openBiometricSettings(): Promise<void> {
   try {
-    if (!isAndroid()) return false;
-    const { opened } = await HardwareSecurity.openBiometricSettings();
-    return opened;
+    if (!isAndroid()) return;
+    await HardwareSecurity.openBiometricSettings();
   } catch (error) {
     console.error('[Biometric] openBiometricSettings error:', error);
-    return false;
   }
 }
 

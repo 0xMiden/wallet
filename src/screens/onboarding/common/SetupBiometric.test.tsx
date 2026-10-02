@@ -116,7 +116,7 @@ beforeEach(() => {
   mockIsMobile.mockReturnValue(true);
   mockCheckAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'fingerprint' });
   mockCheckSetup.mockResolvedValue(AVAILABLE);
-  mockOpenSettings.mockResolvedValue(true);
+  mockOpenSettings.mockResolvedValue(undefined);
   mockAuthenticate.mockResolvedValue(true);
   mockHapticLight.mockResolvedValue(undefined);
 });
@@ -421,10 +421,10 @@ describe('SetupBiometricScreen', () => {
       expect(screen.queryByTestId('btn-openSettings')).not.toBeInTheDocument();
     });
 
-    it.each([true, false])('opens Settings on tap and leaves the screen as it is (opened: %s)', async opened => {
+    it('opens Settings on tap and leaves the screen as it is', async () => {
       mockIsAndroid.mockReturnValue(true);
       mockCheckSetup.mockResolvedValue(blockedBy('none-enrolled', true));
-      mockOpenSettings.mockResolvedValue(opened);
+      mockOpenSettings.mockResolvedValue(undefined);
 
       renderComponent();
       await flush();
