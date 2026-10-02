@@ -906,6 +906,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   it('measures the self-heal cooldown from when the re-register finished', async () => {
     let now = 5_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -932,6 +933,38 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).toHaveBeenCalledTimes(2);
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  });
+
+  it('re-registers again after its cooldown when the wall clock steps back (#1233)', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    const account = {
+      publicKey: 'acct-heal-clock-back',
+      type: WalletType.Guardian,
+      hotPublicKey: 'hot',
+      coldPublicKey: 'cold'
+    };
+    storeState.accounts = [account];
+    const t0 = 1_000_000;
+    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const p0 = performance.now();
+    const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+    try {
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockReturnValue(t0 - 60 * 60_000);
+      perfSpy.mockReturnValue(p0 + SELF_HEAL_COOLDOWN_MS + 1);
+      await syncGuardianAccounts();
+      expect(mockReRegister).toHaveBeenCalledTimes(2);
+    } finally {
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    }
   });
 
   // F-137 called the spent budget "the sharp one": with it kept across a
@@ -941,6 +974,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   it('gives the new operator its own re-register budget after a rotation', async () => {
     let now = 7_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -977,6 +1011,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // The rotation test's twin: a respelling the wallet treats as the same Guardian
@@ -1128,6 +1163,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     ] as never;
     let now = 5_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
 
     expect(isGuardianUnrepairable('acct-stuck')).toBe(false);
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
@@ -1143,6 +1179,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(isGuardianUnrepairable('acct-stuck')).toBe(false);
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   it('still re-registers when the on-chain hot signer is this device (0x/case differences aside)', async () => {
@@ -1233,10 +1270,12 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     const start = Date.now();
     const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
     // Enough refusals to blow a budget of SELF_HEAL_MAX_ATTEMPTS, each past the
     // cooldown so the decision gate itself is not what is holding them back.
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
       nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
       await syncGuardianAccounts();
     }
     expect(mockReRegister).not.toHaveBeenCalled();
@@ -1244,9 +1283,11 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // The read recovers: the repair must still be available.
     mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
     nowSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    perfSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
     await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(1);
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // #1233: the re-register's chain guard refuses before any `/configure`, so a refusal is booked
@@ -1270,8 +1311,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     const start = Date.now();
     const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
       nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
       await syncGuardianAccounts();
     }
     const refusedPushes = mockReRegister.mock.calls.length;
@@ -1279,10 +1322,12 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // The local copy caught up with the chain: the repair is still available.
     mockReRegister.mockResolvedValue(undefined);
     nowSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    perfSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
     await syncGuardianAccounts();
 
     expect(mockReRegister).toHaveBeenCalledTimes(refusedPushes + 1);
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // A rejection before the push start (a watchdog eviction of the read hold, a failed sync, a missing account)
@@ -1300,6 +1345,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     ] as never;
     let now = 5_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
 
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
       await syncGuardianAccounts();
@@ -1309,6 +1355,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
     expect(isGuardianUnrepairable('acct-reregister-unread')).toBe(false);
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // The opposite booking for the opposite outcome: being rotated out is a
@@ -1327,14 +1374,17 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     const start = Date.now();
     const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
       nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
       await syncGuardianAccounts();
     }
 
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // #1233: the heal's holds report to a per-account heal fuse, which gates the heal. Not the account's
@@ -1350,12 +1400,14 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     ] as never;
     let now = 6_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
     // Seven laps are due for a heal: every lap from the threshold on, a cooldown apart.
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
       await syncGuardianAccounts();
       now += SELF_HEAL_COOLDOWN_MS;
     }
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   };
 
   it("stops re-registering once watchdog evictions of the heal's holds light its own fuse (#1233)", async () => {
@@ -1446,11 +1498,14 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   const runPastCooldowns = async (laps: number) => {
     const start = Date.now();
     const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
     for (let i = 0; i < laps; i++) {
       nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
       await syncGuardianAccounts();
     }
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   };
   // The vault's check, against the record the store holds when the swap lands, refused in the shape
   // deserializeError gives it on the extension.
@@ -1677,16 +1732,40 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       );
       const t0 = Date.now();
       const nowSpy = jest.spyOn(Date, 'now');
+      const perfSpy = jest.spyOn(performance, 'now');
 
       // Due 1 and then 2 cooldowns after each run, so the third lap is not due.
       for (const cooldowns of [0, 1, 2, 3]) {
         nowSpy.mockReturnValue(t0 + cooldowns * SELF_HEAL_COOLDOWN_MS);
+        perfSpy.mockReturnValue(t0 + cooldowns * SELF_HEAL_COOLDOWN_MS);
         await syncGuardianAccounts();
       }
       nowSpy.mockRestore();
+      perfSpy.mockRestore();
 
       expect(mockReRegister).toHaveBeenCalledTimes(3);
       expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    });
+
+    it('retries a pending activation after its cooldown when the wall clock steps back (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      mockReRegister.mockRejectedValue(new Error('configure rejected'));
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = performance.now();
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      try {
+        await syncGuardianAccounts();
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+        dateSpy.mockReturnValue(t0 - 60 * 60_000);
+        perfSpy.mockReturnValue(p0 + SELF_HEAL_COOLDOWN_MS + 1);
+        await syncGuardianAccounts();
+        expect(mockReRegister).toHaveBeenCalledTimes(2);
+      } finally {
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      }
     });
 
     it('costs nothing for a pending account with no Failed rotation of its own (#1233)', async () => {
@@ -1714,11 +1793,14 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     const lapsAt = async (times: number[]) => {
       const nowSpy = jest.spyOn(Date, 'now');
+      const perfSpy = jest.spyOn(performance, 'now');
       for (const at of times) {
         nowSpy.mockReturnValue(at);
+        perfSpy.mockReturnValue(at);
         await syncGuardianAccounts();
       }
       nowSpy.mockRestore();
+      perfSpy.mockRestore();
     };
 
     it('checks a pending account with no Failed rotation at most once per cooldown, counting no attempt (#1233)', async () => {
@@ -1736,8 +1818,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     it('checks a pending account whose heal fuse is lit at most once per cooldown (#1233)', async () => {
       storeState.accounts = [pendingAccount] as never;
-      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
       const t0 = Date.now();
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(t0);
+      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
+      perfSpy.mockRestore();
 
       await lapsAt([t0, t0 + 3_000]);
 
@@ -2487,6 +2571,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     );
     let now = 8_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
 
     await runUntilPersistent();
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
@@ -2494,6 +2579,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       await syncGuardianAccounts();
     }
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
 
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
     expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(true);
@@ -2551,6 +2637,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       variant();
       let now = 8_000_000;
       const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
 
       await runUntilPersistent();
       for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
@@ -2558,6 +2645,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         await syncGuardianAccounts();
       }
       nowSpy.mockRestore();
+      perfSpy.mockRestore();
 
       expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2 * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1);
       expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(false);
@@ -2720,6 +2808,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   // recover, the full budget is still there.
   it('spends no attempt on a refusal, so the push still lands once the reads recover', async () => {
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(1_000_000);
     mockGetSignerDetails.mockRejectedValue(new Error('signer slot unreadable'));
 
     await runUntilPersistent();
@@ -2733,6 +2822,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     // …but the first backoff gap is the one an unspent budget gets, not a
     // doubled one, and the attempt is still available.
     nowSpy.mockReturnValue(1_000_000 + MISSING_REGISTRATION_BACKOFF_MS);
+    perfSpy.mockReturnValue(1_000_000 + MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
       'unregistered-pk',
@@ -2742,6 +2832,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     );
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // The state this device would POST becomes the operator's authoritative copy of
@@ -2789,37 +2880,44 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
     const t0 = 1_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(t0);
 
     await expect(runUntilPersistent()).resolves.toBeUndefined();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
     nowSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS - 1);
+    perfSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS - 1);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
     const t1 = t0 + MISSING_REGISTRATION_BACKOFF_MS;
     nowSpy.mockReturnValue(t1);
+    perfSpy.mockReturnValue(t1);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
     // The gap doubles, so the second wait is twice the first.
     const t2 = t1 + 2 * MISSING_REGISTRATION_BACKOFF_MS;
     nowSpy.mockReturnValue(t2 - 1);
+    perfSpy.mockReturnValue(t2 - 1);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
     nowSpy.mockReturnValue(t2);
+    perfSpy.mockReturnValue(t2);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
 
     // Capped: an operator that keeps refusing a registration it also says it
     // needs will not be resolved by further `/configure` calls.
     nowSpy.mockReturnValue(t2 + 100 * MISSING_REGISTRATION_BACKOFF_MS);
+    perfSpy.mockReturnValue(t2 + 100 * MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // The cooldown is measured from when an attempt SETTLED, not from when it
@@ -2831,6 +2929,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   it('measures the gap from when the attempt finished, so a slow push still buys its cooldown', async () => {
     let now = 1_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
     // Each push takes four minutes — longer than both gaps in the schedule.
     const pushDurationMs = 4 * MISSING_REGISTRATION_BACKOFF_MS;
     mockFinalizeDirectGuardianSwitch.mockImplementation(async () => {
@@ -2859,6 +2958,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // A refusal that never reached the operator does not spend an attempt, but it
@@ -2867,6 +2967,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   it('stamps a refunded attempt from its finish too', async () => {
     let now = 1_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
     mockFinalizeDirectGuardianSwitch.mockImplementation(async () => {
       now += 4 * MISSING_REGISTRATION_BACKOFF_MS;
       throw new GuardianRegistrationPreflightError('account state read back incomplete');
@@ -2883,6 +2984,27 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  });
+
+  it('retries a missing registration after its backoff when the wall clock steps back (#1233)', async () => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
+    const t0 = 1_000_000;
+    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const p0 = performance.now();
+    const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+    try {
+      await runUntilPersistent();
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockReturnValue(t0 - 60 * 60_000);
+      perfSpy.mockReturnValue(p0 + MISSING_REGISTRATION_BACKOFF_MS + 1);
+      await syncGuardianAccounts();
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+    } finally {
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    }
   });
 
   // The bounded budget exists because a `/configure` that throws may still have
@@ -2896,6 +3018,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     );
     let now = 1_000_000;
     const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
 
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
@@ -2919,6 +3042,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 5);
 
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // The budget is keyed by what the push would WRITE, so a second rotation in the

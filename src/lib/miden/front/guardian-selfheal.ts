@@ -59,7 +59,7 @@ export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-tra
 export interface SelfHealAttemptState {
   /** Number of cold re-register attempts already made for this account. */
   attempts: number;
-  /** `Date.now()` of the last attempt. */
+  /** `monotonicNowMs()` of the last attempt. */
   lastAttemptAt: number;
 }
 
@@ -67,7 +67,7 @@ export interface SelfHealAttemptState {
  * Decide whether to attempt a cold re-register self-heal for an account right
  * now. Pure (all state passed in) so it is exhaustively unit-testable.
  *
- * @param now                     current `Date.now()`
+ * @param now                     current `monotonicNowMs()`
  * @param consecutiveAuthFailures consecutive 401s observed for this account
  *                                (reset to 0 on any successful sync)
  * @param state                   prior attempt state, or `undefined` if none

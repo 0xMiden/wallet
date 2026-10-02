@@ -176,7 +176,7 @@ export const MISSING_REGISTRATION_MAX_ATTEMPTS = 3;
 export const MISSING_REGISTRATION_BACKOFF_MS = 60_000;
 
 /**
- * `Date.now()` before which an account's sync is paused because the guardian
+ * `monotonicNowMs()` before which an account's sync is paused because the guardian
  * rate-limited it. This tick runs every ~3s per account, which makes it by far
  * the guardian's most frequent caller — and it was the ONE caller that ignored a
  * 429 completely. The transaction pipeline requeues on the server's own
@@ -697,7 +697,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   // The endpoint's canonical form, so a respelling of the same operator does not
   // arrive with a fresh budget.
   const healKey = `${account.publicKey}|${canonicalGuardianEndpoint(endpoint)}|${onChainGuardian ?? 'no-guardian-key'}`;
-  const now = Date.now();
+  const now = monotonicNowMs();
   const prior = missingRegistrationState.get(healKey);
   if (!isMissingRegistrationPushDue(now, prior)) {
     // Budget spent on this triple. The operator keeps saying it has no record of
@@ -821,7 +821,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   // `MISSING_REGISTRATION_BACKOFF_MS` promises ~3 minutes across three pushes;
   // this is what makes that true.
   const bookSettled = (spent: number): void => {
-    missingRegistrationState.set(healKey, { attempts: spent, lastAttemptAt: Date.now() });
+    missingRegistrationState.set(healKey, { attempts: spent, lastAttemptAt: monotonicNowMs() });
   };
 
   try {
@@ -1260,11 +1260,11 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
     }
     const prev = pendingActivationState.get(account.publicKey);
     const stamp = () =>
-      pendingActivationState.set(account.publicKey, { attempts: prev?.attempts ?? 0, lastAttemptAt: Date.now() });
+      pendingActivationState.set(account.publicKey, { attempts: prev?.attempts ?? 0, lastAttemptAt: monotonicNowMs() });
     try {
       if (
         prev &&
-        Date.now() - prev.lastAttemptAt <
+        monotonicNowMs() - prev.lastAttemptAt <
           Math.min(SELF_HEAL_COOLDOWN_MS * 2 ** Math.max(prev.attempts - 1, 0), FUSED_SYNC_PROBE_INTERVAL_MS)
       ) {
         continue;
@@ -1299,7 +1299,7 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
       }
       pendingActivationState.set(account.publicKey, {
         attempts: (prev?.attempts ?? 0) + 1,
-        lastAttemptAt: Date.now()
+        lastAttemptAt: monotonicNowMs()
       });
     } catch (error) {
       console.warn(`[Guardian Sync] could not finish the pending activation of ${account.publicKey}:`, error);
@@ -1580,7 +1580,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         consecutiveUnknownAccount.delete(account.publicKey);
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
-        const now = Date.now();
+        const now = monotonicNowMs();
         if (
           !isSyncFused(healFuseKey) &&
           decideColdReRegisterSelfHeal(now, fails, selfHealState.get(account.publicKey))
@@ -1609,7 +1609,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
                 outcome === 'refused-permanently'
                 ? SELF_HEAL_MAX_ATTEMPTS
                 : (prev?.attempts ?? 0);
-          selfHealState.set(account.publicKey, { attempts, lastAttemptAt: Date.now() });
+          selfHealState.set(account.publicKey, { attempts, lastAttemptAt: monotonicNowMs() });
           // Budget spent (or closed): the 401 is now permanent as far as this
           // wallet is concerned, and nothing else would ever say so on screen.
           if (attempts >= SELF_HEAL_MAX_ATTEMPTS) {
