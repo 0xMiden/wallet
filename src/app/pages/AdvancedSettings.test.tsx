@@ -107,6 +107,16 @@ describe('AdvancedSettings (page)', () => {
     expect(isNominalUnquotedPriceEnabled()).toBe(false);
   });
 
+  // The indicator is aria-hidden, so the row itself has to carry the state.
+  it('reports the nominal unquoted price state on the row', async () => {
+    await renderWithResolvedKey();
+    const row = screen.getByTestId('advanced-nominal-unquoted-price');
+    expect(row).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('titles the Account section with the 16px section label', async () => {
     await renderWithResolvedKey();
 

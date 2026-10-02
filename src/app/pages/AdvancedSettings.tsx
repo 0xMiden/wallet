@@ -96,6 +96,7 @@ const AdvancedSettings: FC = () => {
             title={t('devNominalUnquotedPrice')}
             data-testid="advanced-nominal-unquoted-price"
             onClick={() => setNominalUnquotedPriceSetting(!nominalUnquotedPrice)}
+            pressed={nominalUnquotedPrice}
             trailing={<CheckboxIndicator checked={nominalUnquotedPrice} />}
           />
         </ListGroup>
