@@ -5,6 +5,8 @@
  * only probed routes while its probe is in flight. On every platform a routed request is cut off at
  * GUARDIAN_REQUEST_TIMEOUT_MS (#312).
  */
+import { isGuardianRequestTimeout } from './serialize';
+
 const mockIsMobile = jest.fn(() => true);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile()
@@ -469,5 +471,17 @@ describe('the Guardian request deadline (#312)', () => {
     await expect(globalThis.fetch(`${CUSTOM}/state`, { signal: caller.signal })).rejects.toBe(reason);
     expect(mockNativeRequest).not.toHaveBeenCalled();
     expect(mockWebFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('the timeout the transaction loop sees (#312)', () => {
+  it('is recognized by isGuardianRequestTimeout, directly and as a cause', () => {
+    const timeout = new nativeHttp.GuardianRequestTimeoutError(
+      `${CUSTOM}/delta/proposal`,
+      nativeHttp.GUARDIAN_REQUEST_TIMEOUT_MS
+    );
+
+    expect(isGuardianRequestTimeout(timeout)).toBe(true);
+    expect(isGuardianRequestTimeout(new Error('proposal failed', { cause: timeout }))).toBe(true);
   });
 });
