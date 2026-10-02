@@ -388,6 +388,30 @@ describe('TokenDetail', () => {
     }
   });
 
+  // E2E builds price the fixture symbol TST by symbol, and the feed never lists it, so with the
+  // switch on it takes the nominal rate: a dollar figure, with no market to chart.
+  it('shows the nominal fiat line and no price section off mainnet for the E2E fixture token', () => {
+    const previousE2e = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      renderPage(
+        {
+          balances: [{ tokenId: 'mtst1fixture', balance: 12.5, metadata: { symbol: 'TST' } }],
+          tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+        },
+        'mtst1fixture'
+      );
+
+      expect(within(screen.getByTestId('token-detail-hero')).getByText('$12.50')).toBeInTheDocument();
+      expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+      if (previousE2e === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = previousE2e;
+    }
+  });
+
   it('draws the shared Hero: the 88px logo circle, the amount as the value and the fiat line muted', () => {
     renderPage();
 

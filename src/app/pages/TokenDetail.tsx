@@ -35,6 +35,7 @@ import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
+import { isNominalQuote } from 'lib/prices/binance';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
@@ -89,8 +90,9 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
   const balance = balances ? (token?.balance ?? 0) : null;
-  // The quote of the symbol the feed prices this token under (IETH at ETH). A token without one
-  // has no dollar figure and no price section, never its token count at $1 a unit.
+  // The quote of the symbol the feed prices this token under (IETH at ETH), or the nominal $1 a
+  // unit `quotedPrice` gives a token the feed does not quote while the switch is on. A token
+  // without one has no dollar figure and no price section.
   const priceSymbol = priceSymbolFor(tokenId, symbol);
   const quote = quotedPrice(tokenPrices, priceSymbol);
   const fiatValue = balance === null || !quote ? null : balance * quote.price;
@@ -183,7 +185,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {quote && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
+          {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
+          {quote && !isNominalQuote(quote) && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
 
           <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
 
