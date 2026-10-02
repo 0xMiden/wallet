@@ -3424,6 +3424,16 @@ const generateGuardianTransaction = async (
   // message — so classifying the error alone would let a rotation that is
   // already in the mempool trigger a SECOND, unilateral `update_guardian`.
   let guardianCoSignReturned = false;
+  // Did THIS attempt's leaf report 'submitting'? Set by the stamp both leaves are handed, before it is forwarded, so a
+  // failed abandon below is marked for retry only after a failure that provably preceded the submit (#1317). Not the
+  // row's `mayHaveSubmitted`: sticky across attempts and stamped before dispatch on every row carrying request bytes,
+  // it would stop the retry for every recallable send, swap, Earn deposit and custom execute.
+  let submitCrossed = false;
+  const stampStage = stageStampFor(transaction.id);
+  const stampAttemptStage = (stage: ITransactionStage, opts?: { readonly reliable?: boolean }): Promise<void> => {
+    if (stage === 'submitting') submitCrossed = true;
+    return stampStage(stage, opts);
+  };
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
     // 30s outgoing deadline precisely because a silent operator wedges the row at
@@ -3535,7 +3545,7 @@ const generateGuardianTransaction = async (
         tr.serialize(),
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id),
+        stampAttemptStage,
         chainAnchorB64
       );
     } else {
@@ -3543,7 +3553,7 @@ const generateGuardianTransaction = async (
         transaction.accountId,
         tr,
         transaction.delegateTransaction,
-        stageStampFor(transaction.id),
+        stampAttemptStage,
         chainAnchorB64
       );
     }
@@ -3617,12 +3627,19 @@ const generateGuardianTransaction = async (
         );
       } catch (abandonError) {
         // Cleanup must never mask the transaction failure. The abandonment call
-        // is idempotent, so the account's next proposal retries it (#1317).
+        // is idempotent, so the account's next proposal retries it (#1317), but
+        // only after a failure that provably preceded the submit. A kill may
+        // have submitted (a realm killed between submit and its stamp reaching
+        // here surfaces as one), and so may an attempt whose leaf reported
+        // 'submitting'; either keeps this one abandon and leaves no mark, so the
+        // retry never adds an abandon to a write the chain may still consume.
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+        if (!isKilledPipeline(error) && !submitCrossed) {
+          recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
+        }
       }
     }
     // The FOURTH and last outgoing-guardian failure point, behaving like the

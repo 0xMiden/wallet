@@ -65,6 +65,7 @@ import {
   LANDED_CONFIRM_POLL_MS,
   markBridgedSendFailed
 } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
   ITransactionStatus,
@@ -352,6 +353,18 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 
 jest.mock('../sdk/native-prover-mobile', () => ({
   buildNativeProverCallback: jest.fn(() => async () => new Uint8Array())
+}));
+
+// The offscreen leaf, reached only while a test turns the offscreen client on; the proxy's own reads stay inline,
+// since it reads the flag once, at load.
+const mockDispatchGuardianPipeline = jest.fn();
+jest.mock('../back/miden-client-proxy', () => ({
+  ...jest.requireActual('../back/miden-client-proxy'),
+  dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a)
+}));
+jest.mock('../back/offscreen-prover', () => ({
+  ...jest.requireActual('../back/offscreen-prover'),
+  isOffscreenAvailable: () => process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true'
 }));
 
 // isMobile is toggled per-test (default false = the desktop/extension env the
@@ -5570,6 +5583,88 @@ describe('generateTransaction — Guardian routing', () => {
         expect(service.abandonCandidate).toHaveBeenCalledWith(8);
         expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
       });
+
+      it('a killed pipeline whose abandon fails leaves no mark, so the next send does not retry it', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        arrangeFailureBeforeSubmit(service, new OperationAbortedError('op-7', 'deadline'));
+
+        await run(queueRow('killed-abandon-failed', SEND));
+
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+
+        await run(queueRow('killed-next-send', SEND));
+
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      });
+
+      it("a failure after the leaf reported the 'submitting' stage whose abandon fails leaves no mark", async () => {
+        // The node may have the write, so its candidate must not be retracted later.
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const client = makeClientApi(makeResult());
+        client.transactions.submitProven.mockRejectedValueOnce(
+          new Error('failed to submit proven transaction: connection reset')
+        );
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('submitting-abandon-failed', SEND);
+
+        await run(row);
+
+        expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+      });
+
+      const executeError = new Error('failed to execute transaction: kernel assertion');
+      it.each([
+        ['off', () => {}, 0],
+        [
+          'on',
+          () => {
+            process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+            mockDispatchGuardianPipeline.mockRejectedValueOnce(executeError);
+          },
+          1
+        ]
+      ])(
+        'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s still records the mark, and the next send retries it',
+        async (flag, arrangeLeaf, dispatches) => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          jest.spyOn(console, 'error').mockImplementation(() => {});
+          try {
+            const service = busyService();
+            service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+            arrangeFailureBeforeSubmit(service, executeError);
+            arrangeLeaf();
+            const row = queueRow(`bytes-execute-abandon-failed-${flag}`, { ...EXECUTE, mayHaveSubmitted: true });
+
+            await run(row);
+
+            expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(dispatches);
+            expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
+            expect(stored(row.id).mayHaveSubmitted).toBe(true);
+            expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+
+            await run(queueRow(`bytes-execute-next-send-${flag}`, SEND));
+
+            expect(service.abandonCandidate).toHaveBeenCalledTimes(2);
+            expect(service.abandonCandidate).toHaveBeenLastCalledWith(8);
+          } finally {
+            delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+          }
+        }
+      );
 
       it('an evicted pipeline abandons nothing and records no abandon, since its transaction may still land', async () => {
         const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
