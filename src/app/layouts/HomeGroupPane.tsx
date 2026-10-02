@@ -41,7 +41,7 @@ const PANE_GUTTER = 'px-4';
 /**
  * Where the body's content starts.
  *
- * `root` is a pane's own first line, 36px down - Earn's "Your Earnings", Send's "Send to", Swap's
+ * `root` is a pane's own first line, 36px down - Earn's "Total earned", Send's "Send to", Swap's
  * "You Pay". `visual` is a pane that opens on a visual rather than a title, 20px down, above a
  * titled pane's first line in both themes - Receive's code. `header` is a pushed step: `PageHeader`
  * already ends in its own `mb-2` rule spacing, and that is the whole gap (`PushedPageGap.test.tsx` pins it against

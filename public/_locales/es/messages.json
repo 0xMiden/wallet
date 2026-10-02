@@ -419,8 +419,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Total de recompensas obtenidas",
-    "englishSource": "Total Earned Rewards"
+    "message": "Total ganado",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "Obtener una tasa de rendimiento anual (APY) combinada del $apy$",
@@ -3014,6 +3014,10 @@
     "message": "Necesitas MIDEN para pagar la comisión de red. Obtén algo de MIDEN para continuar.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
   },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
+  },
   "amountMustBeLessThanBalance": {
     "message": "El importe debe ser inferior al saldo",
     "englishSource": "Amount must be less than balance"
@@ -3456,6 +3460,22 @@
   "slow": {
     "message": "Lento",
     "englishSource": "Slow"
+  },
+  "unavailable": {
+    "message": "No disponible",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "Comprobando si este token es compatible con la ruta Slow…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Este token no es compatible con la ruta «Slow».",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "No se ha podido comprobar este token. Vuelve atrás e inténtalo de nuevo.",
+    "englishSource": "Could not check this token. Go back and try again."
   },
   "seconds": {
     "message": "Segundos",
@@ -4405,8 +4425,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "~6 horas",
-    "englishSource": "~6 hours"
+    "message": "~30 minutos",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Estás realizando un ingreso",
@@ -4956,6 +4976,38 @@
     "message": "Ahora no",
     "englishSource": "Not now"
   },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
+  },
   "activityAcceptTransfer": {
     "message": "Aceptar transferencia",
     "englishSource": "Accept Transfer"
@@ -5295,6 +5347,39 @@
   "spendingLimitCoverage": {
     "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
     "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+  },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
   },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",

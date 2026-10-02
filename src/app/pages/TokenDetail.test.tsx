@@ -715,9 +715,14 @@ describe('TokenDetail', () => {
       const option = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
       const bubbleIn = (tf: string) => option(tf).querySelector('[data-slot="motion-highlight"]');
 
-      // Equal-width segments across the chart, 32px tall.
-      expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
-      expect(option('1D')).toHaveClass('flex-1', 'h-10');
+      // Equal-width segments across the chart: the columns of the group's grid, 40px tall.
+      expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass(
+        'grid',
+        'w-full',
+        'grid-flow-col',
+        'auto-cols-fr'
+      );
+      expect(option('1D')).toHaveClass('min-w-0', 'h-10');
 
       expect(option('1D')).toHaveAttribute('role', 'radio');
       expect(option('1D')).toHaveAttribute('aria-checked', 'true');

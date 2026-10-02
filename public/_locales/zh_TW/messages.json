@@ -419,8 +419,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "已賺取的獎勵總額",
-    "englishSource": "Total Earned Rewards"
+    "message": "總收益",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "賺取$apy$的綜合年化收益率（APY）",
@@ -3014,6 +3014,10 @@
     "message": "您需要 MIDEN 來支付網路手續費。請領取一些 MIDEN 以繼續操作。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
   },
+  "insufficientFeeAssetShort": {
+    "message": "You need MIDEN for the network fee.",
+    "englishSource": "You need MIDEN for the network fee."
+  },
   "amountMustBeLessThanBalance": {
     "message": "金額必須小於餘額",
     "englishSource": "Amount must be less than balance"
@@ -3456,6 +3460,22 @@
   "slow": {
     "message": "緩慢",
     "englishSource": "Slow"
+  },
+  "unavailable": {
+    "message": "不可用",
+    "englishSource": "Unavailable"
+  },
+  "agglayerCheckingToken": {
+    "message": "檢查此代幣是否支援「慢速」路徑……",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "此代幣不支援「慢速」路徑。",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "無法驗證此代幣。請返回並重新嘗試。",
+    "englishSource": "Could not check this token. Go back and try again."
   },
   "seconds": {
     "message": "秒",
@@ -4405,8 +4425,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "約 6 小時",
-    "englishSource": "~6 hours"
+    "message": "約 30 分鐘",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "您正在存入款項",
@@ -4956,6 +4976,38 @@
     "message": "現在還不行",
     "englishSource": "Not now"
   },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
+  },
   "activityAcceptTransfer": {
     "message": "接受轉帳",
     "englishSource": "Accept Transfer"
@@ -5295,6 +5347,39 @@
   "spendingLimitCoverage": {
     "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
     "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+  },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
   },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",

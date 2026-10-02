@@ -91,6 +91,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 
 import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
+import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+
 import { MIDEN_AGGLAYER_FAUCET_ID } from './constant';
 import { initiateB2AggBridge } from './index';
 
@@ -220,5 +222,55 @@ describe('initiateB2AggBridge', () => {
     // Nothing past the guard ran: no request round-trip, no queued row.
     expect(TransactionRequest.deserialize).not.toHaveBeenCalled();
     expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
+  });
+});
+
+// Bridge-in matching compares the sender string verbatim, so the bech32 literal must stay the same account as the
+// hex faucet id, checksum included.
+describe('the bridged-ETH faucet', () => {
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  const BECH32M = 0x2bc830a3;
+  const GENERATORS = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+
+  const polymod = (values: number[]) =>
+    values.reduce((chk, value) => {
+      const top = chk >>> 25;
+      let next = (((chk & 0x1ffffff) << 5) ^ value) >>> 0;
+      GENERATORS.forEach((generator, i) => {
+        if ((top >>> i) & 1) next = (next ^ generator) >>> 0;
+      });
+      return next;
+    }, 1);
+
+  const decodeAddress = (address: string) => {
+    const bech32 = address.split('_')[0] ?? address;
+    const separator = bech32.lastIndexOf('1');
+    const hrp = bech32.slice(0, separator);
+    const data = [...bech32.slice(separator + 1)].map(char => CHARSET.indexOf(char));
+    const expanded = [...[...hrp].map(c => c.charCodeAt(0) >> 5), 0, ...[...hrp].map(c => c.charCodeAt(0) & 31)];
+    const bytes: number[] = [];
+    let accumulator = 0;
+    let bits = 0;
+    for (const value of data.slice(0, -6)) {
+      accumulator = (accumulator << 5) | value;
+      bits += 5;
+      if (bits >= 8) {
+        bits -= 8;
+        bytes.push((accumulator >> bits) & 0xff);
+      }
+    }
+    return { hrp, checksumValid: polymod([...expanded, ...data]) === BECH32M, bytes };
+  };
+
+  it('names the bridged-ETH faucet as the bridge-in note sender (#1276)', () => {
+    const { hrp, checksumValid, bytes } = decodeAddress(AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID);
+    const accountIdHex = bytes
+      .slice(1)
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
+
+    expect(hrp).toBe('mtst');
+    expect(checksumValid).toBe(true);
+    expect(`0x${accountIdHex}`).toBe(MIDEN_AGGLAYER_FAUCET_ID);
   });
 });

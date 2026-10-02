@@ -491,6 +491,19 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('encrypted-file-flow')).toBeInTheDocument();
   });
 
+  it('sets every sub-page wholly in Nunito, through a wrapper that adds no box', () => {
+    render(<Settings tabSlug="encrypted-wallet-file" />);
+
+    const scope = screen.getByTestId('encrypted-file-flow').closest('.face-heading');
+    expect(scope).toHaveClass('contents', 'face-heading');
+  });
+
+  it('leaves the root menu outside the sub-page font scope', () => {
+    const { container } = render(<Settings />);
+
+    expect(container.querySelector('.face-heading')).toBeNull();
+  });
+
   it('renders the about group as external links with the canonical URLs and no testID', () => {
     render(<Settings tabSlug={null} />);
 
