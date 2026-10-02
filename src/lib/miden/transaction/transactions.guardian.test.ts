@@ -2340,6 +2340,69 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
   });
 
+  it('Guardian Agglayer bridged-send waits out a pending-delta 409 in process, like the Epoch route (#312)', async () => {
+    // A bridged-send is not requeueable, so a 409 that reached the transaction loop would fail the row.
+    jest.useFakeTimers();
+    try {
+      const txId = 'guardian-agglayer-pending-conflict';
+      const requestBytes = new Uint8Array([81, 82, 83]);
+      const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+        id: txId,
+        type: 'bridged-send',
+        amount: 1000n,
+        faucetId: 'faucet',
+        requestBytes,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xevm',
+          destinationNetwork: 0,
+          sourceFaucetId: 'faucet',
+          claimStatus: 'pending'
+        },
+        delegateTransaction: false
+      });
+      txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+      const multisigService = {
+        createCustomProposal: jest.fn(async (_bytes: Uint8Array, _type: string) => ({
+          id: 'bridge-agglayer-proposal',
+          nonce: 10
+        })),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(async () => ({
+          serialize: () => new Uint8Array([1]),
+          authArg: () => undefined
+        })),
+        sync: jest.fn(async () => {})
+      };
+      multisigService.createCustomProposal.mockRejectedValueOnce({ status: 409, code: 'conflict_pending_delta' });
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        sync: jest.fn(async () => ({ blockNum: () => 100 }))
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+
+      const pending = generateTransaction(
+        transaction,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      expect(multisigService.createCustomProposal).toHaveBeenCalledTimes(2);
+      expect(multisigService.createCustomProposal).toHaveBeenLastCalledWith(requestBytes, 'agglayer_bridged_send');
+      expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('Guardian earn-deposit proposes its pre-built collateral request via a custom proposal', async () => {
     // The bytes carry the mandate-binding attachment built at initiate, so the leaf proposes them as they are and
     // never builds a note of its own: a rebuilt P2IDE has an empty attachment the allocator refuses to bind.

@@ -2746,9 +2746,10 @@ const generateGuardianTransaction = async (
   // guardian-manager; cold services here are transient.
   //
   // Value-moving types (REQUEUEABLE_ON_PENDING_CONFLICT) ask `assertPriorCandidateSettled` first and propose once:
-  // Guardian backpressure requeues the row at once (#312). The structural types and an Epoch bridged-send keep
-  // `withGuardianConflictRetry`, which waits out a transient 409 in process, because a requeue there could mint a
-  // second key or register a duplicate delta. It wraps proposal creation only; replace-hot-key resolves its key
+  // Guardian backpressure requeues the row at once (#312). The structural types and a bridged-send, on both bridge
+  // providers, keep `withGuardianConflictRetry`, which waits out a transient 409 in process: a requeue of a structural
+  // op could mint a second key or register a duplicate delta, and a bridged-send is not requeueable, so a gate refusal
+  // or a 409 that reached the loop would fail it. It wraps proposal creation only; replace-hot-key resolves its key
   // outside it, so its retries propose the same key.
   let service: MultisigService;
 
@@ -2995,7 +2996,9 @@ const generateGuardianTransaction = async (
             t.requestBytes = aggBytes;
           });
         }
-        proposalResult = await service.createCustomProposal(aggBytes, 'agglayer_bridged_send');
+        proposalResult = await withGuardianConflictRetry(() =>
+          service.createCustomProposal(aggBytes, 'agglayer_bridged_send')
+        );
       }
       break;
     }
