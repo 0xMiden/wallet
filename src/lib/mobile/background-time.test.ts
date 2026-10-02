@@ -1,7 +1,9 @@
 import {
+  foregroundNow,
   hiddenMsWithin,
   hiddenSecondsSince,
   initBackgroundTimeTracking,
+  setForegroundTimeout,
   __resetBackgroundTimeForTest
 } from './background-time';
 
@@ -124,5 +126,128 @@ describe('hiddenSecondsSince (module state via visibilitychange)', () => {
     // 1001 one-second intervals recorded, oldest dropped → 1000 s remain, not 1001.
     expect(hiddenSecondsSince(0, t)).toBe(1000);
     nowSpy.mockRestore();
+  });
+});
+
+describe('foregroundNow and setForegroundTimeout (#473)', () => {
+  let hidden = false;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    __resetBackgroundTimeForTest();
+    hidden = false;
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => hidden
+    });
+  });
+
+  afterEach(() => {
+    __resetBackgroundTimeForTest();
+    Reflect.deleteProperty(document, 'hidden');
+    jest.useRealTimers();
+  });
+
+  const setHidden = (v: boolean) => {
+    hidden = v;
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+
+  it('stands still while hidden, counting a stretch that is still open', () => {
+    initBackgroundTimeTracking();
+    jest.advanceTimersByTime(10_000);
+    setHidden(true);
+    jest.advanceTimersByTime(40_000);
+    expect(foregroundNow()).toBe(10_000);
+    setHidden(false);
+    jest.advanceTimersByTime(5_000);
+    expect(foregroundNow()).toBe(15_000);
+    expect(performance.now()).toBe(55_000);
+  });
+
+  it('freezes from init when the app starts hidden', () => {
+    hidden = true;
+    jest.advanceTimersByTime(2_000);
+    initBackgroundTimeTracking();
+    jest.advanceTimersByTime(30_000);
+    expect(foregroundNow()).toBe(2_000);
+    setHidden(false);
+    jest.advanceTimersByTime(1_000);
+    expect(foregroundNow()).toBe(3_000);
+  });
+
+  it('equals performance.now() while tracking is not initialised', () => {
+    jest.advanceTimersByTime(1_000);
+    setHidden(true);
+    jest.advanceTimersByTime(60_000);
+    expect(foregroundNow()).toBe(performance.now());
+    expect(foregroundNow()).toBe(61_000);
+  });
+
+  it('fires after 120 s of visible time', () => {
+    initBackgroundTimeTracking();
+    const fired = jest.fn();
+    setForegroundTimeout(fired, 120_000);
+    jest.advanceTimersByTime(119_999);
+    expect(fired).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-arms an overdue timer for the foreground time it has left', () => {
+    initBackgroundTimeTracking();
+    const fired = jest.fn();
+    setForegroundTimeout(fired, 120_000);
+    jest.advanceTimersByTime(10_000);
+    setHidden(true);
+    // The wall-clock timer comes due at 120 s, inside the hidden stretch.
+    jest.advanceTimersByTime(140_000);
+    expect(fired).not.toHaveBeenCalled();
+    setHidden(false);
+    jest.advanceTimersByTime(109_999);
+    expect(fired).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds up several background stretches against one deadline', () => {
+    initBackgroundTimeTracking();
+    const fired = jest.fn();
+    setForegroundTimeout(fired, 120_000);
+    for (let i = 0; i < 3; i++) {
+      jest.advanceTimersByTime(20_000);
+      setHidden(true);
+      jest.advanceTimersByTime(50_000);
+      setHidden(false);
+    }
+    // 60 s visible and 150 s hidden so far.
+    jest.advanceTimersByTime(59_999);
+    expect(fired).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancel stops the timer, including after it has re-armed', () => {
+    initBackgroundTimeTracking();
+    const fired = jest.fn();
+    const cancel = setForegroundTimeout(fired, 120_000);
+    setHidden(true);
+    jest.advanceTimersByTime(130_000);
+    setHidden(false);
+    cancel();
+    expect(jest.getTimerCount()).toBe(0);
+    jest.advanceTimersByTime(300_000);
+    expect(fired).not.toHaveBeenCalled();
+  });
+
+  it('falls back to Date.now() when performance is unavailable', () => {
+    const fakePerformance = globalThis.performance;
+    Object.defineProperty(globalThis, 'performance', { configurable: true, writable: true, value: undefined });
+    try {
+      jest.setSystemTime(1_234_567);
+      expect(foregroundNow()).toBe(1_234_567);
+    } finally {
+      Object.defineProperty(globalThis, 'performance', { configurable: true, writable: true, value: fakePerformance });
+    }
   });
 });
