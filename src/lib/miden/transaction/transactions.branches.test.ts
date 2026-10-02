@@ -9,11 +9,14 @@
  * error subscription).
  */
 
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
+import { TRANSACTION_ENGINE_RECOVERED_ERROR, TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } from './constants';
 import { isLockedError } from './helper';
 import {
   completeSendTransaction,
@@ -114,6 +117,8 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn().mockResolvedValue(undefined);
 const mockWaitForTransactionCommit = jest.fn().mockResolvedValue(undefined);
 const mockSendPrivateNote = jest.fn().mockResolvedValue(undefined);
+// The note read a killed consume's node adjudication makes (`verifyConsumeLanded`).
+const mockGetInputNoteDetails = jest.fn().mockResolvedValue([]);
 // The #260 offscreen client proxy (through which non-guardian send/swap/execute
 // now route their flag-off write) imports getMidenClient / withWasmClientLock via
 // the `lib/...` alias, which jest mocks separately from the relative specifier
@@ -124,7 +129,8 @@ jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     syncState: mockSyncState,
     waitForTransactionCommit: mockWaitForTransactionCommit,
-    sendPrivateNote: mockSendPrivateNote
+    sendPrivateNote: mockSendPrivateNote,
+    getInputNoteDetails: mockGetInputNoteDetails
   }),
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
@@ -1532,6 +1538,56 @@ describe('generateTransactionsLoop error paths', () => {
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.extraInputs).toStrictEqual(extraInputs);
   });
+
+  // A kill wrapped in another error is still a kill (#1313). Only the `n`th hold rejects, so the holds the kill
+  // verdict takes afterwards still run.
+  const rejectNthHold = (n: number, error: unknown) => {
+    let calls = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      calls++;
+      if (calls === n) throw error;
+      return fn();
+    });
+  };
+  const queuedRow = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    type: 'send',
+    status: ITransactionStatus.Queued,
+    initiatedAt: Math.floor(Date.now() / 1000),
+    accountId: 'acc-1',
+    ...extra
+  });
+
+  it('asks the node about a consume whose deadline kill arrives wrapped in another error (#1313)', async () => {
+    rejectNthHold(2, new Error('consume failed', { cause: new OperationAbortedError('op-1', 'deadline') }));
+    txStore.push(queuedRow('tx-consume-wrapped-kill', { type: 'consume', noteId: 'note-1' }));
+
+    expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+
+    expect(mockGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['note-1'] }, expect.any(Function));
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('fails, never defers, a pre-flight sync whose deadline kill arrives wrapped in another error (#1313)', async () => {
+    rejectNthHold(1, new Error('sync failed', { cause: new OperationAbortedError('op-1', 'deadline') }));
+    txStore.push(queuedRow('tx-sync-wrapped-kill'));
+
+    expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+  });
+
+  it('reads no note for a consume whose pre-flight sync the watchdog evicted under another error (#1313)', async () => {
+    rejectNthHold(1, new Error('sync failed', { cause: new WasmClientPoisonedError('watchdog') }));
+    txStore.push(queuedRow('tx-sync-wrapped-eviction', { type: 'consume', noteId: 'note-1' }));
+
+    expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+
+    // The read would be the first hold after the eviction, against the node that just parked.
+    expect(mockGetInputNoteDetails).not.toHaveBeenCalled();
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+  });
 });
 
 describe('generateTransactionsLoop — head-of-line fairness', () => {
@@ -1651,14 +1707,19 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
     if (base) mock.mockImplementation(base);
   };
 
-  // A Guardian send whose multisig service rejects, which happens once its stage reaches creating-proposal.
-  const runGuardianSendRejecting = async (error: unknown) => {
+  // A Guardian send whose multisig service rejects, which happens once its stage reaches creating-proposal. `stage`
+  // restamps the row first, for a failure the pipeline reports from a later stage.
+  const runGuardianSendRejecting = async (
+    error: unknown,
+    { stage, ...row }: { stage?: string; delegateTransaction?: boolean } = {}
+  ) => {
     const gm = require('lib/miden/front/guardian-manager');
     gm.isGuardianAccount.mockImplementationOnce(async () => true);
     gm.getOrCreateMultisigService.mockImplementationOnce(async () => {
+      if (stage) txStore.find(t => t.id === 'guardian-send')!.stage = stage;
       throw error;
     });
-    txStore.push(queued('guardian-send'));
+    txStore.push({ ...queued('guardian-send'), ...row });
     try {
       return await safeGenerateTransactionsLoop(dummySign, true, stubGuardianProvider);
     } finally {
@@ -1686,6 +1747,15 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
       error: new GuardianRequestTimeoutError('https://guardian.test/state', GUARDIAN_REQUEST_TIMEOUT_MS),
       arm: 'guardian-unreachable',
       cooldownSec: 60
+    },
+    // The same timeout carried as the cause of an error whose own message names no network failure (#1313).
+    {
+      label: 'a Guardian request timeout wrapped under another message',
+      error: Object.assign(new Error('could not create the proposal'), {
+        cause: new GuardianRequestTimeoutError('https://guardian.test/delta/proposal', GUARDIAN_REQUEST_TIMEOUT_MS)
+      }),
+      arm: 'guardian-unreachable',
+      cooldownSec: 60
     }
   ])('returns requeued when $label turns a Guardian send back to the queue', async ({ error, arm, cooldownSec }) => {
     const requeuedFrom = nowSec();
@@ -1695,6 +1765,54 @@ describe('safeGenerateTransactionsLoop outcome and the ready predicate (#1266)',
     expect(txStore[0]!.nextEligibleAt).toBeGreaterThanOrEqual(requeuedFrom + cooldownSec);
     expect(txStore[0]!.guardianBusy).toBeUndefined();
   });
+
+  // The outer message reads as a network failure; only the kill in its cause keeps it off the unreachable arm (#1313).
+  it('returns processed, never requeued, when a killed pipeline is the cause of a Guardian send failure', async () => {
+    const error = Object.assign(new Error('proposal request aborted'), {
+      cause: new OperationAbortedError('op-1', 'deadline')
+    });
+    await expect(runGuardianSendRejecting(error)).resolves.toBe('processed');
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.requeueStreak).toBeUndefined();
+    expect(txStore[0]!.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  // A requeue rebuilds the write while the killed one may still submit.
+  it('returns processed, never requeued, when a delegated prove fails with a killed pipeline as its cause (#1313)', async () => {
+    const error = new Error('remote prove failed', { cause: new OperationAbortedError('op-1', 'deadline') });
+    await expect(runGuardianSendRejecting(error, { stage: 'proving', delegateTransaction: true })).resolves.toBe(
+      'processed'
+    );
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.requeueStreak).toBeUndefined();
+  });
+
+  it.each([
+    {
+      label: 'a pending-delta 409',
+      error: Object.assign(new Error('Conflict'), {
+        status: 409,
+        code: 'conflict_pending_delta',
+        cause: new OperationAbortedError('op-1', 'deadline')
+      })
+    },
+    {
+      label: 'a 429',
+      error: Object.assign(new Error('Too Many Requests'), {
+        status: 429,
+        code: 'rate_limit_exceeded',
+        cause: new OperationAbortedError('op-1', 'deadline')
+      })
+    }
+  ])(
+    'returns processed, never requeued, when $label carries a killed pipeline as its cause (#1313)',
+    async ({ error }) => {
+      await expect(runGuardianSendRejecting(error)).resolves.toBe('processed');
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+      expect(txStore[0]!.requeueStreak).toBeUndefined();
+      expect(txStore[0]!.guardianBusy).toBeUndefined();
+    }
+  );
 
   it('returns requeued, releasing the loop, when a pending-delta 409 marks a Guardian send busy (#312)', async () => {
     const error = Object.assign(new Error('Conflict'), { status: 409, code: 'conflict_pending_delta' });
@@ -1785,6 +1903,16 @@ describe('isLockedError', () => {
     // requeue (pinned by the full-loop abort test above).
     expect(isLockedError(new OperationAbortedError('op-1', 'deadline'))).toBe(false);
     expect(isLockedError(new OperationAbortedError('op-1', 'wallet is locked'))).toBe(true);
+  });
+
+  it('never classifies an error wrapping an eviction as locked, whatever the wrapper carries (#1313)', () => {
+    const eviction = new WasmClientPoisonedError('watchdog');
+    expect(isLockedError(new Error('Wallet is locked'))).toBe(true);
+    expect(isLockedError(Object.assign(new Error('write failed'), { reason: 'locked' }))).toBe(true);
+    expect(isLockedError(new Error('Wallet is locked', { cause: eviction }))).toBe(false);
+    expect(isLockedError(Object.assign(new Error('write failed', { cause: eviction }), { reason: 'locked' }))).toBe(
+      false
+    );
   });
 
   it('reads a locked vault out of an inline SDK rejection, whose message carries the sign callback error (#878)', () => {

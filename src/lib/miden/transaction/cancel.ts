@@ -30,10 +30,9 @@ import {
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isKilledPipeline, isPoisonedPipeline } from '../sdk/sdk-error-code';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -348,18 +347,18 @@ export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, err
   // writer that stamps 'syncing' on a picked-up row would silently turn a
   // refused retry into a permitted one — a double payment. Re-deriving it here
   // costs nothing and fails in the safe direction (record, not clear).
+  //
+  // Both kill classifications read the whole cause chain: a caller wrapping the kill
+  // does not stop the pipeline it abandoned (#1313).
+  const killed = isKilledPipeline(error);
   let abandonedPreWrite = false;
-  if (isOperationAbortedError(error) || isWasmClientPoisonedError(error)) {
+  if (killed) {
     const committed = await Repo.transactions.where({ id: tx.id }).first();
     abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '') && committed?.processingStartedAt === undefined;
   }
-  if (
-    tx.type === 'send' &&
-    !abandonedPreWrite &&
-    (isOperationAbortedError(error) || isWasmClientPoisonedError(error))
-  ) {
+  if (tx.type === 'send' && !abandonedPreWrite && killed) {
     await markMayHaveSubmitted(tx.id);
-    if (isWasmClientPoisonedError(error)) {
+    if (isPoisonedPipeline(error)) {
       // A poison eviction ABANDONS the pipeline — unlike an offscreen kill it
       // may still submit AFTER this row is Failed, so the permanent crossing
       // above is not enough: the user's acknowledgement ("it never arrived")
