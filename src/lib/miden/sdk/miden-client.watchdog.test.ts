@@ -1183,7 +1183,7 @@ describe('watchdog pause and yield', () => {
   });
 });
 
-describe('watchdog counts foreground time only (#473)', () => {
+describe('watchdog counts running time only (#473)', () => {
   let doc: HiddenDocument;
 
   beforeEach(() => {
@@ -1195,30 +1195,44 @@ describe('watchdog counts foreground time only (#473)', () => {
   });
 
   afterEach(() => {
-    // Left open, a hidden stretch would freeze the lock clock for every later suite.
+    // Left installed, the tracker's pulse and frozen total would carry into every later suite.
     __resetBackgroundTimeForTest();
     doc.restore();
     jest.useRealTimers();
   });
 
-  it('a hold that spends 400 s hidden and 10 s visible is not evicted', async () => {
+  it('a hold across a 400 s freeze is not evicted on resume', async () => {
     const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
     await jest.advanceTimersByTimeAsync(5_000);
     doc.setHidden(true);
-    // The 300 s wall-clock timer comes due inside this stretch.
-    await jest.advanceTimersByTimeAsync(400_000);
+    // The 300 s timer comes due inside the freeze.
+    doc.freezeFor(400_000);
     doc.setHidden(false);
     await jest.advanceTimersByTimeAsync(5_000);
     expect(isWasmClientBusy()).toBe(true);
 
-    // Still bounded: evicted once its foreground time reaches the ceiling.
-    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 10_000 - 1);
+    // Still bounded: evicted once its running time, 10 s visible and 15 s of pulse
+    // slack so far, reaches the ceiling.
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 25_000 - 1);
     expect(isWasmClientBusy()).toBe(true);
     await jest.advanceTimersByTimeAsync(1);
     await wedgedRejects;
     expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('a hold that wedges while hidden with JS running is evicted on running time, still hidden', async () => {
+    const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    doc.setHidden(true);
+
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 1);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(isWasmClientBusy()).toBe(false);
+    expect(document.hidden).toBe(true);
+    await wedgedRejects;
   });
 
   it('a hold that runs 300 s visible is evicted', async () => {
@@ -1232,7 +1246,7 @@ describe('watchdog counts foreground time only (#473)', () => {
     expect(isWasmClientBusy()).toBe(false);
   });
 
-  it('a paused hold is not charged for a background stretch either', async () => {
+  it('a paused hold is not charged for a freeze either', async () => {
     const wedged = withWasmClientLock(async () => {
       await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}));
     });
@@ -1240,12 +1254,12 @@ describe('watchdog counts foreground time only (#473)', () => {
 
     await jest.advanceTimersByTimeAsync(0);
     doc.setHidden(true);
-    // Past the 30 min paused ceiling on the wall clock, none of it in the foreground.
-    await jest.advanceTimersByTimeAsync(2_400_000);
+    // Past the 30 min paused ceiling on the monotonic clock, all but one pulse of it frozen.
+    doc.freezeFor(2_400_000);
     doc.setHidden(false);
     expect(isWasmClientBusy()).toBe(true);
 
-    await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 1);
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 15_000 - 1);
     expect(isWasmClientBusy()).toBe(true);
     await jest.advanceTimersByTimeAsync(1);
     await wedgedRejects;
@@ -1261,8 +1275,10 @@ describe('watchdog counts foreground time only (#473)', () => {
         })
     );
 
+    // The hold, and its watchdog, start only once the mutex acquire settles.
+    await jest.advanceTimersByTimeAsync(0);
     doc.setHidden(true);
-    await jest.advanceTimersByTimeAsync(400_000);
+    doc.freezeFor(400_000);
     doc.setHidden(false);
     finish();
     await held;

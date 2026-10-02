@@ -1,9 +1,10 @@
 import {
-  foregroundNow,
+  frozenMs,
   hiddenMsWithin,
   hiddenSecondsSince,
   initBackgroundTimeTracking,
-  setForegroundTimeout,
+  runningNow,
+  setRunningTimeout,
   __resetBackgroundTimeForTest
 } from './background-time';
 import { installHiddenDocument, type HiddenDocument } from './testing/hidden-document';
@@ -125,7 +126,7 @@ describe('hiddenSecondsSince (module state via visibilitychange)', () => {
   });
 });
 
-describe('foregroundNow and setForegroundTimeout (#473)', () => {
+describe('runningNow, frozenMs and setRunningTimeout (#473)', () => {
   let doc: HiddenDocument;
 
   beforeEach(() => {
@@ -140,75 +141,174 @@ describe('foregroundNow and setForegroundTimeout (#473)', () => {
     jest.useRealTimers();
   });
 
-  it('stands still while hidden, counting a stretch that is still open', () => {
+  it('stands still across a freeze, less one pulse of slack', () => {
     initBackgroundTimeTracking();
     jest.advanceTimersByTime(10_000);
     doc.setHidden(true);
-    jest.advanceTimersByTime(40_000);
-    expect(foregroundNow()).toBe(10_000);
+    doc.freezeFor(100_000);
+    expect(frozenMs()).toBe(85_000);
+    expect(runningNow()).toBe(25_000);
     doc.setHidden(false);
     jest.advanceTimersByTime(5_000);
-    expect(foregroundNow()).toBe(15_000);
-    expect(performance.now()).toBe(55_000);
+    expect(runningNow()).toBe(30_000);
+    expect(performance.now()).toBe(115_000);
   });
 
-  it('freezes from init when the app starts hidden', () => {
+  it('starts the pulse at init when the app starts hidden, and measures a freeze from there', () => {
     doc.setHidden(true, { dispatch: false });
     jest.advanceTimersByTime(2_000);
     initBackgroundTimeTracking();
-    jest.advanceTimersByTime(30_000);
-    expect(foregroundNow()).toBe(2_000);
+    expect(jest.getTimerCount()).toBe(1);
+    // A hidden event arriving after all starts no second pulse.
+    doc.setHidden(true);
+    expect(jest.getTimerCount()).toBe(1);
+    doc.freezeFor(100_000);
+    expect(runningNow()).toBe(17_000);
     doc.setHidden(false);
     jest.advanceTimersByTime(1_000);
-    expect(foregroundNow()).toBe(3_000);
+    expect(runningNow()).toBe(18_000);
+    expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('equals performance.now() while tracking is not initialised', () => {
+  it('counts a freeze that comes before any read when the app starts hidden', () => {
+    doc.setHidden(true, { dispatch: false });
+    initBackgroundTimeTracking();
+    doc.freezeFor(140_000);
+    expect(frozenMs()).toBe(125_000);
+    expect(runningNow()).toBe(15_000);
+  });
+
+  it('equals performance.now() while tracking is not initialised, with no pulse and nothing frozen', () => {
     jest.advanceTimersByTime(1_000);
     doc.setHidden(true);
     jest.advanceTimersByTime(60_000);
-    expect(foregroundNow()).toBe(performance.now());
-    expect(foregroundNow()).toBe(61_000);
+    expect(runningNow()).toBe(performance.now());
+    expect(runningNow()).toBe(61_000);
+    doc.freezeFor(100_000);
+    expect(runningNow()).toBe(161_000);
+    expect(frozenMs()).toBe(0);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('keeps running while hidden as long as JS runs: a timeout armed while hidden fires at 120 s', () => {
+    initBackgroundTimeTracking();
+    doc.setHidden(true);
+    const fired = jest.fn();
+    setRunningTimeout(fired, 120_000);
+    jest.advanceTimersByTime(119_999);
+    expect(fired).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(frozenMs()).toBe(0);
+    // Only the pulse is left: the timeout did not re-arm.
+    expect(jest.getTimerCount()).toBe(1);
+  });
+
+  it('a missed visible event cannot stop the clock', () => {
+    initBackgroundTimeTracking();
+    doc.setHidden(true);
+    let firedAt: number | null = null;
+    const startedAt = runningNow();
+    setRunningTimeout(() => {
+      firedAt = performance.now();
+    }, 120_000);
+    doc.setHidden(false, { dispatch: false });
+    jest.advanceTimersByTime(200_000);
+    expect(runningNow() - startedAt).toBe(200_000);
+    expect(firedAt).toBe(120_000);
+    // The pulse's first tick saw the document visible and stopped itself.
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('counts a 60 s hidden gap as running and a 76 s one as 61 s frozen', () => {
+    initBackgroundTimeTracking();
+    doc.setHidden(true);
+    doc.freezeFor(60_000);
+    expect(frozenMs()).toBe(0);
+    expect(runningNow()).toBe(60_000);
+    doc.freezeFor(76_000);
+    expect(frozenMs()).toBe(61_000);
+    expect(runningNow()).toBe(75_000);
+  });
+
+  it('frozenMs measures a freeze no timer has woken from yet', () => {
+    initBackgroundTimeTracking();
+    doc.setHidden(true);
+    // On resume both clocks have jumped and a catch can read the clock before any overdue
+    // timer runs, so move them 140 s without running one.
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(performance.now() + 140_000);
+    jest.setSystemTime(Date.now() + 140_000);
+    try {
+      expect(frozenMs()).toBe(125_000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('never counts a gap that began while visible as frozen', () => {
+    initBackgroundTimeTracking();
+    expect(runningNow()).toBe(0);
+    jest.advanceTimersByTime(200_000);
+    expect(frozenMs()).toBe(0);
+    expect(runningNow()).toBe(200_000);
   });
 
   it('fires after 120 s of visible time', () => {
     initBackgroundTimeTracking();
     const fired = jest.fn();
-    setForegroundTimeout(fired, 120_000);
+    setRunningTimeout(fired, 120_000);
     jest.advanceTimersByTime(119_999);
     expect(fired).not.toHaveBeenCalled();
     jest.advanceTimersByTime(1);
     expect(fired).toHaveBeenCalledTimes(1);
   });
 
-  it('re-arms an overdue timer for the foreground time it has left', () => {
+  it('re-arms an overdue timer for the running time it has left', () => {
     initBackgroundTimeTracking();
     const fired = jest.fn();
-    setForegroundTimeout(fired, 120_000);
+    setRunningTimeout(fired, 120_000);
     jest.advanceTimersByTime(10_000);
     doc.setHidden(true);
-    // The wall-clock timer comes due at 120 s, inside the hidden stretch.
-    jest.advanceTimersByTime(140_000);
+    // The timer comes due at 120 s, inside the freeze.
+    doc.freezeFor(140_000);
     expect(fired).not.toHaveBeenCalled();
+    expect(frozenMs()).toBe(125_000);
     doc.setHidden(false);
-    jest.advanceTimersByTime(109_999);
+    // 10 s visible and 15 s of pulse slack are spent, so 95 s are left.
+    jest.advanceTimersByTime(94_999);
     expect(fired).not.toHaveBeenCalled();
     jest.advanceTimersByTime(1);
     expect(fired).toHaveBeenCalledTimes(1);
   });
 
-  it('adds up several background stretches against one deadline', () => {
+  it('counts a freeze that comes before the first pulse tick, as on iOS', () => {
     initBackgroundTimeTracking();
     const fired = jest.fn();
-    setForegroundTimeout(fired, 120_000);
+    setRunningTimeout(fired, 120_000);
+    // iOS freezes JS about 5 s after the hidden event, before the pulse first reads the clock.
+    doc.setHidden(true);
+    doc.freezeFor(140_000);
+    expect(frozenMs()).toBe(125_000);
+    expect(fired).not.toHaveBeenCalled();
+    doc.setHidden(false);
+    jest.advanceTimersByTime(104_999);
+    expect(fired).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds up several freezes against one deadline', () => {
+    initBackgroundTimeTracking();
+    const fired = jest.fn();
+    setRunningTimeout(fired, 120_000);
     for (let i = 0; i < 3; i++) {
       jest.advanceTimersByTime(20_000);
       doc.setHidden(true);
-      jest.advanceTimersByTime(50_000);
+      doc.freezeFor(100_000);
       doc.setHidden(false);
     }
-    // 60 s visible and 150 s hidden so far.
-    jest.advanceTimersByTime(59_999);
+    // 60 s visible and 45 s of pulse slack so far.
+    jest.advanceTimersByTime(14_999);
     expect(fired).not.toHaveBeenCalled();
     jest.advanceTimersByTime(1);
     expect(fired).toHaveBeenCalledTimes(1);
@@ -217,9 +317,9 @@ describe('foregroundNow and setForegroundTimeout (#473)', () => {
   it('cancel stops the timer, including after it has re-armed', () => {
     initBackgroundTimeTracking();
     const fired = jest.fn();
-    const cancel = setForegroundTimeout(fired, 120_000);
+    const cancel = setRunningTimeout(fired, 120_000);
     doc.setHidden(true);
-    jest.advanceTimersByTime(130_000);
+    doc.freezeFor(130_000);
     doc.setHidden(false);
     cancel();
     expect(jest.getTimerCount()).toBe(0);
@@ -232,7 +332,7 @@ describe('foregroundNow and setForegroundTimeout (#473)', () => {
     Object.defineProperty(globalThis, 'performance', { configurable: true, writable: true, value: undefined });
     try {
       jest.setSystemTime(1_234_567);
-      expect(foregroundNow()).toBe(1_234_567);
+      expect(runningNow()).toBe(1_234_567);
     } finally {
       Object.defineProperty(globalThis, 'performance', { configurable: true, writable: true, value: fakePerformance });
     }

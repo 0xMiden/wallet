@@ -1,6 +1,6 @@
 import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
 
-import { foregroundNow } from 'lib/mobile/background-time';
+import { runningNow } from 'lib/mobile/background-time';
 
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (it imports this module back), and the poison bindings this
@@ -226,12 +226,12 @@ interface LockHolder {
  * an NTP correction or a manual clock change can expire a window early or
  * stretch it; every consumer here only ever measures a short local interval.
  *
- * Foreground time (#473): on mobile it stands still while the app is in the
- * background, so a hold whose JS the platform froze, such as a delegated prove,
- * is not charged for that stretch. Elsewhere it is `performance.now()`.
+ * Running time (#473): on mobile it stands still only while the platform froze
+ * our JS, so a hold parked across a freeze, such as a delegated prove, is not
+ * charged for that stretch. Elsewhere it is `performance.now()`.
  */
 function monotonicNow(): number {
-  return foregroundNow();
+  return runningNow();
 }
 
 /**

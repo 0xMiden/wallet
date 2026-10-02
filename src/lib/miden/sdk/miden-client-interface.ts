@@ -44,7 +44,7 @@ import {
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
-import { setForegroundTimeout } from 'lib/mobile/background-time';
+import { setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { reportProve } from 'lib/telemetry/report-operation';
@@ -2064,7 +2064,7 @@ export const DELEGATED_PROVE_TRANSPORT_BACKSTOP_MS = 1_800_000;
  */
 export function withDelegatedProveTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const cancel = setForegroundTimeout(
+    const cancel = setRunningTimeout(
       () => reject(new Error(`${label} timed out after ${DELEGATED_PROVE_TIMEOUT_MS}ms waiting for the remote prover`)),
       DELEGATED_PROVE_TIMEOUT_MS
     );

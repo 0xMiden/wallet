@@ -1212,7 +1212,7 @@ describe('MidenClientInterface', () => {
     }
   });
 
-  describe('withDelegatedProveTimeout counts foreground time only (#473)', () => {
+  describe('withDelegatedProveTimeout counts running time only (#473)', () => {
     let doc: HiddenDocument;
     let stopTracking: (() => void) | null = null;
 
@@ -1250,7 +1250,7 @@ describe('MidenClientInterface', () => {
       return () => outcome;
     }
 
-    it('a prove that answers after 150 s, 140 s of them in the background, resolves', async () => {
+    it('a prove that answers after 150 s, 140 s of them frozen in the background, resolves', async () => {
       const withDelegatedProveTimeout = await loadWithTracking();
       let answer!: (proof: string) => void;
       const outcome = recordOutcome(
@@ -1264,8 +1264,8 @@ describe('MidenClientInterface', () => {
 
       await jest.advanceTimersByTimeAsync(10_000);
       doc.setHidden(true);
-      // The 120 s wall-clock deadline comes due inside this stretch.
-      await jest.advanceTimersByTimeAsync(140_000);
+      // The deadline's 120 s timer comes due inside the freeze.
+      doc.freezeFor(140_000);
       doc.setHidden(false);
       expect(outcome()).toBeUndefined();
       answer('proof');

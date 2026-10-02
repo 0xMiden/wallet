@@ -1,25 +1,27 @@
 /**
- * Tracks wall-clock time the document spends hidden (app backgrounded / the
- * WebView not visible), so wall-clock "stuck transaction" timers don't count
- * time the platform froze our JS from running.
+ * Two clocks for time the app spends in the background, kept by one
+ * `visibilitychange` listener that mobile startup installs.
  *
- * On Android (Capacitor WebView) the main-thread JS is frozen while the app is
- * backgrounded, yet `Date.now()` still advances in real time. A delegated
- * (remote) prove that merely waited out a background stretch is NOT stuck —
- * counting that frozen time against `MAX_WAIT_BEFORE_CANCEL` reaps it as a
- * false `REMOTE_PROVER_TIMEOUT` when the app resumes (issue #473). The stuck
- * reaper subtracts the hidden time reported here so only foreground ("active")
- * processing time counts toward the threshold.
+ * HIDDEN time, on the wall clock: the epoch-ms stretches the document spends
+ * hidden (app backgrounded / the WebView not visible). A delegated (remote)
+ * prove that merely waited out a background stretch is NOT stuck, yet
+ * `Date.now()` advances through it, so counting it against
+ * `MAX_WAIT_BEFORE_CANCEL` reaps the prove as a false `REMOTE_PROVER_TIMEOUT`
+ * on resume (issue #473). The stuck reaper subtracts the hidden time reported
+ * here so only foreground ("active") processing time counts toward the
+ * threshold. Desktop deliberately does NOT use this: extension background tabs
+ * keep running, so on desktop hidden time IS processing time (see the
+ * mobile-only guard at the call site in `cancel.ts`).
  *
- * Desktop deliberately does NOT use this: extension background tabs keep
- * running, so on desktop hidden time IS processing time (see the mobile-only
- * guard at the call site in `cancel.ts`).
- *
- * The same listener drives a monotonic FOREGROUND clock, `foregroundNow`, and
- * `setForegroundTimeout` on it: the deadlines that bound an in-flight delegated
- * prove read it, so a background stretch cannot expire them on resume (#473).
- * Until tracking is initialised it equals `performance.now()`, so the extension
- * and desktop, which never initialise it, keep plain monotonic time.
+ * RUNNING time, on the monotonic clock: `runningNow` is `performance.now()`
+ * minus the stretches the platform froze our JS, and `setRunningTimeout` runs
+ * on it, so a freeze cannot expire the deadlines that bound an in-flight
+ * delegated prove, or the WASM lock watchdog, on resume (#473). Hidden is not
+ * frozen: a hidden WebView may keep running JS (Android, Capacitor
+ * KeepRunning), and there these deadlines must still fire on time, so a freeze
+ * is measured rather than assumed from visibility (see `markNow`). Until
+ * tracking is initialised it equals `performance.now()`, so the extension and
+ * desktop, which never initialise it, keep plain monotonic time.
  */
 
 interface HiddenInterval {
@@ -35,12 +37,21 @@ let hiddenIntervals: HiddenInterval[] = [];
 let hiddenSince: number | null = null;
 let installed = false;
 
-// The same stretches on the monotonic clock, for `foregroundNow`: the total of
-// the closed ones and the start of the open one. Kept apart from the epoch-ms
-// intervals above, which `Date.now()` corrections can skew, so the two clocks
-// never mix.
-let hiddenMonoTotalMs = 0;
-let hiddenMonoSince: number | null = null;
+// Running time, on the monotonic clock and kept apart from the epoch-ms
+// intervals above, which `Date.now()` corrections can skew: the frozen total,
+// the last liveness mark (when the clock was last read, and whether the
+// document was hidden then), and the pulse that reads it while hidden.
+let frozenTotalMs = 0;
+let lastMarkAt: number | null = null;
+let lastMarkHidden = false;
+let pulse: ReturnType<typeof setInterval> | null = null;
+
+/** How often the clock is read while the document is hidden. */
+const RUNNING_PULSE_MS = 15_000;
+
+// Above the one wake-up a minute to which Chrome's intensive throttling slows a
+// long-hidden page, so throttled but running JS is never counted as frozen.
+const FROZEN_GAP_MS = 75_000;
 
 // Bound memory by COUNT, not by age. An age-based window could drop an interval
 // that is still inside a live tx's [processingStartedAt, now] span — an
@@ -87,32 +98,68 @@ function monotonicNow(): number {
 }
 
 /**
- * Milliseconds of foreground time on a monotonic clock: `performance.now()`
- * minus every hidden stretch, the open one included, so it stands still while
- * the document is hidden.
+ * Read the monotonic clock and, once tracking is installed, leave a liveness
+ * mark. While hidden the pulse reads the clock every `RUNNING_PULSE_MS`, so a
+ * gap since the last mark that began hidden and outlasts `FROZEN_GAP_MS` is a
+ * stretch our JS did not run. Up to one pulse period of it may have run, so
+ * that much stays running time. A gap that began visible is never frozen.
  */
-export function foregroundNow(): number {
+function markNow(): number {
   const now = monotonicNow();
-  const open = hiddenMonoSince === null ? 0 : now - hiddenMonoSince;
-  return now - hiddenMonoTotalMs - open;
+  if (!installed) return now;
+  if (lastMarkAt !== null && lastMarkHidden) {
+    const gap = now - lastMarkAt;
+    if (gap > FROZEN_GAP_MS) frozenTotalMs += gap - RUNNING_PULSE_MS;
+  }
+  lastMarkAt = now;
+  lastMarkHidden = document.hidden;
+  return now;
+}
+
+function startPulse(): void {
+  if (pulse !== null) return;
+  pulse = setInterval(() => {
+    markNow();
+    // Also ends the pulse when the visible event never arrives.
+    if (!document.hidden) stopPulse();
+  }, RUNNING_PULSE_MS);
+}
+
+function stopPulse(): void {
+  if (pulse === null) return;
+  clearInterval(pulse);
+  pulse = null;
 }
 
 /**
- * Run `callback` once `ms` of foreground time has passed; returns a cancel
+ * Milliseconds of running time: `performance.now()` minus every stretch the
+ * platform froze our JS, so it stands still only across a freeze, never merely
+ * because the document is hidden.
+ */
+export function runningNow(): number {
+  return markNow() - frozenTotalMs;
+}
+
+/** Milliseconds of frozen time so far, a gap still open at the call included. */
+export function frozenMs(): number {
+  markNow();
+  return frozenTotalMs;
+}
+
+/**
+ * Run `callback` once `ms` of running time has passed; returns a cancel
  * function.
  *
  * A frozen WebView runs an overdue `setTimeout` the moment it resumes, so a
- * fire never calls back on trust: it re-reads the foreground clock and re-arms
- * for what is left. Either order of that fire and the `visible` event is safe,
- * because until the event is handled the stretch is still open and counts as
- * hidden.
+ * fire never calls back on trust: it re-reads the clock, which measures the
+ * freeze it woke from, and re-arms for what is left.
  */
-export function setForegroundTimeout(callback: () => void, ms: number): () => void {
-  const startedAt = foregroundNow();
+export function setRunningTimeout(callback: () => void, ms: number): () => void {
+  const startedAt = runningNow();
   let timer: ReturnType<typeof setTimeout>;
   const arm = (delayMs: number): void => {
     timer = setTimeout(() => {
-      const leftMs = ms - (foregroundNow() - startedAt);
+      const leftMs = ms - (runningNow() - startedAt);
       if (leftMs > 0) arm(leftMs);
       else callback();
     }, delayMs);
@@ -136,14 +183,15 @@ export function initBackgroundTimeTracking(): void {
   /* istanbul ignore next -- defensive no-DOM/SSR guard; unreachable under the jsdom test env */
   if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
   installed = true;
+  markNow();
 
   // Seed the open interval if we start up already hidden (e.g. a background
   // relaunch): there is no visibilitychange→hidden event to open it, so without
   // this the [startup, first-visible] stretch would be lost and hidden time
-  // under-counted (#473 review).
+  // under-counted (#473 review). Nor is there one to start the pulse.
   if (document.hidden) {
     hiddenSince = Date.now();
-    hiddenMonoSince = monotonicNow();
+    startPulse();
   }
 
   document.addEventListener('visibilitychange', onVisibilityChange);
@@ -153,29 +201,28 @@ export function initBackgroundTimeTracking(): void {
 // a listener left on it would keep writing into the next test's clock.
 function onVisibilityChange(): void {
   const now = Date.now();
-  const monoNow = monotonicNow();
+  markNow();
   if (document.hidden) {
     if (hiddenSince === null) hiddenSince = now;
-    if (hiddenMonoSince === null) hiddenMonoSince = monoNow;
+    startPulse();
     return;
   }
+  stopPulse();
   if (hiddenSince !== null) {
     hiddenIntervals.push({ start: hiddenSince, end: now });
     hiddenSince = null;
     pruneOldIntervals();
-  }
-  if (hiddenMonoSince !== null) {
-    hiddenMonoTotalMs += monoNow - hiddenMonoSince;
-    hiddenMonoSince = null;
   }
 }
 
 /** Test-only: clear accumulated state and the install flag. */
 export function __resetBackgroundTimeForTest(): void {
   document.removeEventListener('visibilitychange', onVisibilityChange);
+  stopPulse();
   hiddenIntervals = [];
   hiddenSince = null;
-  hiddenMonoTotalMs = 0;
-  hiddenMonoSince = null;
+  frozenTotalMs = 0;
+  lastMarkAt = null;
+  lastMarkHidden = false;
   installed = false;
 }
