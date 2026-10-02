@@ -51,6 +51,7 @@
 - [CHANGE][ci] The network-banner registry rests every screen that commits value on a render assertion in that screen's own suite, the connected EVM bridge flow included, and fails when that suite mocks the banner or the layout that carries it (#1073).
 - [CHANGE][ci] The Unlock lockout tests fire the countdown tick where it judges a lockout, after the fast path or the post-sleep re-check adopts another window's lockout, and assert the countdown it sets, so a tick that reads the lockout level or stamp its render captured, instead of the stored level and the live stamp, fails them (#1204).
 - [CHANGE][ci] The changelog check also fails a pull request that changes or removes a released heading's version (dating it still passes) or moves a released entry under another version, compares the file with the pull request's merge base instead of reading a diff, and reads headings, sections and `---` lines through one parser that the release notes use too (#1190).
+- [CHANGE][android] The app now needs Android 9 or later: on Android 7.0-8.1 its biometric protection could be chosen but could never open its prompt, so those devices keep the release they have and get no further updates (#1311).
 
 ### Fixes
 

@@ -496,9 +496,9 @@ class HotKeyPlugin : Plugin() {
     /// no crypto binding, a device credential is a safe presence proof, so
     /// allow it wherever androidx supports the combination. Per the androidx
     /// setAllowedAuthenticators contract, BIOMETRIC_STRONG|DEVICE_CREDENTIAL
-    /// is valid on API 30+ AND on API <= 27 (Keyguard fallback), but NOT on
-    /// API 28-29 — those two releases stay biometric-only with a negative
-    /// button (a PIN-only user there can enroll a biometric and retry).
+    /// is valid on API 30+ but NOT on API 28-29 - those two releases stay
+    /// biometric-only with a negative button (a PIN-only user there can enroll
+    /// a biometric and retry).
     private fun presenceAuthenticators(): Int =
         if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P || Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
             BiometricManager.Authenticators.BIOMETRIC_STRONG
@@ -661,11 +661,7 @@ class HotKeyPlugin : Plugin() {
     private class WrapResult(val wrapped: ByteArray, val strongBoxError: String?)
 
     private fun wrapSecretProven(alias: String, secretBytes: ByteArray): WrapResult {
-        val attempts = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            listOf(true, false)
-        } else {
-            listOf(false)
-        }
+        val attempts = listOf(true, false)
         var lastError: Exception? = null
         var strongBoxError: String? = null
         for (strongBox in attempts) {
@@ -739,7 +735,7 @@ class HotKeyPlugin : Plugin() {
             builder.setMgf1Digests(KeyProperties.DIGEST_SHA1, KeyProperties.DIGEST_SHA256)
         }
 
-        if (strongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        if (strongBox) {
             builder.setIsStrongBoxBacked(true)
         }
 
