@@ -1,5 +1,4 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
-import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import {
@@ -431,9 +430,6 @@ export const GUARDIAN_UNREACHABLE_ERROR =
  */
 export function isGuardianOutage(error: unknown): boolean {
   if (error instanceof RotationGateConsumeRefusal) return false;
-  // The fetch boundary's cut-off is the Guardian not answering wherever a caller wrapped it, which the message check
-  // below cannot see (#312); a killed pipeline stays a kill, since a requeue would re-broadcast it.
-  if (isGuardianRequestTimeout(error)) return !isWasmClientPoisonedError(error) && !isOperationAbortedError(error);
   if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
   const raw = formatRawTransactionError(error);
   return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);

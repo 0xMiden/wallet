@@ -1,5 +1,4 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
-import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
@@ -417,25 +416,5 @@ describe('RotationGateConsumeRefusal', () => {
   it('is never read as a guardian outage, whatever its text (#779)', () => {
     // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
     expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
-  });
-});
-
-describe('a Guardian request timeout as an outage (#312)', () => {
-  const timeout = () =>
-    new GuardianRequestTimeoutError('https://guardian.test/delta/proposal', GUARDIAN_REQUEST_TIMEOUT_MS);
-
-  it('is an outage wherever it sits in the cause chain', () => {
-    const wrapped = Object.assign(new Error('could not create the proposal'), { cause: timeout() });
-    expect(isGuardianOutage(timeout())).toBe(true);
-    expect(isGuardianOutage(wrapped)).toBe(true);
-    expect(resolveTransactionErrorMessage(wrapped, 'creating-proposal')).toBe(GUARDIAN_UNREACHABLE_ERROR);
-  });
-
-  it('is not an outage when it is the cause of a killed pipeline', () => {
-    // A requeue re-broadcasts, so an abandoned write must keep failing whatever its cause says.
-    expect(isGuardianOutage(Object.assign(new WasmClientPoisonedError('watchdog'), { cause: timeout() }))).toBe(false);
-    expect(isGuardianOutage(Object.assign(new OperationAbortedError('op-1', 'deadline'), { cause: timeout() }))).toBe(
-      false
-    );
   });
 });
