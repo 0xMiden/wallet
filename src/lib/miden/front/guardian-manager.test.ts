@@ -108,9 +108,7 @@ describe('guardian-manager', () => {
         provider.signWord,
         // The resolved per-account endpoint is now passed through to init.
         'https://default.guardian.test',
-        { label: 'guardian-service-init' },
-        undefined,
-        provider.guardianClientRequest
+        { label: 'guardian-service-init' }
       );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
@@ -171,9 +169,7 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         'https://per-account.guardian',
-        { label: 'guardian-service-init' },
-        undefined,
-        provider.guardianClientRequest
+        { label: 'guardian-service-init' }
       );
       // The per-account field short-circuits the global-key lookup.
       expect(mockFetchFromStorage).not.toHaveBeenCalled();
@@ -239,9 +235,7 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         'https://default.guardian.test',
-        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' },
-        undefined,
-        provider.guardianClientRequest
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
       );
 
       clearGuardianCache();
@@ -252,9 +246,7 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         'https://default.guardian.test',
-        { label: 'guardian-service-init' },
-        undefined,
-        provider.guardianClientRequest
+        { label: 'guardian-service-init' }
       );
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });

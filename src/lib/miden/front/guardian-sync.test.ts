@@ -869,8 +869,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       { __sdkAccount: true },
       expect.objectContaining({ publicKey: 'acct-heal-bounded' }),
       expect.anything(),
-      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' },
-      expect.any(Function)
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
     );
     expect(mockReRegister).toHaveBeenCalledWith(
       {
@@ -1690,8 +1689,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
         { __sdkAccount: true },
         expect.objectContaining({ publicKey: 'acct-activation' }),
         expect.anything(),
-        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' },
-        expect.any(Function)
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
       );
       expect(mockReRegister).toHaveBeenCalledTimes(1);
       expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null);

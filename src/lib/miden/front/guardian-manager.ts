@@ -52,7 +52,6 @@ let serviceClearGeneration = 0;
  * The Zustand-backed default provider lives in `./guardian-sync.ts` (frontend-only).
  */
 export interface GuardianAccountProvider {
-  guardianClientRequest?: import('../guardian/shared-client').GuardianClientRequest;
   prepareRecoveryTransaction?: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
@@ -196,9 +195,7 @@ export async function getOrCreateMultisigService(
       currentEndpoint,
       boundAtSyncCeiling
         ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
-        : { label: 'guardian-service-init' },
-      undefined,
-      provider.guardianClientRequest
+        : { label: 'guardian-service-init' }
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the

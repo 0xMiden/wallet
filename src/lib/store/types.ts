@@ -15,7 +15,6 @@ import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
-  GuardianClientOperation,
   ImportedAccountBackup,
   GuardianRecoveryAction,
   RecoveryPreparation,
@@ -201,7 +200,6 @@ export interface WalletActions {
   setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
-  guardianClientRequest: (operation: GuardianClientOperation) => Promise<string | null>;
   applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<ApplyUserEndpointOutcome>;
   startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
