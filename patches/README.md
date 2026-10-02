@@ -3,7 +3,7 @@
 Everything except `inspect-cli-cdp-fix.patch` is applied automatically by
 `patch-package` from the `postinstall` script.
 
-## @miden-sdk/miden-sdk 0.16.1
+## @miden-sdk/miden-sdk 0.16.3
 
 Treat the note transport's stored-note duplicate as a successful `SendNote`, so the
 SDK removes the relay payload from its outbox. The transport sends it as headers

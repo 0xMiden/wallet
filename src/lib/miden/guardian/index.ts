@@ -385,7 +385,7 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+    return withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
   }
 
   /**
@@ -461,9 +461,17 @@ export class MultisigService {
       if (!requestBytes) {
         throw new Error('Request Bytes are required for custom execution');
       }
-      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-      const request = TransactionRequest.deserialize(requestBytes);
-      return request.extendAdviceMap(advice);
+      // The SDK executes the request again to check the signed commitment.
+      // Keep this execution separate from background client operations.
+      return withWasmClientLock(
+        async hold => {
+          const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+          assertWasmHoldCurrent(hold, 'guardian-custom-execution: after preparation');
+          const request = TransactionRequest.deserialize(requestBytes);
+          return request.extendAdviceMap(advice);
+        },
+        { label: 'guardian-custom-execution' }
+      );
     }
     const request = await withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
     if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;

@@ -2,7 +2,7 @@ import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
-import { ConsumableNote, NoteType } from '../types';
+import { ConsumableNote, NoteType, NoteTypeEnum } from '../types';
 
 export interface IInputNote {
   noteId: string;
@@ -32,7 +32,8 @@ export type ITransactionType =
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
-  | 'update-procedure-threshold';
+  | 'update-procedure-threshold'
+  | 'register-name';
 
 /**
  * Structural Guardian operations: they rewrite the account's own authorization rather
@@ -257,6 +258,70 @@ export interface IEarnDepositExtraInputs {
 }
 
 /**
+ * Phase of a Miden Name registration. The order is
+ * `requested → submitted → issued → claiming → owned`. `failed` is terminal.
+ *   - requested : the row is queued; the register note is not on chain yet
+ *   - submitted : the transaction with the register note is committed
+ *   - issued    : the registry consumed the note and issued the name
+ *   - claiming  : a consume row for the delivery note is queued
+ *   - owned     : the consume of the delivery note is complete
+ *   - failed    : see `MidenNameFailure`
+ */
+export type MidenNamePhase = 'requested' | 'submitted' | 'issued' | 'claiming' | 'owned' | 'failed';
+
+/**
+ * Cause of a `failed` Miden Name registration.
+ *   - tx-failed    : the register transaction failed
+ *   - discarded    : the registry discarded the register note
+ *   - taken        : an other account got the name first
+ *   - expired      : the chain passed the reclaim height and the registry did not consume the note
+ *   - claim-failed : the consume of the delivery note failed
+ */
+export type MidenNameFailure = 'tx-failed' | 'discarded' | 'taken' | 'expired' | 'claim-failed';
+
+/**
+ * `extraInputs` shape for a `RegisterNameTransaction`. This row is the record of
+ * the registration: the tracker patches `phase` monotonically through
+ * `patchRegisterNameExtraInputs` (complete.ts).
+ */
+export interface IRegisterNameExtraInputs {
+  /** The label without the `.miden` suffix. */
+  label: string;
+  /** Network name (`MIDEN_NETWORK_NAME` value) at the time of the build. */
+  network: string;
+  /** Id (hex) of the public register note in `requestBytes`. */
+  registrationNoteId: string;
+  /** Block after which the payer can reclaim the register note. */
+  reclaimHeight: number;
+  /** Chain tip at the time of the build. */
+  builtAtBlock: number;
+  /** Price of the name in base units of the payment token (a decimal string). */
+  priceBaseUnits: string;
+  /** Network (sponsorship) fee in base units (a decimal string). */
+  networkFeeBaseUnits: string;
+  phase: MidenNamePhase;
+  failure?: MidenNameFailure;
+  lastError?: string;
+  /** Id (hex) of the note that delivers the name to the account. */
+  deliveryNoteId?: string;
+  /** Id of the consume row that claims the delivery note. */
+  claimTxId?: string;
+  /** First block of the next delivery scan. */
+  deliveryScanFrom?: number;
+  /** Wall-clock time (ms since epoch) of the last phase change. */
+  phaseUpdatedAt: number;
+}
+
+/** `extraInputs` shape for a consume row that claims a Miden Name delivery note. */
+export interface IConsumeMidenNameExtraInputs {
+  midenNameClaim: {
+    label: string;
+    /** Id of the `register-name` row. */
+    registerTxId: string;
+  };
+}
+
+/**
  * Lifecycle of an `earn-withdraw` row. The row is born `Completed` (never enters
  * the prove/submit FIFO loop — see `EarnWithdrawTransaction`); its in-flight look
  * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
@@ -471,6 +536,8 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /** Display-only recipient name verified when this send was created. */
+  recipientName?: string;
   /**
    * Set on a row rebuilt from a Guardian operator's retained history, and the
    * only field that means so; `recovery` is the data such a row, or a local row
@@ -816,6 +883,7 @@ export class Transaction implements ITransaction {
 }
 
 export class SendTransaction implements ITransaction {
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -1188,6 +1256,85 @@ export class EarnDepositTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       recallBlocks: sendParams.recallBlocks,
       epochStatus: 'pending'
+    };
+  }
+}
+
+/** Arguments of a `RegisterNameTransaction`. */
+export interface RegisterNameTransactionArgs {
+  accountId: string;
+  label: string;
+  network: string;
+  /** Payment faucet (native MIDEN), bech32. */
+  paymentFaucetId: string;
+  /** Registry account, bech32. */
+  registryAccountId: string;
+  priceBaseUnits: bigint;
+  networkFeeBaseUnits: bigint;
+  /** Serialized request with the register note. Built one time; all attempts use the same bytes. */
+  requestBytes: Uint8Array;
+  registrationNoteId: string;
+  reclaimHeight: number;
+  builtAtBlock: number;
+  delegateTransaction?: boolean;
+}
+
+/**
+ * Register a `.miden` name: one PUBLIC register note to the Miden Name registry
+ * that holds the price in native MIDEN. The note is pre-built into
+ * `requestBytes` (`buildRegisterNameRequest`); the pipeline submits these bytes
+ * as they are, on both the standard leaf and the guardian custom proposal.
+ * `amount` is the price only. The auth fee payment of the sender adds the
+ * sponsorship note.
+ */
+export class RegisterNameTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Registry account that receives the register note. */
+  secondaryAccountId: string;
+  noteType: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  requestBytes: Uint8Array;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IRegisterNameExtraInputs;
+
+  constructor(args: RegisterNameTransactionArgs) {
+    this.id = uuid();
+    this.type = 'register-name';
+    this.accountId = args.accountId;
+    this.amount = args.priceBaseUnits;
+    this.faucetId = args.paymentFaucetId;
+    this.secondaryAccountId = args.registryAccountId;
+    this.noteType = NoteTypeEnum.Public;
+    this.requestBytes = args.requestBytes;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Registering name';
+    this.delegateTransaction = args.delegateTransaction;
+    this.extraInputs = {
+      label: args.label,
+      network: args.network,
+      registrationNoteId: args.registrationNoteId,
+      reclaimHeight: args.reclaimHeight,
+      builtAtBlock: args.builtAtBlock,
+      priceBaseUnits: args.priceBaseUnits.toString(),
+      networkFeeBaseUnits: args.networkFeeBaseUnits.toString(),
+      phase: 'requested',
+      phaseUpdatedAt: Date.now()
     };
   }
 }

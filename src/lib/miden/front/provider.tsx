@@ -1,23 +1,17 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 
-import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
-
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { MidenNameWatcher } from 'lib/miden/name/MidenNameWatcher';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import {
-  getEffectiveNoteTransportUrl,
-  getEffectiveProverUrl,
-  getEffectiveRpcUrl,
-  loadEndpointOverrides
-} from 'lib/miden-chain/effective-endpoints';
+import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
-import { isExtension, isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
@@ -67,16 +61,7 @@ const preloadedStorageKeys = () => [
  * existing useMidenContext() hook API.
  */
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
-  // Combined readiness gate: apply any developer endpoint override BEFORE
-  // the SDK's WASM module (and its prover config) resolves, so both this
-  // provider's sdkConfig and the getMidenClient() effect below always see
-  // the effective (possibly overridden) endpoints rather than build
-  // defaults. The /lazy entries perform no top-level await, and the SDK's
-  // MidenProvider resolves its prover config through WASM constructors
-  // during setup — mounting it before the module has initialized crashes
-  // the whole tree with `__wbindgen_malloc` undefined. Children that don't
-  // touch the SDK render immediately; SDK-dependent subtrees already wait
-  // on the provider's own ready state.
+  // Load endpoint overrides before WASM and the wallet client start.
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -150,37 +135,6 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     initializeClient();
   }, [ready]);
 
-  // Build the SDK MidenProvider config from the same effective-endpoint
-  // resolver (lib/miden-chain/effective-endpoints) used by
-  // MidenClientInterface.create(), so the React SDK's client and the
-  // wallet's own backend client always agree on which network/endpoints
-  // they're talking to — including any developer override. Depends on
-  // `ready` so it recomputes once loadEndpointOverrides() has resolved
-  // (otherwise it would capture stale build defaults from the first
-  // render). autoSyncInterval is disabled here because the wallet drives
-  // sync itself (extension SW + useSyncTrigger on mobile) — we only need
-  // the SDK's MidenContext populated so hooks like useImportStore /
-  // useConsume can resolve, not a second auto-sync loop.
-  const sdkConfig = useMemo(
-    () => ({
-      rpcUrl: getEffectiveRpcUrl(),
-      noteTransportUrl: getEffectiveNoteTransportUrl(),
-      prover: getEffectiveProverUrl(),
-      autoSyncInterval: 0,
-      // Mirror the backend MidenClientInterface decision: on mobile we hand
-      // the SDK a CallbackProver routed through the native Rust prover via
-      // Capacitor, and the worker boundary would silently strip the callback.
-      // The SDK's MidenProvider spins up its own WebClient — opt it out too,
-      // or every hook-driven prove (useConsume, useSend) goes through the
-      // worker path and falls back to in-worker WASM ST proving.
-      useWorker: !isMobile()
-    }),
-    // `ready` intentionally gates recomputation: sdkConfig reads the effective
-    // endpoint getters, which only reflect a loaded override once `ready` flips.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ready]
-  );
-
   if (!ready) {
     return null;
   }
@@ -188,12 +142,12 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   return (
     <WalletStoreProvider>
       <MidenContextProvider>
-        <SdkMidenProvider config={sdkConfig}>
-          {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
-              landed after Home's first frame, so the balance card showed "$—" and then the total. */}
-          <PriceProvider />
-          <ConditionalProviders>{children}</ConditionalProviders>
-        </SdkMidenProvider>
+        {/* The wallet owns the write client: no SDK provider, which would build another client
+            and run a startup sync. Prices are public and need no unlock. Fetched only once the
+            wallet turned ready, they landed after Home's first frame, so the balance card showed
+            "$—" and then the total. */}
+        <PriceProvider />
+        <ConditionalProviders>{children}</ConditionalProviders>
       </MidenContextProvider>
     </WalletStoreProvider>
   );
@@ -224,6 +178,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
             <EarnIntentWatcher />
+            <MidenNameWatcher />
             <BridgeIntentWatcher />
             {/* Startup recovery for transactions orphaned by an app kill. No-op on
                 the extension, where the service worker's `setupTransactionProcessor`

@@ -35,6 +35,8 @@ import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { useOwnedMidenName } from 'lib/miden/name/registrations';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
@@ -377,6 +379,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
+  // Undefined on a network with no Miden Name deployment.
+  const ownedMidenName = useOwnedMidenName(address);
   // Handed to HiddenAssets so an unhide that empties the section can still land focus somewhere.
   const assetListRef = useRef<HTMLDivElement>(null);
   const assetsHeadingId = useId();
@@ -388,6 +392,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
             accountName={account.name}
+            accountAlias={ownedMidenName ? formatMidenName(ownedMidenName) : undefined}
             // The dash when there is no total to show: prices have not loaded yet (feed
             // down or still loading), or tokens are held and none can be valued (Balance
             // hands null). Once any real price lands (stale-but-real via keepPreviousData

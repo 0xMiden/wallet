@@ -275,7 +275,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
-
   // The step set and per-step durations derive only from the account flow and
   // the persisted per-stage timestamps — never from live `stage` observation
   // (a Dexie liveQuery coalesces rapid stage writes, dropping a step's timing).

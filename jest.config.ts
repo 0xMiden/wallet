@@ -24,6 +24,7 @@ export default {
     '!src/**/*.test.{ts,tsx}',
     '!src/**/*.spec.ts',
     '!src/**/__mocks__/**',
+    '!src/**/test-support/**',
     '!src/**/__tests__/**'
   ],
   // Narrow exclusions only for code that is fundamentally E2E/snapshot

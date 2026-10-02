@@ -26,6 +26,7 @@ import {
 } from 'lib/miden/db/types';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { formatMidenName } from 'lib/miden/name/encoding';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
@@ -34,7 +35,13 @@ import useSafeState from 'lib/ui/useSafeState';
 import { isPendingActivityEntry } from './activityGroups';
 import { guardianHistoryIcon } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import {
+  HistoryEntryType,
+  IHistoryEntry,
+  midenNameActivityOf,
+  midenNameLabelOf,
+  reconcileMidenNameActivity
+} from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
@@ -110,7 +117,9 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string): 
     // for one has to find it, or typing a symbol the user can see hides
     // the very row showing it.
     entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-    entry.secondaryAddress?.toLowerCase().includes(query)
+    entry.secondaryAddress?.toLowerCase().includes(query) ||
+    // The row title shows the full name ("alice.miden"), so search for it too.
+    (entry.midenNameLabel !== undefined && formatMidenName(entry.midenNameLabel).includes(query))
   );
 }
 
@@ -371,7 +380,7 @@ const History = memo<HistoryProps>(
       });
     });
     const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes.current]);
-    let entries: IHistoryEntry[] = allEntries.filter(
+    let entries: IHistoryEntry[] = reconcileMidenNameActivity(allEntries).filter(
       entry =>
         !(
           entry.txType === 'consume' &&
@@ -458,7 +467,7 @@ export default History;
 
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {
-  return txType === 'send' || txType === 'bridged-send';
+  return txType === 'send' || txType === 'bridged-send' || txType === 'register-name';
 }
 
 async function fetchTransactionsAsHistoryEntries(
@@ -544,6 +553,8 @@ async function fetchTransactionsAsHistoryEntries(
       swapSettlement: swapSettlementOf(tx),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
@@ -574,7 +585,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
 
     return entry;
@@ -620,6 +632,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,
@@ -640,7 +654,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
-      earnDepositStatus: earnDeposit?.epochStatus
+      earnDepositStatus: earnDeposit?.epochStatus,
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);
