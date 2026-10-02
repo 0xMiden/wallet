@@ -123,8 +123,9 @@ const selfHealState = new Map<string, SelfHealAttemptState>();
 // When the pending-activation finisher last checked each rotation-pending account, and the heals it ran (#1233).
 const pendingActivationState = new Map<string, SelfHealAttemptState>();
 // The Failed rotation rows a permanent refusal answered, per account whatever the operator, as sorted ids, and
-// the pushes the finisher made in a row against the last operator it pushed to and one row set: a change of
-// operator (a return included) or of rows restarts the count (#1233).
+// the pushes the finisher made in a row against the operator and row set it last resolved: a change of operator
+// or rows a due lap observes (a return included) restarts the count, and a change and return between two due
+// laps is not seen (#1233).
 const refusedActivations = new Map<string, string>();
 const activationPushes = new Map<string, { endpoint: string; rowSet: string; pushes: number }>();
 
@@ -959,7 +960,8 @@ async function findOwnRotation(accountPublicKey: string, onChainCommitment: stri
  * 'attempted', since the push ran and is booked like every push: the row stays Failed, the next due
  * heal re-verifies and swaps, and SELF_HEAL_MAX_ATTEMPTS pushes bound the `/configure` writes in both
  * callers: the 401 arm's budget, and the pending-activation finisher's, which bounds the pushes made in a
- * row against one operator and Failed rotation set.
+ * row against one operator and Failed rotation set and restarts on a change of either that a due lap
+ * observes; a change and return between two due laps is not seen.
  */
 async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation): Promise<SelfHealOutcome> {
   try {
@@ -1266,8 +1268,9 @@ async function attemptColdReRegisterSelfHeal(
  * carries a bare or a composite account id, which an index matches only by prefix) and the endpoint
  * resolve follows it, so an unstamped exit would repeat both on every 3 s lap.
  * A permanent refusal closes the account's Failed rows whatever the operator. Its push budget of
- * SELF_HEAL_MAX_ATTEMPTS bounds the pushes made in a row against one operator and Failed-row set; a
- * change of operator (a return included) or of rows restarts it.
+ * SELF_HEAL_MAX_ATTEMPTS bounds the pushes made in a row against one operator and Failed-row set. The
+ * finisher learns the operator only on a due lap: a change of operator or rows that a due lap observes (a
+ * return included) restarts the budget, and a change and return between two due laps is not seen.
  */
 async function finishPendingActivations(accounts: WalletAccount[], generation: number): Promise<void> {
   for (const account of accounts) {
@@ -1306,6 +1309,8 @@ async function finishPendingActivations(accounts: WalletAccount[], generation: n
       const operator = canonicalGuardianEndpoint(endpoint);
       const spent = activationPushes.get(account.publicKey);
       const runPushes = spent?.endpoint === operator && spent.rowSet === rowSet ? spent.pushes : 0;
+      // Before the exits below, so a lap that stops at one still records the operator and rows it saw.
+      activationPushes.set(account.publicKey, { endpoint: operator, rowSet, pushes: runPushes });
       if (runPushes >= SELF_HEAL_MAX_ATTEMPTS) {
         stamp();
         continue;

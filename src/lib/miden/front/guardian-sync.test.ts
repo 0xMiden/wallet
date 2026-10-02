@@ -1941,6 +1941,31 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       }
     });
 
+    it('reopens the push budget after a return when the other guardian never reached the heal (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        // Lit on the other guardian's lap's own clock, so that lap stops at the fused exit.
+        const [otherLap] = dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1);
+        const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(clocks.p0 + otherLap);
+        noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://other.guardian.test'));
+        perfSpy.mockRestore();
+        mockResolveGuardianEndpoint.mockResolvedValue('https://other.guardian.test');
+        await lapsAt(clocks, [otherLap]);
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        mockResolveGuardianEndpoint.mockResolvedValue('https://guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 2, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
     it('keeps a permanent refusal closed on a different guardian (#1233)', async () => {
       storeState.accounts = [pendingAccount];
       storeState.swapHotKey.mockRejectedValue(
