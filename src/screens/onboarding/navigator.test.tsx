@@ -694,6 +694,28 @@ describe('OnboardingFlow — progress computation', () => {
     expect(progress()).toHaveAttribute('data-current', '3');
   });
 
+  it('create flow on mobile shortens to 3 steps where the host skips the protection chooser', () => {
+    mockPlatform.isMobile = true;
+    renderFlow({
+      step: OnboardingStep.SetupPasscode,
+      onboardingType: OnboardingType.Create,
+      skipProtectionChoice: true
+    });
+    expect(progress()).toHaveAttribute('data-steps', '3');
+    expect(progress()).toHaveAttribute('data-current', '1');
+  });
+
+  it('a skipped protection chooser leaves the import flow at 4 steps', () => {
+    mockPlatform.isMobile = true;
+    renderFlow({
+      step: OnboardingStep.SetupPasscode,
+      onboardingType: OnboardingType.Import,
+      skipProtectionChoice: true
+    });
+    expect(progress()).toHaveAttribute('data-steps', '4');
+    expect(progress()).toHaveAttribute('data-current', '2');
+  });
+
   it('import flow keeps 4 steps and the mapped position', () => {
     renderFlow({ step: OnboardingStep.ImportFromSeed, onboardingType: OnboardingType.Import });
     expect(progress()).toHaveAttribute('data-steps', '4');

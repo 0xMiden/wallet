@@ -483,6 +483,7 @@ describe('Welcome — hash → step routing', () => {
 
   it('renders the ChooseProtection screen on mobile', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await setHash('#choose-protection');
     expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
@@ -1127,9 +1128,110 @@ describe('Welcome - the finishing mark around a tapped confirmation', () => {
   });
 });
 
+// Android 9 and 10 fail the hardware probe the vault's biometric protection reads, so a create there sets a passcode.
+describe("Welcome - the protection chooser follows the vault's hardware probe (#1311)", () => {
+  beforeEach(() => {
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(false);
+    mockTestNetworkKey = null;
+  });
+
+  // Lands where the last navigation went, and on through any redirect a route's guard makes there, as the router would.
+  async function followNavigation() {
+    for (let hop = 0; hop < 5; hop += 1) {
+      const target = mockNavigate.mock.calls.at(-1)?.[0];
+      if (typeof target !== 'string' || target.replace(/^\//, '') === mockHash) return;
+      await setHash(target.replace(/^\//, ''));
+    }
+  }
+
+  const pendingProbe = () => {
+    let answer: (available: boolean) => void = () => undefined;
+    mockBiometricHW.mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        answer = resolve;
+      })
+    );
+    return (available: boolean) =>
+      act(async () => {
+        answer(available);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+  };
+
+  it('starts a create on SetupPasscode, never ChooseProtection, where the probe answered false', async () => {
+    const steps: OnboardingStep[] = [];
+    mockOnFlowRender.current = props => steps.push(props.step);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await followNavigation();
+    expect(currentStep()).toBe(OnboardingStep.SetupPasscode);
+    expect(steps).not.toContain(OnboardingStep.ChooseProtection);
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(true);
+  });
+
+  it('redirects a direct #choose-protection to SetupPasscode where the probe answered false', async () => {
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#choose-protection');
+    await followNavigation();
+    expect(currentStep()).toBe(OnboardingStep.SetupPasscode);
+    expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+  });
+
+  it('holds #choose-protection while the probe is pending and shows the chooser once it passes', async () => {
+    const answerProbe = pendingProbe();
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#choose-protection');
+    expect(currentStep()).toBe(OnboardingStep.Welcome);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(false);
+
+    await answerProbe(true);
+    expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(false);
+  });
+
+  it('holds #choose-protection while the probe is pending and sends it to SetupPasscode once it fails', async () => {
+    const answerProbe = pendingProbe();
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#choose-protection');
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await answerProbe(false);
+    expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+    expect(currentStep()).not.toBe(OnboardingStep.ChooseProtection);
+  });
+
+  it('takes Back from SetupPasscode to Welcome where the probe answered false', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' }); // onboardingType = Create
+    await setHash('#setup-passcode');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#choose-protection');
+  });
+
+  it('still offers the chooser where the probe passed', async () => {
+    mockBiometricHW.mockResolvedValue(true);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await followNavigation();
+    expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(false);
+  });
+});
+
 describe('Welcome — onAction forward navigation', () => {
   it('choose-protection routes through the notice to the protection step', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
@@ -2880,6 +2982,7 @@ describe('Welcome — back navigation', () => {
 
   it('returns to Welcome from ChooseProtection', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await setHash('#choose-protection');
     expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
@@ -2890,6 +2993,7 @@ describe('Welcome — back navigation', () => {
 
   it('SetupBiometric back returns to ChooseProtection on mobile', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await setHash('#setup-biometric');
     mockNavigate.mockClear();
