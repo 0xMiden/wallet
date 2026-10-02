@@ -54,6 +54,7 @@
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { WalletType } from 'screens/onboarding/types';
 
 import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
@@ -389,6 +390,8 @@ const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
 };
 
 const makeService = () => ({
+  guardianEndpoint: 'https://guardian.test',
+  priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
   createSendProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createCustomProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
@@ -515,6 +518,8 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+  // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
+  clearGuardianAccountLocks();
 });
 
 describe('guardian leaf routing — flag OFF (inline)', () => {
@@ -843,6 +848,51 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
       const runsBefore = loopRuns();
       await jest.advanceTimersByTimeAsync(60_000);
+      expect(loopRuns()).toBe(runsBefore);
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('off-extension, a pending-delta requeue arms a wake a beat past its 15 s cooldown (#312)', async () => {
+    // Before #312 this arm armed no wake, so off-extension a 409 left the send to the generating screen's interval,
+    // which the user cancels by leaving the screen.
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      const { service } = arrange('off-send-busy-wake', row);
+      service.createSendProposal.mockRejectedValue({ status: 409, code: 'conflict_pending_delta' });
+
+      let settled = false;
+      void generateTransaction(
+        buildTx('off-send-busy-wake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      ).then(() => {
+        settled = true;
+      });
+      // One real event-loop turn with the clock held: the requeue needs no timer, while an in-process 409 retry
+      // sleeps on one, so that regression fails here rather than hanging the test.
+      await jest.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(true);
+
+      expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+      const stored = txStore.find(r => r.id === 'off-send-busy-wake');
+      expect(stored?.status).toBe(ITransactionStatus.Queued);
+      expect(stored?.guardianBusy).toBe(true);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(15_000);
       expect(loopRuns()).toBe(runsBefore);
 
       await jest.advanceTimersByTimeAsync(1_000);

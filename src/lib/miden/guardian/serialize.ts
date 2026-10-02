@@ -11,10 +11,11 @@
  * "stuck claim" hangs under concurrent load (see OpenZeppelin/guardian#303).
  *
  * Fix: (1) serialize guardian transactions per account so at most one is ever
- * in flight, (2) before a value-moving proposal, ask the guardian whether the
- * candidate this realm's previous write left there has settled, and requeue the
- * row while it has not (#312), and (3) for a structural proposal that still
- * conflicts, wait it out in process instead of failing the transaction.
+ * in flight, (2) before a send, consume, swap, earn-deposit or execute proposal,
+ * ask the guardian whether the candidate this realm's previous write left there
+ * has settled, and requeue the row while it has not (#312), and (3) for a
+ * structural proposal or an Epoch bridged send that still conflicts, wait it out
+ * in process instead of failing the transaction.
  */
 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -251,8 +252,8 @@ interface ConflictRetryOptions {
  * ticks ~every 10s, so a prior delta typically finalizes within a handful of
  * ticks; retrying with backoff lets the next proposal land instead of failing
  * the transaction. Non-409 errors (and paused-account 409s) propagate immediately.
- * Only structural proposals and the Epoch bridged send still use it: a
- * value-moving proposal requeues on a 409 instead (#312).
+ * Only structural proposals and the Epoch bridged send still use it: a send,
+ * consume, swap, earn-deposit or execute proposal requeues on a 409 instead (#312).
  */
 export async function withGuardianConflictRetry<T>(fn: () => Promise<T>, opts: ConflictRetryOptions = {}): Promise<T> {
   const maxAttempts = opts.maxAttempts ?? 12;
