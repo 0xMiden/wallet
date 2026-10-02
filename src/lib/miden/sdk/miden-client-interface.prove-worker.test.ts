@@ -270,6 +270,25 @@ describe('a trap is not a prover failure', () => {
   });
 });
 
+describe('remoteProver transport deadline (#473)', () => {
+  afterEach(() => {
+    jest.dontMock('lib/platform');
+  });
+
+  it.each<[string, boolean, number]>([
+    ['on mobile it is the 120 s delegated deadline', true, 120_000],
+    ['on the extension and desktop it is the 120 s delegated deadline', false, 120_000]
+  ])('%s', async (_platform, mobile, deadlineMs) => {
+    jest.doMock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => mobile }));
+    const newRemoteProver = jest.fn(() => 'remote');
+    installMocks(buildHarness(), { proverUrl: 'https://prover.example', newRemoteProver });
+    const { remoteProver } = await import('./miden-client-interface');
+
+    expect(remoteProver()).toBe('remote');
+    expect(newRemoteProver).toHaveBeenCalledWith('https://prover.example', BigInt(deadlineMs));
+  });
+});
+
 describe('send (site 5)', () => {
   it('a local attempt proves in the worker, then submits the proof and applies it', async () => {
     const harness = buildHarness();

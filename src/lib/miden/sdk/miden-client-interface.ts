@@ -44,6 +44,7 @@ import {
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { reportProve } from 'lib/telemetry/report-operation';
@@ -1825,15 +1826,27 @@ export class MidenClientInterface {
     // default-prover fallback, which needs an initialized client and so never dispatched in the
     // offscreen realm, where an earn deposit sat forever with the WASM mutex held while the remote
     // prover logged no request at all (#718).
-    const inRealmProver = prover ?? remoteProver();
     // Only the delegated prove is bounded: it has no deadline of its own, so a remote prover that
     // never answers parks the write with the mutex held and starves sync (#718). Bounding it is safe
     // because it precedes `markSubmitting()`: the fallback re-proves locally rather than submitting
-    // twice. The #775 watchdog pause covers the local attempt (a passthrough when delegated).
-    const proven = await attempt.pauseWatchdogForLocalProve(() => {
-      const proving = executed.prove(inRealmProver ? { prover: inRealmProver } : {});
-      return prover === undefined ? withDelegatedProveTimeout(proving, `Delegated ${write} prove`) : proving;
-    });
+    // twice, and a remote re-prove after a freeze is just as pre-submit (#473). The #775 watchdog
+    // pause covers the local attempt (a passthrough when delegated).
+    const proven = await attempt.pauseWatchdogForLocalProve(() =>
+      prover === undefined
+        ? proveDelegated(
+            remote => executed.prove(remote ? { prover: remote } : {}),
+            `Delegated ${write} prove`,
+            () => {
+              if (attempt.evicted()) {
+                throw new WasmClientPoisonedError(
+                  'watchdog',
+                  new Error(`operation abandoned before the ${write} remote re-prove`)
+                );
+              }
+            }
+          )
+        : executed.prove({ prover })
+    );
     recordProveTiming(`${write} staged: prove returned; submitting`);
     await onStage?.('submitting');
     // The prove and the stage stamp both park, and an eviction during either hands the client to a
@@ -2042,24 +2055,61 @@ export const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
  * Timing out abandons only the RESPONSE — the request itself cannot be cancelled — so
  * every call site must be one where re-running the work cannot move funds twice. See each
  * caller for why it qualifies.
+ *
+ * The budget is RUNNING time (#473): monotonic time minus the stretches the platform froze
+ * our JS, `performance.now()` off mobile. A plain timer expired on resume from a freeze and
+ * threw away a remote proof that may have arrived during it, for a full local re-prove. The
+ * transport deadline `remoteProver` gives the SDK equals this budget; that one is a plain
+ * timer a freeze can still expire, which is what {@link proveDelegated} answers.
  */
 export function withDelegatedProveTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
+    const cancel = setRunningTimeout(
       () => reject(new Error(`${label} timed out after ${DELEGATED_PROVE_TIMEOUT_MS}ms waiting for the remote prover`)),
       DELEGATED_PROVE_TIMEOUT_MS
     );
     promise.then(
       value => {
-        clearTimeout(timer);
+        cancel();
         resolve(value);
       },
       error => {
-        clearTimeout(timer);
+        cancel();
         reject(error);
       }
     );
   });
+}
+
+/**
+ * Run one delegated prove under {@link withDelegatedProveTimeout}, and re-prove it remotely
+ * once when the platform froze our JS while it was in flight (#473).
+ *
+ * The SDK's transport deadline is a plain JS timer inside the wasm client, so a freeze that
+ * outlasts it fails the request on resume although the prover may well have answered. That
+ * is no prover failure, and the local fallback would cost a full on-device prove, so an
+ * attempt that fails with frozen time behind it gets exactly one more attempt with a fresh
+ * remote prover under a fresh deadline. `beforeRetry` runs first and throws when the hold
+ * the prove runs under is gone. A trap is never retried: it belongs to the lock. The retry's
+ * failure, and every other one, propagates to the caller's local fallback.
+ *
+ * Re-proving is safe for the reason the local fallback is: the executed transaction is
+ * borrowed and only the prover is consumed, and every caller proves before it submits.
+ */
+export async function proveDelegated<T>(
+  prove: (prover: TransactionProver | undefined) => Promise<T>,
+  label: string,
+  beforeRetry: () => void
+): Promise<T> {
+  const frozenAtStart = frozenMs();
+  try {
+    return await withDelegatedProveTimeout(prove(remoteProver()), label);
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError || frozenMs() <= frozenAtStart) throw error;
+    console.warn(`[${label}] failed across a frozen stretch; retrying the remote prover once`, error);
+    beforeRetry();
+    return await withDelegatedProveTimeout(prove(remoteProver()), label);
+  }
 }
 
 /**
@@ -2174,9 +2224,11 @@ export function remoteProver(): TransactionProver | undefined {
     // `DeadlineExceeded: Request timed out`, and the caller then re-proves on the
     // deliberately unbounded LOCAL prover while holding the offscreen WASM mutex —
     // turning a proof that was seconds from finishing into a wedged claim (#718).
-    // Aligned with `DELEGATED_PROVE_TIMEOUT_MS` so the transport deadline and our
-    // own ceiling agree, leaving `withDelegatedProveTimeout` as the outer bound
-    // against a prover that stops answering entirely.
+    // It is `DELEGATED_PROVE_TIMEOUT_MS` on every platform, so a remote prove that stops
+    // answering leaves the SDK's per-client `_serializeWasmCall` chain within the same
+    // 120 s our own deadline gives up at, and no fallback queues behind it. On mobile
+    // this is a plain JS timer that a freeze can expire on resume; `proveDelegated`
+    // re-proves such an attempt remotely once (#473).
     return TransactionProver.newRemoteProver(endpoint, BigInt(DELEGATED_PROVE_TIMEOUT_MS));
   } catch (error) {
     // A trap is not a construction failure: it goes to the lock this runs under.

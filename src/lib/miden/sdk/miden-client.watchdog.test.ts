@@ -6,6 +6,8 @@
  * follow. Fake timers throughout — the watchdog ceiling is 5 minutes.
  */
 import { isLockedError } from 'lib/miden/transaction/helper';
+import { __resetBackgroundTimeForTest, initBackgroundTimeTracking } from 'lib/mobile/background-time';
+import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import {
   __resetRecoveryCooldownForTests,
@@ -22,6 +24,7 @@ import {
   isWasmClientPoisonedError,
   poisonReasonOf,
   WASM_LOCK_MIN_WATCHDOG_MS,
+  WASM_LOCK_PAUSED_WATCHDOG_MS,
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WASM_LOCK_WATCHDOG_MS,
   WasmClientPoisonedError
@@ -1177,6 +1180,207 @@ describe('watchdog pause and yield', () => {
     await expect(withWasmClientLock(async () => 'a')).resolves.toBe('a');
     await expect(tryWithWasmClientLock(async () => 'b')).resolves.toEqual({ ran: true, value: 'b' });
     expect(isWasmClientBusy()).toBe(false);
+  });
+});
+
+describe('watchdog counts running time only (#473)', () => {
+  let doc: HiddenDocument;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    __resetRecoveryCooldownForTests();
+    __resetBackgroundTimeForTest();
+    doc = installHiddenDocument();
+    initBackgroundTimeTracking();
+  });
+
+  afterEach(() => {
+    // Left installed, the tracker's pulse and frozen total would carry into every later suite.
+    __resetBackgroundTimeForTest();
+    doc.restore();
+    jest.useRealTimers();
+  });
+
+  it('a hold across a 400 s freeze is not evicted on resume', async () => {
+    const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(5_000);
+    doc.setHidden(true);
+    // The 300 s timer comes due inside the freeze.
+    doc.freezeFor(400_000);
+    doc.setHidden(false);
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(isWasmClientBusy()).toBe(true);
+
+    // Still bounded: evicted once its running time, 10 s visible and 5 s of pulse
+    // slack so far, reaches the ceiling.
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 15_000 - 1);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('a hold with 15 s left across a 20 s freeze is not evicted on resume', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+      const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+      await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 15_000);
+      doc.setHidden(true);
+      // 15 s of it is frozen; the 5 s of pulse slack is charged, so 10 s are left.
+      doc.freezeFor(20_000);
+      doc.setHidden(false);
+      expect(isWasmClientBusy()).toBe(true);
+
+      await jest.advanceTimersByTimeAsync(9_999);
+      expect(isWasmClientBusy()).toBe(true);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(isWasmClientBusy()).toBe(false);
+      await wedgedRejects;
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('logs a re-arm after a freeze once, with the hold and the running time left', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const wedged = withWasmClientLock(() => new Promise<never>(() => {}), { label: 'frozen-hold' });
+      const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      doc.setHidden(true);
+      doc.freezeFor(400_000);
+      doc.setHidden(false);
+      // 5 s visible and 5 s of pulse slack are spent.
+      expect(warnSpy).toHaveBeenCalledWith('[miden-client] watchdog re-armed after a frozen stretch:', {
+        hold: 'frozen-hold',
+        leftMs: 290_000
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(289_999);
+      expect(isWasmClientBusy()).toBe(true);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(isWasmClientBusy()).toBe(false);
+      await wedgedRejects;
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('a hold that wedges while hidden with JS running is evicted on running time, still hidden', async () => {
+    const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    doc.setHidden(true);
+
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 1);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(isWasmClientBusy()).toBe(false);
+    expect(document.hidden).toBe(true);
+    await wedgedRejects;
+  });
+
+  it('a hold that runs 300 s visible is evicted', async () => {
+    const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_WATCHDOG_MS - 1);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('a paused hold is not charged for a freeze either', async () => {
+    const wedged = withWasmClientLock(async () => {
+      await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}));
+    });
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(0);
+    doc.setHidden(true);
+    // Past the 30 min paused ceiling on the monotonic clock, all but one pulse of it frozen.
+    doc.freezeFor(2_400_000);
+    doc.setHidden(false);
+    expect(isWasmClientBusy()).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 5_000 - 1);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('a yielded wait that never settles is not evicted across a freeze longer than its ceiling', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      let outcome: unknown = 'pending';
+      withWasmClientLock(hold => yieldWasmClientLock(() => new Promise<never>(() => {}), hold), {
+        label: 'frozen-yield'
+      }).then(
+        () => {
+          outcome = 'resolved';
+        },
+        (error: unknown) => {
+          outcome = error;
+        }
+      );
+
+      // The hold yields at once, arming the yield watchdog at the 30 min relaxed ceiling.
+      await jest.advanceTimersByTimeAsync(0);
+      doc.setHidden(true);
+      doc.freezeFor(WASM_LOCK_PAUSED_WATCHDOG_MS + 600_000);
+      doc.setHidden(false);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(outcome).toBe('pending');
+      // All but one pulse of the freeze is frozen, so 5 s of the ceiling are spent.
+      expect(warnSpy).toHaveBeenCalledWith('[miden-client] yield watchdog re-armed after a frozen stretch:', {
+        hold: 'frozen-yield',
+        leftMs: WASM_LOCK_PAUSED_WATCHDOG_MS - 5_000
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(WASM_LOCK_PAUSED_WATCHDOG_MS - 5_000 - 1);
+      expect(outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome).toMatchObject({
+        name: 'WasmClientPoisonedError',
+        reason: 'watchdog',
+        cause: { message: 'yielded WASM lock wait never settled' }
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('a hold that ends after its watchdog re-armed leaves no timer behind', async () => {
+    let finish!: () => void;
+    const held = withWasmClientLock(
+      () =>
+        new Promise<void>(resolve => {
+          finish = resolve;
+        })
+    );
+
+    // The hold, and its watchdog, start only once the mutex acquire settles.
+    await jest.advanceTimersByTimeAsync(0);
+    doc.setHidden(true);
+    doc.freezeFor(400_000);
+    doc.setHidden(false);
+    finish();
+    await held;
+
+    expect(isWasmClientBusy()).toBe(false);
+    expect(jest.getTimerCount()).toBe(0);
   });
 });
 
