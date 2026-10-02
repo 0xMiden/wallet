@@ -45,10 +45,11 @@ import { isMobile } from 'lib/platform';
 export const GUARDIAN_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
- * A Guardian request the boundary cut off at its deadline. The transaction loop
- * recognizes it by `name` through a cause chain (`isGuardianRequestTimeout` in
- * ./serialize). Its message says "timed out", so the other Guardian error checks
- * read it as an unreachable Guardian.
+ * A Guardian request the boundary cut off at its deadline. `isGuardianOutage`,
+ * which the transaction loop's unreachable arm and its failure copy read, and
+ * guardian-sync recognize it by `name` through a cause chain
+ * (`isGuardianRequestTimeout` in ./serialize). Its message says "timed out", so
+ * the other Guardian error checks read it as an unreachable Guardian.
  */
 export class GuardianRequestTimeoutError extends Error {
   constructor(
