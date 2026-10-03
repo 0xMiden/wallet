@@ -401,6 +401,34 @@ describe('reconcileEarnDeposits', () => {
     warning.mockRestore();
   });
 
+  it('keeps a deposit pending while the bridge config cannot build the SDK, and settles once it can', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    wireRows([depositRow()]);
+    const getIntentStatus = jest
+      .fn()
+      .mockResolvedValue([{ chainId: SEPOLIA, status: 'completed', transactionHash: '0xdest' }]);
+    const d = {
+      ...deps(),
+      getSdk: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('bridge config unavailable'))
+        .mockResolvedValue({ getIntentStatus })
+    };
+
+    await reconcileEarnDeposits(d);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(d.updateStatus).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(3000);
+    expect(d.updateStatus).toHaveBeenCalledWith(
+      'TX1',
+      'confirmed',
+      { evmTxHash: '0xdest' },
+      { owner: SPONSOR, nonce: 'N1' }
+    );
+    warning.mockRestore();
+  });
+
   it('starts another identity while the first status request never resolves', async () => {
     wireRows([
       depositRow({ id: 'PARKED' }),

@@ -1,4 +1,5 @@
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from 'lib/epoch/intent-status';
+import { getEpochReadOnlySdk } from 'lib/epoch/sdk';
 import * as Repo from 'lib/miden/repo';
 
 import { BridgeReceiveLockManager, createBridgeReceiveReconciler, reconcileBridgedReceives } from './bridge-receive';
@@ -41,6 +42,8 @@ jest.mock('lib/epoch/sdk', () => ({
     getIntentStatus: (...args: unknown[]) => getIntentStatus(...args)
   }))
 }));
+// A value no real chain uses, so a hardcoded virtual id in bridge-receive cannot pass for the shared one.
+jest.mock('lib/epoch/config', () => ({ MIDEN_DESTINATION_CHAIN_ID: 4242 }));
 jest.mock('../transaction/complete', () => ({
   updateBridgedReceivePhase: (...args: unknown[]) => updatePhase(...args)
 }));
@@ -311,7 +314,7 @@ describe('reconcileBridgedReceives', () => {
   it('resolves a reported Miden note id and fails the row when the Miden leg failed', async () => {
     getIntentStatus.mockResolvedValue([
       { chainId: 11155111, status: 'FILLED', notAString: 5 },
-      { chainId: 999999999, status: 'FAILED', midenNoteId: '  0xnote-1  ' }
+      { chainId: 4242, status: 'FAILED', midenNoteId: '  0xnote-1  ' }
     ]);
     rows.push({
       id: 'epoch-failed-leg',
@@ -331,6 +334,25 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith('epoch-failed-leg', 'failed', {
       error: 'The Epoch bridge intent failed.'
     });
+  });
+
+  it('reads the Miden leg by the shared virtual chain id, not a copy of it', async () => {
+    getIntentStatus.mockResolvedValue([{ chainId: 999999999, status: 'FAILED' }]);
+    rows.push({
+      id: 'epoch-other-leg',
+      type: 'bridged-receive',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: {
+        provider: 'epoch',
+        phase: 'delivering',
+        sourceAddress: '0x1111111111111111111111111111111111111111',
+        intentNonce: 'nonce-5'
+      }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
   });
 
   it('keeps reconciling later rows when one row fails, and names the failing row', async () => {
@@ -472,6 +494,32 @@ describe('reconcileBridgedReceives', () => {
 
     expect(registerBridgeIn).toHaveBeenCalled();
     expect(updatePhase).not.toHaveBeenCalled();
+  });
+  it('keeps an Epoch row pending while the bridge config cannot build the SDK', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    jest.mocked(getEpochReadOnlySdk).mockRejectedValueOnce(new Error('bridge config unavailable'));
+    rows.push({
+      id: 'epoch-unconfigured',
+      type: 'bridged-receive',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: {
+        provider: 'epoch',
+        phase: 'delivering',
+        sourceAddress: '0x1111111111111111111111111111111111111111',
+        intentNonce: 'nonce-6'
+      }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(registerBridgeIn).toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[bridge-receive] Epoch reconcile poll failed',
+      'epoch-unconfigured',
+      expect.any(Error)
+    );
+    warn.mockRestore();
   });
 });
 

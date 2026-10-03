@@ -10,6 +10,7 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { requireEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -48,7 +49,10 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 }));
 jest.mock('./bridge', () => ({ normalizeMidenIdToHex: (v: string) => v }));
 jest.mock('./bridgeable-token', () => ({ BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS: 6 }));
-jest.mock('./config', () => ({ EPOCH_ALLOCATOR_URL: 'http://alloc', MIDEN_DESTINATION_CHAIN_ID: 999999999 }));
+jest.mock('./config', () => ({ MIDEN_DESTINATION_CHAIN_ID: 999999999 }));
+jest.mock('lib/remote-config/values', () =>
+  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+);
 interface MockLeg {
   chainId?: number;
   status?: string;
@@ -211,6 +215,14 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     await expect(
       gaslessEarnWithdrawalToMiden({ ...validArgs(), evmAddress: 'not-an-address' }, deps)
     ).rejects.toThrow();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('refuses before creating any row while the config names no allocator', async () => {
+    jest.mocked(requireEpochAllocatorUrl).mockRejectedValueOnce(new Error('no allocator'));
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
+
+    await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow('no allocator');
     expect(deps.initiateRow).not.toHaveBeenCalled();
   });
 

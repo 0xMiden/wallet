@@ -21,10 +21,11 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { requireEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from './bridgeable-token';
-import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
+import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { EARN_PROTOCOL_HASH, EARN_UNDERLYING, resolveEarnIntentOutcome } from './earn';
 import { tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
 import {
@@ -162,6 +163,8 @@ export async function gaslessEarnWithdrawalToMiden(
   if (chainId !== sepolia.id) throw new Error('Gasless withdrawal currently supports Sepolia only.');
   const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
+  // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
+  const apiBaseUrl = await requireEpochAllocatorUrl();
 
   const initiateRow = deps.initiateRow ?? initiateEarnWithdrawTransaction;
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
@@ -216,9 +219,7 @@ export async function gaslessEarnWithdrawalToMiden(
       await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
       assertCurrent();
       const walletClient = buildVaultEvmWalletClient(args.midenAccountPublicKey, sponsorAddress);
-      const sdk =
-        deps.sdk ??
-        new EpochIntentSDK({ apiBaseUrl: EPOCH_ALLOCATOR_URL, walletClient, allowGaslessSmartAccount: true });
+      const sdk = deps.sdk ?? new EpochIntentSDK({ apiBaseUrl, walletClient, allowGaslessSmartAccount: true });
       const status = await sdk.getWalletGaslessStatus(chainId);
       assertCurrent();
       if (!status.is7702Capable) throw new Error('Wallet/chain is not 7702-capable for a gasless withdrawal.');
