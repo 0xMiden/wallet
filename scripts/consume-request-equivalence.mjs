@@ -7,6 +7,9 @@ import { MockWebClient, getWrappedSdk } from '@miden-sdk/miden-sdk';
 
 const sdk = getWrappedSdk();
 
+// Two, so the requests compared are the multi-note shape Claim All sends.
+const MINTED_NOTES = 2;
+
 // Node order is ignored because the native build's HashMap writes each request's MerkleStore (the 255 empty-subtree
 // nodes) in a random order, so two identical requests are never byte-equal; every other byte is compared in place.
 // The store is a u64 LE count, then count x 96-byte (key, left, right) words, and an empty-subtree node has
@@ -47,6 +50,14 @@ async function inputNotesOf(client, accountId) {
     const input = await client.getInputNote(record.inputNoteRecord().id().toString());
     notes.push(input.toNote());
   }
+  // With no notes both sides build the same empty request, so a run without the minted notes would pass and prove
+  // nothing.
+  if (notes.length !== MINTED_NOTES) {
+    console.error(
+      `GATE BROKEN: the mock chain gave ${notes.length} consumable notes, not ${MINTED_NOTES}, so the comparison would prove nothing.`
+    );
+    process.exit(2);
+  }
   return notes;
 }
 
@@ -62,9 +73,11 @@ async function main() {
     1_000_000n,
     sdk.AuthScheme.AuthRpoFalcon512
   );
-  const mint = await client.newMintTransactionRequest(wallet.id(), faucet.id(), sdk.NoteType.Public, 1_000n);
-  await client.submitNewTransaction(faucet.id(), mint);
-  await client.proveBlock();
+  for (let i = 0; i < MINTED_NOTES; i++) {
+    const mint = await client.newMintTransactionRequest(wallet.id(), faucet.id(), sdk.NoteType.Public, 1_000n);
+    await client.submitNewTransaction(faucet.id(), mint);
+    await client.proveBlock();
+  }
   await client.syncState();
 
   const fromSdk = await client.newConsumeTransactionRequest(await inputNotesOf(client, wallet.id()), wallet.id());
