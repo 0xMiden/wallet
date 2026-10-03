@@ -452,7 +452,7 @@ describe('storage utilities', () => {
         callback: (lock: object | null) => T
       ): Promise<Awaited<T>> {
         this.requests.push({ name, ...options });
-        if (options.ifAvailable && this.held.has(name)) return callback(null);
+        if (options.ifAvailable && this.held.has(name)) return await callback(null);
         if (this.held.has(name)) {
           await new Promise<void>((resolve, reject) => {
             const waiters = this.queue.get(name) ?? [];

@@ -8,7 +8,7 @@ import { __resetClaimChecksForTest, useClaimCheckInvalidNoteIds, useClaimNotes }
 // the re-run behaviour (#456) without the SDK or IndexedDB.
 
 const mockGetFailedTransactions = jest.fn();
-const mockGetUnconfirmedTransactions = jest.fn(async (): Promise<unknown[]> => []);
+const mockGetUnconfirmedTransactions = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => []);
 const mockGetInputNoteDetails = jest.fn();
 const mockInitiateConsume = jest.fn();
 

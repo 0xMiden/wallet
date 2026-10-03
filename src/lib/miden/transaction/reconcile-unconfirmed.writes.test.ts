@@ -1,5 +1,6 @@
 // Real Dexie: every write here is a guarded modify or a rw transaction, so stubbing the store would test nothing.
 import * as Repo from 'lib/miden/repo';
+import { NoteTypeEnum } from 'lib/miden/types';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import { AccountState, NodeReads } from './reconcile-reads';
@@ -74,7 +75,7 @@ const unconfirmed = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   completedAt: NOW - 100,
   error: 'sdk said no definite outcome',
   mayHaveSubmitted: true,
-  noteType: 'public',
+  noteType: NoteTypeEnum.Public,
   displayIcon: 'SEND',
   submitEvidence: [entry()],
   ...overrides
@@ -120,7 +121,7 @@ describe('the landed write (#1081)', () => {
   });
 
   it('marks a private send undelivered', async () => {
-    await Repo.transactions.put(unconfirmed({ noteType: 'private' }));
+    await Repo.transactions.put(unconfirmed({ noteType: NoteTypeEnum.Private }));
     await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
     expect((await read())?.noteDelivery).toBe('undelivered');
   });
@@ -135,7 +136,7 @@ describe('the landed write (#1081)', () => {
     ['confirmed', 'confirmed', 'Sent']
   ])('a landed private send recorded as %s ends %s', async (recorded, delivery, label) => {
     await Repo.transactions.put(
-      unconfirmed({ status: ITransactionStatus.Failed, noteType: 'private', noteDelivery: recorded })
+      unconfirmed({ status: ITransactionStatus.Failed, noteType: NoteTypeEnum.Private, noteDelivery: recorded })
     );
     await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
     expect(await read()).toMatchObject({
