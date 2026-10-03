@@ -168,7 +168,10 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
   e2eAgglayerSenderOverride = senderAccountId;
 }
 
-/** How long a deposit waits for its delivery: the reconciler times out an unsettled tracker past it, and no delivery adopts an older one. */
+/**
+ * How long a deposit waits for its delivery: the reconciler times out an unsettled tracker past it, and no
+ * delivery adopts an older one.
+ */
 export const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** What the bridge delivers for a deposit tracked in wei: the faucet's registry scale, floored (#1326). */
