@@ -398,8 +398,10 @@ const planRequeue = async (
   const nowSec = nowSeconds();
   let proven = tx.neverCommittedAt !== undefined;
   let baseline = evidenceKey(tx.submitEvidence);
+  let checked = false;
   if (!proven && awaitingVerdict(tx, nowSec)) {
     const check = await checkEvidenceForRetry(tx);
+    checked = true;
     if (check.kind === 'landed') return undefined;
     // The row may already have landed, and a candidate note can still prove to be a sibling's: it must not reach the
     // acknowledgeable refusal below, where a plain send could pay twice.
@@ -461,7 +463,10 @@ const planRequeue = async (
   if (!proven && (sendOrSwapInDoubt || executeInDoubt)) {
     const attemptId = tx.attemptId ?? null;
     if (acknowledged === undefined || acknowledged.attemptId !== attemptId) {
-      throw new UnverifiableSendRetryError(acknowledgeableCopy(tx, nowSec), attemptId);
+      // The copy only: the check may have just ended the reconciler's interest (an 'unresolvable' verdict), and the
+      // refusal must not say the wallet is still checking a row whose hint says it is not.
+      const asLeft = checked ? ((await Repo.transactions.where({ id: tx.id }).first()) ?? tx) : tx;
+      throw new UnverifiableSendRetryError(acknowledgeableCopy(asLeft, nowSeconds()), attemptId);
     }
     clearFlags = true;
   }

@@ -475,4 +475,15 @@ describe('the refusal copy (#1081)', () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [entry({ verdict: 'unresolvable' })] }));
     expect(await refusal()).toHaveProperty('message', RETRY_REFUSAL_COPY.sendStopped);
   });
+
+  it('reads the row as the tap-time check left it: a check that just stopped the reconciler gives the stopped copy', async () => {
+    // Past the initial nonce with no proof either way (7 is not 5 + 1, so not superseded), so the check marks the only
+    // checkable entry 'unresolvable'.
+    mockNode.current = node({ blockNum: 150, commitment: OTHER, nonce: '7' });
+    await Repo.transactions.put(unconfirmedSend());
+    const error = await refusal();
+    expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.sendStopped);
+    expect(acknowledgementOf(error)).toEqual({ attemptId: 'a1' });
+    expect((await read())?.submitEvidence?.[0]?.verdict).toBe('unresolvable');
+  });
 });

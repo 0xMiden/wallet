@@ -126,10 +126,9 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     expect(row.displayMessage).toBe('Completed earlier');
   });
 
-  it('resubmits (requeues) an execute the node cannot confirm — it replays identical requestBytes', async () => {
-    // `execute` is NOT a rebuilt-request type: a duplicate submit re-creates the
-    // IDENTICAL note, which the node rejects, so an unconfirmable outcome may
-    // still be replayed. (For send/swap it may not — see the backstop below.)
+  it('requeues an execute the node cannot confirm whose run left no entry: that run ended before its submit', async () => {
+    // A run that may have crossed its submit always leaves an entry (#1081), so a row with an attempt id and none
+    // is not in doubt. (A send or swap here may not be replayed: see the backstop below.)
     const row = failedRow({ type: 'execute', transactionId: 'abc123' });
     wireRow(row);
     mockVerifySendLanded.mockResolvedValue('unknown');
