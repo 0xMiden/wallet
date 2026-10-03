@@ -3,7 +3,7 @@ import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
-import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
 import { selectNativeEthFaucet } from 'lib/remote-config/values';
 
 import { compareAccountIds } from './utils';
@@ -177,6 +177,8 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
  */
 async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
   if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
+  // A consume can land before this realm hydrated the config; from storage, never the network.
+  await initBridgeConfig();
   const faucet = selectNativeEthFaucet(getBridgeConfigSnapshot());
   if (!faucet) return false;
   try {

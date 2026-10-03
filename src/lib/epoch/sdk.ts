@@ -4,6 +4,7 @@ import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitAccount } from '@reown/appkit/react';
 import { sepolia } from 'viem/chains';
 
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, getEvmConnection } from './client';
@@ -11,7 +12,8 @@ import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { buildVaultEvmWalletClient } from './evm-account';
 
 // An instance is reused only for the allocator it was built with, so a config that moves the allocator is picked up
-// by the next call instead of reaching the old host.
+// by the next call instead of reaching the old host. Reconcile watchers, fill polls and withdrawals build one without a
+// user action, possibly before this realm hydrated the config, so each build first awaits that (never the network).
 type SdkCache = { address: string; chainId: number; apiBaseUrl: string; sdk: EpochIntentSDK };
 
 let defaultCache: SdkCache | null = null;
@@ -42,6 +44,7 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
     midenCache = null;
     return null;
   }
+  await initBridgeConfig();
   const apiBaseUrl = getEpochAllocatorUrl();
   const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : sepolia.id;
   const slot = opts?.forMidenFlow ? midenCache : defaultCache;
@@ -70,6 +73,7 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
  * recipient address. Caches one instance per destination.
  */
 export async function getEpochReadOnlySdk(destinationAddress: `0x${string}`): Promise<EpochIntentSDK> {
+  await initBridgeConfig();
   const apiBaseUrl = getEpochAllocatorUrl();
   const chainId = MIDEN_DESTINATION_CHAIN_ID;
   const cached = readOnlyCache;
@@ -96,6 +100,7 @@ export async function getEpochSigningSdk(
   midenAccountPublicKey: string,
   evmAddress: `0x${string}`
 ): Promise<EpochIntentSDK> {
+  await initBridgeConfig();
   const apiBaseUrl = getEpochAllocatorUrl();
   const cached = signingCache;
   if (cached?.address === evmAddress && cached.chainId === sepolia.id && cached.apiBaseUrl === apiBaseUrl) {

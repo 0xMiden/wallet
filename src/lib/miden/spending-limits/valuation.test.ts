@@ -5,6 +5,7 @@ import {
 import { _setSwapTokensForTest, TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSDT } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getPriceMicro } from 'lib/prices/usd';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 
 import { fetchTokenMetadata } from '../metadata';
 import { SpendingLimitPriceUnavailableError } from './types';
@@ -12,6 +13,7 @@ import { resolveSpendsUsd, usdMicroFromAmount } from './valuation';
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: jest.fn(() => Promise.resolve()) }));
 jest.mock('lib/prices/usd', () => ({
   ...jest.requireActual('lib/prices/usd'),
   getPriceMicro: jest.fn()
@@ -72,6 +74,26 @@ describe('usdMicroFromAmount', () => {
 });
 
 describe('resolveSpendsUsd', () => {
+  it('waits for this realm to hydrate the bridge config before it identifies or prices a spend', async () => {
+    let hydrated: () => void = () => undefined;
+    jest.mocked(initBridgeConfig).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          hydrated = () =>
+            resolve({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null });
+        })
+    );
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+    mockedPrice.mockResolvedValue(1_000_000n);
+
+    const valued = resolveSpendsUsd([{ faucetId: MIDEN_USDC_FAUCET, amount: 25_000_000n }], 10);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockedMetadata).not.toHaveBeenCalled();
+    hydrated();
+
+    await expect(valued).resolves.toBe(25_000_000n);
+  });
+
   it('values a covered asset', async () => {
     mockedMetadata.mockResolvedValue(base('USDC', 6));
     mockedPrice.mockResolvedValue(1_000_000n);

@@ -1,3 +1,4 @@
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { selectNativeEthFaucet } from 'lib/remote-config/values';
 
 import {
@@ -36,7 +37,10 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
 });
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH' }));
 // The delivery sender is the registry's native-ETH faucet (hex); the consume reads its sender in bech32.
-jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: jest.fn(() => ({})) }));
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: jest.fn(() => ({})),
+  initBridgeConfig: jest.fn(async () => ({}))
+}));
 jest.mock('lib/remote-config/values', () => ({ selectNativeEthFaucet: jest.fn(() => '0xagg') }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: (ref: string) => ({ toString: () => (ref === 'agg-sender' ? '0xAGG' : `0x${ref}`) })
@@ -130,6 +134,24 @@ describe('resolveBridgeInNoteId', () => {
 });
 
 describe('takeAgglayerBridgeInInfo', () => {
+  it('reads the delivery sender only once this realm has hydrated the bridge config', async () => {
+    let hydrated: () => void = () => undefined;
+    jest.mocked(initBridgeConfig).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          hydrated = () =>
+            resolve({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null });
+        })
+    );
+    jest.mocked(selectNativeEthFaucet).mockClear();
+    const taken = takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(selectNativeEthFaucet).not.toHaveBeenCalled();
+    hydrated();
+    await expect(taken).resolves.toBeUndefined();
+    expect(selectNativeEthFaucet).toHaveBeenCalled();
+  });
+
   it('matches sender, recipient and amount and selects the oldest pending row', async () => {
     mockTransactions.push(
       {

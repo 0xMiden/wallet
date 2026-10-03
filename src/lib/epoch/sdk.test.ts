@@ -1,8 +1,10 @@
 import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
-import { ensureEpochSmartAccount, getEpochReadOnlySdk, resetEpochSdk } from './sdk';
+import { getEvmConnection } from './client';
+import { ensureEpochSmartAccount, getEpochReadOnlySdk, getEpochSdk, getEpochSigningSdk, resetEpochSdk } from './sdk';
 import { TEST_ALLOCATOR_URL } from './testing/bridge-config';
 
 const mockGetWalletGaslessStatus = jest.fn();
@@ -15,6 +17,7 @@ jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
     convertToSmartAccount: (...args: unknown[]) => mockConvertToSmartAccount(...args)
   }))
 }));
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: jest.fn(() => Promise.resolve()) }));
 jest.mock('lib/remote-config/values', () =>
   jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
 );
@@ -96,6 +99,29 @@ describe('the configured allocator', () => {
     jest.mocked(getEpochAllocatorUrl).mockReturnValue('https://moved.test');
     expect(await getEpochReadOnlySdk(EVM_ADDRESS)).not.toBe(first);
     expect(allocators()).toEqual([TEST_ALLOCATOR_URL, 'https://moved.test']);
+  });
+
+  it.each([
+    ['the read-only SDK', () => getEpochReadOnlySdk(EVM_ADDRESS)],
+    ['the signing SDK', () => getEpochSigningSdk('miden-account', EVM_ADDRESS)],
+    ['the connected-wallet SDK', () => getEpochSdk()]
+  ])('builds %s against the allocator only once this realm has hydrated the bridge config', async (_label, build) => {
+    jest.mocked(getEvmConnection).mockResolvedValue({ address: EVM_ADDRESS, chainId: 11155111, isNative: false });
+    let hydrated: () => void = () => undefined;
+    jest.mocked(initBridgeConfig).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          hydrated = () =>
+            resolve({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null });
+        })
+    );
+    jest.mocked(getEpochAllocatorUrl).mockClear();
+    const built = build();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(getEpochAllocatorUrl).not.toHaveBeenCalled();
+    hydrated();
+    await expect(built).resolves.toBeDefined();
+    expect(allocators()).toEqual([TEST_ALLOCATOR_URL]);
   });
 
   it('builds nothing while the config names no allocator', async () => {

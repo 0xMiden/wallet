@@ -66,6 +66,7 @@ const mockGetAccountDetails = jest.fn();
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: jest.fn(() => Promise.resolve()) }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   AccountId: { fromHex: (...args: unknown[]) => mockFromHex(...args) },
   Address: {

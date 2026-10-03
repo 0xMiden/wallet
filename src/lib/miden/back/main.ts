@@ -55,9 +55,17 @@ import { MidenMessageType } from '../types';
 // `store` may not be initialized at module scope evaluation time.
 let frontStore: ReturnType<typeof store.map> | null = null;
 
+// Settles once start() has hydrated the endpoint override and the bridge config, which handlers read synchronously.
+let startupHydration: Promise<void> = Promise.resolve();
+
 export async function start() {
   console.log('Miden background script started');
-  intercom.onRequest(processRequest);
+  let hydrated: () => void = () => undefined;
+  startupHydration = new Promise<void>(resolve => {
+    hydrated = resolve;
+  });
+  // Registered first so no message is missed; it dispatches only once startupHydration settles.
+  intercom.onRequest(dispatchWhenHydrated);
   registerOffscreenSignHandler();
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
@@ -91,11 +99,14 @@ export async function start() {
   // Apply any developer endpoint override before any client/vault init reads
   // endpoints. Must run before primeNativeAssetId() below — its cache keys
   // are derived from getEffectiveNetworkName() at call time.
-  await loadEndpointOverrides();
-
-  // Synchronous readers in this realm (bridge-in matching, spend valuation) need the stored config before any
-  // handler runs. Instant from storage; never waits for the network.
-  await initBridgeConfig();
+  // Then the bridge config, which synchronous readers here (bridge-in matching, spend valuation) need. Requests wait
+  // for both through dispatchWhenHydrated; both read storage only and never wait for the network.
+  try {
+    await loadEndpointOverrides();
+    await initBridgeConfig();
+  } finally {
+    hydrated();
+  }
 
   await Actions.init();
 
@@ -331,6 +342,11 @@ function registerOffscreenSignHandler(): void {
     // Returning true tells Chrome we'll call sendResponse asynchronously.
     return true;
   });
+}
+
+async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+  await startupHydration;
+  return processRequest(req, port);
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {

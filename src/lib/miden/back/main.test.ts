@@ -271,6 +271,28 @@ describe('main.start', () => {
     expect(mockInitBridgeConfig.mock.invocationCallOrder[0]).toBeLessThan(Actions.init.mock.invocationCallOrder[0]);
   });
 
+  it('holds every request until start() has hydrated the endpoint override and the bridge config', async () => {
+    let hydrated: () => void = () => undefined;
+    mockInitBridgeConfig.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(resolve => {
+          hydrated = () => resolve(undefined);
+        })
+    );
+    mockOnRequest.mockClear();
+    Actions.getFrontState.mockClear();
+    const started = start();
+    const handler = mockOnRequest.mock.calls[0]![0];
+    const answered = handler({ type: WalletMessageType.GetStateRequest });
+    await flushStorage();
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(2);
+    expect(Actions.getFrontState).not.toHaveBeenCalled();
+    hydrated();
+    await started;
+    await expect(answered).resolves.toMatchObject({ type: WalletMessageType.GetStateResponse });
+    expect(Actions.getFrontState).toHaveBeenCalled();
+  });
+
   it('initializes Actions and registers an intercom handler', () => {
     expect(Actions.init).toHaveBeenCalled();
     expect(mockOnRequest).toHaveBeenCalledTimes(1);
