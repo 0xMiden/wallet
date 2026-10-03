@@ -1,4 +1,8 @@
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import {
+  AGGLAYER_BRIDGE_NOTE_SCALE,
+  AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID,
+  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL
+} from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import * as Repo from 'lib/miden/repo';
 
@@ -165,19 +169,41 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
 }
 
 /**
+ * How long a deposit waits for its delivery: the reconciler times out an unsettled tracker past it, and no
+ * delivery adopts an older one.
+ */
+export const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** What the bridge delivers for a deposit tracked in wei: the faucet's registry scale, floored (#1326). */
+export function agglayerDeliveredAmount(trackedWei: bigint): bigint {
+  return trackedWei / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE);
+}
+
+/** Whether a note comes from the AggLayer bridge sender. Never true while no sender is configured. */
+export function isAgglayerBridgeDelivery(senderAccountId: string): boolean {
+  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
+  return !!configuredSender && compareAccountIds(configuredSender, senderAccountId);
+}
+
+/**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
  * The fixed sender is authoritative; amount + recipient prevent two deposits
- * to the same wallet from being paired in the wrong order. The sender delivers
- * bridged ETH, so only native ETH trackers are compatible: an ERC-20 deposit
- * with the same base-unit amount must not adopt its note.
+ * to the same wallet from being paired in the wrong order. A tracker holds the
+ * deposit in wei and the bridge delivers it scaled, so the two are compared
+ * through `agglayerDeliveredAmount`. The sender delivers bridged ETH, so only
+ * native ETH trackers are compatible: an ERC-20 deposit with the same amount
+ * must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
   senderAccountId: string;
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
-  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
-  if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
+  if (!isAgglayerBridgeDelivery(args.senderAccountId)) return undefined;
+
+  // A `ready` tracker is never polled again, so the reconciler's timeout never fails it; a tracker whose delivery came
+  // long ago would otherwise take the next deposit of the same amount.
+  const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   const matches = await Repo.transactions
     .filter(tx => {
@@ -193,7 +219,9 @@ export async function takeAgglayerBridgeInInfo(args: {
         inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed' &&
-        tx.amount === args.amount
+        tx.initiatedAt >= cutoffSec &&
+        tx.amount !== undefined &&
+        agglayerDeliveredAmount(tx.amount) === args.amount
       );
     })
     .toArray();

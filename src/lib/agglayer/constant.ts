@@ -24,6 +24,11 @@ export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aq9nwte8xh3nayfpdkv4
  * tracker, never an ERC-20 one with the same base-unit amount.
  */
 export const AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL = 'ETH';
+/**
+ * The bridge registry's scale for the faucet `AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID` names: a deposit of `w` wei
+ * arrives as `floor(w / 10^scale)` of that faucet's units.
+ */
+export const AGGLAYER_BRIDGE_NOTE_SCALE = 10;
 export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
   ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
 ]);

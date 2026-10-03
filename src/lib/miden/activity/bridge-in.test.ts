@@ -1,4 +1,5 @@
 import {
+  agglayerDeliveredAmount,
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
   resolveBridgeInNoteId,
@@ -33,7 +34,8 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
 });
 jest.mock('lib/agglayer/constant', () => ({
   AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender',
-  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH'
+  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH',
+  AGGLAYER_BRIDGE_NOTE_SCALE: 10
 }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -123,14 +125,25 @@ describe('resolveBridgeInNoteId', () => {
   });
 });
 
+// The bridge registers its ETH faucet with scale 10: a deposit of w wei arrives as floor(w / 10^10) (#1326).
+const SCALE = 10n ** 10n;
+
 describe('takeAgglayerBridgeInInfo', () => {
+  const DAY_SEC = 24 * 60 * 60;
+  // The fixtures sit near the epoch; the clock is pinned just past them so every one is inside the delivery window.
+  let nowSpy: jest.SpyInstance<number, []>;
+  beforeEach(() => {
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+  });
+  afterEach(() => nowSpy.mockRestore());
+
   it('matches sender, recipient and amount and selects the oldest pending row', async () => {
     mockTransactions.push(
       {
         id: 'newer',
         type: 'bridged-receive',
         accountId: 'miden-account_tag',
-        amount: 5n,
+        amount: 5n * SCALE,
         initiatedAt: 2,
         extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
       },
@@ -138,7 +151,7 @@ describe('takeAgglayerBridgeInInfo', () => {
         id: 'older',
         type: 'bridged-receive',
         accountId: 'miden-account',
-        amount: 5n,
+        amount: 5n * SCALE,
         initiatedAt: 1,
         extraInputs: { provider: 'agglayer', phase: 'submitting', sourceAmount: '5', sourceSymbol: 'ETH' }
       }
@@ -160,7 +173,7 @@ describe('takeAgglayerBridgeInInfo', () => {
         id: 'usdc',
         type: 'bridged-receive',
         accountId: 'miden-account',
-        amount: 5n,
+        amount: 5n * SCALE,
         initiatedAt: 1,
         extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'USDC' }
       },
@@ -168,7 +181,7 @@ describe('takeAgglayerBridgeInInfo', () => {
         id: 'eth',
         type: 'bridged-receive',
         accountId: 'miden-account',
-        amount: 5n,
+        amount: 5n * SCALE,
         initiatedAt: 2,
         extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
       }
@@ -185,7 +198,7 @@ describe('takeAgglayerBridgeInInfo', () => {
         id: 'restored',
         type: 'bridged-receive',
         accountId: 'miden-account',
-        amount: 5n,
+        amount: 5n * SCALE,
         initiatedAt: 1,
         restoredFromBackup: true,
         extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
@@ -194,7 +207,7 @@ describe('takeAgglayerBridgeInInfo', () => {
         id: 'mine',
         type: 'bridged-receive',
         accountId: 'miden-account',
-        amount: 5n,
+        amount: 5n * SCALE,
         initiatedAt: 2,
         extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
       }
@@ -211,7 +224,7 @@ describe('takeAgglayerBridgeInInfo', () => {
       id: 'row',
       type: 'bridged-receive',
       accountId: 'miden-account',
-      amount: 5n,
+      amount: 5n * SCALE,
       initiatedAt: 1,
       extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
     });
@@ -227,6 +240,132 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  it('uses the registry scale of 10 for the bridged-ETH faucet', () => {
+    const actual = jest.requireActual<{ AGGLAYER_BRIDGE_NOTE_SCALE: number }>('lib/agglayer/constant');
+    expect(actual.AGGLAYER_BRIDGE_NOTE_SCALE).toBe(10);
+    expect(agglayerDeliveredAmount(123_456_789_012_345_678n)).toBe(12_345_678n);
+  });
+
+  it('matches a scale-10 delivery to its wei tracker and never the unscaled wei amount', async () => {
+    mockTransactions.push({
+      id: 'wei',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 100_000_000_000_000_000n,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '0.1', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({
+        accountId: 'miden-account',
+        senderAccountId: 'agg-sender',
+        amount: 100_000_000_000_000_000n
+      })
+    ).resolves.toBeUndefined();
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 10_000_000n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'wei' });
+  });
+
+  it('floors sub-scale dust the way the bridge does', async () => {
+    mockTransactions.push({
+      id: 'dust',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE + 123n,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 6n })
+    ).resolves.toBeUndefined();
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'dust' });
+  });
+
+  it('picks the oldest of two trackers that floor to the same delivery', async () => {
+    mockTransactions.push(
+      {
+        id: 'exact',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 2,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      },
+      {
+        id: 'dusty',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE + 999n,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      }
+    );
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'dusty' });
+  });
+
+  it('skips a tracker with no amount', async () => {
+    mockTransactions.push(
+      {
+        id: 'no-amount',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      },
+      {
+        id: 'with-amount',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 2,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      }
+    );
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'with-amount' });
+  });
+
+  // A `ready` tracker is never polled again, so its 7-day timeout never fails it: without the bound, a tracker whose
+  // delivery came long ago (and went untagged) would take the next deposit of the same amount (#1326).
+  it('never adopts a delivery into a tracker older than the delivery window', async () => {
+    nowSpy.mockReturnValue((8 * DAY_SEC + 100) * 1000);
+    mockTransactions.push({
+      id: 'stale',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 50,
+      extraInputs: { provider: 'agglayer', phase: 'ready', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+
+    mockTransactions.push({
+      id: 'fresh',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 8 * DAY_SEC,
+      extraInputs: { provider: 'agglayer', phase: 'ready', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'fresh' });
   });
 });
 

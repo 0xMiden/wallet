@@ -304,7 +304,8 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
     const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
-    if (!applied) {
+    // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
+    if (!applied && inputNotes.length === 1) {
       const info = await takeAgglayerBridgeInInfo({
         accountId: dbTransaction?.accountId ?? '',
         senderAccountId: sender,
