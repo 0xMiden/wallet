@@ -117,12 +117,15 @@ const deferringSiblings = (entry: ISubmitEvidence, others: readonly ITransaction
 export const deferralHolds = (entry: ISubmitEvidence, proof: LandingProof, others: readonly ITransaction[]): boolean =>
   proof.kind === 'note' ? deferringSiblings(entry, others).length > 0 : others.some(isLiveSibling);
 
-/** The other rows that could have produced `noteId`: one naming it, or an execute whose output list is unknown. */
+/**
+ * The other rows that could have produced `noteId`: one naming it in an attempt not proven dead, or an execute whose
+ * output list is unknown.
+ */
 const noteBlockers = (noteId: string, others: readonly ITransaction[]): ITransaction[] =>
   others.filter(other =>
     activeEntries(other).some(
       entry =>
-        entry.outputNoteIds?.includes(noteId) === true ||
+        (entry.verdict !== 'never-committed' && entry.outputNoteIds?.includes(noteId) === true) ||
         (entry.fromExecute === true && entry.outputNoteIds === undefined)
     )
   );

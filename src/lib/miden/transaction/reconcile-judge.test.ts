@@ -189,6 +189,19 @@ describe('row 2: an attributable output note on chain', () => {
     ).toBe('pending');
   });
 
+  it('a dead attempt naming the note no longer blocks it, which lands and binds; an unresolved one still blocks', async () => {
+    const naming = (verdict: ISubmitEvidence['verdict']) =>
+      row('o', {
+        status: ITransactionStatus.Failed,
+        submitEvidence: [entry({ attemptId: 'b', transactionId: hex(3), verdict })]
+      });
+    const onChain = { tip: { blockNum: 150, commitment: OTHER, nonce: '7' }, notes: { [NOTE]: 140 } };
+    const judged = await judge(row('t'), onChain, [naming('never-committed')]);
+    expect(judged.entries[0]).toMatchObject({ result: 'landed', landingRecord: { block: 140, by: 2 } });
+    expect(judged.landed?.boundTransactionId).toBe(hex(2));
+    expect(await resultOf(row('t'), onChain, [naming('unresolvable')])).toBe('unresolvable');
+  });
+
   it('an execute entry elsewhere with an unknown output list blocks every note; a send`s does not', async () => {
     const blindExecute = row('x', {
       type: 'execute',
