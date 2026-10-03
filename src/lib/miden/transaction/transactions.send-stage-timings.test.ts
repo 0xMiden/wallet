@@ -335,6 +335,67 @@ describe('attempts (#1081)', () => {
   });
 });
 
+async function runRow(row: Record<string, unknown>) {
+  const tx = {
+    status: ITransactionStatus.Queued,
+    displayMessage: 'Queued',
+    displayIcon: 'DEFAULT',
+    delegateTransaction: false,
+    initiatedAt: Math.floor(Date.now() / 1000),
+    accountId: 'acc-1',
+    ...row
+  };
+  txStore.push({ ...tx });
+  await generateTransaction(tx as never, signCallback, false, provider as never);
+}
+
+const proxyMock = () => jest.requireMock('../back/miden-client-proxy').midenClientProxy;
+
+describe('which dispatches carry a stamp (#1081)', () => {
+  it.each<[string, Record<string, unknown>, 'consumeNoteId' | 'swapTransaction' | 'newTransaction', number, boolean]>([
+    ['a claim', { id: 'c', type: 'consume', noteId: 'n', noteIds: ['n'] }, 'consumeNoteId', 3, true],
+    [
+      'a rotation-funding claim',
+      { id: 'cf', type: 'consume', noteId: 'n', noteIds: ['n'], rotationFunding: true },
+      'consumeNoteId',
+      3,
+      false
+    ],
+    [
+      'a swap',
+      {
+        id: 's',
+        type: 'swap',
+        faucetId: 'f',
+        amount: 1n,
+        extraInputs: { requestedFaucetId: 'g', requestedAmount: 2n }
+      },
+      'swapTransaction',
+      3,
+      true
+    ],
+    ['a dApp execute', { id: 'e', type: 'execute', requestBytes: new Uint8Array([1]) }, 'newTransaction', 4, true],
+    [
+      'an Agglayer bridge',
+      { id: 'b', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'agglayer' } },
+      'newTransaction',
+      4,
+      true
+    ],
+    [
+      'an Epoch bridge',
+      { id: 'p', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'epoch' } },
+      'newTransaction',
+      4,
+      false
+    ]
+  ])('%s', async (_label, row, leaf, stampIndex, stamped) => {
+    await runRow(row);
+    const call = proxyMock()[leaf].mock.calls[0];
+    expect(typeof call[stampIndex] === 'function').toBe(stamped);
+  });
+});
+
 describe('the cold-start sweep against a row the real writer moved to GeneratingTransaction (#1202)', () => {
   /** Holds the next proxy send open until `release`, which is safe to call before the send gets there. */
   function holdNextProxySend() {

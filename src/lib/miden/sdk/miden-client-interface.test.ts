@@ -2615,6 +2615,37 @@ describe('MidenClientInterface', () => {
         expect(staged.executeRequest).toHaveBeenCalledTimes(1);
       }
     );
+
+    it.each<'consume' | 'swap' | 'newTransaction'>(['consume', 'swap', 'newTransaction'])(
+      'the staged %s stamps submitting with the evidence, before it submits (#1081)',
+      async write => {
+        const staged = stagedExecuteRequest();
+        const order: string[] = [];
+        staged.submit.mockImplementation(async () => {
+          order.push('submit');
+          return { apply: staged.apply };
+        });
+        const onStage = jest.fn(async (stage: string) => {
+          order.push(`stamp:${stage}`);
+        });
+        // Under a real hold, since a write that holds none reads no evidence; an earlier test's lock stub would
+        // otherwise outlive the module reset.
+        jest.dontMock('./miden-client');
+        const client = await stagedClient(staged.executeRequest);
+        const { withWasmClientLock } = await import('./miden-client');
+        await withWasmClientLock(async () => {
+          if (write === 'consume') await client.consumeNoteId(consumeTx as any, 600, onStage);
+          else if (write === 'swap') await client.swapTransaction(swapTx as any, 600, onStage);
+          else await client.newTransaction('acc-id', new Uint8Array([1]), true, onStage);
+        });
+
+        expect(onStage).toHaveBeenCalledWith('submitting', {
+          evidence: expect.objectContaining({ transactionId: 'tx-hex' })
+        });
+        expect(order.indexOf('stamp:submitting')).toBeGreaterThan(-1);
+        expect(order.indexOf('stamp:submitting')).toBeLessThan(order.indexOf('submit'));
+      }
+    );
   });
 
   // Offscreen-prove paths.
@@ -2746,6 +2777,58 @@ describe('MidenClientInterface', () => {
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
       expect(inner.applyTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('stamps submitting with the evidence of the offscreen proof, before it submits (#1081)', async () => {
+      const fakeWasm = buildWasmStub();
+      const order: string[] = [];
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => {
+          order.push('submit');
+          return 100;
+        }),
+        applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined)
+      };
+      buildOffscreenStubs();
+      // The write still owns the hold it took, so its leaf reads the evidence.
+      const hold = {};
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => hold
+      }));
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+      const onStage = jest.fn(async (stage: string) => {
+        order.push(`stamp:${stage}`);
+      });
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      await client.sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any,
+        600,
+        onStage
+      );
+
+      expect(onStage).toHaveBeenCalledWith('submitting', {
+        evidence: expect.objectContaining({ transactionId: 'tx-hex' })
+      });
+      expect(order).toEqual(['stamp:executing', 'stamp:proving', 'stamp:submitting', 'submit']);
     });
 
     it('skips the mutex yield once the client is disposed — an evicted corpse must not release a lock it no longer owns', async () => {

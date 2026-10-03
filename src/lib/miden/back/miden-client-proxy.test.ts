@@ -1766,7 +1766,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // The inline client's consumeNoteId ran on the full tx object.
-    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx, 600);
+    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx, 600, undefined);
     expect(result).toEqual({ __inlineTxResult: true });
     // Offscreen never touched.
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -2550,6 +2550,78 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
     expect(G.__px.getMidenClient).not.toHaveBeenCalled();
   });
 
+  it('flag ON → the stage event forwards the evidence it carried, marked unreliable (#1081)', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent } = await loadProxy(true);
+    const onStage = jest.fn(async () => {});
+    const evidence = { transactionId: `0x${'a'.repeat(64)}`, refBlock: 7 };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      handleOffscreenStageEvent(env.op_id, 'submitting', evidence);
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1, 2, 3]).toString('base64'), durationMs: 4 };
+    });
+    const p = midenClientProxy.consumeNoteId(
+      consumeTx() as any,
+      600,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await p;
+    await flush();
+    expect(onStage).toHaveBeenCalledWith('submitting', { reliable: false, evidence });
+  });
+
+  it('flag OFF → consume, swap and newTransaction hand the stage callback straight to the inline leaf (#1081)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const onStage = jest.fn(async () => {});
+    const signCallback = jest.fn(async () => new Uint8Array([1]));
+    const consume = consumeTx();
+    const swap = swapTx();
+    const requestBytes = new Uint8Array([1]);
+
+    await midenClientProxy.consumeNoteId(consume as any, 600, signCallback, onStage);
+    await midenClientProxy.swapTransaction(swap as any, 600, signCallback, onStage);
+    await midenClientProxy.newTransaction('mtst1qacc', requestBytes, true, signCallback, onStage);
+
+    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(consume, 600, onStage);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, 600, onStage);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', requestBytes, true, onStage);
+  });
+
+  it('flag ON → swap and newTransaction register the stage callback for their op (#1081)', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent } = await loadProxy(true);
+    const onStage = jest.fn(async () => {});
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      handleOffscreenStageEvent(env.op_id, 'submitting', { refBlock: 3 });
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const swap = midenClientProxy.swapTransaction(
+      swapTx() as any,
+      600,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await swap;
+    const execute = midenClientProxy.newTransaction(
+      'mtst1qacc',
+      new Uint8Array([1]),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await execute;
+    await flush();
+
+    expect(onStage).toHaveBeenCalledTimes(2);
+    expect(onStage).toHaveBeenNthCalledWith(1, 'submitting', { reliable: false, evidence: { refBlock: 3 } });
+    expect(onStage).toHaveBeenNthCalledWith(2, 'submitting', { reliable: false, evidence: { refBlock: 3 } });
+  });
+
   it('a stage event for an unknown op_id is ignored silently (never throws)', async () => {
     const { handleOffscreenStageEvent, __test } = await loadProxy(true);
     // Never dispatched, so nothing is registered under this id.
@@ -2618,7 +2690,7 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
     warnSpy.mockRestore();
   });
 
-  it('a write with NO stage callback registers nothing (consume/swap/newTransaction are unstaged)', async () => {
+  it('a write with NO stage callback registers nothing', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     let stageSizeDuring: number | undefined;
     let signSizeDuring: number | undefined;
@@ -2657,7 +2729,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     // options: no per-write signer anywhere, the realm's installed one signs (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, 600);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, 600, undefined);
     expect(result).toEqual({ __inlineSwapResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2755,7 +2827,7 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', 
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // Positional passthrough — accountId, requestBytes, delegateTransaction — verbatim.
-    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false, undefined);
     expect(result).toEqual({ __inlineNewResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2770,7 +2842,7 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', 
       undefined,
       jest.fn(async () => new Uint8Array())
     );
-    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, undefined);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, undefined, undefined);
     expect(result).toEqual({ __inlineNewResult: true });
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });

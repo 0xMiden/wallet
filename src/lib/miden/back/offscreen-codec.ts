@@ -15,7 +15,7 @@
 // into either bundle and the zero-runtime-dependency rule still holds.
 
 import type { ConnectivityCategory } from '../activity/connectivity-state';
-import type { ITransactionStage } from '../db/types';
+import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
 import type { LandedTransaction } from '../sdk/sdk-error-code';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
@@ -268,6 +268,8 @@ export interface OffscreenStageEvent {
   type: typeof OFFSCREEN_STAGE_EVENT;
   op_id: string;
   stage: ITransactionStage;
+  /** The 'submitting' stamp's evidence (#1081). Untrusted on arrival: the service worker parses it again. */
+  evidence?: SubmitEvidenceFields;
 }
 
 /**

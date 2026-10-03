@@ -5593,6 +5593,34 @@ describe('generateTransaction — Guardian routing', () => {
       }
     });
 
+    it("the inline leaf's 'submitting' stamp carries the evidence read off the proven transaction (#1081)", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        mockGetOrCreateMultisigService.mockResolvedValue(busyService());
+        const client = makeClientApi(makeResult());
+        client.transactions.submitProven.mockRejectedValueOnce(
+          new Error('failed to submit proven transaction: connection reset')
+        );
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('submitting-carries-evidence', SEND);
+
+        await run(row);
+
+        const { attemptId } = stored(row.id);
+        expect(stored(row.id).submitEvidence).toEqual([
+          expect.objectContaining({ attemptId, source: 'stage', transactionId: 'exec-tx-hash' })
+        ]);
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    });
+
     describe('a candidate whose abandon failed (#1317)', () => {
       const RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TIMEOUT_MS;
       // A send whose execute fails before its submit, so the catch abandons its candidate (nonce 8).

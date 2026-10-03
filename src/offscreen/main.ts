@@ -67,7 +67,13 @@ import {
   type OffscreenSignResponse,
   type OffscreenStageEvent
 } from 'lib/miden/back/offscreen-codec';
-import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import type {
+  ConsumeTransaction,
+  ITransactionStage,
+  SendTransaction,
+  SubmitEvidenceFields,
+  SwapTransaction
+} from 'lib/miden/db/types';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
@@ -94,6 +100,7 @@ import {
   markErrorBeforeSubmit,
   type LandedTransaction
 } from 'lib/miden/sdk/sdk-error-code';
+import { readSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -456,10 +463,16 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // stamp it fires afterwards is correctly addressed to a row the SW has already
 // moved past — 'proving' arriving after the row completed would rewind the UI,
 // and 'submitting' would set may-have-submitted on a row already adjudicated.
-function postStageEvent(context: DispatchContext, stage: ITransactionStage): void {
+function postStageEvent(context: DispatchContext, stage: ITransactionStage, evidence?: SubmitEvidenceFields): void {
   const { op_id } = context;
   if (!op_id || context.settled) return;
-  const event: OffscreenStageEvent = { target: SW_TARGET, type: OFFSCREEN_STAGE_EVENT, op_id, stage };
+  const event: OffscreenStageEvent = {
+    target: SW_TARGET,
+    type: OFFSCREEN_STAGE_EVENT,
+    op_id,
+    stage,
+    ...(evidence === undefined ? {} : { evidence })
+  };
   try {
     // `Promise.resolve(...)` tolerates a mock/polyfilled sendMessage that returns a
     // non-promise, exactly as the OFFSCREEN_OP_STARTED post does; the response (if
@@ -785,7 +798,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // the reverse-IPC stub. Only the final serialized `TransactionResult` crosses
   // back; the intermediate handles stay opaque in-realm (design §6.2).
   consumeNoteId: async (
-    _context,
+    context,
     client,
     dto: {
       accountId: string;
@@ -796,7 +809,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     }
   ) => {
     const expirationDelta = requireExpirationDelta(dto.expirationDelta);
-    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, expirationDelta);
+    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, expirationDelta, (stage, detail) =>
+      postStageEvent(context, stage, detail?.evidence)
+    );
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
     // has submitted (and applied) by the time it returns, on either leg, so the
     // consume may already be broadcast. Completing beats aborting past
@@ -839,7 +854,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
-    const result = await client.sendTransaction(tx, expirationDelta, stage => postStageEvent(context, stage));
+    const result = await client.sendTransaction(tx, expirationDelta, (stage, detail) =>
+      postStageEvent(context, stage, detail?.evidence)
+    );
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
     // it returns, so the send may be broadcast — completing beats aborting.
@@ -847,7 +864,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   },
 
   swapTransaction: async (
-    _context,
+    context,
     client,
     dto: {
       accountId: string;
@@ -867,7 +884,9 @@ const DISPATCH: Record<string, DispatchFn> = {
         requestedAmount: BigInt(dto.extraInputs.requestedAmount)
       }
     } as unknown as SwapTransaction;
-    const result = await client.swapTransaction(tx, expirationDelta);
+    const result = await client.swapTransaction(tx, expirationDelta, (stage, detail) =>
+      postStageEvent(context, stage, detail?.evidence)
+    );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
     // `submitProven` for a worker proof), so the PSWAP note may already be on the
@@ -880,13 +899,18 @@ const DISPATCH: Record<string, DispatchFn> = {
   // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
   // encodeArg) back to the SDK's optional-boolean shape.
   newTransaction: async (
-    _context,
+    context,
     client,
     accountId: string,
     requestBytes: Uint8Array,
     delegateTransaction?: boolean
   ) => {
-    const result = await client.newTransaction(accountId, requestBytes, delegateTransaction ?? undefined);
+    const result = await client.newTransaction(
+      accountId,
+      requestBytes,
+      delegateTransaction ?? undefined,
+      (stage, detail) => postStageEvent(context, stage, detail?.evidence)
+    );
     // Deliberately NO hold re-check (#788): `newTransaction` stages
     // execute → prove → submit internally, but by the time it RETURNS it has
     // submitted and applied — its pre-submit seams live inside
@@ -986,6 +1010,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // The delegated branch submits its own proof; a worker proof goes back through
     // `submitProven` with the result it was made from.
     let submit: () => Promise<sdk.TransactionSubmission>;
+    let proven: sdk.ProvenTransaction;
     // Reported from here as well as from the two inline copies, because on the
     // extension THIS is the copy that runs: every guardian leaf type is offscreen
     // routable and the flag defaults on, so instrumenting only the inline path
@@ -998,6 +1023,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       // this hold, and an eviction cancels the worker (#775, #945).
       try {
         const proof = await proveInWorker(txResult, hold);
+        proven = proof;
         submit = () => client.client.transactions.submitProven(proof, txResult);
         reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
       } catch (proveError) {
@@ -1034,6 +1060,7 @@ const DISPATCH: Record<string, DispatchFn> = {
           executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
           'Delegated guardian prove'
         );
+        proven = provenTx.proof;
         submit = () => provenTx.submit();
         reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
         clearConnectivityIssue('prover');
@@ -1062,6 +1089,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
         try {
           const proof = await proveInWorker(txResult, hold);
+          proven = proof;
           submit = () => client.client.transactions.submitProven(proof, txResult);
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
         } catch (fallbackError) {
@@ -1075,7 +1103,12 @@ const DISPATCH: Record<string, DispatchFn> = {
     // local under a relaxed ceiling — so the same question has to be asked again.
     // Still pre-submit: nothing has been broadcast at this point.
     assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
-    postStageEvent(context, 'submitting');
+    // Read under this op's own hold before the stamp, so the service worker can record what the attempt was (#1081).
+    postStageEvent(
+      context,
+      'submitting',
+      readSubmitEvidence(txResult, proven, () => getCurrentWasmLockHold() === hold)
+    );
     const submittedTx = await submit();
     recordProveTiming('guardianPipeline submit returned; applying');
     // Same rule and the same retry as the inline pipeline (#1233): once submit resolved the node has

@@ -98,6 +98,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { bridgeProviderOf } from './retry';
+import { canAwaitVerdict } from './verdict-rules';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
@@ -157,6 +158,7 @@ import {
   isTransactionDiscardedError,
   someInCauseChain
 } from '../sdk/sdk-error-code';
+import { readSubmitEvidence } from '../sdk/submit-evidence';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
@@ -1761,13 +1763,20 @@ const generateTransactionWithProvider = async (
   // bridged-send Completed, sync reconciles).
   let result: TransactionResult;
   switch (transaction.type) {
-    case 'consume':
+    case 'consume': {
+      // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
+      // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
+      const stamp = canAwaitVerdict(transaction)
+        ? stageStampFor(transaction.id, attemptContextOf(transaction))
+        : undefined;
       result = await midenClientProxy.consumeNoteId(
         transaction as ConsumeTransaction,
         expirationDeltaBlocks(false),
-        signCallback
+        signCallback,
+        stamp
       );
       break;
+    }
     case 'send':
       // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
       // generating-transaction screen can time the proof + submit steps (#524).
@@ -1790,7 +1799,8 @@ const generateTransactionWithProvider = async (
       result = await midenClientProxy.swapTransaction(
         transaction as SwapTransaction,
         expirationDeltaBlocks(false),
-        signCallback
+        signCallback,
+        stageStampFor(transaction.id, attemptContextOf(transaction))
       );
       break;
     case 'bridged-send':
@@ -1819,11 +1829,13 @@ const generateTransactionWithProvider = async (
         // colliding when an auth arg is already present, and the commitment built here is the
         // same shape it would have built. Persisted because the commitment carries a fresh salt;
         // the annotation is idempotent.
+        // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
           transaction.requestBytes,
           transaction.delegateTransaction,
-          signCallback
+          signCallback,
+          canAwaitVerdict(transaction) ? stageStampFor(transaction.id, attemptContextOf(transaction)) : undefined
         );
       } else {
         result = await midenClientProxy.sendTransaction(
@@ -1850,7 +1862,8 @@ const generateTransactionWithProvider = async (
         transaction.accountId,
         executeBytes,
         transaction.delegateTransaction,
-        signCallback
+        signCallback,
+        stageStampFor(transaction.id, attemptContextOf(transaction))
       );
       break;
     }
@@ -2145,7 +2158,7 @@ const runGuardianPipeline = async (
   accountId: string,
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
-  setStage: (stage: ITransactionStage) => Promise<void>,
+  setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
   chainAnchorB64?: string
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
@@ -2289,7 +2302,9 @@ const runGuardianPipeline = async (
     //
     // Still pre-submit as to the BROADCAST — that is the next line — so throwing
     // here cannot orphan a transaction the network has seen.
-    await setStage('submitting');
+    await setStage('submitting', {
+      evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
+    });
     assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
@@ -3484,9 +3499,9 @@ const generateGuardianTransaction = async (
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
-  const stampAttemptStage = (stage: ITransactionStage, opts?: { readonly reliable?: boolean }): Promise<void> => {
+  const stampAttemptStage = (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
     if (stage === 'submitting') submitCrossed = true;
-    return stampStage(stage, opts);
+    return stampStage(stage, detail);
   };
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the

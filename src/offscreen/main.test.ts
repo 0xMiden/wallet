@@ -2814,7 +2814,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     // The plain consume DTO decoded across the wire and drove the offscreen client.
-    expect(G.__off.clientConsumeNoteId).toHaveBeenCalledWith(dto, 600);
+    expect(G.__off.clientConsumeNoteId).toHaveBeenCalledWith(dto, 600, expect.any(Function));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');
@@ -2957,6 +2957,71 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(sendResponse.mock.calls[0][0].resultB64, 'base64'))).toEqual([11, 22, 33]);
   });
 
+  // #1081: each write's 'submitting' stamp carries the evidence its leaf read, so the service worker can record what
+  // the attempt was.
+  it.each<[string, string[]]>([
+    ['consumeNoteId', [encodeArg({ accountId: 'mtst1qacc', noteId: '0xn1', noteIds: ['0xn1'], expirationDelta: 600 })]],
+    [
+      'sendTransaction',
+      [
+        encodeArg({
+          accountId: 'mtst1qacc',
+          secondaryAccountId: 'mtst1qrecipient',
+          faucetId: 'mtst1qfaucet',
+          noteType: 'public',
+          amount: '1',
+          extraInputs: {},
+          expirationDelta: 600
+        })
+      ]
+    ],
+    [
+      'swapTransaction',
+      [
+        encodeArg({
+          accountId: 'mtst1qacc',
+          faucetId: 'mtst1qoffered',
+          amount: '1',
+          extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' },
+          expirationDelta: 600
+        })
+      ]
+    ],
+    ['newTransaction', [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)]]
+  ])('%s posts its submitting stamp with the evidence the leaf read (#1081)', async (method, argsB64) => {
+    await loadModule();
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    const leaf = jest.fn(async (...args: unknown[]) => {
+      const onStage = args[args.length - 1];
+      if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+      return { serialize: () => new Uint8Array([1]) };
+    });
+    const leaves: Record<string, string> = {
+      consumeNoteId: 'clientConsumeNoteId',
+      sendTransaction: 'clientSendTransaction',
+      swapTransaction: 'clientSwapTransaction',
+      newTransaction: 'clientNewTransaction'
+    };
+    G.__off[leaves[method]!] = leaf;
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-evidence', method, argsB64 }), {}, sendResponse);
+    await flush();
+
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'OFFSCREEN_STAGE_EVENT',
+        op_id: 'op-evidence',
+        stage: 'submitting',
+        evidence: { refBlock: 9 }
+      })
+    );
+  });
+
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
     await loadModule();
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
@@ -3009,7 +3074,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     expect(G.__off.clientSwapTransaction).toHaveBeenCalledTimes(1);
-    expect(G.__off.clientSwapTransaction).toHaveBeenCalledWith(expect.anything(), 600);
+    expect(G.__off.clientSwapTransaction).toHaveBeenCalledWith(expect.anything(), 600, expect.any(Function));
     const receivedTx = G.__off.clientSwapTransaction.mock.calls[0][0];
     // Offered amount AND requested amount both re-widened to BigInt.
     expect(receivedTx.amount).toBe(500n);
@@ -3934,6 +3999,26 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       {},
       sendResponse
     );
+
+  it('guardianPipeline: the submitting stamp carries the evidence read before submit (#1081)', async () => {
+    await loadModule();
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply: jest.fn(async () => {}) }));
+    const sendResponse = jest.fn();
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+    const submitting = posted.find(m => m?.type === 'OFFSCREEN_STAGE_EVENT' && m.stage === 'submitting');
+    expect(submitting.evidence).toMatchObject({ transactionId: '0xlanded', initialCommitment: '0xinitial' });
+  });
 
   it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
     await loadModule();
