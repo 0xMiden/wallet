@@ -25,7 +25,7 @@ const duplicateMessage =
 
 const repoRoot = resolve(__dirname, '../../../..');
 const generator = 'scripts/generate-note-relay-patch.mjs';
-const patchFile = 'patches/@miden-sdk+miden-sdk+0.16.1.patch';
+const patchFile = 'patches/@miden-sdk+miden-sdk+0.17.0-rc.5.patch';
 // A linked web-sdk build (`Web SDK PR: #N`) swaps in a `file:` source build that carries no relay patch.
 const linkedSdk = String(
   JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).dependencies['@miden-sdk/miden-sdk']
@@ -156,13 +156,13 @@ withInstalledPatch('generate-note-relay-patch --check', () => {
   it('still refuses a published SDK at another version', () => {
     scratchRepo('copy');
     setScratchSdkVersion('0.17.0-rc.1');
-    expect(() => runScratch('--check')).toThrow(/requires SDK 0\.16\.1, found 0\.17\.0-rc\.1/);
+    expect(() => runScratch('--check')).toThrow(/requires SDK 0\.17\.0-rc\.5, found 0\.17\.0-rc\.1/);
   });
 
   it('still refuses a published SDK whose patch file is missing', () => {
     scratchRepo('link');
     rmSync(join(scratch, patchFile));
-    expect(() => runScratch('--check')).toThrow(/miden-sdk\+0\.16\.1\.patch/);
+    expect(() => runScratch('--check')).toThrow(/miden-sdk\+0\.17\.0-rc\.5\.patch/);
   });
 
   it('runs on every build, after the yarn.lock integrity check', () => {
