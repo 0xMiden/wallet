@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
@@ -3367,6 +3368,54 @@ describe('HistoryDetails', () => {
         bridgeEpochStatus: 'failed',
         bridgeReclaimNoteId: 'note-stamped',
         bridgeSubmitClaimed: true
+      });
+    });
+
+    it('hands the bridge section the exit hash and pinned deposit of a Slow bridge-out (#1325)', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xdest',
+          destinationNetwork: 0,
+          claimStatus: 'pending',
+          agglayerExitTxHash: '0xexit',
+          agglayerDepositCnt: 16
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        bridgeAgglayerExitTxHash: '0xexit',
+        bridgeAgglayerDepositCnt: 16
+      });
+    });
+
+    // Only the row's stored marks retire it, never its initiation date (#1325).
+    describe('bridgeAgglayerExitUnfindable', () => {
+      const slow = {
+        provider: 'agglayer',
+        destinationAddress: '0xdest',
+        destinationNetwork: 0,
+        claimStatus: 'pending'
+      };
+
+      it('follows a stored unfiled mark, whenever the row was initiated', async () => {
+        setMockRow({
+          ...bridgedSendTx,
+          initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT,
+          extraInputs: { ...slow, agglayerExitUnfiled: true }
+        });
+        await renderAndLoad({ transactionId: 'bridge-out' });
+
+        expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({ bridgeAgglayerExitUnfindable: true });
+      });
+
+      it('keeps an unmarked row findable although it was initiated before the renumbering', async () => {
+        setMockRow({ ...bridgedSendTx, initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT - 1, extraInputs: slow });
+        await renderAndLoad({ transactionId: 'bridge-out' });
+
+        expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({ bridgeAgglayerExitUnfindable: false });
       });
     });
 

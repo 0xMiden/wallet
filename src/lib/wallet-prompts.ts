@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
-import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
+import {
+  agglayerClaimedFields,
+  isAgglayerDepositClaimed,
+  isAgglayerDepositReady,
+  isAgglayerExitUnfindable,
+  searchAgglayerExitDeposit
+} from 'lib/agglayer';
+import { agglayerExitTxHashFromRowBytes } from 'lib/agglayer/b2agg/exit-hash';
+import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import {
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
@@ -16,11 +24,19 @@ import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 
 import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { bridgedSendLandedValues, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import {
+  bridgedSendLandedValues,
+  markAgglayerExitUnfiled,
+  pinAgglayerDeposit,
+  recordAgglayerExitTxHash,
+  updateBridgeClaimStatus
+} from 'lib/miden/transaction/complete';
 import { isUnconfirmedFailure } from 'lib/miden/transaction/constants';
 import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
@@ -113,10 +129,11 @@ function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.type !== 'bridged-send') return false;
   if (tx.status !== ITransactionStatus.Completed) return true;
 
-  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
-  return inputs.provider === 'epoch'
-    ? inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed'
-    : inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
+  const inputs: IBridgedSendExtraInputs = tx.extraInputs;
+  if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
+  // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
+  if (isAgglayerExitUnfindable(inputs)) return false;
+  return inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
 }
 
 export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
@@ -166,18 +183,48 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (!inputs) return;
 
   if (inputs.provider === 'agglayer') {
-    if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
-    // An unbound lookup on a Failed row could claim a sibling deposit for a bridge
-    // that never even landed, so a Failed row is looked up only once its own Miden
-    // transaction id is known - that is what binds the lookup to it.
-    if (failedUnconfirmed && !tx.transactionId) return;
-    // Bound to this row's own Miden transaction id: several rows can share one
-    // destination address, and marking them all ready off ANY claimable deposit
-    // points every one of them at the same deposit.
-    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
-    // Passed through unconditionally so a Failed row's write always carries the
-    // bound hash `updateBridgeClaimStatus` needs to promote it (#1250).
-    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true }, deposit.tx_hash);
+    // Bound to this row's own exit hash, the indexer's tx_hash for the B2AGG note it built: several rows can share
+    // one destination address, and only this binding tells their deposits apart. A row without one, or one no lookup
+    // can find, is never looked up, Failed or not (#1325).
+    const exitTxHash = inputs.agglayerExitTxHash;
+    if (
+      inputs.claimStatus === 'claimed' ||
+      !inputs.destinationAddress ||
+      !exitTxHash ||
+      isAgglayerExitUnfindable(inputs)
+    ) {
+      return;
+    }
+    const { deposit, complete } = await searchAgglayerExitDeposit(
+      inputs.destinationAddress,
+      exitTxHash,
+      inputs.agglayerDepositCnt
+    );
+    if (!deposit) {
+      // An exit filed before the renumbering is under network 78, which the indexer no longer serves; the bridge's
+      // auto-claimer claimed every one, so its funds arrived. Only a miss over the whole history retires the row:
+      // a later row's exit may not be filed yet.
+      if (complete && inputs.agglayerDepositCnt === undefined && tx.initiatedAt < MIDEN_CHAIN_ID_RENUMBERED_AT) {
+        await markAgglayerExitUnfiled(tx.id);
+      }
+      return;
+    }
+    // Every claim-status write carries the deposit's own tx_hash, so a Failed row is promoted by the first (#1250).
+    // A claim by anyone settles the row: the bridge's auto-claimer claims every exit minutes after it is ready.
+    if (isAgglayerDepositClaimed(deposit)) {
+      await updateBridgeClaimStatus(tx.id, 'claimed', agglayerClaimedFields(deposit), deposit.tx_hash);
+    } else if (isAgglayerDepositReady(deposit) && inputs.claimStatus === 'pending') {
+      await updateBridgeClaimStatus(
+        tx.id,
+        'ready',
+        { depositReady: true, agglayerDepositCnt: deposit.deposit_cnt },
+        deposit.tx_hash
+      );
+    } else if (inputs.agglayerDepositCnt !== deposit.deposit_cnt) {
+      // Whatever the claim status: a pin the address page contradicts (a reset indexer) would cost a failed GET and
+      // a warning on every tick.
+      await pinAgglayerDeposit(tx.id, deposit.deposit_cnt);
+    }
     return;
   }
 
@@ -204,6 +251,67 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 }
 
 /**
+ * Bind every Agglayer row built before its exit hash was stored at build time (#1325), from the bytes the
+ * row kept, so it can find its own deposit. "Once" is a property of the data: a row answered either way,
+ * with a hash or marked unavailable, is no longer a candidate.
+ *
+ * The decodes run in one labelled WASM hold, so a trap reaches `withWasmClientLock`, which retires the
+ * client. Answers are kept as they are decoded: a trap keeps the rows decoded before it, marks only the row
+ * it trapped on, and leaves the rows after it for the next tick. Each stored answer is also set on `rows`,
+ * so this tick's poll already uses it. No sync-fuse key or ceiling: the hold makes only synchronous static
+ * decodes and never calls the client, so it cannot park, and its one caller, the 8 s `BridgeIntentWatcher`
+ * tick, skips a tick while a pass runs.
+ */
+async function backfillAgglayerExitTxHashes(rows: ITransaction[]): Promise<void> {
+  const candidates = rows.filter(tx => {
+    const inputs: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    return (
+      inputs?.provider === 'agglayer' &&
+      inputs.agglayerExitTxHash === undefined &&
+      !inputs.agglayerExitTxHashUnavailable
+    );
+  });
+  if (candidates.length === 0) return;
+  try {
+    await ensureSdkWasmReady();
+  } catch (error) {
+    console.warn('[wallet-prompts] SDK not ready; the Agglayer exit back-fill waits for the next tick', error);
+    return;
+  }
+
+  const answers: { tx: ITransaction; exitTxHash: string | undefined }[] = [];
+  try {
+    await withWasmClientLock(
+      async () => {
+        for (const tx of candidates) answers.push({ tx, exitTxHash: agglayerExitTxHashFromRowBytes(tx) });
+      },
+      { label: 'agglayer-exit-backfill' }
+    );
+  } catch (error) {
+    console.warn('[wallet-prompts] Agglayer exit back-fill stopped', error);
+    // On a trap, the lock has retired the client. The row the trap hit is the first one with no answer; marking
+    // it keeps the next tick from trapping on it again.
+    const trapped = candidates[answers.length];
+    if (error instanceof WebAssembly.RuntimeError && trapped !== undefined) {
+      answers.push({ tx: trapped, exitTxHash: undefined });
+    }
+  }
+
+  for (const { tx, exitTxHash } of answers) {
+    try {
+      await recordAgglayerExitTxHash(tx.id, exitTxHash);
+      tx.extraInputs =
+        exitTxHash === undefined
+          ? { ...tx.extraInputs, agglayerExitTxHashUnavailable: true }
+          : { ...tx.extraInputs, agglayerExitTxHash: exitTxHash };
+    } catch (error) {
+      // Still a candidate, so the next tick writes it again.
+      console.warn('[wallet-prompts] Agglayer exit back-fill write failed', tx.id, error);
+    }
+  }
+}
+
+/**
  * Poll every Miden→EVM bridge row once, for every account. The app-root
  * `BridgeIntentWatcher` runs this on an interval, so a pending Epoch fill or
  * AggLayer claim is tracked whichever screen is open. `pollBridgedSend` returns
@@ -215,6 +323,8 @@ export async function reconcileBridgedSends(): Promise<void> {
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
   const active = rows.filter(tx => !tx.restoredFromBackup);
+  // Before the poll, so a row bound on this tick is looked up on this tick.
+  await backfillAgglayerExitTxHashes(active);
 
   // A Failed row whose stored Epoch evidence already proves it landed settles
   // without waiting for another poll. Only stored Epoch evidence qualifies: it
