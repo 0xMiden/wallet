@@ -391,6 +391,15 @@ async function runSync(force: boolean): Promise<void> {
       }
     }
 
+    // Settle transactions whose submit outcome was unknown (#1081): node reads only, no WASM lock, fired and forgotten
+    // so a slow node never holds the lap. Only after a successful sync, and skipped after an evicted one like the sweep.
+    // Imported dynamically, like transaction-processor below, to keep the service worker's init order acyclic.
+    if (syncSucceededAt !== undefined && !(inlineWasm && syncHoldEvicted)) {
+      void import('../transaction/reconcile-unconfirmed')
+        .then(({ reconcileUnconfirmedTransactions }) => reconcileUnconfirmedTransactions())
+        .catch(err => console.warn('[SyncManager] unconfirmed reconcile failed', err));
+    }
+
     const intercom = getIntercom()!;
     const vault2 = await getVault();
     const accountPubKey = await vault2.getCurrentAccountPublicKey();

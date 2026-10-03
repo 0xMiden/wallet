@@ -140,6 +140,11 @@ jest.mock('./note-refresh', () => ({
   requestNotesRefresh: () => mockRequestNotesRefresh()
 }));
 
+const mockReconcile = jest.fn(async () => {});
+jest.mock('lib/miden/transaction/reconcile-unconfirmed', () => ({
+  reconcileUnconfirmedTransactions: () => mockReconcile()
+}));
+
 const HookHost: React.FC = () => {
   useSyncTrigger();
   return null;
@@ -311,6 +316,23 @@ describe('useSyncTrigger', () => {
     // A completed sync surfaces just-imported notes immediately, without waiting
     // out the claimable-notes SWR interval.
     await waitFor(() => expect(mockRequestNotesRefresh).toHaveBeenCalled());
+    unmount();
+  });
+
+  it('mobile/desktop: fires the unconfirmed reconciler after a successful sync only (#1081)', async () => {
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockReconcile).toHaveBeenCalled());
+    unmount();
+  });
+
+  it('mobile/desktop: does not fire the unconfirmed reconciler after a failed sync (#1081)', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSyncState.mockRejectedValueOnce(new Error('offline'));
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    expect(mockReconcile).not.toHaveBeenCalled();
     unmount();
   });
 

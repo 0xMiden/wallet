@@ -206,6 +206,12 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
   sweepNoteDeliveries: () => mockSweepNoteDeliveries()
 }));
 
+// The unconfirmed reconciler (#1081) owns its own suite; here only whether the lap fires it.
+const mockReconcile = jest.fn(async () => {});
+jest.mock('../transaction/reconcile-unconfirmed', () => ({
+  reconcileUnconfirmedTransactions: () => mockReconcile()
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 
 import * as Repo from 'lib/miden/repo';
@@ -563,6 +569,21 @@ describe('doSync', () => {
     mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
     await doSync();
     expect(mockSweepNoteDeliveries).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
+  });
+
+  it('fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockReconcile.mockClear();
+    await doSync();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
+    await doSync();
+    mockClient.syncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    await doSync();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
     jest.restoreAllMocks();
   });
 

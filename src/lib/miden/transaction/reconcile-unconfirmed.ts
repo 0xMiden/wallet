@@ -3,7 +3,9 @@
 // the caller. What still writes outside the lock (the pipeline's stamps, the out-of-band enders, the Agglayer
 // promotion) can only fill or add entries or complete the row, so the status-changing writes re-check the status and
 // the entries' evidence, and the landed write the account's other rows.
+import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields } from './helper';
@@ -247,5 +249,145 @@ export async function checkEvidenceForRetry(
       return { kind: 'undecided', baseline: outcome.baseline };
     case 'skipped':
       return { kind: 'undecided', baseline: evidenceKey(row.submitEvidence) };
+  }
+}
+
+/** One storage key for the schedule; no storage hook reads it, so a direct provider write is safe. */
+export const SCHEDULE_KEY = 'miden_unconfirmed_reconcile_schedule';
+export const PENDING_BACKOFF_BASE_MS = 15_000;
+export const PENDING_BACKOFF_CAP_MS = 300_000;
+export const STALE_ROW_INTERVAL_MS = 3_600_000;
+const STALE_ROW_AGE_SEC = 24 * 60 * 60;
+const NULLIFIER_WATCH_SEC = 60 * 60;
+
+export interface ScheduleEntry {
+  nextCheckAt: number; // ms
+  step: number;
+}
+export type Schedule = Record<string, ScheduleEntry>;
+
+/** A spend can lose its binding read within ~40 blocks, so a nullifier is watched every 10 blocks, never backed off. */
+export const nullifierIntervalMs = (cadenceMs: number): number => Math.min(15_000, Math.max(2_000, 10 * cadenceMs));
+
+/** A malformed stored value (an older build, a corrupted store) reads as an empty schedule. */
+export const parseSchedule = (value: unknown): Schedule => {
+  const schedule: Schedule = {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return schedule;
+  for (const id of Object.keys(value)) {
+    const entry: unknown = Reflect.get(value, id);
+    if (typeof entry !== 'object' || entry === null) continue;
+    const nextCheckAt: unknown = Reflect.get(entry, 'nextCheckAt');
+    const step: unknown = Reflect.get(entry, 'step');
+    if (
+      typeof nextCheckAt === 'number' &&
+      Number.isFinite(nextCheckAt) &&
+      typeof step === 'number' &&
+      Number.isSafeInteger(step) &&
+      step >= 0
+    ) {
+      schedule[id] = { nextCheckAt, step };
+    }
+  }
+  return schedule;
+};
+
+/** Due at its time, or when that time lies further ahead than any interval: a clock stepped back never starves a row. */
+export const isDue = (entry: ScheduleEntry | undefined, nowMs: number): boolean =>
+  entry === undefined || entry.nextCheckAt <= nowMs || entry.nextCheckAt - nowMs > STALE_ROW_INTERVAL_MS;
+
+const watchesNullifier = (entries: readonly ISubmitEvidence[], tipBlock: number | undefined, nowSec: number): boolean =>
+  entries.some(
+    entry =>
+      entry.verdict === undefined &&
+      entry.preSubmitEnd !== true &&
+      (entry.nullifiers?.length ?? 0) > 0 &&
+      (entry.expirationBlock !== undefined
+        ? tipBlock === undefined || tipBlock <= entry.expirationBlock
+        : nowSec - entry.capturedAt < NULLIFIER_WATCH_SEC)
+  );
+
+/** The next check after a pass that reached no final verdict for the row. */
+export const nextScheduleEntry = (
+  previous: ScheduleEntry | undefined,
+  row: Pick<ITransaction, 'initiatedAt'>,
+  entries: readonly ISubmitEvidence[],
+  tipBlock: number | undefined,
+  nowMs: number,
+  cadenceMs: number
+): ScheduleEntry => {
+  const step = previous?.step ?? 0;
+  const nowSec = Math.floor(nowMs / 1000);
+  if (watchesNullifier(entries, tipBlock, nowSec)) return { nextCheckAt: nowMs + nullifierIntervalMs(cadenceMs), step };
+  const waitMs =
+    nowSec - row.initiatedAt > STALE_ROW_AGE_SEC
+      ? STALE_ROW_INTERVAL_MS
+      : Math.min(PENDING_BACKOFF_BASE_MS * 2 ** step, PENDING_BACKOFF_CAP_MS);
+  return { nextCheckAt: nowMs + waitMs, step: step + 1 };
+};
+
+export interface ReconcileDeps {
+  storage?: StorageProvider;
+  createReads?: () => Promise<NodeReads>;
+  now?: () => number;
+}
+
+let runningPass: Promise<void> | undefined;
+
+/**
+ * One reconciler pass in this realm (#1081), fired and forgotten after a successful sync; a second call joins the
+ * running pass. It takes no WASM client lock and never rejects: each row is judged in its own try.
+ */
+export const reconcileUnconfirmedTransactions = (deps: ReconcileDeps = {}): Promise<void> => {
+  runningPass ??= runPass(deps).finally(() => {
+    runningPass = undefined;
+  });
+  return runningPass;
+};
+
+async function runPass(deps: ReconcileDeps): Promise<void> {
+  const storage = deps.storage ?? getStorageProvider();
+  const now = deps.now ?? Date.now;
+  try {
+    const startedMs = now();
+    const rows = await Repo.transactions.filter(row => awaitingVerdict(row, Math.floor(startedMs / 1000))).toArray();
+    const raw: unknown = (await storage.get([SCHEDULE_KEY]))[SCHEDULE_KEY];
+    const stored = parseSchedule(raw);
+    const schedule: Schedule = {};
+    for (const row of rows) {
+      const entry = stored[row.id];
+      if (entry !== undefined) schedule[row.id] = entry;
+    }
+    const due = rows.filter(row => isDue(schedule[row.id], startedMs));
+    if (due.length > 0) {
+      const node = await (deps.createReads ?? createNodeReads)();
+      for (const row of due) {
+        try {
+          const turn = await inVerdictTurn(
+            row.id,
+            () => judgeAndWrite(row.id, { node, nowSec: Math.floor(now() / 1000), cadenceMs: observedCadenceMs() }),
+            { ifAvailable: true }
+          );
+          if (!turn.ran) continue;
+          const outcome = turn.value;
+          if (outcome.kind === 'pending' || outcome.kind === 'landing-pending') {
+            schedule[row.id] = nextScheduleEntry(
+              schedule[row.id],
+              row,
+              applyEntryWrites(outcome.judgement.judgedEntries, outcome.judgement),
+              outcome.judgement.tipBlock,
+              now(),
+              observedCadenceMs()
+            );
+          } else {
+            delete schedule[row.id];
+          }
+        } catch (error) {
+          console.warn(`[reconcile] could not judge transaction ${row.id}`, error);
+        }
+      }
+    }
+    if (JSON.stringify(raw) !== JSON.stringify(schedule)) await storage.set({ [SCHEDULE_KEY]: schedule });
+  } catch (error) {
+    console.warn('[reconcile] the unconfirmed reconcile pass failed', error);
   }
 }

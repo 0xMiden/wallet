@@ -241,6 +241,10 @@ export function useSyncTrigger() {
             // waiting out the claimable-notes SWR interval (up to 5s) — the note
             // read runs after the sync's wasm lock has been released (#462).
             requestNotesRefresh();
+            // Settle transactions whose submit outcome was unknown (#1081): node reads only, fired and forgotten.
+            void import('lib/miden/transaction/reconcile-unconfirmed')
+              .then(({ reconcileUnconfirmedTransactions }) => reconcileUnconfirmedTransactions())
+              .catch(e => console.warn('[useSyncTrigger] unconfirmed reconcile failed', e));
 
             const guardianAccountKeys = useWalletStore
               .getState()
