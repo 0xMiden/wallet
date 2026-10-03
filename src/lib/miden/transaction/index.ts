@@ -3428,10 +3428,12 @@ const generateGuardianTransaction = async (
   // is forwarded. That leaf awaits the stamp in this realm before its submit call, so a failure past the submit always
   // finds this set, and a failed abandon below is marked for retry only after a failure that provably preceded the
   // submit (#1317). The offscreen leaf's stamps are fire-and-forget OFFSCREEN_STAGE_EVENTs, droppable and able to arrive
-  // after its reply, so their absence proves nothing: an offscreen attempt never marks. Not the row's
-  // `mayHaveSubmitted`: sticky across attempts and stamped before dispatch on every row carrying request bytes, it would
-  // stop the retry for every recallable send, swap, Earn deposit and custom execute.
+  // after its reply, so their absence proves nothing: an attempt dispatched offscreen never marks. A failure before that
+  // dispatch (the co-sign, the bridge claim, the stage writes) never left this realm, so it is pre-submit on either
+  // route. Not the row's `mayHaveSubmitted`: sticky across attempts and stamped before dispatch on every row carrying
+  // request bytes, it would stop the retry for every recallable send, swap, Earn deposit and custom execute.
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
+  let offscreenDispatched = false;
   let submitCrossed = false;
   const stampStage = stageStampFor(transaction.id);
   const stampAttemptStage = (stage: ITransactionStage, opts?: { readonly reliable?: boolean }): Promise<void> => {
@@ -3538,6 +3540,9 @@ const generateGuardianTransaction = async (
       if (transaction.requestBytes !== undefined) {
         await markMayHaveSubmitted(transaction.id);
       }
+      // Serialized before the flag is set: a request that cannot serialize never reached the leaf.
+      const requestBytes = tr.serialize();
+      offscreenDispatched = true;
       // The proposal's ChainAnchor rides along (protocol 0.16): the signed
       // summary binds the reference block it was built at, so the leaf's
       // executeRequest must be pinned there — the executing realm's sync height
@@ -3546,7 +3551,7 @@ const generateGuardianTransaction = async (
       // no longer authorize ("transaction is unauthorized").
       result = await dispatchGuardianPipeline(
         transaction.accountId,
-        tr.serialize(),
+        requestBytes,
         transaction.delegateTransaction,
         signCallback,
         stampStage,
@@ -3632,18 +3637,20 @@ const generateGuardianTransaction = async (
       } catch (abandonError) {
         // Cleanup must never mask the transaction failure. The abandonment call
         // is idempotent, so the account's next proposal retries it (#1317), but
-        // only after a failure that provably preceded the submit, which only the
-        // inline leaf's ordered stamp can show. A kill may have submitted (a realm
-        // killed between submit and its stamp reaching here surfaces as one), and
-        // so may an inline attempt that reported 'submitting' or any offscreen
-        // attempt, whose stamps can be lost; each keeps this one abandon and
-        // leaves no mark, so the retry never adds an abandon to a write the chain
+        // only after a failure that provably preceded the submit: an inline
+        // attempt whose ordered stamp never reported 'submitting', or an
+        // offscreen-routed one whose request never reached its leaf. A kill may
+        // have submitted (a realm killed between submit and its stamp reaching
+        // here surfaces as one), and so may an inline attempt that reported
+        // 'submitting'; each keeps this one abandon and leaves no mark. The
+        // offscreen leaf's stamps can be lost, so an attempt dispatched offscreen
+        // never marks, and the retry never adds an abandon to a write the chain
         // may still consume.
         console.error('Failed to request Guardian candidate abandonment', {
           nonce: proposalResult.nonce,
           error: abandonError
         });
-        if (!offscreenLeaf && !isKilledPipeline(error) && !submitCrossed) {
+        if (!offscreenDispatched && !isKilledPipeline(error) && !submitCrossed) {
           recordUnabandonedCandidate(transaction.accountId, service, proposalResult.nonce, proposalStamps);
         }
       }

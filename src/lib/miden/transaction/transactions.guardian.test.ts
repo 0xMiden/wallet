@@ -5721,6 +5721,58 @@ describe('generateTransaction — Guardian routing', () => {
         }
       );
 
+      it('an offscreen-routed send whose hot co-sign fails and whose abandon fails records the abandon, and the next send retries it', async () => {
+        // Its request never reached the offscreen leaf, so the failure provably preceded the submit.
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+          const service = busyService();
+          service.signAndCreateTransactionRequest.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          arrangeClient();
+
+          await run(queueRow('offscreen-cosign-abandon-failed', SEND));
+
+          expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+          expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+
+          mockDispatchGuardianPipeline.mockResolvedValueOnce(makeResult());
+          await run(queueRow('offscreen-cosign-next-send', SEND));
+
+          expect(service.abandonCandidate).toHaveBeenCalledTimes(2);
+          expect(service.abandonCandidate).toHaveBeenLastCalledWith(8);
+        } finally {
+          delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+        }
+      });
+
+      it('an offscreen-routed send whose request fails to serialize and whose abandon fails records the abandon', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+          const service = busyService();
+          service.signAndCreateTransactionRequest.mockResolvedValueOnce({
+            serialize: () => {
+              throw new Error('failed to serialize the transaction request');
+            },
+            authArg: () => undefined
+          });
+          service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          arrangeClient();
+
+          await run(queueRow('offscreen-serialize-abandon-failed', SEND));
+
+          expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+          expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+        } finally {
+          delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+        }
+      });
+
       it('an evicted pipeline abandons nothing and records no abandon, since its transaction may still land', async () => {
         const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
         const service = busyService();
