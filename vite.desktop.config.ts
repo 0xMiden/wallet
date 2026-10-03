@@ -112,6 +112,8 @@ export default defineConfig({
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
     'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'false'),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    // Bridge config E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
     'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag

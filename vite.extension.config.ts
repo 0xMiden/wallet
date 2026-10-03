@@ -228,6 +228,9 @@ const sharedDefine = {
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  // E2E builds read the bridge config document from this base instead of the published repo. Ignored unless
+  // MIDEN_E2E_TEST is 'true' (lib/remote-config/source.ts); empty by default, so every other build reads the repo.
+  'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
   'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
   // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
   // the __TEST_*__ hooks) so a harness build can keep the hooks while still
