@@ -238,9 +238,11 @@ describe('transactions utilities', () => {
       mockTransactionsWhere
         // 1) cancelTransactionById's own lookup
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
-        // 2) cancelTransaction's finalized-guard lookup (non-finalized → falls through)
+        // 2) recordOutOfBandEnd's guarded write, before the cancel (#1081)
+        .mockReturnValueOnce({ modify: jest.fn() })
+        // 3) cancelTransaction's finalized-guard lookup (non-finalized → falls through)
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(undefined) })
-        // 3) cancelTransaction's actual .modify()
+        // 4) cancelTransaction's actual .modify()
         .mockReturnValueOnce({ modify: mockModify });
 
       await cancelTransactionById('tx-1', 'Test cancellation');
@@ -1146,6 +1148,11 @@ describe('transactions utilities', () => {
     });
   });
 
+  // Dexie skips the put when a modify callback returns `false`, which is how the out-of-band end's write (#1081)
+  // declines a row with no attempt, so these sweeps count the writes that applied rather than the calls.
+  const appliedWrites = (modify: jest.Mock): number =>
+    modify.mock.results.filter(result => result.value !== false).length;
+
   describe('cancelStuckTransactions', () => {
     it('cancels transactions that exceed MAX_WAIT_BEFORE_CANCEL', async () => {
       const nowInSeconds = Math.floor(Date.now() / 1000);
@@ -1166,13 +1173,13 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([stuckTx, recentTx])
       });
 
-      const mockModify = jest.fn();
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn({}));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
       // Should only cancel the stuck transaction
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
     });
 
     it('does nothing when no transactions are stuck', async () => {
@@ -1197,12 +1204,12 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([crashedTx])
       });
 
-      const mockModify = jest.fn();
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn({}));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
     });
 
     /** Runs cancelStuckTransactions against one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */
@@ -1281,12 +1288,12 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([orphan])
       });
       const dbTx: any = { transactionId: 'preexisting-should-not-be-touched' };
-      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      const mockModify = jest.fn((fn: (t: any) => unknown) => fn(dbTx));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await failInterruptedTransactions();
 
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
       expect(dbTx.status).toBe(ITransactionStatus.Failed);
       expect(dbTx.displayMessage).toMatch(/interrupted/i);
       // We do NOT resubmit, so cancelTransaction must not stamp or alter an on-chain tx id.
@@ -1326,9 +1333,8 @@ describe('transactions utilities', () => {
       const modifiedIds: string[] = [];
       mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
         first: jest.fn().mockResolvedValue(undefined),
-        modify: jest.fn(async (fn: (t: any) => void) => {
-          modifiedIds.push(id);
-          fn({});
+        modify: jest.fn(async (fn: (t: any) => unknown) => {
+          if (fn({}) !== false) modifiedIds.push(id);
         })
       }));
 
@@ -1358,9 +1364,8 @@ describe('transactions utilities', () => {
       const modifiedIds: string[] = [];
       mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
         first: jest.fn().mockResolvedValue(undefined),
-        modify: jest.fn(async (fn: (t: any) => void) => {
-          modifiedIds.push(id);
-          fn({});
+        modify: jest.fn(async (fn: (t: any) => unknown) => {
+          if (fn({}) !== false) modifiedIds.push(id);
         })
       }));
       // The cutoff is when the module loaded, not when the sweep runs.
@@ -1416,7 +1421,8 @@ describe('transactions utilities', () => {
         processingStartedAt: SESSION_STARTED_AT - 1
       };
       mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([gen]) });
-      const mockModify = jest.fn();
+      const raced: Record<string, unknown> = { id: 'raced', status: ITransactionStatus.Completed };
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn(raced));
       // The row was marked Completed after the snapshot → cancelTransaction's finalized
       // guard must block the downgrade so the on-chain-landed tx isn't flipped to Failed.
       mockTransactionsWhere.mockReturnValue({
@@ -1426,7 +1432,10 @@ describe('transactions utilities', () => {
 
       await failInterruptedTransactions();
 
-      expect(mockModify).not.toHaveBeenCalled();
+      // Only the out-of-band end's write runs, and declines: the cancel stops at its read (#1081).
+      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(0);
+      expect(raced).toEqual({ id: 'raced', status: ITransactionStatus.Completed });
     });
 
     it('keeps the interrupted error (not a prover-failure) for a tx interrupted mid-prove', async () => {
