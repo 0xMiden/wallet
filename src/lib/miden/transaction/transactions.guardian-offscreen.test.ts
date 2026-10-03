@@ -38,7 +38,9 @@
  *     AFTER the leaf with the id re-derived from `result.executedTransaction().id()`,
  *     on both flags — never the raw SW `getMidenClient().waitForTransactionCommit`.
  *   - kill-window (funds-safety): an offscreen `OperationAbortedError` (wedge-kill)
- *     runs `abandonCandidate` exactly once (as inline) and marks the row FAILED —
+ *     keeps the candidate for the node's verdict on the value-moving types and the
+ *     Agglayer bridged-send (#1081), and abandons it exactly once (as inline) on the
+ *     structural types and the earn deposit. Either way it marks the row FAILED:
  *     it is NOT auto-requeued, and it dispatches exactly ONCE. A guardian
  *     send/swap/execute has NO input-note nullifier (each retry builds a FRESH
  *     proposal with a new random output-note serial), so auto-requeueing would let
@@ -642,15 +644,18 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // on 'executing' would make the whole arm dead code on the shipping path —
     // the service-worker bundle defaults MIDEN_USE_OFFSCREEN_CLIENT to 'true'.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Tagged as the offscreen leaf tags every failure it raises before its submit call (Task 8).
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary ' +
-          'TransactionSummary { nonce_delta: 1 }'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary ' +
+            'TransactionSummary { nonce_delta: 1 }'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
-    arrange('on-send-unauthorized', row);
+    const { service } = arrange('on-send-unauthorized', row);
     const before = Math.floor(Date.now() / 1000);
 
     await generateTransaction(buildTx('on-send-unauthorized', row) as never, signCallback, false, provider as never);
@@ -667,6 +672,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(stored.stage).not.toBe('executing');
     expect(stored.status).toBe(ITransactionStatus.Queued);
     expect(stored.processingStartedAt).toBeUndefined();
+    // Provably before the submit, so the candidate is abandoned at once and the requeue never meets it (#1081).
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
     // Bounded on BOTH sides: a bare "is a number" assertion stays green if the
     // cooldown is changed to 0 (the row is re-picked every ~5s poll, hammering
     // the guardian and starving other accounts) or to something so large the row
@@ -689,9 +699,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // re-eligible inside the documented window.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -720,9 +732,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // the arm through the same set as `send`, and only `send` was covered.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'consume', noteId: 'note-unauth' };
@@ -866,9 +880,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1189,9 +1205,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1242,9 +1260,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1279,9 +1299,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1325,9 +1347,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1375,9 +1399,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1425,9 +1451,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1486,9 +1514,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1540,9 +1570,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1586,9 +1618,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1622,9 +1656,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1662,9 +1698,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1720,9 +1758,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       warn.mock.calls.filter(c => typeof c[0] === 'string' && c[0].includes('adopted a newer row')).length;
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1783,9 +1823,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       jest.useFakeTimers();
       try {
         mockDispatchGuardianPipeline.mockRejectedValue(
-          new Error(
-            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          markErrorBeforeSubmit(
+            new Error(
+              "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+                'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+            )
           )
         );
         const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1829,9 +1871,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const warn = jest.spyOn(console, 'warn');
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1894,9 +1938,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const error = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1966,9 +2012,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2027,9 +2075,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // change replaced. Past the window it fails with the reason it actually got.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2064,9 +2114,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // have succeeded is lost. Fail now instead.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2109,9 +2161,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const error = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2183,9 +2237,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // zero retries — a silent no-op exactly when it is needed.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };

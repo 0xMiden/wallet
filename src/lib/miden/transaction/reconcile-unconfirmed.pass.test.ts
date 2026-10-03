@@ -381,6 +381,12 @@ describe('releasing a kept Guardian candidate (#1081)', () => {
 
   beforeEach(() => {
     mono = 0;
+    // Every unreleased candidate is logged.
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('asks for the abandon after the never-committed write, and clears candidateKept once released', async () => {

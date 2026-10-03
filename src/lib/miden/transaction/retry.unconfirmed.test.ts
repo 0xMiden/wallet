@@ -498,9 +498,19 @@ describe('the Guardian hold (#1081)', () => {
   it('refuses while a kept candidate is under 600 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
     await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
     const expected = guardianHoldRetryMessage(NOW + 500);
-    expect(((await refusal()) as Error).message).toBe(expected);
-    expect(((await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })) as Error).message).toBe(expected);
+    expect(await refusal()).toHaveProperty('message', expected);
+    expect(await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })).toHaveProperty('message', expected);
     expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  // Before the tap-time proof: a held Retry that proved the row dead would write the never-committed verdict itself,
+  // and the pass releases a kept candidate only after its own such write.
+  it('refuses before the tap-time proof, so a held Retry never writes the verdict the release follows', async () => {
+    mockNode.current = DEAD;
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
+    expect((await read())?.neverCommittedAt).toBeUndefined();
+    expect((await read())?.submitEvidence?.[0]?.verdict).toBeUndefined();
   });
 
   it('holds a proven row too', async () => {
@@ -511,7 +521,7 @@ describe('the Guardian hold (#1081)', () => {
         submitEvidence: [kept(NOW - 100)]
       })
     );
-    expect(((await refusal()) as Error).message).toBe(guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
   });
 
   it('holds a guardian Agglayer row too', async () => {
@@ -523,7 +533,7 @@ describe('the Guardian hold (#1081)', () => {
         submitEvidence: [kept(NOW - 100)]
       })
     );
-    expect(((await refusal()) as Error).message).toBe(guardianHoldRetryMessage(NOW + 500));
+    expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 500));
   });
 
   // Hold bounds, on an injected clock: refused at capturedAt + 599 s, today's path at + 600 s.
@@ -532,7 +542,7 @@ describe('the Guardian hold (#1081)', () => {
     try {
       await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 599)] }));
       clock.mockReturnValue(NOW * 1000);
-      expect(((await refusal()) as Error).message).toBe(guardianHoldRetryMessage(NOW + 1));
+      expect(await refusal()).toHaveProperty('message', guardianHoldRetryMessage(NOW + 1));
       clock.mockReturnValue((NOW + 1) * 1000);
       expect(acknowledgementOf(await refusal())).toEqual({ attemptId: 'a1' });
       await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a1' } });

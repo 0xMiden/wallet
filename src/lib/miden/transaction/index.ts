@@ -3721,8 +3721,10 @@ const generateGuardianTransaction = async (
       // in the offscreen doc as ONE killable op; the executeRequest keystore sign
       // reaches the SW-resident vault via the EXISTING OFFSCREEN_SIGN_REQUEST
       // reverse channel (no new IPC). On a deadline/close kill the offscreen op
-      // rejects with a retryable OperationAbortedError and the SW catch below
-      // still runs `abandonCandidate`, byte-identical to the inline path.
+      // rejects with a retryable OperationAbortedError, and the SW catch below
+      // treats it as the inline path treats a kill: a row that can await a verdict
+      // keeps its candidate for the node's verdict (#1081), and only a row that
+      // cannot await one runs `abandonCandidate`.
       //
       // The per-step stage stamps (PR #524) cross too: the offscreen leaf stamps the
       // SAME three boundaries `runGuardianPipeline` does (executing / proving /
@@ -3832,8 +3834,12 @@ const generateGuardianTransaction = async (
     // candidate WILL land. Abandoning it anyway asks the guardian to discard a delta the chain is
     // about to consume; on slow inclusion the guardian finalizes that, drops the landed delta and
     // releases the account onto stale state for up to a minute. Only a failure that cannot show
-    // the submit resolved (a kill, a pre-submit error, a canonicalization refusal) abandons: both
-    // leaves wrap every post-submit failure as the apply-after-submit error.
+    // the submit resolved abandons, and not every one of those: a row that can await a verdict keeps
+    // its candidate for the node's verdict after a kill or a failure after this attempt's crossing
+    // (#1081), so there only a failure provably before the submit abandons (a canonicalization
+    // refusal among them), while a row that cannot await one abandons after a kill, a pre-submit
+    // error or a canonicalization refusal alike. Both leaves wrap every post-submit failure as the
+    // apply-after-submit error.
     const submitResolved = isApplyAfterSubmitError(error);
     // The node has the write, so its candidate is on the Guardian now: the next proposal's gate asks about it (#312).
     if (submitResolved) recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
