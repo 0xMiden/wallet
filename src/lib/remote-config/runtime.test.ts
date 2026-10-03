@@ -695,6 +695,46 @@ describe('a re-derivation that cannot read a value', () => {
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
     expect(getBridgeConfigSnapshot().derived?.epoch.evmUsdc).toEqual(down);
   });
+
+  it('keeps them through a fresher same-version commit from another realm, and not across a version', async () => {
+    serve(1);
+    mockDerive.mockImplementationOnce(async source => read(source));
+    await initBridgeConfig();
+    await flush();
+    mockStorage.set(DERIVED, { ...unread(config(1)), derivedAt: NOW + 5 });
+    fireChange(DERIVED);
+    await flush();
+    expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBe(ETH_FAUCET);
+    const { derived } = getBridgeConfigSnapshot();
+    expect(derived?.derivedAt).toBe(NOW + 5);
+    expect({ ...derived?.agglayer, ...derived?.epoch }).toMatchObject({
+      tokens: { state: 'ok', value: [ETH] },
+      evmUsdc: { state: 'ok', value: USDC },
+      allocator: down,
+      l1BridgeCode: { state: 'absent' }
+    });
+    storeEntry('testnet', 2, NOW + 10);
+    mockStorage.set(DERIVED, { ...unread(config(2)), derivedAt: NOW + 10 });
+    fireChange(DERIVED);
+    await flush();
+    expect(getBridgeConfigSnapshot().config).toEqual(config(2));
+    expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+  });
+
+  it('keeps values another realm stored for this version, though this realm never read them', async () => {
+    seed(1);
+    await initBridgeConfig();
+    mockStorage.set(DERIVED, { ...read(config(1)), derivedAt: NOW - 1 });
+    serve(1);
+    mockDerive.mockImplementationOnce(async source => unread(source));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBe(ETH_FAUCET);
+    const { derived } = getBridgeConfigSnapshot();
+    expect(derived?.agglayer.tokens).toEqual({ state: 'ok', value: [ETH] });
+    expect(derived?.epoch.allocator).toEqual(down);
+    expect(mockStorage.get(DERIVED)).toEqual(derived);
+  });
 });
 
 describe('a wipe in this realm', () => {

@@ -136,17 +136,19 @@ export function subscribeBridgeConfig(listener: () => void): () => void {
   };
 }
 
-// The stored document and its derivation; a derivation of any other version reads as missing.
-async function readPair(network: string): Promise<Pick<NetworkState, 'stored' | 'derived'>> {
-  const stored = await readStoredBridgeConfig(network);
-  if (!stored) return { stored: null, derived: null };
+// The stored derivation of document `version`; one of another version, or one storage cannot return, reads as missing.
+async function readDerived(network: string, version: number): Promise<DerivedBridgeConfig | null> {
   try {
-    const raw = await fetchFromStorage<unknown>(bridgeConfigDerivedKey(network));
-    return { stored, derived: parseStoredDerived(raw, network, stored.config.version) };
+    return parseStoredDerived(await fetchFromStorage<unknown>(bridgeConfigDerivedKey(network)), network, version);
   } catch (error) {
     console.warn(`[remote-config] could not read the derived snapshot for ${network}:`, error);
-    return { stored, derived: null };
+    return null;
   }
+}
+
+async function readPair(network: string): Promise<Pick<NetworkState, 'stored' | 'derived'>> {
+  const stored = await readStoredBridgeConfig(network);
+  return { stored, derived: stored ? await readDerived(network, stored.config.version) : null };
 }
 
 function forgetAll(): void {
@@ -190,8 +192,9 @@ function hydrate(state: NetworkState): Promise<void> {
 }
 
 // Another realm's commit. Its document is taken only together with its own derivation, and only when it is newer
-// than this realm's; a document whose derivation has not landed yet waits for it. A removal is ignored: the document
-// is network configuration, not wallet data, and the copy in memory stays valid until a newer version replaces it.
+// than this realm's; a document whose derivation has not landed yet waits for it. Values this realm read for the same
+// version are kept as a re-derivation here keeps them. A removal is ignored: the document is network configuration,
+// not wallet data, and the copy in memory stays valid until a newer version replaces it.
 async function rehydrate(state: NetworkState): Promise<void> {
   await state.hydration;
   const { stored, derived } = await readPair(state.network);
@@ -207,7 +210,7 @@ async function rehydrate(state: NetworkState): Promise<void> {
     return;
   }
   state.stored = stored;
-  state.derived = derived;
+  state.derived = keepValuesRead(derived, state.derived);
   state.failures = 0;
   state.lastFetch = { at: stored.fetchedAt, ok: true };
   state.checkedAt = Math.max(stored.fetchedAt, derived.derivedAt);
@@ -277,13 +280,15 @@ async function refresh(state: NetworkState): Promise<void> {
     ? newer(fetched, state.stored)
     : newer(await readStoredBridgeConfig(state.network), state.stored);
   const result = target ? await derive(target.config, midenRpcUrl) : null;
+  // What another realm read for this version and stored counts as read here, so storing this run never loses it.
+  const storedDerived = target && result ? await readDerived(state.network, target.config.version) : null;
   // Across a switch the captured RPC need not be this network's, so the derivation is dropped, not trusted. The
   // fetched document stays stored, and this network's next check derives it: from its own fetch, or read from storage
   // when that fetch fails.
   if (getEffectiveNetworkName() !== state.network) return;
   // A newer document adopted from another realm while this ran stays; the run still counts as a check.
   const superseded = state.stored !== null && target !== null && state.stored.config.version > target.config.version;
-  const derived = result ? keepValuesRead(result.derived, state.derived) : null;
+  const derived = result ? keepValuesRead(keepValuesRead(result.derived, storedDerived), state.derived) : null;
   if (!superseded) {
     state.stored = target;
     state.derived = derived;
