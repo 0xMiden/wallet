@@ -449,6 +449,15 @@ describe('isUnconfirmedFailure and isOutcomeUnconfirmed (#1081)', () => {
     expect(isOutcomeUnconfirmed(failed({ submitEvidence: [entry()], neverCommittedAt: 5 }))).toBe(false);
   });
 
+  // Only a Failed row's open entry speaks for it: the screens read this predicate for every row they show.
+  it.each([
+    ['Queued', ITransactionStatus.Queued],
+    ['GeneratingTransaction', ITransactionStatus.GeneratingTransaction],
+    ['Completed', ITransactionStatus.Completed]
+  ])('a %s row with an open entry is not not-confirmed', (_label, status) => {
+    expect(isOutcomeUnconfirmed(failed({ status, error: undefined, submitEvidence: [entry()] }))).toBe(false);
+  });
+
   it('an ineligible row`s entries are inert, and a definite failure stays one', () => {
     expect(isOutcomeUnconfirmed(failed({ type: 'earn-deposit', submitEvidence: [entry()] }))).toBe(false);
     expect(isOutcomeUnconfirmed(failed({ restoredFromBackup: true, submitEvidence: [entry()] }))).toBe(false);

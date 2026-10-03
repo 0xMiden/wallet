@@ -121,6 +121,8 @@
   "cancelled": "Cancelled",
   "notConfirmed": "Not confirmed",
   "transactionNotConfirmedHint": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again.",
+  "transactionUndeterminedHint": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again.",
+  "transactionRestoredHint": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it.",
   "showFullError": "Show full error",
   "hideFullError": "Hide full error",
   "noteDeliveryPendingTitle": "Delivery unconfirmed",

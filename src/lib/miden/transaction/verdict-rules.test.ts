@@ -7,6 +7,7 @@ import {
   isFailedClaim,
   isProvable,
   isUnresolvedEntry,
+  notConfirmedHintKey,
   OTHER_NETWORK_GIVE_UP_SEC,
   upsertEvidenceEntry
 } from './verdict-rules';
@@ -225,5 +226,32 @@ describe('evidenceKey', () => {
     expect(evidenceKey([provable({ otherNetworkSince: NOW })])).not.toBe(evidenceKey(base));
     expect(evidenceKey([provable({ outputNoteIds: [hex(5), hex(8)] })])).not.toBe(evidenceKey(base));
     expect(evidenceKey(undefined)).toBe(evidenceKey([]));
+  });
+});
+
+describe('notConfirmedHintKey (#1081)', () => {
+  it('says the row may still complete only while the reconciler still judges it', () => {
+    expect(notConfirmedHintKey(row(), NOW)).toBe('transactionNotConfirmedHint');
+    expect(notConfirmedHintKey(row({ submitEvidence: [provable({ verdict: 'unresolvable' })] }), NOW)).toBe(
+      'transactionUndeterminedHint'
+    );
+    expect(
+      notConfirmedHintKey(row({ submitEvidence: [{ attemptId: 'a', capturedAt: NOW, source: 'end' }] }), NOW)
+    ).toBe('transactionUndeterminedHint');
+    expect(
+      notConfirmedHintKey(
+        row({ status: ITransactionStatus.Failed, submitEvidence: undefined, mayHaveSubmitted: true }),
+        NOW
+      )
+    ).toBe('transactionUndeterminedHint');
+    expect(
+      notConfirmedHintKey(
+        row({ submitEvidence: [provable({ otherNetworkSince: NOW - OTHER_NETWORK_GIVE_UP_SEC - 1 })] }),
+        NOW
+      )
+    ).toBe('transactionUndeterminedHint');
+    expect(notConfirmedHintKey(row({ status: ITransactionStatus.Failed, restoredFromBackup: true }), NOW)).toBe(
+      'transactionRestoredHint'
+    );
   });
 });

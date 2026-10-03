@@ -113,11 +113,13 @@ jest.mock('lib/miden/activity', () => ({
   isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user',
   // The REAL predicate, same reasoning as isCancellableTransaction above: which rows the
   // builder marks not-confirmed (#1250) is exactly what the isUnconfirmed tests assert.
-  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure,
+  isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
+  notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
 }));
 
 jest.mock('lib/miden/db/types', () => ({
-  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 },
+  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
   STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES,
   formatTransactionStatus: (...args: unknown[]) => mockFormatTransactionStatus(...args)
 }));
@@ -168,7 +170,7 @@ jest.mock('./HistoryView', () => ({
 }));
 
 // Enum values must match the mocked `lib/miden/db/types` above.
-const STATUS = { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 };
+const STATUS = { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 };
 
 // ---------------------------------------------------------------------------
 // Fixtures — one dataset that touches every branch of both fetch helpers.
@@ -539,6 +541,32 @@ describe('History', () => {
       (e: any) => e.key === 'completed-bridge-fill-confirmed'
     );
     expect(bridgeFillConfirmed.isUnconfirmed).toBe(true);
+  });
+
+  it('reads an Unconfirmed row and a Failed row with an open entry as not confirmed, a retired one as failed (#1081)', async () => {
+    const send = { accountId: '0xme', displayIcon: 'SEND', type: 'send', displayMessage: 'Sending' };
+    const openEntry = { attemptId: 'a', capturedAt: 1, source: 'stage' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...send, id: 'unconfirmed', status: STATUS.Unconfirmed, completedAt: 500 },
+      { ...send, id: 'failed-open', status: STATUS.Failed, completedAt: 600, submitEvidence: [openEntry] },
+      {
+        ...send,
+        id: 'failed-retired',
+        status: STATUS.Failed,
+        completedAt: 700,
+        submitEvidence: [{ ...openEntry, preSubmitEnd: true }]
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((e: { key: string }) => e.key === key);
+    expect(byKey('completed-unconfirmed').isUnconfirmed).toBe(true);
+    expect(byKey('completed-failed-open').isUnconfirmed).toBe(true);
+    expect(byKey('completed-failed-retired').isUnconfirmed).toBe(false);
+    expect(byKey('completed-failed-retired').message).toBe('Transaction failed');
   });
 
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {

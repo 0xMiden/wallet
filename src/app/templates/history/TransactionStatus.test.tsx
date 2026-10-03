@@ -29,14 +29,15 @@ jest.mock('app/icons/v2', () => ({
 // `lib/miden/db/types` transitively imports `lib/miden/types` (the SDK/native
 // asset stack). The component only reads the `ITransactionStatus` numeric enum,
 // so replace the module with just that enum, preserving the real ordinals
-// (Queued=0, GeneratingTransaction=1, Completed=2, Failed=3).
+// (Queued=0, GeneratingTransaction=1, Completed=2, Failed=3, Unconfirmed=4).
 jest.mock('lib/miden/db/types', () => ({
   __esModule: true,
   ITransactionStatus: {
     Queued: 0,
     GeneratingTransaction: 1,
     Completed: 2,
-    Failed: 3
+    Failed: 3,
+    Unconfirmed: 4
   }
 }));
 
@@ -50,6 +51,7 @@ it('mocks ITransactionStatus with the real ordinals', () => {
   expect(actual.ITransactionStatus.GeneratingTransaction).toBe(1);
   expect(actual.ITransactionStatus.Completed).toBe(2);
   expect(actual.ITransactionStatus.Failed).toBe(3);
+  expect(actual.ITransactionStatus.Unconfirmed).toBe(4);
 });
 
 describe('ExternalLinkValue', () => {
@@ -208,6 +210,7 @@ describe('transactionStatusOf', () => {
     [{ status: ITransactionStatus.Failed, swapSettlement: 'pending' as const }, 'failed'],
     [{ status: ITransactionStatus.Completed, isCancelled: true, swapSettlement: 'reclaimed' as const }, 'cancelled'],
     [{ status: ITransactionStatus.Failed, isUnconfirmed: true }, 'unconfirmed'],
+    [{ status: ITransactionStatus.Unconfirmed }, 'unconfirmed'],
     // isUnconfirmed wins over isCancelled: a stamped user cancel is both (#1250).
     [{ status: ITransactionStatus.Failed, isUnconfirmed: true, isCancelled: true }, 'unconfirmed']
   ])('maps %o to %s', (input, expected) => {

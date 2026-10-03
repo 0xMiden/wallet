@@ -10,6 +10,7 @@ import {
   ITransactionType,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
@@ -49,8 +50,10 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
-  /** A failed row whose outcome is unknown rather than confirmed-failed (`isUnconfirmedFailure`). */
+  /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
   isUnconfirmed?: boolean;
+  /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
+  notConfirmedHint?: NotConfirmedHintKey;
   /**
    * `tx.noteDelivery` — whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on

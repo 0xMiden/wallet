@@ -13,9 +13,10 @@ import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import {
   bridgeProviderOf,
+  isOutcomeUnconfirmed,
   isRequeueableTransaction,
-  isUnconfirmedFailure,
   isUnverifiableSendRetryError,
+  notConfirmedHintKey,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   safeGenerateTransactionsLoop as dbTransactionsLoop
@@ -105,8 +106,13 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
-  const transactionComplete = status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
-  const hasErrors = status === ITransactionStatus.Failed;
+  // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
+  // row to the receipt (#1081).
+  const transactionComplete =
+    status === ITransactionStatus.Completed ||
+    status === ITransactionStatus.Failed ||
+    status === ITransactionStatus.Unconfirmed;
+  const hasErrors = status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed;
   const activeStage = active?.stage;
   const activeType = active?.type;
   // Select the step set from the *tracked tx's* account, not just the current
@@ -293,10 +299,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const commitUnconfirmed =
     isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
   const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
-  // A failed row whose outcome is unknown reads as not confirmed here too, by the rule Activity and the
-  // rotation gate share (#1250): no failed title, and no classifier copy that claims the send did not land.
+  // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
+  // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
-  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isUnconfirmedFailure(failedRow);
+  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
   // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
   // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.
@@ -338,7 +344,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
-      if (unconfirmed) return t('transactionNotConfirmedHint');
+      if (unconfirmed && failedRow !== undefined) return t(notConfirmedHintKey(failedRow));
       // Prefer the row's own error. The pipeline writes prose here for the failures it
       // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
       // be the MIDEN for the network fee rather than the amount sent, which the generic
@@ -356,6 +362,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     transactionComplete,
     hasErrors,
     unconfirmed,
+    failedRow,
     t,
     activeStage,
     commitUnconfirmed,

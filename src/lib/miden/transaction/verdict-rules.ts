@@ -103,6 +103,22 @@ export const isFailedClaim = (row: VerdictRow, nowSec?: number): boolean =>
   (row.status === ITransactionStatus.Failed || row.status === ITransactionStatus.Unconfirmed) &&
   !holdsNotes(row, nowSec);
 
+export type NotConfirmedHintKey =
+  | 'transactionNotConfirmedHint'
+  | 'transactionUndeterminedHint'
+  | 'transactionRestoredHint';
+
+/**
+ * The not-confirmed hint (#1081): "it may still complete" only while the reconciler still judges the row; a restored
+ * row is never judged and Retry refuses it, so its copy offers no retry; any other row the reconciler does not judge
+ * (every entry unresolvable, evidence-less, a day on another network, or a #1250 row from before this change) says
+ * the wallet is not checking it. The 'Not confirmed' label and pill stay for all three.
+ */
+export const notConfirmedHintKey = (row: VerdictRow, nowSec?: number): NotConfirmedHintKey => {
+  if (awaitingVerdict(row, nowSec)) return 'transactionNotConfirmedHint';
+  return row.restoredFromBackup === true ? 'transactionRestoredHint' : 'transactionUndeterminedHint';
+};
+
 /** Not proven dead and not retired before its submit: this attempt may still have landed. */
 export const isUnresolvedEntry = (entry: ISubmitEvidence): boolean =>
   entry.verdict !== 'never-committed' && entry.preSubmitEnd !== true;

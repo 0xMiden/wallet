@@ -106,7 +106,9 @@ jest.mock('lib/miden/activity', () => ({
   // and an Epoch (Fast) bridged-send must not be offered a Retry.
   bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf,
   // Real predicate: which failed rows read as not confirmed is what the failure tests assert.
-  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure,
+  isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
+  notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row
@@ -491,7 +493,8 @@ describe('GeneratingTransactionPage container effects', () => {
     );
 
   // The same rule Activity and the rotation gate apply (#1250): a row whose outcome is unknown
-  // is not titled failed, and its classifier copy is not shown as the reason.
+  // is not titled failed, and its classifier copy is not shown as the reason. Neither row holds an
+  // entry the reconciler can check, so the hint says the wallet is not checking it (#1081).
   it.each([
     ['a row that may have been submitted', { mayHaveSubmitted: true, error: REMOTE_PROVER_FAILED_ERROR }],
     ['a row the reaper failed', { error: TRANSACTION_STUCK_ERROR }]
@@ -501,7 +504,7 @@ describe('GeneratingTransactionPage container effects', () => {
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
     expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
-    expect(container.textContent).toContain('transactionNotConfirmedHint');
+    expect(container.textContent).toContain('transactionUndeterminedHint');
     expect(container.textContent).not.toContain('transactionFailed');
     expect(container.textContent).not.toContain(fields.error);
     expect(container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
@@ -523,6 +526,7 @@ describe('GeneratingTransactionPage container effects', () => {
     expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
     expect(container.textContent).toContain(REMOTE_PROVER_FAILED_ERROR);
     expect(container.textContent).not.toContain('transactionNotConfirmedHint');
+    expect(container.textContent).not.toContain('transactionUndeterminedHint');
     expect(container.textContent).not.toContain('showFullError');
     expect(container.querySelector('.size-16 > .bg-status-negative')).not.toBeNull();
     expect(container.querySelector('.bg-status-pending')).toBeNull();
@@ -535,7 +539,7 @@ describe('GeneratingTransactionPage container effects', () => {
 
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
-    expect(container.textContent).toContain('transactionNotConfirmedHint');
+    expect(container.textContent).toContain('transactionUndeterminedHint');
     expect(container.textContent).not.toContain('Error: 503');
     const showFullError = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'showFullError');
     expect(showFullError).toBeTruthy();
@@ -544,6 +548,54 @@ describe('GeneratingTransactionPage container effects', () => {
     });
     expect(container.textContent).toContain('Error: 503');
     act(() => root.unmount());
+  });
+
+  describe('an Unconfirmed row (#1081)', () => {
+    const checkableEntry = {
+      attemptId: 'a1',
+      capturedAt: 1_700_000_000,
+      source: 'stage',
+      transactionId: '0x01',
+      initialCommitment: '0x02',
+      finalCommitment: '0x03',
+      initialNonce: '4',
+      outputNoteIds: ['0x05'],
+      nullifiers: [],
+      refBlock: 100,
+      refBlockCommitment: '0x06'
+    };
+    const unconfirmedRow = (entry: Record<string, unknown> = checkableEntry) =>
+      makeTx({
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        error: 'Error: 503',
+        submitEvidence: [entry]
+      });
+
+    it('stops the spinner and shows the not-confirmed header, its hint and Retry', async () => {
+      mockRowState = { row: unconfirmedRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+      expect(container.textContent).toContain('transactionNotConfirmedHint');
+      expect(container.textContent).not.toContain('doNotCloseWindowAutoClose');
+      expect(container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+      expect(buttonLabelled(container, 'retry')).toBeTruthy();
+      act(() => root.unmount());
+    });
+
+    it('says the wallet is not checking it once its only entry is unresolvable', async () => {
+      mockRowState = { row: unconfirmedRow({ ...checkableEntry, verdict: 'unresolvable' }), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+      expect(container.textContent).toContain('transactionUndeterminedHint');
+      expect(container.textContent).not.toContain('transactionNotConfirmedHint');
+      act(() => root.unmount());
+    });
   });
 
   it('picks the step set from the tracked tx account, not the current account', async () => {

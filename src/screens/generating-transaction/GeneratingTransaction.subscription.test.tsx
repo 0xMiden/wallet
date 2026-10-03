@@ -20,7 +20,9 @@ jest.mock('lib/miden/activity', () => ({
   isUnverifiableSendRetryError: () => false,
   requestSWTransactionProcessing: jest.fn(),
   requeueFailedTransaction: jest.fn(),
-  safeGenerateTransactionsLoop: jest.fn()
+  safeGenerateTransactionsLoop: jest.fn(),
+  isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
+  notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
 }));
 jest.mock('./components', () => ({ TransactionHeroIcon: () => null, TransactionStepRow: () => null }));
 jest.mock('./TransactionSuccess', () => ({ TransactionSuccess: () => <div data-testid="completed-receipt" /> }));
