@@ -4,9 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { resolve, sep } from 'node:path';
 
-// The real SDK WASM, with the relay patch postinstall applied, against a transport that
-// answers SendNote the way the deployed one does. The client's one RPC (the genesis header)
-// is replayed from a recording, so nothing leaves the machine.
+// The real SDK WASM, with the relay patch postinstall applied, against a transport that answers
+// SDK 0.17's SendNoteWithProof with the old duplicate error. The 0.17 transport answers a
+// duplicate OK, so this stands for one that still sends that error, which the patch acknowledges.
+// The client's one RPC (the genesis header) is replayed from a recording, so nothing leaves the machine.
 const sdkRoot = resolve(__dirname, '../../node_modules/@miden-sdk/miden-sdk');
 const rpcFixture = resolve(__dirname, '../fixtures/note-relay-rpc.json');
 // A linked web-sdk build (`Web SDK PR: #N`) swaps in a `file:` source build that carries no relay patch.
@@ -14,14 +15,14 @@ const linkedSdk = String(
   JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')).dependencies['@miden-sdk/miden-sdk']
 ).startsWith('file:');
 
-// The deployed transport's `grpc-message` header for a SendNote it already stores, verbatim.
+// The pre-0.17 transport's `grpc-message` header for a SendNote it already stores, verbatim.
 const DUPLICATE =
   'Failed%20to%20store%20note:%20ConstraintViolation(%22Unique%20constraint%20violation:%20UNIQUE%20constraint%20failed:%20notes.id%22)';
 const GENUINE_FAILURE =
   'Failed%20to%20store%20note:%20ConstraintViolation(%22Not%20null%20constraint%20violation:%20NOT%20NULL%20constraint%20failed:%20notes.tag%22)';
 
-// The SDK's outbox row holding this one private note, under the pinned SDK 0.16.1.
-const ONE_ENTRY_BYTES = 232;
+// The SDK's outbox row holding this one private note and its mock proof, under the pinned SDK 0.17.0-rc.5.
+const ONE_ENTRY_BYTES = 284;
 
 type OutboxRun = { seeded: number; afterFirstSync: number; afterSecondSync: number; sendCalls: number };
 
@@ -89,15 +90,17 @@ async function runOutbox(page: Page, rejection: string): Promise<OutboxRun> {
         }
         if (url.origin !== transport) throw new Error(`Unexpected fetch ${url.href}`);
         if (url.pathname.endsWith('/FetchNotes')) {
-          // An empty FetchNotesResponse: no data, then an OK trailer.
+          // A FetchNotesResponse with no notes, then an OK trailer. Its cursor (field 2) is present but
+          // empty, so nonce and sequence are zero: SDK 0.17 refuses a page without one.
           const trailer = new TextEncoder().encode('grpc-status: 0\r\n');
-          const body = new Uint8Array(10 + trailer.length);
-          body[5] = 128;
-          new DataView(body.buffer).setUint32(6, trailer.length);
-          body.set(trailer, 10);
+          const body = new Uint8Array(12 + trailer.length);
+          body.set([0, 0, 0, 0, 2, 0x12, 0x00], 0);
+          body[7] = 128;
+          new DataView(body.buffer).setUint32(8, trailer.length);
+          body.set(trailer, 12);
           return new Response(body, { headers: { 'content-type': 'application/grpc-web+proto' } });
         }
-        if (!url.pathname.endsWith('/SendNote')) throw new Error(`Unexpected transport call ${url.pathname}`);
+        if (!url.pathname.endsWith('/SendNoteWithProof')) throw new Error(`Unexpected transport call ${url.pathname}`);
         sendCalls++;
         if (firstSend) {
           firstSend = false;
@@ -141,8 +144,11 @@ async function runOutbox(page: Page, rejection: string): Promise<OutboxRun> {
         }
       };
 
-      // A relay that fails puts the note in the SDK's durable outbox.
-      await client.notes.sendPrivate({ note, to: recipient, scanAfterBlockNum: 0 }).catch(() => undefined);
+      // A relay that fails puts the note in the SDK's durable outbox. The fake transport checks no
+      // proof, so the SDK's mock proof at the genesis block stands in for one a node would issue.
+      await client.notes
+        .sendPrivate({ note, to: recipient, inclusionProof: sdk.NoteInclusionProof.mockAtBlock(0) })
+        .catch(() => undefined);
       const seeded = await readOutbox();
       await client.syncNoteTransport();
       const afterFirstSync = await readOutbox();
