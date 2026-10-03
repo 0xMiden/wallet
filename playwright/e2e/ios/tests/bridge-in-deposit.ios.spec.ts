@@ -24,7 +24,7 @@ import { WcCounterparty } from '../helpers/wc-counterparty';
  *      wallet to sign; the counterparty signs + broadcasts to Anvil; the app
  *      waits for the (real) receipt → phase `delivering`.
  *   4. Real Miden receipt: the miden-client CLI (AggLayer "solver") delivers a
- *      matching-amount note; the wallet's real sync + Claim-All consumes it and
+ *      note of the scaled amount the bridge would (wei / 10^10); the wallet's real sync + Claim-All consumes it and
  *      the real reconciler tags it "Bridged from EVM" → phase `received`.
  *
  * Requires the app to be built with `E2E_EVM_RPC_URL=http://127.0.0.1:8545` so

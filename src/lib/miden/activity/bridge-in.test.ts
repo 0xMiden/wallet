@@ -129,6 +129,14 @@ describe('resolveBridgeInNoteId', () => {
 const SCALE = 10n ** 10n;
 
 describe('takeAgglayerBridgeInInfo', () => {
+  const DAY_SEC = 24 * 60 * 60;
+  // The fixtures sit near the epoch; the clock is pinned just past them so every one is inside the delivery window.
+  let nowSpy: jest.SpyInstance<number, []>;
+  beforeEach(() => {
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+  });
+  afterEach(() => nowSpy.mockRestore());
+
   it('matches sender, recipient and amount and selects the oldest pending row', async () => {
     mockTransactions.push(
       {
@@ -327,6 +335,37 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'with-amount' });
+  });
+
+  // A `ready` tracker is never polled again, so its 7-day timeout never fails it: without the bound, a tracker whose
+  // delivery came long ago (and went untagged) would take the next deposit of the same amount (#1326).
+  it('never adopts a delivery into a tracker older than the delivery window', async () => {
+    nowSpy.mockReturnValue((8 * DAY_SEC + 100) * 1000);
+    mockTransactions.push({
+      id: 'stale',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 50,
+      extraInputs: { provider: 'agglayer', phase: 'ready', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+
+    mockTransactions.push({
+      id: 'fresh',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 8 * DAY_SEC,
+      extraInputs: { provider: 'agglayer', phase: 'ready', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'fresh' });
   });
 });
 

@@ -112,8 +112,8 @@ export function installBridgeInTestHooks(): void {
 
   // Return the newest `bridged-receive` row (optionally filtered by provider),
   // so the deposit-UI harness can find the row that the REAL `handleConfirm`
-  // created — it doesn't hand the txId back to the DOM — and then mint a
-  // matching-amount note for the AggLayer reconcile.
+  // created - it doesn't hand the txId back to the DOM - and then mint the
+  // scaled delivery for the AggLayer reconcile.
   globalThis.__TEST_LATEST_BRIDGE_RECEIVE__ = async (
     provider?: IBridgeProvider
   ): Promise<LatestBridgeReceive | null> => {

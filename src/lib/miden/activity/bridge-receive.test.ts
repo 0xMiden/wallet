@@ -39,6 +39,7 @@ jest.mock('../transaction/complete', () => ({
   updateBridgedReceivePhase: (...args: unknown[]) => updatePhase(...args)
 }));
 jest.mock('./bridge-in', () => ({
+  BRIDGE_RECEIVE_MAX_AGE_MS: jest.requireActual('./bridge-in').BRIDGE_RECEIVE_MAX_AGE_MS,
   registerPendingBridgeIn: (...args: unknown[]) => registerBridgeIn(...args),
   resolveBridgeInNoteId: (...args: unknown[]) => resolveNoteId(...args)
 }));

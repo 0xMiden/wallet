@@ -168,6 +168,9 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
   e2eAgglayerSenderOverride = senderAccountId;
 }
 
+/** How long a deposit waits for its delivery: the reconciler times out an unsettled tracker past it, and no delivery adopts an older one. */
+export const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** What the bridge delivers for a deposit tracked in wei: the faucet's registry scale, floored (#1326). */
 export function agglayerDeliveredAmount(trackedWei: bigint): bigint {
   return trackedWei / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE);
@@ -190,6 +193,10 @@ export async function takeAgglayerBridgeInInfo(args: {
   const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
   if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
 
+  // A `ready` tracker is never polled again, so the reconciler's timeout never fails it; a tracker whose delivery came
+  // long ago would otherwise take the next deposit of the same amount.
+  const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
+
   const matches = await Repo.transactions
     .filter(tx => {
       if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
@@ -204,6 +211,7 @@ export async function takeAgglayerBridgeInInfo(args: {
         inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed' &&
+        tx.initiatedAt >= cutoffSec &&
         tx.amount !== undefined &&
         agglayerDeliveredAmount(tx.amount) === args.amount
       );
