@@ -91,7 +91,10 @@ export const useTransactionActions = (
         if (entry.txType === 'earn-withdraw') {
           await retryEarnWithdrawReceive(transactionId);
         } else {
-          await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
+          await requeueFailedTransaction(
+            transactionId,
+            acknowledgeUnverifiedSend ? { acknowledged: { attemptId: transaction?.attemptId ?? null } } : {}
+          );
           requestSWTransactionProcessing();
           navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
           return;
@@ -104,7 +107,7 @@ export const useTransactionActions = (
         setIsRetrying(false);
       }
     },
-    [entry, t, transactionId]
+    [entry, t, transaction?.attemptId, transactionId]
   );
 
   /**

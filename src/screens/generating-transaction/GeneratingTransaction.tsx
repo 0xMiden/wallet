@@ -149,7 +149,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
       try {
         // Requeue flips this row back to Queued; the page (subscribed via
         // useTransactionRow) re-renders as processing — no navigation needed.
-        await requeueFailedTransaction(active.id, { acknowledgeUnverifiedSend });
+        await requeueFailedTransaction(
+          active.id,
+          acknowledgeUnverifiedSend ? { acknowledged: { attemptId: active.attemptId ?? null } } : {}
+        );
         requestSWTransactionProcessing();
       } catch (error) {
         console.error('[GeneratingTransaction] Failed to retry transaction:', error);

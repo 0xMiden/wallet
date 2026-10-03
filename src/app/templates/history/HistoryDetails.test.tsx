@@ -2737,7 +2737,7 @@ describe('HistoryDetails', () => {
       fireEvent.click(screen.getByText('retry'));
       await flush();
 
-      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
+      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', {});
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
     });
@@ -2872,7 +2872,7 @@ describe('HistoryDetails', () => {
       fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
       await flush();
 
-      expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+      expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: null } });
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
     });
 
@@ -4021,7 +4021,7 @@ describe('HistoryDetails swap order actions', () => {
     fireEvent.click(screen.getByTestId('history-retry-button'));
     await flush();
 
-    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', {});
     expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
   });
 
@@ -4049,6 +4049,6 @@ describe('HistoryDetails swap order actions', () => {
     fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
     await flush();
 
-    expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+    expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: null } });
   });
 });

@@ -359,7 +359,7 @@ describe('GeneratingTransactionPage container effects', () => {
     });
 
     // Plain Retry never acknowledges on the user's behalf.
-    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
+    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1', {});
     expect(requestSWTransactionProcessingMock).toHaveBeenCalled();
     // Requeue flips the watched row back in place — the screen must NOT navigate
     // (the key difference from HistoryDetails.handleRetry).
@@ -396,7 +396,7 @@ describe('GeneratingTransactionPage container effects', () => {
       findRetryAnyway()!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
-    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: null } });
     act(() => root.unmount());
   });
 

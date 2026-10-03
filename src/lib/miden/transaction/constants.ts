@@ -210,6 +210,17 @@ export const TRANSACTION_RETRY_UNSAFE_ERROR =
 export const TRANSACTION_NEVER_COMMITTED_ERROR =
   'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.';
 
+/** Retry waited out its 10 s for a reconciler pass on this row, or the evidence moved twice under it (#1081). */
+export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
+  'The wallet is checking this transaction right now. Try again in a moment.';
+
+/**
+ * Retry found a landing the deferral holds, a landed write that gave up, or a recorded landing it could not re-read
+ * (#1081): the row may already have landed, so it must not reach the acknowledgeable refusal.
+ */
+export const TRANSACTION_LANDING_PENDING_RETRY_ERROR =
+  'This transaction may already have gone through. The wallet is still checking, so do not retry it yet.';
+
 /**
  * A lock-recovery eviction (issue #775). Deliberately hedged: recovery ABANDONS
  * the operation rather than cancelling it, so the pipeline may still be running

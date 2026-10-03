@@ -76,16 +76,18 @@ export const accountOthers = (row: ITransaction, accountRows: readonly ITransact
       other.id !== row.id && other.restoredFromBackup !== true && sameWalletAccountId(other.accountId, row.accountId)
   );
 
+/** The row's latest attempt ended outside its pipeline, which may still be running: Retry's liveness signal too. */
+export const latestEndMayStillRun = (row: Pick<ITransaction, 'submitEvidence'>): boolean => {
+  const latest = latestEntry(row);
+  return latest?.endedBy !== undefined && pipelineMayStillBeRunning(latest.endedAt);
+};
+
 /**
  * A row whose latest attempt may still be running: Queued or Generating, or ended outside its pipeline within the
  * bound the stuck reaper and Retry's liveness refusal already use. Status alone cannot say: a cancel fails the row and
  * its pipeline runs on, and its stamp may not be durable yet.
  */
-export const isLiveSibling = (row: ITransaction): boolean => {
-  if (isLiveTransaction(row)) return true;
-  const latest = latestEntry(row);
-  return latest?.endedBy !== undefined && pipelineMayStillBeRunning(latest.endedAt);
-};
+export const isLiveSibling = (row: ITransaction): boolean => isLiveTransaction(row) || latestEndMayStillRun(row);
 
 /** The sibling's latest attempt has no entry that records its output list (a retired one leaves nothing unknown). */
 const latestOutputsUnknown = (row: ITransaction): boolean => {

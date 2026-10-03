@@ -33,6 +33,9 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async (fn: () => unknown) => fn()
 }));
 
+// These rows hold no checkable entry, so the tap-time proof never runs; mocked so this suite never builds a client.
+jest.mock('./reconcile-unconfirmed', () => ({ checkEvidenceForRetry: jest.fn() }));
+
 // Real module underneath. The landed-verdict branch used to be asserted purely
 // through `expect(mockUpdateTransactionStatus).toHaveBeenCalledWith(...)`, which
 // is satisfied by a call that THROWS — and the real `updateTransactionStatus`
@@ -234,7 +237,7 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     const row = failedRow({ type: 'send', transactionId: undefined, requestBytes: undefined });
     wireRow(row);
 
-    await requeueFailedTransaction('tx-1', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a1' } });
 
     expect(row.status).toBe(ITransactionStatus.Queued);
     // Retracted, not stepped over: a later failure on this row is judged on its
