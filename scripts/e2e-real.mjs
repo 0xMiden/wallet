@@ -31,9 +31,9 @@ const SEPOLIA_CHAIN_ID = 11155111;
 /** Epoch's virtual chain id for a Miden leg - src/lib/epoch/config.ts. */
 const MIDEN_CHAIN_ID = 999999999;
 
-/** Kept in sync with src/lib/epoch/bridgeable-token.ts and helpers/sepolia.ts. */
+/** The published testnet document's `epoch.evmUsdc`; kept in sync with helpers/sepolia.ts. */
 const SEPOLIA_USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-/** The Compact and the AggLayer bridge, at the addresses the wallet hardcodes. */
+/** The Compact (pinned in the Epoch SDK) and the AggLayer bridge (the testnet document's `agglayer.l1Bridge`). */
 const SEPOLIA_COMPACT = '0x00000000000000171ede64904551eeDF3C6C9788';
 const SEPOLIA_AGGLAYER_BRIDGE = '0x1348947e282138d8f377b467f7d9c2eb0f335d1f';
 

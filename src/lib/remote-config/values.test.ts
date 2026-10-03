@@ -117,7 +117,7 @@ describe('selectors', () => {
     expect(selectNativeEthFaucet(snapshot())).toBe(ETH_FAUCET);
   });
 
-  it("keeps the Earn market equal to today's compiled EARN_MARKET_UID, EARN_PROTOCOL_HASH and EARN_UNDERLYING", () => {
+  it('keeps the testnet Earn market uid, protocol hash and underlying the wallet compiled in before', () => {
     expect(selectEarnMarket(snapshot())).toEqual({
       marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
       protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
