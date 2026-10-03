@@ -445,6 +445,7 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     // order the tie-break exists to impose.
     dbTx.queuedSeq = nextQueuedSeq();
     dbTx.processingStartedAt = undefined;
+    dbTx.attemptId = undefined;
     dbTx.completedAt = undefined;
     dbTx.stage = undefined;
     // Clear the stage stamps with the stage. `setTransactionStage` is

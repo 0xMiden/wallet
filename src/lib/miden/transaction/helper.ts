@@ -8,6 +8,7 @@ import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
+import { upsertEvidenceEntry } from './verdict-rules';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { compareAccountIds } from '../activity/utils';
 import {
@@ -16,6 +17,7 @@ import {
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
+  SubmitEvidenceFields,
   TransactionOutput
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
@@ -187,7 +189,15 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     // Snapshot the stamps accumulated DURING the run, before the assign below
     // can overwrite them with a stale forwarded copy (see the Completed branch).
     const runStageTimestamps = t.stageTimestamps;
+    // A completion hands over the whole pick-time row, which predates every crossing and verdict written during the
+    // run; only their own writers change these (#1081).
+    const storedEvidence = t.submitEvidence;
+    const storedNeverCommittedAt = t.neverCommittedAt;
     Object.assign(t, otherValues);
+    if (storedEvidence === undefined) delete t.submitEvidence;
+    else t.submitEvidence = storedEvidence;
+    if (storedNeverCommittedAt === undefined) delete t.neverCommittedAt;
+    else t.neverCommittedAt = storedNeverCommittedAt;
     t.status = status;
     // Stamp the terminal stage on success. `setTransactionStage` refuses writes
     // once a row is terminal, so the trailing setTransactionStage(id,'complete')
@@ -609,6 +619,43 @@ export const reportVerifiedLanding = (tx: ITransaction): void => {
 export const markMayHaveSubmitted = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.mayHaveSubmitted = true;
+  });
+};
+
+/**
+ * The attempt a pipeline run is, frozen when it starts (#1081): its id, whether the row was an execute, and a
+ * Guardian proposal's nonce. Writers that run on the pipeline's own call stack take it; the others read the row.
+ */
+export interface AttemptContext {
+  readonly attemptId: string;
+  readonly fromExecute: boolean;
+  readonly guardianProposalNonce?: number;
+}
+
+/**
+ * Record that `attempt` crossed its submit, with whatever evidence its leaf read (#1081). Guard-free like
+ * `markMayHaveSubmitted`, which it replaces at the stamp: a cancel makes the row terminal without stopping the
+ * pipeline. An unreliable stamp's evidence is recorded too, because an entry can only hold a row back from "safe".
+ */
+export const recordSubmitCrossing = async (
+  id: string,
+  evidence: SubmitEvidenceFields | undefined,
+  attempt: AttemptContext
+): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.mayHaveSubmitted = true;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attempt.attemptId,
+      {
+        source: 'stage',
+        evidence,
+        guardianProposalNonce: attempt.guardianProposalNonce,
+        fromExecute: attempt.fromExecute
+      },
+      nowSec
+    );
   });
 };
 

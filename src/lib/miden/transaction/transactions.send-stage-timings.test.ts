@@ -313,6 +313,28 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
   });
 });
 
+describe('attempts (#1081)', () => {
+  it('stamps a fresh attemptId at pickup and records the crossing under it, with its evidence', async () => {
+    await runSend('tx-attempt');
+    const row = txStore.find(r => r.id === 'tx-attempt');
+    expect(typeof row?.attemptId).toBe('string');
+    const onStage = mockProxySendTransaction.mock.calls[0]![3] as (s: string, d?: unknown) => Promise<void>;
+    const id = `0x${'a'.repeat(64)}`;
+    await onStage('submitting', { reliable: false, evidence: { transactionId: id } });
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({ attemptId: row?.attemptId, source: 'stage', transactionId: id })
+    ]);
+  });
+
+  it('gives every run its own attemptId', async () => {
+    await runSend('tx-one');
+    await runSend('tx-two');
+    const ids = txStore.map(r => r.attemptId);
+    expect(new Set(ids).size).toBe(2);
+  });
+});
+
 describe('the cold-start sweep against a row the real writer moved to GeneratingTransaction (#1202)', () => {
   /** Holds the next proxy send open until `release`, which is safe to call before the send gets there. */
   function holdNextProxySend() {

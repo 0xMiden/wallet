@@ -68,6 +68,7 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     // a low literal here stands in for "queued long ago".
     queuedSeq: 1,
     processingStartedAt: 1100,
+    attemptId: 'a1',
     completedAt: 1200,
     stage: 'sending',
     nextEligibleAt: 99_999,
@@ -438,6 +439,7 @@ describe('requeueFailedTransaction', () => {
     // second, inverting the FIFO order the tie-break exists to impose.
     expect(row.queuedSeq).toBeGreaterThan(1);
     expect(row.processingStartedAt).toBeUndefined();
+    expect(row.attemptId).toBeUndefined();
     expect(row.completedAt).toBeUndefined();
     expect(row.stage).toBeUndefined();
     // Stale requeue-backoff must not delay an explicit user retry.

@@ -1514,6 +1514,7 @@ describe('generateTransaction — Guardian routing', () => {
   ) => {
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.processingStartedAt).toBeUndefined();
+    expect(row.attemptId).toBeUndefined();
     expect(row.stage).toBe('creating-proposal');
     expect(row.guardianBusy).toBe(true);
     expect(row.requeueStreak).toEqual({ arm: 'guardian-pending-conflict', count: streak });
@@ -5561,6 +5562,35 @@ describe('generateTransaction — Guardian routing', () => {
       expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
       expect(service.abandonCandidate).toHaveBeenCalledWith(8);
       expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+    });
+
+    it("the inline leaf's 'submitting' stamp records this attempt's crossing with its proposal's nonce (#1081)", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        mockGetOrCreateMultisigService.mockResolvedValue(busyService());
+        const client = makeClientApi(makeResult());
+        client.transactions.submitProven.mockRejectedValueOnce(
+          new Error('failed to submit proven transaction: connection reset')
+        );
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('submitting-records-attempt', SEND);
+
+        await run(row);
+
+        const { attemptId } = stored(row.id);
+        expect(typeof attemptId).toBe('string');
+        expect(stored(row.id).submitEvidence).toEqual([
+          expect.objectContaining({ attemptId, source: 'stage', guardianProposalNonce: 8 })
+        ]);
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
     });
 
     describe('a candidate whose abandon failed (#1317)', () => {

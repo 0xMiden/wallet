@@ -6,6 +6,7 @@ import {
   type TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
+import { v4 as uuid } from 'uuid';
 
 import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
@@ -83,6 +84,7 @@ import {
 } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
+  type AttemptContext,
   claimBridgeSubmit,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
@@ -91,6 +93,7 @@ import {
   type LandedWithoutResult,
   markMayHaveSubmitted,
   recordBridgeNoteLanded,
+  recordSubmitCrossing,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
@@ -114,6 +117,7 @@ import {
   ITransactionType,
   ReplaceHotKeyTransaction,
   SendTransaction,
+  StageDetail,
   STRUCTURAL_GUARDIAN_TYPES,
   SwapTransaction,
   SwitchGuardianTransaction,
@@ -450,6 +454,22 @@ const isGuardianBackpressure = (error: unknown): boolean =>
   isGuardianPendingConflict(error) || error instanceof GuardianBackpressureError;
 
 /**
+ * The attempt a dispatch belongs to (#1081), built from the pick-time row: an offscreen execute's stamp can land after
+ * its completion rewrote the stored type to a send, so the origin travels with the stamp. A row without an attempt id
+ * here never went through pickup; failing before the leaf runs is the safe end.
+ */
+const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: number): AttemptContext => {
+  if (transaction.attemptId === undefined) {
+    throw new Error(`Transaction ${transaction.id} reached its write leaf without an attempt id`);
+  }
+  return {
+    attemptId: transaction.attemptId,
+    fromExecute: transaction.type === 'execute',
+    ...(guardianProposalNonce === undefined ? {} : { guardianProposalNonce })
+  };
+};
+
+/**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
  * `stage => setTransactionStage(txId, stage)`, made UNFAILABLE.
  *
@@ -467,25 +487,25 @@ const isGuardianBackpressure = (error: unknown): boolean =>
  * depends on which realm the leaf happened to run in.
  */
 const stageStampFor =
-  (txId: string): ((stage: ITransactionStage, opts?: { readonly reliable?: boolean }) => Promise<void>) =>
-  async (stage, opts) => {
+  (
+    txId: string,
+    attempt: AttemptContext | undefined
+  ): ((stage: ITransactionStage, detail?: StageDetail) => Promise<void>) =>
+  async (stage, detail) => {
     try {
-      // 'submitting' is stamped immediately before the submit call, so it is the
-      // exact crossing the double-send guard needs — and it has to be recorded
-      // even for an unreliable stamp, and even once the row is terminal. A
-      // concurrent cancel makes the row terminal without stopping the pipeline,
-      // and `setTransactionStage` drops writes on terminal rows, so the stage
-      // would stay frozen where the cancel caught it and Retry would read a
-      // landed send as never-broadcast. `markMayHaveSubmitted` is guard-free for
-      // that reason. Unlike `stage`, a dropped stamp here can only under-report,
-      // which the coarser `isSubmitOutcomeUnknown` reading still catches.
-      if (stage === 'submitting') await markMayHaveSubmitted(txId);
-      // An UNRELIABLE stamp (replayed from the offscreen realm — see StageCallback in
-      // back/miden-client-proxy.ts) records the boundary for the progress screen but
-      // must not author `stage`: the requeue gates below read that field to conclude a
-      // failed guardian tx never reached the chain, and a dropped or reordered
-      // cross-realm stamp would make that conclusion wrong.
-      await setTransactionStage(txId, stage, { timingOnly: opts?.reliable === false });
+      // 'submitting' is stamped immediately before the submit call, so it is the exact crossing the double-send guard
+      // needs, recorded even for an unreliable stamp and even once the row is terminal: a concurrent cancel makes the
+      // row terminal without stopping the pipeline. The crossing is recorded per attempt with the evidence the leaf
+      // read (#1081). Unlike `stage`, a dropped stamp can only under-report, which the attempt's own catch backs up.
+      // Without an attempt (see the Guardian leaf) only the flag can be recorded.
+      if (stage === 'submitting') {
+        await (attempt === undefined
+          ? markMayHaveSubmitted(txId)
+          : recordSubmitCrossing(txId, detail?.evidence, attempt));
+      }
+      // An UNRELIABLE stamp (replayed from the offscreen realm) records the boundary for the progress screen but must
+      // not author `stage`: the requeue gates read that field to conclude a failed guardian tx never reached the chain.
+      await setTransactionStage(txId, stage, { timingOnly: detail?.reliable === false });
     } catch (err) {
       console.warn(`Stage stamp '${stage}' for transaction ${txId} failed; ignoring`, err);
     }
@@ -898,6 +918,7 @@ async function requeueTransactionForRetry(
   const nextEligibleAt = Math.floor(Date.now() / 1000) + cooldownSec;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
+    attemptId: undefined,
     stage,
     // Reset the per-stage timing stamps: the row re-enters at `stage`, and the
     // stamps are first-entry-wins, so a stale original would make that step span
@@ -1305,12 +1326,15 @@ const generateTransactionWithProvider = async (
   await syncUnderBoundedLock();
 
   // Mark transaction as in progress
+  // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
+  transaction.attemptId = uuid();
   markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending',
     // Running again, so the transaction screen stops saying the Guardian is busy (#312).
-    guardianBusy: undefined
+    guardianBusy: undefined,
+    attemptId: transaction.attemptId
   });
 
   // Route Guardian accounts through Guardian service
@@ -1759,7 +1783,7 @@ const generateTransactionWithProvider = async (
         transaction as SendTransaction,
         expirationDeltaBlocks(false),
         signCallback,
-        stageStampFor(transaction.id)
+        stageStampFor(transaction.id, attemptContextOf(transaction))
       );
       break;
     case 'swap':
@@ -2621,7 +2645,7 @@ const generateDirectSwitchGuardianTransaction = async (
       tr.serialize(),
       transaction.delegateTransaction,
       signCallback,
-      stageStampFor(transaction.id),
+      stageStampFor(transaction.id, attemptContextOf(transaction)),
       chainAnchorB64
     );
   } else {
@@ -2629,7 +2653,7 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id),
+      stageStampFor(transaction.id, attemptContextOf(transaction)),
       chainAnchorB64
     );
   }
@@ -3454,7 +3478,12 @@ const generateGuardianTransaction = async (
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
   let submitCrossed = false;
-  const stampStage = stageStampFor(transaction.id);
+  // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
+  // proposal. A row without an attempt id (none reaches here through pickup) keeps the flag-only stamp.
+  const stampStage = stageStampFor(
+    transaction.id,
+    transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
+  );
   const stampAttemptStage = (stage: ITransactionStage, opts?: { readonly reliable?: boolean }): Promise<void> => {
     if (stage === 'submitting') submitCrossed = true;
     return stampStage(stage, opts);
