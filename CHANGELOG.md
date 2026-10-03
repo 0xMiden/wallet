@@ -136,6 +136,7 @@
 - [FIX][all] A wallet restored for an account whose Guardian recovery already ran or was interrupted starts its own recovery without an app restart (#1302).
 - [FIX][all] A link that opens the hidden Activity tab with a new filter shows the list already in place, with no rows sliding (#1198).
 - [FIX][mobile] Biometric setup says why biometrics can't be used and what to do: with no fingerprint or face enrolled it says so (in an Android work profile, Fingerprint or Face Unlock for work) and on Android offers Open Settings, then checks again when you come back; Android setup offers biometrics only when a strong (class 3) biometric is enrolled, as the vault key needs; and Unlock's biometric icon matches an Android device's fingerprint or face sensor, and the Rotate Guardian review's hot-key row names it Face unlock on Android, Face ID on iOS; a device with only a weaker biometric enrolled is now told to set up a stronger one instead of a generic enrollment message (in a work profile, for work), with Open Settings offered there too, and on iOS, a Face ID the user turned off for the app now says so instead of a generic hardware-unavailable message (#465).
+- [FIX][all] A Slow (Agglayer) ETH bridge-in from Sepolia matches its tracking row by the amount the bridge actually delivers (the deposit in wei scaled down by 10^10), so the deposit reaches Received and its note is labelled Bridged from EVM (#1326).
 
 ## 1.16.2 (2026-09-24)
 

@@ -1,4 +1,8 @@
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import {
+  AGGLAYER_BRIDGE_NOTE_SCALE,
+  AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID,
+  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL
+} from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import * as Repo from 'lib/miden/repo';
 
@@ -164,12 +168,19 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
   e2eAgglayerSenderOverride = senderAccountId;
 }
 
+/** What the bridge delivers for a deposit tracked in wei: the faucet's registry scale, floored (#1326). */
+export function agglayerDeliveredAmount(trackedWei: bigint): bigint {
+  return trackedWei / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE);
+}
+
 /**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
  * The fixed sender is authoritative; amount + recipient prevent two deposits
- * to the same wallet from being paired in the wrong order. The sender delivers
- * bridged ETH, so only native ETH trackers are compatible: an ERC-20 deposit
- * with the same base-unit amount must not adopt its note.
+ * to the same wallet from being paired in the wrong order. A tracker holds the
+ * deposit in wei and the bridge delivers it scaled, so the two are compared
+ * through `agglayerDeliveredAmount`. The sender delivers bridged ETH, so only
+ * native ETH trackers are compatible: an ERC-20 deposit with the same amount
+ * must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
@@ -193,7 +204,8 @@ export async function takeAgglayerBridgeInInfo(args: {
         inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed' &&
-        tx.amount === args.amount
+        tx.amount !== undefined &&
+        agglayerDeliveredAmount(tx.amount) === args.amount
       );
     })
     .toArray();
