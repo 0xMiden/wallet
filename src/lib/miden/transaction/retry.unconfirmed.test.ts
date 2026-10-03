@@ -245,6 +245,27 @@ describe('an unproven execute is acknowledgeable (#1081)', () => {
     expect((await read())?.status).toBe(ITransactionStatus.Queued);
   });
 
+  it('one whose landing is seen at the tip while the follow-up account read fails refuses with the wait message', async () => {
+    // The tip holds E.final; the read at the reference block (within the history the node keeps) fails.
+    mockNode.current = {
+      ...node({ blockNum: 150, commitment: FINAL, nonce: '6' }),
+      account: async (_id, atBlock) =>
+        atBlock === undefined
+          ? { ok: true, state: { blockNum: 150, commitment: FINAL, nonce: '6' } }
+          : { ok: false, pruned: false, timedOut: false }
+    };
+    await Repo.transactions.put(
+      execute({
+        submitEvidence: [entry({ fromExecute: true, outputNoteIds: [], refBlock: 140, expirationBlock: undefined })]
+      })
+    );
+    const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
+    expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+  });
+
   it('one whose entry lists a nullifier requeues as today', async () => {
     await Repo.transactions.put(
       execute({ submitEvidence: [entry({ fromExecute: true, nullifiers: [hex(30)], expirationBlock: undefined })] })

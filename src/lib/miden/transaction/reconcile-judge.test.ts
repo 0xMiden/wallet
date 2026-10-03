@@ -840,6 +840,35 @@ describe('a header re-read that fails after the reads found a landing', () => {
   });
 });
 
+describe('a one-off read that fails after the tip showed a row 1 landing', () => {
+  it('a row 1 landing seen at the tip is held when the one-off read then fails, and writes nothing', async () => {
+    const target = row('t', { type: 'execute', submitEvidence: [bareEntry({ refBlock: 140 })] });
+    const judged = await judge(target, { tip: { blockNum: 150, commitment: FINAL, nonce: '6' }, history: {} });
+    expect(judged.entries[0]).toMatchObject({ result: 'no-read', readsFailed: true, landingSuspected: true });
+    expect(judged.entries[0]?.landingRecord).toBeUndefined();
+    expect(judged.landed).toBeUndefined();
+    expect(judged.landingHeld).toBe(true);
+  });
+
+  it('a tip at E.final is no landing for an entry with an output note, so its failed one-off read holds nothing', async () => {
+    const judged = await judge(row('t', { submitEvidence: [entry({ refBlock: 140 })] }), {
+      tip: { blockNum: 150, commitment: FINAL, nonce: '6' },
+      history: {}
+    });
+    expect(judged.entries[0]).toMatchObject({ result: 'no-read', readsFailed: true });
+    expect(judged.entries[0]?.landingSuspected).toBeUndefined();
+    expect(judged.landingHeld).toBe(false);
+  });
+
+  it('a one-off read that fails beside no landing holds nothing', async () => {
+    const target = row('t', { type: 'execute', submitEvidence: [bareEntry({ refBlock: 140 })] });
+    const judged = await judge(target, { tip: { blockNum: 150, commitment: OTHER, nonce: '7' }, history: {} });
+    expect(judged.entries[0]).toMatchObject({ result: 'no-read', readsFailed: true });
+    expect(judged.entries[0]?.landingSuspected).toBeUndefined();
+    expect(judged.landingHeld).toBe(false);
+  });
+});
+
 describe('the one-off read', () => {
   it('a pruned read, or one that runs out a budget under 15 s, only withholds its proof', async () => {
     const tip = { blockNum: 720, commitment: OTHER, nonce: '7' };

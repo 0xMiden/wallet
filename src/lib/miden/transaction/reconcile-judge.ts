@@ -222,6 +222,9 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     else if (blockers.length === 0) attributable ??= [noteId, block];
   }
 
+  const landsByAccount = moved && !sameFinalElsewhere(entry.finalCommitment, others);
+  const row1Shape = landsByAccount && entry.outputNoteIds.length === 0 && entry.nullifiers.length === 0;
+
   if (offInitial && attributable === undefined && spend === undefined) {
     // The one-off read, while E has no landing mark (a candidate note is not one): X once the tip passed it,
     // otherwise the reference block. Skipped without budget, which only withholds a proof.
@@ -232,20 +235,18 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
       if (read.ok) accountReads.push(read.state);
       // A pruned block, or a read that ran out the time the budget allowed, is no time left: it only withholds a
       // proof. Any other failure is retried next pass, except beside a candidate note: the read cannot change its
-      // verdict, and a no-read would drop its hold and let Retry offer a second payment.
+      // verdict, and a no-read would drop its hold and let Retry offer a second payment. A row 1 landing the tip
+      // already showed is held as well, with nothing written.
       else if (candidate === undefined && !read.pruned && !(read.timedOut && budget < RPC_READ_TIMEOUT_MS)) {
-        return noRead();
+        return row1Shape && tip.commitment === entry.finalCommitment
+          ? { ...noRead(), landingSuspected: true }
+          : noRead();
       }
     }
   }
 
-  const landsByAccount = moved && !sameFinalElsewhere(entry.finalCommitment, others);
   const finalRead = accountReads.find(state => state.commitment === entry.finalCommitment);
-  const row1 =
-    landsByAccount &&
-    entry.outputNoteIds.length === 0 &&
-    entry.nullifiers.length === 0 &&
-    (finalRead !== undefined || recordedByAccount);
+  const row1 = row1Shape && (finalRead !== undefined || recordedByAccount);
   const row3 =
     landsByAccount &&
     spend !== undefined &&
