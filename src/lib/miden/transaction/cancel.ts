@@ -37,7 +37,7 @@ import {
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { ConsumeTransaction, hasLeftQueue, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isKilledPipeline, isPoisonedPipeline } from '../sdk/sdk-error-code';
 
@@ -80,8 +80,9 @@ export const cancelTransaction = async (
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
   // a perfectly-successful transaction to Failed and confuse the user.
+  // An Unconfirmed row is refused too: a late reaper, sweep or cancel must not settle an unknown outcome (#1081).
   const existing = await Repo.transactions.where({ id: transaction.id }).first();
-  if (existing && (existing.status === ITransactionStatus.Completed || existing.status === ITransactionStatus.Failed)) {
+  if (existing && hasLeftQueue(existing)) {
     console.warn(
       `[cancelTransaction] ignored — tx ${transaction.id} is already ${existing.status}; suppressed error:`,
       error
@@ -116,7 +117,7 @@ export const cancelTransaction = async (
     // `false`, not a bare return: Dexie treats `undefined` as "modified" and
     // issues a put of the unchanged clone, which is a pointless write and a
     // spurious event for anything observing the table.
-    if (dbTx.status === ITransactionStatus.Completed || dbTx.status === ITransactionStatus.Failed) {
+    if (hasLeftQueue(dbTx)) {
       racedTerminal = true;
       return false;
     }

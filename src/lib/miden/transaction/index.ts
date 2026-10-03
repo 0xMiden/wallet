@@ -112,6 +112,7 @@ import {
   BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
+  hasLeftQueue,
   IBridgeProvider,
   IRequeueStreak,
   IRequeueStreakArm,
@@ -784,11 +785,7 @@ function scheduleRequeueWake(
         scheduleRequeueWake(txId, REQUEUE_WAKE_REARM_MS, signCallback, guardianProvider, chainStartedAt);
         return;
       }
-      if (
-        row === undefined ||
-        row.status === ITransactionStatus.Completed ||
-        row.status === ITransactionStatus.Failed
-      ) {
+      if (row === undefined || hasLeftQueue(row)) {
         return;
       }
       if (row.status !== ITransactionStatus.Queued) {
@@ -4061,7 +4058,9 @@ export const generateTransactionsLoop = async (
     // offscreen deadline arrives as `OperationAbortedError` from the identical
     // point and is equally still running (`cancel.ts` treats the two as one class).
     // Either one counts at any depth of the cause chain (#1313).
-    const abandoned = isKilledPipeline(e);
+    // The indefinite outcome proves the submit call was reached, which breaks both
+    // arms' strictly-pre-submit premise (#1081).
+    const abandoned = isKilledPipeline(e) || isIndefiniteSubmitOutcomeError(e);
 
     // The initial sync is the only pipeline step that runs while the committed
     // row is still Queued at `syncing`. An ordinary failure at that boundary is
@@ -4143,7 +4142,7 @@ export const generateTransactionsLoop = async (
           `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
         await recordBridgeNoteLanded(tx.id);
-        if (tx.status !== ITransactionStatus.Failed) {
+        if (!hasLeftQueue(tx)) {
           await recordLandedTransactionId(tx.id, e);
           await cancelTransactionAfterPipelineStopped(tx, e);
         }
@@ -4151,12 +4150,12 @@ export const generateTransactionsLoop = async (
       }
 
       logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
-      // Failed is excluded alongside Completed because `updateTransactionStatus`
-      // throws on EITHER, and this sits in the loop's own catch: a row a
+      // Failed and Unconfirmed are excluded alongside Completed because `updateTransactionStatus`
+      // throws on all three, and this sits in the loop's own catch: a row a
       // concurrent writer failed in the meantime would turn a handled
       // apply-after-submit into a throw out of the catch block. Nothing is lost
       // by skipping — the row already has a terminal state.
-      if (tx && tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
+      if (tx && !hasLeftQueue(tx)) {
         // Guardian ops never reach here: they route through the guardian branch of
         // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
         // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
@@ -4200,7 +4199,7 @@ export const generateTransactionsLoop = async (
 
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
-    if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
+    if (tx && !hasLeftQueue(tx)) await cancelTransactionAfterPipelineStopped(tx, e);
     return false;
   }
 

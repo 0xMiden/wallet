@@ -8,10 +8,11 @@ import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
-import { upsertEvidenceEntry } from './verdict-rules';
+import { latestEntry, upsertEvidenceEntry } from './verdict-rules';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { compareAccountIds } from '../activity/utils';
 import {
+  hasLeftQueue,
   IBridgedSendExtraInputs,
   INoteDeliveryState,
   ITransaction,
@@ -161,6 +162,8 @@ export function isLockedError(err: unknown): boolean {
  * Update the status of the transaction
  * @param id The id of the transaction to update
  * @throws if the transaction has been cancelled
+ *
+ * An Unconfirmed row is refused too: its pipeline has stopped, and only the reconciler's writers move it (#1081).
  */
 export const updateTransactionStatus = async <K extends keyof ITransaction>(
   id: string,
@@ -169,7 +172,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
 ) => {
   const tx = await Repo.transactions.where({ id }).first();
   if (!tx) throw new Error('No transaction found to update');
-  if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Completed) {
+  if (hasLeftQueue(tx)) {
     throw new Error('Transaction already in a finalized state');
   }
 
@@ -182,7 +185,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   // icon and an expiry message, on a send that actually went through.
   let finalized = false;
   await Repo.transactions.where({ id: id }).modify(t => {
-    if (t.status === ITransactionStatus.Failed || t.status === ITransactionStatus.Completed) {
+    if (hasLeftQueue(t)) {
       finalized = true;
       return false;
     }
@@ -316,7 +319,7 @@ export const setTransactionStage = async (
     // terminal row would be re-put unchanged and fire a `liveQuery` event for
     // it. This writer runs at every stage boundary and `useTransactionRow`
     // observes the table, so that is the noisiest place to get it wrong.
-    if (tx.status === ITransactionStatus.Completed || tx.status === ITransactionStatus.Failed) return false;
+    if (hasLeftQueue(tx)) return false;
     // `tx.stage` is CONTROL state, `tx.stageTimestamps` is TELEMETRY, and the two
     // are written together only when the writer is reliable and in-order.
     //
@@ -914,13 +917,28 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 
 const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
 
+/** What a waiter hears when its row is still waiting for the node's verdict (#1081): submitted, never "failed". */
+const notYetConfirmedMessage = (row: Pick<ITransaction, 'submitEvidence'> | undefined): string => {
+  const transactionId = row === undefined ? undefined : latestEntry(row)?.transactionId;
+  return transactionId === undefined
+    ? 'Transaction was submitted, but the network has not confirmed it yet'
+    : `Transaction ${transactionId} was submitted, but the network has not confirmed it yet`;
+};
+
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {
     let subscription: { unsubscribe: () => void } | null = null;
+    let lastSeen: ITransaction | undefined;
 
     const timeoutId = setTimeout(() => {
       subscription?.unsubscribe();
-      resolve({ errorMessage: 'Transaction timed out' });
+      // A dApp or the B2AGG flow must not read "failed" and ask for a second signature for a row that may still land.
+      resolve({
+        errorMessage:
+          lastSeen?.status === ITransactionStatus.Unconfirmed
+            ? notYetConfirmedMessage(lastSeen)
+            : 'Transaction timed out'
+      });
     }, WAIT_FOR_TX_TIMEOUT);
 
     const cleanup = () => {
@@ -936,6 +954,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           resolve({ errorMessage: 'Transaction not found' });
           return;
         }
+        lastSeen = tx;
 
         if (tx.status === ITransactionStatus.Completed) {
           cleanup();

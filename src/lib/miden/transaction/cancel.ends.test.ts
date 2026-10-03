@@ -2,6 +2,7 @@ import * as Repo from 'lib/miden/repo';
 
 import {
   cancelStuckTransactions,
+  cancelTransaction,
   cancelTransactionAfterPipelineStopped,
   cancelTransactionById,
   failInterruptedTransactions,
@@ -9,6 +10,10 @@ import {
   verifyStuckTransactionsFromNode
 } from './cancel';
 import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from '../back/background-notification';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -151,5 +156,20 @@ describe('the kill route (#1081)', () => {
     await Repo.transactions.put(preWrite);
     await cancelTransactionAfterPipelineStopped(preWrite, new WasmClientPoisonedError('watchdog', new Error('x')));
     expect((await read())?.submitEvidence).toBeUndefined();
+  });
+});
+
+describe('cancelTransaction and Unconfirmed (#1081)', () => {
+  it('refuses an Unconfirmed row and raises no second notice', async () => {
+    // The file's earlier failures raised notices on these shared mocks.
+    jest.mocked(notifyBackgroundTransactionFailed).mockClear();
+    jest.mocked(notifyBackgroundTransactionNotConfirmed).mockClear();
+    await Repo.transactions.put(generating({ status: ITransactionStatus.Unconfirmed }));
+    await expect(
+      cancelTransaction(generating(), 'Transaction took too long to process and was cancelled')
+    ).resolves.toBe(false);
+    expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+    expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
   });
 });

@@ -1418,6 +1418,33 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  it('never requeues the indefinite outcome as a locked or pre-send failure (#1081)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      // Locked-looking text alongside the indefinite outcome: the submit was reached, so nothing is strictly pre-submit.
+      if (callCount >= 2) {
+        throw new Error(
+          `vault is null; submission of transaction 0x${'a'.repeat(64)} came back without a definite outcome`
+        );
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-indefinite',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Queued);
+    expect(txStore[0]!.nextEligibleAt).toBeUndefined();
+    sdk.withWasmClientLock = origLock;
+  });
+
   it('leaves a Guardian tx Queued (not Failed) when the wallet is locked at consume time (#313)', async () => {
     // A background Guardian consume that runs while the wallet is locked hits
     // `isGuardianAccount` → `guardianProvider.getAccounts()` first, which throws
