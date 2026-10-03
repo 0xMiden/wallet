@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
+import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -36,7 +37,11 @@ const mockEvmUsdc = {
   chainId: 84532
 };
 const mockMidenUsdc = { faucetId: '0x00000000000000000000000000e2e0', symbol: 'USDC', decimals: 6 };
-jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => mockSnapshot }));
+let mockAvailability: Partial<Record<BridgeFeature, FeatureAvailability>> = {};
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => mockSnapshot,
+  useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
+}));
 // The suite's Miden account is no real address; the Slow route only needs its EVM form to exist.
 jest.mock('lib/agglayer', () => ({
   AGGLAYER_BRIDGE_ABI: [],
@@ -274,6 +279,7 @@ const renderScreen = (reportDeposit?: ReportDeposit) =>
 describe('EvmBridgeDepositScreen deposit reporting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAvailability = {};
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
   });
@@ -450,6 +456,19 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       }),
       '0xevm-wallet'
     );
+  });
+
+  it.each<[string, BridgeFeature, () => Promise<void>]>([
+    ['Fast', 'fastBridgeIn', reachFastReview],
+    ['Slow', 'bridgeIn', reachReview]
+  ])('keeps the %s route from Review while %s is unavailable', async (_route, feature, reach) => {
+    quoteFast();
+    mockAvailability = { [feature]: { state: 'unavailable', reason: 'service-down', detail: 'down' } };
+    renderScreen();
+
+    await reach();
+
+    expect(screen.queryByTestId('confirm-deposit')).not.toBeInTheDocument();
   });
 
   it('starts every case from an idle epoch store', () => {

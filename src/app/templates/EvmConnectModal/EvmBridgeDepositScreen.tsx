@@ -18,7 +18,7 @@ import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'li
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { requireAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from 'lib/remote-config/values';
 import { WalletAccount } from 'lib/shared/types';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
@@ -232,6 +232,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const bridgeConfig = useBridgeConfigSnapshot();
   const evmUsdc = useMemo(() => selectEvmUsdc(bridgeConfig), [bridgeConfig]);
   const midenUsdc = useMemo(() => selectMidenUsdc(bridgeConfig), [bridgeConfig]);
+  const fastAvailability = useFeatureAvailability('fastBridgeIn');
+  const slowAvailability = useFeatureAvailability('bridgeIn');
   const usdcSymbol = evmUsdc?.symbol ?? '';
   const usdcDecimals = evmUsdc?.decimals ?? 0;
 
@@ -508,13 +510,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // an amount that rounds to zero faucet units is never quoted.
   const fastReady =
     route === 'epoch' &&
+    fastAvailability.state === 'available' &&
     token === 'USDC' &&
     epochFlow === 'evm-to-miden' &&
     epochStatus === 'quoted' &&
     !!epochQuote &&
     !!midenUsdc &&
     epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals);
-  const slowReady = route === 'agglayer' && isValidAmount(amount) && slowStatus !== 'signing';
+  const slowReady =
+    route === 'agglayer' && slowAvailability.state === 'available' && isValidAmount(amount) && slowStatus !== 'signing';
   const canConfirmRoute = route === 'epoch' ? fastReady : slowReady;
   // Fast (Epoch): the EVM amount the sponsor deposits, from the reverse quote's
   // `tokenIn` (EVM token base units). This is what the wallet signs for, so it
@@ -706,6 +710,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
               onConfirm={handleContinueToReview}
+              fastAvailability={fastAvailability}
+              slowAvailability={slowAvailability}
             />
           );
         case ReceiveStep.ShowBridgePageTakeAmount:
@@ -732,6 +738,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       error,
       evmAddress,
       epochStatus,
+      fastAvailability,
       fastFeeUsd,
       handleAmountChange,
       handleConfirm,
@@ -752,6 +759,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setupToken,
       selectedBalance.error,
       setupReady,
+      slowAvailability,
       usdcSymbol
     ]
   );

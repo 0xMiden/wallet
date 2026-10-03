@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { TEST_MIDEN_USDC } from 'lib/epoch/testing/bridge-config';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
@@ -128,7 +129,11 @@ jest.mock('lib/epoch', () => ({
 
 // The deposit collateral comes from the bridge config (an E2E run's injected faucet first).
 let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
-jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => ({}),
+  useFeatureAvailability: (feature: string) => (feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' })
+}));
 jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
 
 const mockNavigate = navigate as jest.Mock;
@@ -142,6 +147,7 @@ beforeEach(() => {
   mockBalanceRows = [USDC_ROW];
   mockTokenPrices = USDC_QUOTE;
   mockCollateral = TEST_MIDEN_USDC;
+  mockEarnDeposit = { state: 'available' };
 });
 
 describe('EarnDepositAmount', () => {
@@ -270,6 +276,17 @@ describe('EarnDepositAmount', () => {
     // hasAmount is true, so the balance helper is hidden even though it's invalid.
     expect(select).toHaveAttribute('data-show-balance-helper', 'false');
 
+    fireEvent.click(screen.getByTestId('confirm'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('blocks Continue under the notice while Earn deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'not-deployed', detail: 'evmUsdc has no code' };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('150');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableBody');
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
   });

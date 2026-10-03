@@ -9,6 +9,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
 import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
@@ -17,10 +18,10 @@ import { CopyButton } from 'components/ui/CopyButton';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
-import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
+import { useAnyFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
@@ -65,6 +66,8 @@ interface ReceiveActionTileProps {
   title: string;
   caption: string;
   onClick: () => void;
+  /** Greyed out, and takes no tap, while what it opens cannot start. */
+  disabled?: boolean;
   'data-testid'?: string;
 }
 
@@ -74,13 +77,20 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
   title,
   caption,
   onClick,
+  disabled,
   'data-testid': dataTestId
 }) => {
   const tone = ACCENT_CLASSES.receive;
   return (
-    <Card asChild surface="outline" pressable className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center">
+    <Card
+      asChild
+      surface="outline"
+      pressable
+      className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center disabled:cursor-default disabled:opacity-50"
+    >
       <button
         type="button"
+        disabled={disabled}
         onClick={() => {
           hapticLight();
           onClick();
@@ -218,7 +228,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     await copyAddress();
   }, [copyAddress, shareText, t]);
 
-  const showCrossChain = !isExtension() && isBridgeDepositEnabled();
+  const showCrossChain = !isExtension();
+  // Cross Chain opens either bridge-in route, so it stays enabled while one of them can start.
+  const crossChain = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn']);
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
@@ -319,10 +331,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 // Name the actual source test network, not a bare "Testnet" (#875).
                 caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
                 onClick={handleOpenEvm}
+                disabled={isFeatureBlocked(crossChain)}
                 data-testid="receive-cross-chain"
               />
             )}
           </div>
+          {showCrossChain && <FeatureUnavailableNotice availability={crossChain} variant="inline" />}
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}

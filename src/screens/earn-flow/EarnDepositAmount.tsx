@@ -4,12 +4,13 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
 import { normalizeMidenIdToHex } from 'lib/epoch';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { selectMidenUsdc } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
@@ -57,6 +58,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  const earnDeposit = useFeatureAvailability('earnDeposit');
   // Epoch Earn is USDC-only, in the collateral the config names (an E2E run's injected faucet first). Balance rows
   // use bech32 faucet ids while the config uses hex, so compare their normalized account ids.
   const depositBalance = useMemo(
@@ -87,8 +89,13 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   // A deposit is a transaction, and the fee comes out of this account's own vault
   // in the native asset -- holding USDC alone is not enough to move it.
   const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
-  // Continue also needs the vault itself: the placeholder has no id to deposit into.
-  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing && Boolean(vault.id);
+  // Continue also needs the vault itself (the placeholder has no id to deposit into) and Earn deposits to be up.
+  const isValidAmount =
+    earnDeposit.state === 'available' &&
+    hasAmount &&
+    amountValue <= token.balance &&
+    !feeAssetMissing &&
+    Boolean(vault.id);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
@@ -101,6 +108,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           {loadFailed && (
             <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="shrink-0 px-4 pt-4" />
           )}
+          <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 shrink-0" />
           <div className="min-h-0 flex-1">
             <SelectAmount
               accent="earn"
