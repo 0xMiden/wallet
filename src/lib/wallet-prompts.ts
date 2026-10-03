@@ -244,7 +244,9 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
  * The decodes run in one labelled WASM hold, so a trap reaches `withWasmClientLock`, which retires the
  * client. Answers are kept as they are decoded: a trap keeps the rows decoded before it, marks only the row
  * it trapped on, and leaves the rows after it for the next tick. Each stored answer is also set on `rows`,
- * so this tick's poll already uses it.
+ * so this tick's poll already uses it. No sync-fuse key or ceiling: the hold makes only synchronous static
+ * decodes and never calls the client, so it cannot park, and its one caller, the 8 s `BridgeIntentWatcher`
+ * tick, skips a tick while a pass runs.
  */
 async function backfillAgglayerExitTxHashes(rows: ITransaction[]): Promise<void> {
   const candidates = rows.filter(tx => {
@@ -273,8 +275,8 @@ async function backfillAgglayerExitTxHashes(rows: ITransaction[]): Promise<void>
     );
   } catch (error) {
     console.warn('[wallet-prompts] Agglayer exit back-fill stopped', error);
-    // The lock has retired the client. The row the trap hit is the first one with no answer; marking it keeps
-    // the next tick from trapping on it again.
+    // On a trap, the lock has retired the client. The row the trap hit is the first one with no answer; marking
+    // it keeps the next tick from trapping on it again.
     const trapped = candidates[answers.length];
     if (error instanceof WebAssembly.RuntimeError && trapped !== undefined) {
       answers.push({ tx: trapped, exitTxHash: undefined });
