@@ -103,7 +103,14 @@ const storeEntry = (network: string, version: number, fetchedAt = Date.now()): S
   mockStorage.set(`bridge_config_v1:${network}`, entry);
   return entry;
 };
-const seed = (version: number, { fetchedAt = NOW, derivedAt = fetchedAt, network = 'testnet' } = {}) => {
+const seed = (
+  version: number,
+  {
+    fetchedAt = NOW,
+    derivedAt = fetchedAt,
+    network = 'testnet'
+  }: { fetchedAt?: number; derivedAt?: number; network?: string } = {}
+) => {
   const entry = storeEntry(network, version, fetchedAt);
   mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(entry.config, derivedAt));
 };
