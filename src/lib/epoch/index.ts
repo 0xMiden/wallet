@@ -1,4 +1,4 @@
-export { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
+export { MIDEN_DESTINATION_CHAIN_ID } from './config';
 export { MIDEN_MIN_RECLAIM_BLOCKS, getCurrentMidenBlock } from './chain';
 export { buildEpochWalletClient } from './client';
 export { createBridgeP2IDENote } from './miden-note';
@@ -30,7 +30,6 @@ export {
   reconcileEarnWithdrawals
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
-export { EPOCH_POSITIONS_URL } from './config';
 export { carryForward, fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
 export type { EarnPosition, EarnPositionsResult, EarnVaultInfo, FetchEarnPositionsArgs } from './positions';
 export {
