@@ -1,7 +1,7 @@
-diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js b/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js
---- a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js
-+++ b/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js
-@@ -25585,7 +25585,79 @@
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-DPiBM9Gt.js b/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-DPiBM9Gt.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-DPiBM9Gt.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-DPiBM9Gt.js
+@@ -25931,7 +25931,79 @@
      const ptr0 = passStringToWasm0(log_level, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
      const len0 = WASM_VECTOR_LEN;
      wasm.setupLogging(ptr0, len0);
@@ -81,7 +81,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js b/node_
  
  function __wbg_get_imports() {
      const import0 = {
-@@ -25938,11 +26010,11 @@
+@@ -26289,11 +26361,11 @@
              return ret;
          },
          __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
@@ -95,10 +95,10 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js b/node_
              return ret;
          },
          __wbg_fetchedaccount_new: function(arg0) {
-diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js
---- a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js
-+++ b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js
-@@ -25585,7 +25585,79 @@
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-DPiBM9Gt-CDITdwt0.js b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-DPiBM9Gt-CDITdwt0.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-DPiBM9Gt-CDITdwt0.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-DPiBM9Gt-CDITdwt0.js
+@@ -25931,7 +25931,79 @@
      const ptr0 = passStringToWasm0(log_level, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
      const len0 = WASM_VECTOR_LEN;
      wasm.setupLogging(ptr0, len0);
@@ -178,7 +178,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-Cr
  
  function __wbg_get_imports() {
      const import0 = {
-@@ -25938,11 +26010,11 @@
+@@ -26289,11 +26361,11 @@
              return ret;
          },
          __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
@@ -195,7 +195,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-Cr
 diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js
 --- a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js
 +++ b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js
-@@ -26248,7 +26248,79 @@
+@@ -26594,7 +26594,79 @@
      const ptr0 = passStringToWasm0(log_level, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
      const len0 = WASM_VECTOR_LEN;
      wasm.setupLogging(ptr0, len0);
@@ -275,7 +275,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-method
  
  function __wbg_get_imports() {
      const import0 = {
-@@ -26601,11 +26673,11 @@
+@@ -26952,11 +27024,11 @@
              return ret;
          },
          __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
@@ -289,10 +289,10 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-method
              return ret;
          },
          __wbg_fetchedaccount_new: function(arg0) {
-diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js
---- a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js
-+++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js
-@@ -25795,7 +25795,79 @@
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-C-ouGMme.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-C-ouGMme.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-C-ouGMme.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-C-ouGMme.js
+@@ -26141,7 +26141,79 @@
   */
  function wbg_rayon_start_worker(receiver) {
      wasm.wbg_rayon_start_worker(receiver);
@@ -372,7 +372,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js b/node_
  
  function __wbg_get_imports(memory) {
      const import0 = {
-@@ -26171,11 +26243,11 @@
+@@ -26522,11 +26594,11 @@
              return ret;
          },
          __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
@@ -386,10 +386,10 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js b/node_
              return ret;
          },
          __wbg_fetchedaccount_new: function(arg0) {
-diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js
---- a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js
-+++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js
-@@ -25795,7 +25795,79 @@
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-C-ouGMme-3T5W6Zsg.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-C-ouGMme-3T5W6Zsg.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-C-ouGMme-3T5W6Zsg.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-C-ouGMme-3T5W6Zsg.js
+@@ -26141,7 +26141,79 @@
   */
  function wbg_rayon_start_worker(receiver) {
      wasm.wbg_rayon_start_worker(receiver);
@@ -469,7 +469,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vt
  
  function __wbg_get_imports(memory) {
      const import0 = {
-@@ -26171,11 +26243,11 @@
+@@ -26522,11 +26594,11 @@
              return ret;
          },
          __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
@@ -486,7 +486,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vt
 diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js
 --- a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js
 +++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js
-@@ -26458,7 +26458,79 @@
+@@ -26804,7 +26804,79 @@
   */
  function wbg_rayon_start_worker(receiver) {
      wasm.wbg_rayon_start_worker(receiver);
@@ -566,7 +566,7 @@ diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-method
  
  function __wbg_get_imports(memory) {
      const import0 = {
-@@ -26834,11 +26906,11 @@
+@@ -27185,11 +27257,11 @@
              return ret;
          },
          __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
