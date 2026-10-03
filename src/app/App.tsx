@@ -24,6 +24,7 @@ import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
+import { loadBridgeConfig } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
@@ -62,6 +63,9 @@ const App: FC<AppProps> = ({ env }) => {
     // if a later check is ever missed. `captureCrash` re-reads consent before
     // every send, so this is the outer of two gates, not the only one.
     if (isTelemetryEnabled()) initCrashReporting();
+    // Display prices and the other synchronous readers use the bridge config snapshot, so every page realm loads it at
+    // boot instead of whenever a bridge screen mounts. The first load also starts this realm's poll. It never rejects.
+    void loadBridgeConfig();
   }, []);
 
   return (
