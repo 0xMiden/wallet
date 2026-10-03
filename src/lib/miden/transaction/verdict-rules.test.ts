@@ -71,7 +71,7 @@ describe('canAwaitVerdict', () => {
     ['switch-guardian', { type: 'switch-guardian' }, false],
     ['a restored send', { type: 'send', restoredFromBackup: true }, false],
     ['a rotation-funding claim', { type: 'consume', rotationFunding: true }, false]
-  ])('%s -> %s', (_label, overrides, expected) => {
+  ])('%s %j -> %s', (_label, overrides, expected) => {
     expect(canAwaitVerdict(row(overrides))).toBe(expected);
   });
 });
@@ -83,6 +83,19 @@ describe('provable and checkable entries', () => {
     expect(isProvable(provable({ nullifiers: undefined }))).toBe(false);
     expect(isProvable(provable({ refBlockCommitment: undefined }))).toBe(false);
     expect(isProvable({ attemptId: 'a', capturedAt: NOW, source: 'end' })).toBe(false);
+  });
+
+  it.each<[string, Partial<ISubmitEvidence>]>([
+    ['transactionId', { transactionId: undefined }],
+    ['initialCommitment', { initialCommitment: undefined }],
+    ['finalCommitment', { finalCommitment: undefined }],
+    ['initialNonce', { initialNonce: undefined }],
+    ['outputNoteIds', { outputNoteIds: undefined }],
+    ['nullifiers', { nullifiers: undefined }],
+    ['refBlock', { refBlock: undefined }],
+    ['refBlockCommitment', { refBlockCommitment: undefined }]
+  ])('is not provable without %s', (_field, overrides) => {
+    expect(isProvable(provable(overrides))).toBe(false);
   });
 
   it('is checkable while unjudged, not retired and not a day on another network', () => {
@@ -122,6 +135,7 @@ describe('awaitingVerdict, holdsNotes and isFailedClaim', () => {
     const funding = row({ type: 'consume', rotationFunding: true });
     expect(holdsNotes(funding, NOW)).toBe(false);
     expect(isFailedClaim(row({ type: 'consume', status: ITransactionStatus.Queued }), NOW)).toBe(false);
+    expect(isFailedClaim(row({ type: 'send', status: ITransactionStatus.Failed }), NOW)).toBe(false);
     expect(holdsNotes(row({ type: 'send' }), NOW)).toBe(false);
   });
 });
@@ -151,6 +165,9 @@ describe('upsertEvidenceEntry', () => {
       refBlock: 9,
       raisedFlag: true
     });
+    expect(
+      upsertEvidenceEntry([provable()], 'a1', { source: 'stage', evidence: { refBlock: 1 } }, NOW)[0]?.refBlock
+    ).toBe(100);
   });
 
   it('never changes an id once set, logs the contradiction and keeps the entry', () => {
@@ -158,7 +175,7 @@ describe('upsertEvidenceEntry', () => {
     const entries = upsertEvidenceEntry(
       [provable()],
       'a1',
-      { source: 'stage', evidence: { transactionId: hex(99), refBlock: 1 } },
+      { source: 'stage', evidence: { transactionId: hex(99), expirationBlock: 50 } },
       NOW
     );
     expect(entries[0]).toEqual(provable());
