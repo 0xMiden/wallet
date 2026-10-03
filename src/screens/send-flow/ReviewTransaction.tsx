@@ -42,7 +42,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
-import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import { getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
@@ -530,11 +530,9 @@ export const ReviewTransaction: React.FC = () => {
   const youReceiveAmount =
     route === 'agglayer'
       ? formatMoneyAmount(amount, 'typed')
-      : formatMoneyAmount(epochQuote.amount, 'receives', BRIDGE_OUTPUT_TOKEN_SYMBOL);
+      : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
   const youReceiveLabel =
-    youReceiveAmount != null
-      ? `≈ ${youReceiveAmount} ${BRIDGE_OUTPUT_TOKEN_SYMBOL}`.trim()
-      : BRIDGE_OUTPUT_TOKEN_SYMBOL;
+    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${epochQuote.symbol}`.trim() : epochQuote.symbol;
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
 

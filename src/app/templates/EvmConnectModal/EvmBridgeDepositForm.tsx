@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
-import { DEFAULT_BRIDGE_NETWORK, BRIDGE_OUTPUT_TOKEN_SYMBOL } from 'screens/send-flow/bridge-networks';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectEvmUsdc } from 'lib/remote-config/values';
+import { DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
 
@@ -37,6 +39,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
+  const outputSymbol = selectEvmUsdc(useBridgeConfigSnapshot())?.symbol ?? '';
   const title = <EvmWalletHeader address={evmAddress} onSwitch={onSwitch} />;
 
   return (
@@ -47,7 +50,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       error={error}
       isBridge
       network={DEFAULT_BRIDGE_NETWORK}
-      outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
+      outputSymbol={outputSymbol}
       title={title}
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}

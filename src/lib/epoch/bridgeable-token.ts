@@ -9,11 +9,3 @@ export const BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL = 'USDC';
 
 /** Decimals of the EVM output token (Epoch's amounts use an 18-decimal convention). */
 export const BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS = 18;
-
-/** Whether the Epoch (Fast) route is configured well enough to run. */
-export function isBridgeableEvmTokenConfigured(): boolean {
-  return (
-    /^0x[0-9a-fA-F]{40}$/.test(BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS) &&
-    BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS !== '0x0000000000000000000000000000000000000000'
-  );
-}

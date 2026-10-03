@@ -17,7 +17,6 @@ const MIDEN_ADDRESS = 'mtst1recipient';
 
 const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
-  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
   },

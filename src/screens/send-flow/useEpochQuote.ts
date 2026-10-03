@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useDebounce } from 'use-debounce';
 
-import { BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL, quoteEpochSendOutput } from 'lib/epoch';
+import { quoteEpochSendOutput } from 'lib/epoch';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectEvmUsdc } from 'lib/remote-config/values';
 
 export interface EpochQuoteState {
   loading: boolean;
   /** Estimated EVM output as an exact human decimal; the Review rounds it down for display. */
   amount?: string;
-  /** Output token symbol (USDC). */
+  /** Output token symbol: the quote's, else the configured output token's, else ''. */
   symbol: string;
   error?: string;
 }
@@ -26,7 +28,9 @@ export interface UseEpochQuoteOpts {
   enabled: boolean;
 }
 
-const IDLE: EpochQuoteState = { loading: false, symbol: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL };
+type QuoteRequestState = Omit<EpochQuoteState, 'symbol'> & { symbol?: string };
+
+const IDLE: QuoteRequestState = { loading: false };
 
 /**
  * Debounced forward-quote for the Epoch (Fast) route. Once the user stops typing
@@ -42,6 +46,7 @@ export function useEpochQuote({
   senderPublicKey,
   enabled
 }: UseEpochQuoteOpts): EpochQuoteState {
+  const outputSymbol = selectEvmUsdc(useBridgeConfigSnapshot())?.symbol ?? '';
   const ready = enabled && !!amount && amount > 0n && !!faucetId && !!destinationAddress && !!senderPublicKey;
   // Debounce the whole input set so neither amount nor recipient keystrokes spam
   // the quote endpoint.
@@ -49,7 +54,7 @@ export function useEpochQuote({
     ? JSON.stringify({ a: amount!.toString(), f: faucetId, d: destinationAddress, s: senderPublicKey })
     : '';
   const [debouncedKey] = useDebounce(key, 500);
-  const [state, setState] = useState<EpochQuoteState>(IDLE);
+  const [state, setState] = useState<QuoteRequestState>(IDLE);
   const reqId = useRef(0);
 
   useEffect(() => {
@@ -60,7 +65,7 @@ export function useEpochQuote({
     }
     const { a, f, d, s } = JSON.parse(debouncedKey) as { a: string; f: string; d: string; s: string };
     const id = ++reqId.current;
-    setState({ loading: true, symbol: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL });
+    setState({ loading: true });
     quoteEpochSendOutput({
       amount: BigInt(a),
       faucetId: f,
@@ -73,13 +78,9 @@ export function useEpochQuote({
       })
       .catch((err: unknown) => {
         if (id !== reqId.current) return;
-        setState({
-          loading: false,
-          symbol: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-          error: err instanceof Error ? err.message : 'Quote failed'
-        });
+        setState({ loading: false, error: err instanceof Error ? err.message : 'Quote failed' });
       });
   }, [debouncedKey]);
 
-  return state;
+  return { ...state, symbol: state.symbol ?? outputSymbol };
 }

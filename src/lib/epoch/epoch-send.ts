@@ -3,15 +3,9 @@ import { formatUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import { type EvmUsdc, requireEvmChainId, requireEvmUsdc } from 'lib/remote-config/values';
 
 import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
-import {
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-  EPOCH_DESTINATION_CHAIN_ID,
-  isBridgeableEvmTokenConfigured
-} from './bridgeable-token';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
@@ -44,6 +38,7 @@ function exactQuoteAmount(raw: string, decimals: number): string {
  * slippage floor (testnet); the backend computes the output from `midenAmount`.
  */
 function buildEpochSendParams(
+  usdc: EvmUsdc,
   amount: bigint,
   faucetId: string,
   destinationAddress: `0x${string}`,
@@ -55,9 +50,9 @@ function buildEpochSendParams(
     midenFaucetId: faucetId,
     midenAmount: amount.toString(),
     evmRecipient: destinationAddress,
-    destinationChainId: EPOCH_DESTINATION_CHAIN_ID,
-    outputTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-    outputTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
+    destinationChainId: usdc.chainId,
+    outputTokenAddress: usdc.address,
+    outputTokenDecimals: usdc.decimals,
     minTokenOut: '0',
     // Mandate-only estimate (hashed into the witness). The NOTE's actual reclaim
     // height uses the SDK-supplied `recallBlocks` from the mint callback instead;
@@ -78,12 +73,12 @@ export async function quoteEpochSendOutput(args: {
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
 }): Promise<EpochQuoteOutput> {
-  if (!isBridgeableEvmTokenConfigured()) {
-    throw new Error('The Fast (Epoch) route is not configured yet.');
-  }
+  // Rejects while the config names no usable output token, before any SDK work.
+  const usdc = await requireEvmUsdc();
   const sdk = await getEpochReadOnlySdk(args.destinationAddress);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
+    usdc,
     args.amount,
     args.faucetId,
     args.destinationAddress,
@@ -94,8 +89,8 @@ export async function quoteEpochSendOutput(args: {
 
   const raw = quote.quoteResult.tokenOut != null ? String(quote.quoteResult.tokenOut) : '0';
   return {
-    amount: exactQuoteAmount(raw, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS),
-    symbol: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
+    amount: exactQuoteAmount(raw, usdc.decimals),
+    symbol: usdc.symbol
   };
 }
 
@@ -133,13 +128,12 @@ export interface EpochSendArgs {
  * chain, so there is no manual claim (`claimStatus: 'not-applicable'`).
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
-  if (!isBridgeableEvmTokenConfigured()) {
-    throw new Error('The Fast (Epoch) route is not configured yet — missing the EVM output token address.');
-  }
-
+  // Rejects while the config names no usable output token, before any SDK or note work.
+  const usdc = await requireEvmUsdc();
   const sdk = await getEpochReadOnlySdk(args.destinationAddress);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
+    usdc,
     args.amount,
     args.faucetId,
     args.destinationAddress,
@@ -169,7 +163,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
           recallBlocks,
           bindingAttachmentFelts,
           destinationAddress: args.destinationAddress,
-          destinationNetwork: EPOCH_DESTINATION_CHAIN_ID,
+          destinationNetwork: usdc.chainId,
           deps: args.deps,
           onRowCreated: args.onRowCreated,
           spendingLimitAuthorization: args.spendingLimitAuthorization
@@ -206,13 +200,13 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
   const evmTxHash = intent.solveResult?.hash;
   const intentNonce = intent.intentNonce ?? intent.solveResult?.nonce;
   const rawTokenOut = quote.quoteResult.tokenOut != null ? String(quote.quoteResult.tokenOut) : '0';
-  const outputAmount = exactQuoteAmount(rawTokenOut, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
+  const outputAmount = exactQuoteAmount(rawTokenOut, usdc.decimals);
   if (bridgeTxId) {
     await updateBridgeClaimStatus(bridgeTxId, 'not-applicable', {
       evmTxHash,
       intentNonce,
       outputAmount,
-      outputSymbol: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+      outputSymbol: usdc.symbol,
       epochStatus: 'pending'
     });
   }
@@ -241,11 +235,11 @@ function isEvmAddress(value: string): value is `0x${string}` {
  * Miden→EVM intent. `getIntentStatus` is a read-only allocator API call, so it
  * needs NO connected EVM wallet — the read-only SDK keyed on the destination
  * address suffices. Returns the destination-chain tx hash + a normalized status,
- * or `null` if nothing is queryable yet (no nonce, network error).
+ * or `null` if nothing is queryable yet (no nonce, network error, no configured chain).
  *
- * The status array can carry entries for multiple chains; we prefer the entry on
- * the destination EVM chain (`EPOCH_DESTINATION_CHAIN_ID`), falling back to the
- * last entry. `confirmed` requires that entry to report a done status.
+ * The status array can carry entries for multiple chains; only the entry on the
+ * destination EVM chain the config names decides the fill. `confirmed` requires
+ * that entry to report a done status.
  */
 export async function pollEpochIntentFill(args: {
   destinationAddress: string;
@@ -254,15 +248,15 @@ export async function pollEpochIntentFill(args: {
   if (!args.intentNonce || !isEvmAddress(args.destinationAddress)) return null;
   try {
     const sdk = await getEpochReadOnlySdk(args.destinationAddress);
+    const destinationChainId = await requireEvmChainId();
     const results = await readEpochIntentStatus(sdk, args.destinationAddress, args.intentNonce);
     if (!results || results.length === 0) return { status: 'pending' };
 
-    // Only the destination (Sepolia) leg decides the fill. Falling back to an
-    // arbitrary last entry would let a done status on the Miden *source* leg flip
-    // the row to Confirmed before the EVM leg settles — and surface a non-Sepolia
-    // tx hash under a sepolia.etherscan.io link. When no destination entry exists
-    // yet, stay pending.
-    const onDest = results.find(r => r.chainId === EPOCH_DESTINATION_CHAIN_ID);
+    // Only the destination leg decides the fill. Falling back to an arbitrary last
+    // entry would let a done status on the Miden *source* leg flip the row to
+    // Confirmed before the EVM leg settles, and surface a non-Sepolia tx hash under
+    // a sepolia.etherscan.io link. When no destination entry exists yet, stay pending.
+    const onDest = results.find(r => r.chainId === destinationChainId);
     if (!onDest) return { status: 'pending' };
     const normalized = (onDest.status ?? '').toLowerCase();
 

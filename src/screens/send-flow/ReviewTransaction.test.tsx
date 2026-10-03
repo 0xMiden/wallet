@@ -32,10 +32,11 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
+let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string } = {
   amount: undefined,
   loading: false,
-  error: null
+  error: null,
+  symbol: 'USDC'
 };
 
 const mockWalletStoreState = {
@@ -190,8 +191,7 @@ jest.mock('lib/agglayer/b2agg/constant', () => ({
 }));
 
 jest.mock('lib/epoch', () => ({
-  bridgeEpochSend: jest.fn(),
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC'
+  bridgeEpochSend: jest.fn()
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -390,7 +390,7 @@ beforeEach(() => {
   mockBalanceData = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
-  mockEpochQuote = { amount: undefined, loading: false, error: null };
+  mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -598,7 +598,7 @@ describe('ReviewTransaction — rendering', () => {
 
   it('renders the fast bridge route loading state from the Epoch quote', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', loading: true, error: null };
+    mockEpochQuote = { amount: '4.8', loading: true, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
@@ -612,7 +612,7 @@ describe('ReviewTransaction — rendering', () => {
   // What arrives is the quote at most, so "you receive" rounds it down.
   it('rounds the Fast route quote down in "you receive", never up', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '10.655599', loading: false, error: null };
+    mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
@@ -620,6 +620,18 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByText('≈ 10.65 USDC')).toBeInTheDocument();
+  });
+
+  it('names the output token the quote names in "you receive"', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'USDC.e' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 2 USDC.e')).toBeInTheDocument();
   });
 
   // 12.3450 separates the kinds: down reads 12.34 and up 12.35, so only an exact 12.345 is typed.

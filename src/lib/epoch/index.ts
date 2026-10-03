@@ -42,8 +42,7 @@ export {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-  EPOCH_DESTINATION_CHAIN_ID,
-  isBridgeableEvmTokenConfigured
+  EPOCH_DESTINATION_CHAIN_ID
 } from './bridgeable-token';
 export {
   buildEpochTaskDataParams,
