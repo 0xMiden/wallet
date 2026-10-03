@@ -439,6 +439,8 @@ describe('the preflight reads what it probes from the network config document', 
     features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
   };
   const STUB = pathToFileURL(path.join(__dirname, 'e2e-real.fetch-stub.mjs')).href;
+  // Any valid secp256k1 scalar: the stub answers every read, so nothing is ever signed or sent.
+  const FUNDED_KEY = `0x${'11'.repeat(32)}`;
 
   // The whole command under --preflight-only, its every request answered by the stub and logged.
   function preflight(suite: string, served: unknown = DOCUMENT, env: Record<string, string> = {}) {
@@ -463,8 +465,27 @@ describe('the preflight reads what it probes from the network config document', 
     expect(res.requests).toContain(`${ALLOCATOR}/checkIfDepositNeeded`);
     expect(res.requests).toContain(`eth_getCode ["${EVM_USDC}","latest"]`);
     expect(res.requests).toContain(`eth_getCode ["${L1_BRIDGE}","latest"]`);
+    expect(res.requests).toContain(`${ALLOCATOR}/gasless-status`);
     expect(res.requests).toContain(PUBLISHED);
+    expect(res.output).toContain(`Config   ${PUBLISHED}`);
     expect(res.status).toBe(0);
+  }, 35_000);
+
+  it("reads a funded key's test USDC at the USDC the document names", () => {
+    const res = preflight('bridge-out-epoch', DOCUMENT, { E2E_SEPOLIA_PRIVATE_KEY: FUNDED_KEY });
+    expect(res.requests).toContain(`eth_call [{"to":"${EVM_USDC}"`);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it("reads no funded key's test USDC from a document the preflight refused", () => {
+    const res = preflight(
+      'bridge-out-epoch',
+      { ...DOCUMENT, network: 'devnet' },
+      { E2E_SEPOLIA_PRIVATE_KEY: FUNDED_KEY }
+    );
+    expect(res.output).toContain('not read: the config document named no USDC');
+    expect(res.requests).toContain('eth_getBalance');
+    expect(res.requests).not.toContain('eth_call');
   }, 35_000);
 
   it.each([

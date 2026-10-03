@@ -8,7 +8,13 @@ import { appendFileSync } from 'node:fs';
 const { document, log } = JSON.parse(process.env.E2E_REAL_FETCH_STUB ?? '{}');
 
 const json = body => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
-const RPC_RESULTS = { eth_chainId: '0xaa36a7', eth_blockNumber: '0x1', eth_getCode: '0x6080' };
+const RPC_RESULTS = {
+  eth_chainId: '0xaa36a7',
+  eth_blockNumber: '0x1',
+  eth_getCode: '0x6080',
+  eth_getBalance: '0xde0b6b3a7640000',
+  eth_call: '0x0'
+};
 
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input);
