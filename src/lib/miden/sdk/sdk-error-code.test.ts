@@ -2,13 +2,17 @@ import {
   ApplyAfterSubmitError,
   extractLanded,
   extractSdkErrorCode,
+  hasErrorBeforeSubmit,
+  indefiniteSubmitTransactionId,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isGuardianCanonicalizationError,
+  isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
   isPoisonedPipeline,
   isStaleInitialCommitmentError,
   isTransactionDiscardedError,
+  markErrorBeforeSubmit,
   someInCauseChain
 } from './sdk-error-code';
 
@@ -550,5 +554,93 @@ describe('isKilledPipeline and isPoisonedPipeline (#1313)', () => {
   it('reads only a lock-recovery eviction as a poisoned pipeline', () => {
     expect(isPoisonedPipeline(abortedInside())).toBe(false);
     expect(isPoisonedPipeline(poisonedInside())).toBe(true);
+  });
+});
+
+const ID = `0x${'ab'.repeat(32)}`;
+const OTHER_ID = `0x${'cd'.repeat(32)}`;
+const indefinite = (id: string = ID) =>
+  `submission of transaction ${id} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`;
+
+describe('isIndefiniteSubmitOutcomeError (#1081)', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('matches the SDK text, bare or wrapped by the offscreen bus', () => {
+    expect(isIndefiniteSubmitOutcomeError(new Error(indefinite()))).toBe(true);
+    expect(isIndefiniteSubmitOutcomeError(new Error(`Offscreen call 'sendTransaction' failed: ${indefinite()}`))).toBe(
+      true
+    );
+    expect(isIndefiniteSubmitOutcomeError(new Error('wrapper', { cause: new Error(indefinite()) }))).toBe(true);
+    expect(isIndefiniteSubmitOutcomeError(new Error('node refused the proven transaction'))).toBe(false);
+  });
+
+  it('is never a kill, whichever kill shape carries the text in its cause chain', () => {
+    expect(isIndefiniteSubmitOutcomeError(new WasmClientPoisonedError('watchdog', new Error(indefinite())))).toBe(
+      false
+    );
+    const aborted = new OperationAbortedError('op-1', 'deadline');
+    aborted.cause = new Error(indefinite());
+    expect(isIndefiniteSubmitOutcomeError(aborted)).toBe(false);
+    expect(isIndefiniteSubmitOutcomeError(new Error('outer', { cause: aborted }))).toBe(false);
+  });
+
+  it('reads the id from the part that carries the phrase, lower-cased', () => {
+    expect(indefiniteSubmitTransactionId(new Error(indefinite(ID.toUpperCase().replace('0X', '0x'))))).toBe(ID);
+    // A wrapper naming another id without the phrase does not supply it.
+    const wrapped = new Error(`retrying transaction ${OTHER_ID}`, { cause: new Error(indefinite()) });
+    expect(indefiniteSubmitTransactionId(wrapped)).toBe(ID);
+    expect(indefiniteSubmitTransactionId(new Error(`submission of transaction ${ID} failed`))).toBeUndefined();
+    expect(
+      indefiniteSubmitTransactionId(new WasmClientPoisonedError('watchdog', new Error(indefinite())))
+    ).toBeUndefined();
+  });
+});
+
+describe('the errorBeforeSubmit tag (#1081)', () => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('tags an ordinary error in place and reads it back', () => {
+    const error = new Error('vault slot missing');
+    expect(markErrorBeforeSubmit(error)).toBe(error);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+  });
+
+  it('wraps a thrown non-object so the tag has somewhere to live', () => {
+    const tagged = markErrorBeforeSubmit('bare string');
+    expect(tagged).toBeInstanceOf(Error);
+    expect(hasErrorBeforeSubmit(tagged)).toBe(true);
+  });
+
+  it('never tags a kill, an apply-after-submit failure or the indefinite outcome', () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('x'));
+    markErrorBeforeSubmit(poison);
+    expect(hasErrorBeforeSubmit(poison)).toBe(false);
+    const landed = Object.assign(new Error('landed'), { errorCode: 'ApplyTransactionAfterSubmitFailed' });
+    markErrorBeforeSubmit(landed);
+    expect(hasErrorBeforeSubmit(landed)).toBe(false);
+    const unknown = new Error(indefinite());
+    markErrorBeforeSubmit(unknown);
+    expect(hasErrorBeforeSubmit(unknown)).toBe(false);
+  });
+
+  it('reads the thrown value only: a wrapper around a tagged error is not proof', () => {
+    const inner = markErrorBeforeSubmit(new Error('inner'));
+    expect(hasErrorBeforeSubmit(new Error('outer', { cause: inner }))).toBe(false);
+  });
+
+  it('survives a frozen error and a hostile accessor by answering no', () => {
+    const frozen = Object.freeze(new Error('frozen'));
+    expect(markErrorBeforeSubmit(frozen)).toBe(frozen);
+    expect(hasErrorBeforeSubmit(frozen)).toBe(false);
+    const hostile = new Proxy(
+      {},
+      {
+        has: () => {
+          throw new Error('trap');
+        }
+      }
+    );
+    expect(hasErrorBeforeSubmit(hostile)).toBe(false);
   });
 });
