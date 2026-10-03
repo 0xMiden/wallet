@@ -8,6 +8,7 @@ import {
   isAgglayerDepositClaimed,
   isAgglayerDepositReady
 } from 'lib/agglayer';
+import { agglayerExitTxHashFromRowBytes } from 'lib/agglayer/b2agg/exit-hash';
 import {
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
@@ -21,11 +22,18 @@ import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 
 import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { bridgedSendLandedValues, pinAgglayerDeposit, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import {
+  bridgedSendLandedValues,
+  pinAgglayerDeposit,
+  recordAgglayerExitTxHash,
+  updateBridgeClaimStatus
+} from 'lib/miden/transaction/complete';
 import { isUnconfirmedFailure } from 'lib/miden/transaction/constants';
 import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
+import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
@@ -221,6 +229,65 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 }
 
 /**
+ * Bind every Agglayer row built before its exit hash was stored at build time (#1325), from the bytes the
+ * row kept, so it can find its own deposit. "Once" is a property of the data: a row answered either way,
+ * with a hash or marked unavailable, is no longer a candidate.
+ *
+ * The decodes run in one labelled WASM hold, so a trap reaches `withWasmClientLock`, which retires the
+ * client. Answers are kept as they are decoded: a trap keeps the rows decoded before it, marks only the row
+ * it trapped on, and leaves the rows after it for the next tick. Each stored answer is also set on `rows`,
+ * so this tick's poll already uses it.
+ */
+async function backfillAgglayerExitTxHashes(rows: ITransaction[]): Promise<void> {
+  const candidates = rows.filter(tx => {
+    const inputs: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    return (
+      inputs?.provider === 'agglayer' &&
+      inputs.agglayerExitTxHash === undefined &&
+      !inputs.agglayerExitTxHashUnavailable
+    );
+  });
+  if (candidates.length === 0) return;
+  try {
+    await ensureSdkWasmReady();
+  } catch (error) {
+    console.warn('[wallet-prompts] SDK not ready; the Agglayer exit back-fill waits for the next tick', error);
+    return;
+  }
+
+  const answers: { tx: ITransaction; exitTxHash: string | undefined }[] = [];
+  try {
+    await withWasmClientLock(
+      async () => {
+        for (const tx of candidates) answers.push({ tx, exitTxHash: agglayerExitTxHashFromRowBytes(tx) });
+      },
+      { label: 'agglayer-exit-backfill' }
+    );
+  } catch (error) {
+    console.warn('[wallet-prompts] Agglayer exit back-fill stopped', error);
+    // The lock has retired the client. The row the trap hit is the first one with no answer; marking it keeps
+    // the next tick from trapping on it again.
+    const trapped = candidates[answers.length];
+    if (error instanceof WebAssembly.RuntimeError && trapped !== undefined) {
+      answers.push({ tx: trapped, exitTxHash: undefined });
+    }
+  }
+
+  for (const { tx, exitTxHash } of answers) {
+    try {
+      await recordAgglayerExitTxHash(tx.id, exitTxHash);
+      tx.extraInputs =
+        exitTxHash === undefined
+          ? { ...tx.extraInputs, agglayerExitTxHashUnavailable: true }
+          : { ...tx.extraInputs, agglayerExitTxHash: exitTxHash };
+    } catch (error) {
+      // Still a candidate, so the next tick writes it again.
+      console.warn('[wallet-prompts] Agglayer exit back-fill write failed', tx.id, error);
+    }
+  }
+}
+
+/**
  * Poll every Miden→EVM bridge row once, for every account. The app-root
  * `BridgeIntentWatcher` runs this on an interval, so a pending Epoch fill or
  * AggLayer claim is tracked whichever screen is open. `pollBridgedSend` returns
@@ -232,6 +299,8 @@ export async function reconcileBridgedSends(): Promise<void> {
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
   const active = rows.filter(tx => !tx.restoredFromBackup);
+  // Before the poll, so a row bound on this tick is looked up on this tick.
+  await backfillAgglayerExitTxHashes(active);
 
   // A Failed row whose stored Epoch evidence already proves it landed settles
   // without waiting for another poll. Only stored Epoch evidence qualifies: it

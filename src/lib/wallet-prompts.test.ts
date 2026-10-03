@@ -66,6 +66,11 @@ const bridgeRows: ITransaction[] = [];
 const findExitDeposit = jest.fn();
 const updateClaimStatus = jest.fn();
 const pinDeposit = jest.fn();
+const recordExitHash = jest.fn();
+const exitHashFromRowBytes = jest.fn();
+const sdkReady = jest.fn();
+const wasmLockOptions: unknown[] = [];
+const wasmLockOutcomes: Promise<unknown>[] = [];
 const pollEpochIntentFill = jest.fn();
 const completeVerifiedLanded = jest.fn();
 
@@ -89,10 +94,34 @@ jest.mock('lib/agglayer', () => {
 jest.mock('lib/miden/transaction/complete', () => ({
   updateBridgeClaimStatus: (...args: unknown[]) => updateClaimStatus(...args),
   pinAgglayerDeposit: (...args: unknown[]) => pinDeposit(...args),
+  recordAgglayerExitTxHash: (...args: unknown[]) => recordExitHash(...args),
   // The one shared source of the bridged-send landed display values (#1250) -
   // stubbed rather than the real function so this suite stays about
   // `reconcileBridgedSends`'s own decisions, not `complete.ts`'s literals.
   bridgedSendLandedValues: () => ({ displayMessage: 'Bridged to EVM', displayIcon: 'SEND', completedAt: 1_700_000_000 })
+}));
+jest.mock('lib/agglayer/b2agg/exit-hash', () => ({
+  agglayerExitTxHashFromRowBytes: (...args: unknown[]) => exitHashFromRowBytes(...args)
+}));
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  ensureSdkWasmReady: () => sdkReady()
+}));
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  ...jest.requireActual('lib/miden/sdk/miden-client'),
+  // Runs the hold inline and keeps how it settled, so a test can tell a trap that reached the lock from one
+  // the hold swallowed: only one that reaches it retires the client.
+  withWasmClientLock: (operation: () => Promise<unknown>, options: unknown) => {
+    wasmLockOptions.push(options);
+    const running = operation();
+    wasmLockOutcomes.push(
+      running.then(
+        () => 'resolved',
+        (error: unknown) => error
+      )
+    );
+    return running;
+  }
 }));
 jest.mock('lib/miden/transaction/helper', () => ({
   completeVerifiedLandedTransaction: (...args: unknown[]) => completeVerifiedLanded(...args)
@@ -1823,6 +1852,11 @@ describe('bridge prompts', () => {
     findExitDeposit.mockResolvedValue(undefined);
     updateClaimStatus.mockResolvedValue(undefined);
     pinDeposit.mockResolvedValue(undefined);
+    recordExitHash.mockReset().mockResolvedValue(undefined);
+    exitHashFromRowBytes.mockReset();
+    sdkReady.mockReset().mockResolvedValue(undefined);
+    wasmLockOptions.splice(0);
+    wasmLockOutcomes.splice(0);
     pollEpochIntentFill.mockResolvedValue(undefined);
     completeVerifiedLanded.mockResolvedValue(undefined);
   });
@@ -2777,6 +2811,149 @@ describe('bridge prompts', () => {
 
     expect(completeVerifiedLanded).not.toHaveBeenCalled();
     expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-still-polled-2' });
+  });
+
+  // Rows built before the exit hash was stored at build time are bound from the bytes they kept (#1325).
+  describe('the Agglayer exit back-fill', () => {
+    const legacy = (id: string, over: Partial<ITransaction> = {}) =>
+      baseBridge({
+        id,
+        requestBytes: new Uint8Array([1]),
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' },
+        ...over
+      });
+
+    it('binds a row in one labelled hold, and the same pass looks it up by the hash', async () => {
+      exitHashFromRowBytes.mockReturnValue('0xbackfilled');
+      findExitDeposit.mockResolvedValue({
+        tx_hash: '0xbackfilled',
+        deposit_cnt: 16,
+        ready_for_claim: true,
+        claim_tx_hash: '0xauto'
+      });
+      const row = legacy('agg-legacy');
+      bridgeRows.push(row);
+
+      await reconcileBridgedSends();
+
+      expect(exitHashFromRowBytes).toHaveBeenCalledWith(row);
+      expect(wasmLockOptions).toEqual([{ label: 'agglayer-exit-backfill' }]);
+      expect(recordExitHash).toHaveBeenCalledWith('agg-legacy', '0xbackfilled');
+      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xbackfilled', undefined);
+      expect(recordExitHash.mock.invocationCallOrder[0]).toBeLessThan(findExitDeposit.mock.invocationCallOrder[0]!);
+      expect(updateClaimStatus).toHaveBeenCalledWith(
+        'agg-legacy',
+        'claimed',
+        { claimTxHash: '0xauto', agglayerDepositCnt: 16 },
+        '0xbackfilled'
+      );
+    });
+
+    it('marks a row whose bytes hold no note unavailable, and never looks it up', async () => {
+      exitHashFromRowBytes.mockReturnValue(undefined);
+      bridgeRows.push(legacy('agg-no-note'));
+
+      await reconcileBridgedSends();
+
+      expect(recordExitHash).toHaveBeenCalledWith('agg-no-note', undefined);
+      expect(findExitDeposit).not.toHaveBeenCalled();
+    });
+
+    it('loads nothing when no row needs it: restored, bound, marked and Epoch rows are skipped', async () => {
+      bridgeRows.push(
+        legacy('agg-restored', { restoredFromBackup: true }),
+        legacy('agg-bound', {
+          extraInputs: { provider: 'agglayer', claimStatus: 'claimed', agglayerExitTxHash: '0xexit' }
+        }),
+        legacy('agg-marked', {
+          extraInputs: { provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHashUnavailable: true }
+        }),
+        baseBridge({ id: 'epoch', extraInputs: { provider: 'epoch', epochStatus: 'confirmed' } })
+      );
+
+      await reconcileBridgedSends();
+
+      expect(sdkReady).not.toHaveBeenCalled();
+      expect(wasmLockOptions).toEqual([]);
+      expect(exitHashFromRowBytes).not.toHaveBeenCalled();
+    });
+
+    it('marks nothing on a tick whose SDK load fails, and still polls', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      sdkReady.mockRejectedValueOnce(new Error('wasm load failed'));
+      pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
+      bridgeRows.push(
+        legacy('agg-legacy'),
+        baseBridge({
+          id: 'epoch-pending',
+          extraInputs: { provider: 'epoch', epochStatus: 'pending', intentNonce: 'n1', destinationAddress: '0xdest' }
+        })
+      );
+
+      await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+      expect(exitHashFromRowBytes).not.toHaveBeenCalled();
+      expect(recordExitHash).not.toHaveBeenCalled();
+      expect(pollEpochIntentFill).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it("keeps the other rows' answers when one row's write fails, and leaves that row a candidate", async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      exitHashFromRowBytes.mockImplementation((tx: ITransaction) => `0x${tx.id}`);
+      recordExitHash.mockImplementation(async (id: string) => {
+        if (id === 'agg-a') throw new Error('write conflict');
+      });
+      bridgeRows.push(legacy('agg-a'), legacy('agg-b'));
+
+      await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+      expect(recordExitHash).toHaveBeenCalledWith('agg-b', '0xagg-b');
+      expect(findExitDeposit).toHaveBeenCalledTimes(1);
+      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xagg-b', undefined);
+      expect(warn).toHaveBeenCalledWith(
+        '[wallet-prompts] Agglayer exit back-fill write failed',
+        'agg-a',
+        expect.any(Error)
+      );
+      warn.mockRestore();
+    });
+
+    // A trap must reach the lock, which retires the client it hit; the hold never swallows it (CLAUDE.md).
+    it('lets a trap reject the hold, then marks only the row it trapped on', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      exitHashFromRowBytes.mockImplementation((tx: ITransaction) => {
+        if (tx.id === 'agg-b') throw trap;
+        return `0x${tx.id}`;
+      });
+      bridgeRows.push(legacy('agg-a'), legacy('agg-b'), legacy('agg-c'));
+
+      await reconcileBridgedSends();
+
+      expect(await wasmLockOutcomes[0]).toBe(trap);
+      expect(exitHashFromRowBytes).toHaveBeenCalledTimes(2);
+      expect(recordExitHash.mock.calls).toEqual([
+        ['agg-a', '0xagg-a'],
+        ['agg-b', undefined]
+      ]);
+      warn.mockRestore();
+    });
+
+    // Only a trap marks a row: anything else that fails the hold says nothing about the row's bytes.
+    it('marks no row when the hold fails without a trap, and keeps the answers before it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      exitHashFromRowBytes.mockImplementation((tx: ITransaction) => {
+        if (tx.id === 'agg-b') throw new Error('not a trap');
+        return `0x${tx.id}`;
+      });
+      bridgeRows.push(legacy('agg-a'), legacy('agg-b'));
+
+      await reconcileBridgedSends();
+
+      expect(recordExitHash.mock.calls).toEqual([['agg-a', '0xagg-a']]);
+      warn.mockRestore();
+    });
   });
 });
 
