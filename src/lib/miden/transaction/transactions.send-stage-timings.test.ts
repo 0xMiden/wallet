@@ -222,7 +222,7 @@ async function runSend(id: string) {
  * callback's contribution. */
 async function driveStages(): Promise<string[]> {
   stamped.length = 0;
-  const onStage = mockProxySendTransaction.mock.calls[0]![3] as (s: string) => Promise<void>;
+  const onStage = mockProxySendTransaction.mock.calls[0]![2] as (s: string) => Promise<void>;
   for (const stage of ['executing', 'proving', 'submitting']) {
     // eslint-disable-next-line no-await-in-loop
     await onStage(stage);
@@ -243,13 +243,12 @@ afterEach(() => {
 });
 
 describe('non-guardian send → the stage callback reaches the proxy whatever the offscreen flag says (PR #524 × #260)', () => {
-  it('flag OFF → one proxy call carrying (tx, expirationDelta, signCallback, onStage); the stamps land on THIS row', async () => {
+  it('flag OFF → one proxy call carrying (tx, signCallback, onStage); the stamps land on THIS row', async () => {
     const tx = await runSend('tx-send-flagoff');
 
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    const [sentTx, sentDelta, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
+    const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
-    expect(sentDelta).toBe(600);
     expect(sentSign).toBe(signCallback);
     expect(typeof onStage).toBe('function');
     // The callback is row-bound: every stamp it makes is keyed by this tx's id.
@@ -268,15 +267,14 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     const tx = await runSend('tx-send-flagon');
 
     // Flag ON is the ambient state of the SW build, and the switch must be blind to
-    // it: exactly ONE proxy call, with the SAME four arguments the flag-OFF case
+    // it: exactly ONE proxy call, with the SAME three arguments the flag-OFF case
     // asserted, and no second flag-conditional branch anywhere near it.
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(4);
-    const [sentTx, sentDelta, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
+    expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(3);
+    const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
-    expect(sentDelta).toBe(600);
     expect(sentSign).toBe(signCallback);
-    // The load-bearing assertion: a fourth argument EXISTS flag-ON. Without it the
+    // The load-bearing assertion: a third argument EXISTS flag-ON. Without it the
     // per-step timings vanish on Chrome, silently.
     expect(typeof onStage).toBe('function');
     expect(await driveStages()).toEqual([
@@ -294,7 +292,7 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     // so an unguarded rejection would propagate out of the send and Fail the row.
     mockThrowOnStage = 'proving';
     mockProxySendTransaction.mockImplementationOnce(async (..._a: unknown[]) => {
-      const onStage = _a[3] as (s: string) => Promise<void>;
+      const onStage = _a[2] as (s: string) => Promise<void>;
       await onStage('executing');
       await onStage('proving');
       await onStage('submitting');
@@ -318,7 +316,7 @@ describe('attempts (#1081)', () => {
     await runSend('tx-attempt');
     const row = txStore.find(r => r.id === 'tx-attempt');
     expect(typeof row?.attemptId).toBe('string');
-    const onStage = mockProxySendTransaction.mock.calls[0]![3] as (s: string, d?: unknown) => Promise<void>;
+    const onStage = mockProxySendTransaction.mock.calls[0]![2] as (s: string, d?: unknown) => Promise<void>;
     const id = `0x${'a'.repeat(64)}`;
     await onStage('submitting', { reliable: false, evidence: { transactionId: id } });
     expect(row?.mayHaveSubmitted).toBe(true);
@@ -400,12 +398,12 @@ const proxyMock = () => jest.requireMock('../back/miden-client-proxy').midenClie
 
 describe('which dispatches carry a stamp (#1081)', () => {
   it.each<[string, Record<string, unknown>, 'consumeNoteId' | 'swapTransaction' | 'newTransaction', number, boolean]>([
-    ['a claim', { id: 'c', type: 'consume', noteId: 'n', noteIds: ['n'] }, 'consumeNoteId', 3, true],
+    ['a claim', { id: 'c', type: 'consume', noteId: 'n', noteIds: ['n'] }, 'consumeNoteId', 2, true],
     [
       'a rotation-funding claim',
       { id: 'cf', type: 'consume', noteId: 'n', noteIds: ['n'], rotationFunding: true },
       'consumeNoteId',
-      3,
+      2,
       false
     ],
     [
@@ -418,7 +416,7 @@ describe('which dispatches carry a stamp (#1081)', () => {
         extraInputs: { requestedFaucetId: 'g', requestedAmount: 2n }
       },
       'swapTransaction',
-      3,
+      2,
       true
     ],
     ['a dApp execute', { id: 'e', type: 'execute', requestBytes: new Uint8Array([1]) }, 'newTransaction', 4, true],

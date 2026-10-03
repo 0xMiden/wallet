@@ -1711,7 +1711,7 @@ describe('transactions utilities', () => {
           mockGetMidenClient.mockResolvedValue({
             syncState: mockSyncState,
             sendTransaction: jest.fn(
-              async (_tx: unknown, _delta: number, onStage?: (stage: string, detail?: object) => Promise<void>) => {
+              async (_tx: unknown, onStage?: (stage: string, detail?: object) => Promise<void>) => {
                 await onStage?.('executing');
                 await onStage?.('proving');
                 await onStage?.('submitting', submitting);

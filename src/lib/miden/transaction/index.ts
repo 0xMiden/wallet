@@ -132,7 +132,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { expirationDeltaBlocks, isPrivateNoteType } from '../helpers';
+import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
   accountIdStringToSdk,
@@ -1791,7 +1791,6 @@ const generateTransactionWithProvider = async (
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
         midenClientProxy.consumeNoteId(
           transaction as ConsumeTransaction,
-          expirationDeltaBlocks(false),
           signCallback,
           attempt && stageStampFor(transaction.id, attempt)
         )
@@ -1813,7 +1812,6 @@ const generateTransactionWithProvider = async (
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
         midenClientProxy.sendTransaction(
           transaction as SendTransaction,
-          expirationDeltaBlocks(false),
           signCallback,
           stageStampFor(transaction.id, attempt)
         )
@@ -1825,7 +1823,6 @@ const generateTransactionWithProvider = async (
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
         midenClientProxy.swapTransaction(
           transaction as SwapTransaction,
-          expirationDeltaBlocks(false),
           signCallback,
           stageStampFor(transaction.id, attempt)
         )
@@ -1871,11 +1868,7 @@ const generateTransactionWithProvider = async (
           )
         );
       } else {
-        result = await midenClientProxy.sendTransaction(
-          transaction as SendTransaction,
-          expirationDeltaBlocks(false),
-          signCallback
-        );
+        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
       }
       break;
     case 'execute':
@@ -3160,7 +3153,7 @@ const generateGuardianTransaction = async (
           // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks,
-          expirationDeltaBlocks(true)
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS
         );
         proposalResult = await service.createCustomProposal(requestBytes, 'recallable_send');
       } else {
@@ -3356,7 +3349,7 @@ const generateGuardianTransaction = async (
           BigInt(bridgeTx.amount),
           NoteType.Public,
           recallBlocks,
-          expirationDeltaBlocks(true),
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
           // Allocator-validated collateral: measure the reclaim height against a
           // fresh chain head.
           { freshSync: true }
@@ -3466,7 +3459,7 @@ const generateGuardianTransaction = async (
             tr,
             swapTx.faucetId,
             BigInt(swapTx.amount),
-            expirationDeltaBlocks(true),
+            GUARDIAN_EXPIRATION_DELTA_BLOCKS,
             swapFeeSalt
           ).serialize();
         });

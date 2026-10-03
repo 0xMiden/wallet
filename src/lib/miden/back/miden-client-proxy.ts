@@ -344,7 +344,7 @@ type RawSignCallback = (publicKey: string, signingInputs: string) => Promise<Uin
 
 /** The per-step stage stamp the tx loop supplies for a staged write (PR #524) —
  * in practice `stage => setTransactionStage(row.id, stage)`. Same shape the SDK's
- * `MidenClientInterface.sendTransaction(tx, expirationDelta, onStage)` takes, so the flag-OFF path
+ * `MidenClientInterface.sendTransaction(tx, onStage)` takes, so the flag-OFF path
  * can hand it straight through unmodified. */
 /**
  * A per-step stage stamp (PR #524).
@@ -815,9 +815,6 @@ type OffscreenConsumeDto = {
   noteId: string;
   noteIds: string[];
   delegateTransaction?: boolean;
-  /** Required: the handler refuses a DTO without it, so a dropped field fails the write instead of shipping a request
-   * with no expiration (#1081). */
-  expirationDelta: number;
 };
 
 /** `sendTransaction` reads exactly these fields off the `SendTransaction` row
@@ -833,9 +830,6 @@ type OffscreenSendDto = {
   amount: string;
   delegateTransaction?: boolean;
   extraInputs: { recallBlocks?: number };
-  /** Required: the handler refuses a DTO without it, so a dropped field fails the write instead of shipping a request
-   * with no expiration (#1081). */
-  expirationDelta: number;
 };
 
 /** `swapTransaction` reads exactly these fields off the `SwapTransaction` row
@@ -848,9 +842,6 @@ type OffscreenSwapDto = {
   amount: string;
   delegateTransaction?: boolean;
   extraInputs: { requestedFaucetId: string; requestedAmount: string };
-  /** Required: the handler refuses a DTO without it, so a dropped field fails the write instead of shipping a request
-   * with no expiration (#1081). */
-  expirationDelta: number;
 };
 
 /**
@@ -1568,7 +1559,7 @@ export const midenClientProxy = {
    *
    *   Flag OFF (default) / offscreen unavailable: the consume runs inline on the
    *   realm's one client under the WASM lock, `withWasmClientLock(() =>
-   *   getMidenClient().consumeNoteId(tx, expirationDelta, onStage))`; the realm signer `Actions.init`
+   *   getMidenClient().consumeNoteId(tx, onStage))`; the realm signer `Actions.init`
    *   installed signs it, and the `signCallback` argument is unused (#878).
    *
    *   Flag ON: the whole execute→prove→submit→apply chain runs in the offscreen
@@ -1581,21 +1572,17 @@ export const midenClientProxy = {
    */
   async consumeNoteId(
     transaction: ConsumeTransaction,
-    expirationDelta: number,
     signCallback: RawSignCallback,
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient()).consumeNoteId(transaction, expirationDelta, onStage)
-      );
+      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction, onStage));
     }
     const dto: OffscreenConsumeDto = {
       accountId: transaction.accountId,
       noteId: transaction.noteId,
       noteIds: transaction.noteIds,
-      delegateTransaction: transaction.delegateTransaction,
-      expirationDelta
+      delegateTransaction: transaction.delegateTransaction
     };
     return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback, onStage);
   },
@@ -1611,14 +1598,14 @@ export const midenClientProxy = {
    * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
    * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
    * `amount` (BigInt → decimal string), `delegateTransaction`, and
-   * `extraInputs.recallBlocks` - plus the caller's `expirationDelta`, no more.
-   * `completeSendTransaction` (SW-side) consumes the round-tripped `TransactionResult` identically; any private-note
+   * `extraInputs.recallBlocks`, no more. `completeSendTransaction` (SW-side)
+   * consumes the round-tripped `TransactionResult` identically; any private-note
    * relay it does runs on the SW's own inline client (no further offscreen call).
    *
    * `onStage` is the per-step stage stamp (PR #524) and is honoured on BOTH paths,
    * because on the extension — the one build that defaults the flag ON — flag-ON is
    * the production path, so a flag-ON-only gap would silently delete the timings:
-   *   Flag OFF: handed straight to the inline `sendTransaction(tx, expirationDelta, onStage)`, which
+   *   Flag OFF: handed straight to the inline `sendTransaction(tx, onStage)`, which
    *   is precisely the call the tx loop used to make itself (byte-identity holds
    *   with the callback, not without it).
    *   Flag ON: registered op-scoped in `opStageCallbacks`; the offscreen realm posts
@@ -1628,14 +1615,11 @@ export const midenClientProxy = {
    */
   async sendTransaction(
     transaction: SendTransaction,
-    expirationDelta: number,
     signCallback: RawSignCallback,
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient()).sendTransaction(transaction, expirationDelta, onStage)
-      );
+      return withWasmClientLock(async () => (await getMidenClient()).sendTransaction(transaction, onStage));
     }
     const dto: OffscreenSendDto = {
       accountId: transaction.accountId,
@@ -1644,8 +1628,7 @@ export const midenClientProxy = {
       noteType: transaction.noteType,
       amount: transaction.amount.toString(),
       delegateTransaction: transaction.delegateTransaction,
-      extraInputs: { recallBlocks: transaction.extraInputs?.recallBlocks },
-      expirationDelta
+      extraInputs: { recallBlocks: transaction.extraInputs?.recallBlocks }
     };
     return dispatchOffscreenWrite('sendTransaction', [dto], signCallback, onStage);
   },
@@ -1661,14 +1644,11 @@ export const midenClientProxy = {
    */
   async swapTransaction(
     transaction: SwapTransaction,
-    expirationDelta: number,
     signCallback: RawSignCallback,
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient()).swapTransaction(transaction, expirationDelta, onStage)
-      );
+      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage));
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1678,8 +1658,7 @@ export const midenClientProxy = {
       extraInputs: {
         requestedFaucetId: transaction.extraInputs.requestedFaucetId,
         requestedAmount: transaction.extraInputs.requestedAmount.toString()
-      },
-      expirationDelta
+      }
     };
     return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage);
   },

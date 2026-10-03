@@ -96,7 +96,7 @@ import {
   type PendingGuardianRegistration
 } from '../guardian/account';
 import { withGuardianProbe } from '../guardian/native-http';
-import { isPrivateNoteType } from '../helpers';
+import { EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -1502,11 +1502,7 @@ export class MidenClientInterface {
       .map(record => record.inputNoteRecord());
   }
 
-  async sendTransaction(
-    dbTransaction: SendTransaction,
-    expirationDelta: number,
-    onStage?: LeafStage
-  ): Promise<TransactionResult> {
+  async sendTransaction(dbTransaction: SendTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
 
     // extraInputs.recallBlocks is a RELATIVE blocks-until-recall offset (every
@@ -1539,8 +1535,7 @@ export class MidenClientInterface {
                 faucetId,
                 noteType,
                 amount,
-                reclaimAfter,
-                expirationDelta
+                reclaimAfter
               ),
             attempt,
             onStage
@@ -1568,8 +1563,7 @@ export class MidenClientInterface {
             faucetId,
             noteType,
             amount,
-            reclaimAfter,
-            expirationDelta
+            reclaimAfter
           );
           return request.serialize();
         });
@@ -1592,11 +1586,7 @@ export class MidenClientInterface {
     );
   }
 
-  async consumeNoteId(
-    transaction: ConsumeTransaction,
-    expirationDelta: number,
-    onStage?: LeafStage
-  ): Promise<TransactionResult> {
+  async consumeNoteId(transaction: ConsumeTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, noteId, noteIds } = transaction;
 
     // Batch claims consume every note in one transaction (one proof/submit).
@@ -1622,7 +1612,7 @@ export class MidenClientInterface {
                 }
                 notes.push(inputNoteRecord.toNote());
               }
-              const request: TransactionRequest = buildConsumeTransactionRequest(notes, expirationDelta);
+              const request: TransactionRequest = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
               const acctId = resolveAccountId(wasm, accountId);
               recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
               return { accountId: acctId, request };
@@ -1644,7 +1634,7 @@ export class MidenClientInterface {
             if (!record) throw new Error(`Note not found: ${id}`);
             notes.push(record.toNote());
           }
-          const request = buildConsumeTransactionRequest(notes, expirationDelta);
+          const request = buildConsumeTransactionRequest(notes, EXPIRATION_DELTA_BLOCKS);
           return request.serialize();
         });
         try {
@@ -1684,11 +1674,7 @@ export class MidenClientInterface {
    * A delegated attempt that fails before `markSubmitting()` falls back to a
    * local one through `proveWithFallback`; nothing falls back once it has run.
    */
-  async swapTransaction(
-    transaction: SwapTransaction,
-    expirationDelta: number,
-    onStage?: LeafStage
-  ): Promise<TransactionResult> {
+  async swapTransaction(transaction: SwapTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
     const access = this.innerClientAccess();
@@ -1722,7 +1708,7 @@ export class MidenClientInterface {
           reference,
           faucetId,
           BigInt(amount),
-          expirationDelta
+          EXPIRATION_DELTA_BLOCKS
         );
         // Staged for every attempt (#1233): a worker leg proves in the prove worker (#945), every
         // other leg proves here, and both submit and apply themselves, so the apply after the submit
@@ -2494,8 +2480,7 @@ async function buildSendExecuteArgs(
   faucetId: string,
   noteType: NoteType | string,
   amount: string | bigint,
-  reclaimAfter: number | undefined,
-  expirationDelta: number
+  reclaimAfter: number | undefined
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
@@ -2515,7 +2500,7 @@ async function buildSendExecuteArgs(
     faucetId,
     typeof amount === 'string' ? BigInt(amount) : amount,
     nt,
-    expirationDelta,
+    EXPIRATION_DELTA_BLOCKS,
     reclaimAfter
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);

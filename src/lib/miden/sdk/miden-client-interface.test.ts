@@ -1,3 +1,4 @@
+import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
@@ -266,30 +267,24 @@ describe('MidenClientInterface', () => {
     await client.getTransactionsForAccount('id');
     await client.exportDb();
     await client.importDb('{"version":1,"data":"dump"}');
-    await client.sendTransaction(
-      {
-        accountId: 'id',
-        amount: BigInt(1),
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        type: 'send',
-        extraInputs: { recallBlocks: 1 },
-        status: 0,
-        initiatedAt: Math.floor(Date.now() / 1000),
-        displayIcon: 'SEND'
-      } as any,
-      600
-    );
-    await client.consumeNoteId(
-      {
-        accountId: 'id',
-        noteId: 'note',
-        faucetId: 'f',
-        type: 'consume'
-      } as any,
-      600
-    );
+    await client.sendTransaction({
+      accountId: 'id',
+      amount: BigInt(1),
+      secondaryAccountId: 'recip',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      type: 'send',
+      extraInputs: { recallBlocks: 1 },
+      status: 0,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    } as any);
+    await client.consumeNoteId({
+      accountId: 'id',
+      noteId: 'note',
+      faucetId: 'f',
+      type: 'consume'
+    } as any);
     await client.newTransaction('acc-id', new Uint8Array([1, 2]));
 
     // Freed last: a disposed client refuses to submit a write (#1233).
@@ -363,15 +358,12 @@ describe('MidenClientInterface', () => {
         buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
         'net'
       );
-      await client.consumeNoteId(
-        {
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume',
-          delegateTransaction: true
-        } as any,
-        600
-      );
+      await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
 
       return proveTelemetry;
     }
@@ -411,7 +403,7 @@ describe('MidenClientInterface', () => {
       );
 
       await expect(
-        client.consumeNoteId({ accountId: 'a', noteId: 'n', type: 'consume', delegateTransaction: false } as any, 600)
+        client.consumeNoteId({ accountId: 'a', noteId: 'n', type: 'consume', delegateTransaction: false } as any)
       ).rejects.toThrow('note has already been consumed');
 
       // Had the failed attempt been left open, this step would arrive in an
@@ -793,17 +785,14 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.sendTransaction(
-      {
-        accountId: 'sender',
-        secondaryAccountId: 'recipient',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any,
-      600
-    );
+    const result = await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      amount: BigInt(100),
+      extraInputs: {}
+    } as any);
 
     expect(result).toBe(fakeTransactionResult);
     // The non-offscreen send drives the staged pipeline (executeRequest → prove →
@@ -851,7 +840,6 @@ describe('MidenClientInterface', () => {
         amount: BigInt(1),
         extraInputs: {}
       } as any,
-      600,
       stage => {
         stages.push(stage);
       }
@@ -901,18 +889,15 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.sendTransaction(
-      {
-        accountId: 'sender',
-        secondaryAccountId: 'recipient',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(1),
-        extraInputs: {},
-        delegateTransaction: true
-      } as any,
-      600
-    );
+    const result = await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      amount: BigInt(1),
+      extraInputs: {},
+      delegateTransaction: true
+    } as any);
 
     expect(result).toBe(fakeTransactionResult);
     // The delegated prove threw, so proveWithFallback re-ran the whole staged
@@ -970,7 +955,6 @@ describe('MidenClientInterface', () => {
           extraInputs: {},
           delegateTransaction: true
         } as any,
-        600,
         async stage => {
           if (stage === 'submitting') throw crossingFailed;
         }
@@ -1032,18 +1016,15 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
     const rejection = await settleThroughApplyRetry(() =>
-      client.sendTransaction(
-        {
-          accountId: 'sender',
-          secondaryAccountId: 'recipient',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(1),
-          extraInputs: {},
-          delegateTransaction: true
-        } as any,
-        600
-      )
+      client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(1),
+        extraInputs: {},
+        delegateTransaction: true
+      } as any)
     );
     return { rejection, fakeMidenClient, submitCalls: () => submitCalls };
   };
@@ -1103,17 +1084,14 @@ describe('MidenClientInterface', () => {
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
     await expect(
-      client.sendTransaction(
-        {
-          accountId: 'sender',
-          secondaryAccountId: 'recipient',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(1),
-          extraInputs: {}
-        } as any,
-        600
-      )
+      client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(1),
+        extraInputs: {}
+      } as any)
     ).rejects.toThrow(/_withInnerWebClient missing/);
   });
 
@@ -1135,15 +1113,12 @@ describe('MidenClientInterface', () => {
     );
 
     const error = await settleThroughApplyRetry(() =>
-      client.consumeNoteId(
-        {
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume',
-          delegateTransaction: true
-        } as any,
-        600
-      )
+      client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any)
     );
 
     expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
@@ -1170,17 +1145,14 @@ describe('MidenClientInterface', () => {
     );
 
     await expect(
-      client.swapTransaction(
-        {
-          accountId: 'acc-id',
-          faucetId: 'offered-faucet',
-          amount: BigInt(10),
-          type: 'swap',
-          delegateTransaction: true,
-          extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
-        } as any,
-        600
-      )
+      client.swapTransaction({
+        accountId: 'acc-id',
+        faucetId: 'offered-faucet',
+        amount: BigInt(10),
+        type: 'swap',
+        delegateTransaction: true,
+        extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
+      } as any)
     ).rejects.toBe(refused);
 
     expect(staged.executeRequest).toHaveBeenCalledTimes(1);
@@ -1312,18 +1284,15 @@ describe('MidenClientInterface', () => {
       'net'
     );
     const error = await client
-      .sendTransaction(
-        {
-          accountId: 'acc-id',
-          amount: BigInt(1),
-          secondaryAccountId: 'recip',
-          faucetId: 'faucet',
-          noteType: 'public',
-          type: 'send',
-          extraInputs: { recallBlocks: 10 }
-        } as any,
-        600
-      )
+      .sendTransaction({
+        accountId: 'acc-id',
+        amount: BigInt(1),
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public',
+        type: 'send',
+        extraInputs: { recallBlocks: 10 }
+      } as any)
       .catch((e: unknown) => e);
     expect(hasErrorBeforeSubmit(error)).toBe(true);
     expect(staged.executeRequest).not.toHaveBeenCalled();
@@ -1340,7 +1309,7 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any, 600);
+    const result = await client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any);
 
     expect(result).toBe(fakeTransactionResult);
     // Staged (#1233): execute, prove, submit and apply, never the SDK's opaque consume.
@@ -1363,15 +1332,12 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      const pending = client.consumeNoteId(
-        {
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume',
-          delegateTransaction: true
-        } as any,
-        600
-      );
+      const pending = client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
 
       await jest.advanceTimersByTimeAsync(DELEGATED_PROVE_TIMEOUT_MS);
 
@@ -1656,10 +1622,7 @@ describe('MidenClientInterface', () => {
 
       let outcome: unknown = 'pending';
       client
-        .consumeNoteId(
-          { accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true } as any,
-          600
-        )
+        .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true } as any)
         .then(
           () => {
             outcome = 'resolved';
@@ -1681,6 +1644,66 @@ describe('MidenClientInterface', () => {
     });
   });
 
+  it('every non-Guardian write leaf builds its request with EXPIRATION_DELTA_BLOCKS itself (#1081)', async () => {
+    const staged = stagedExecuteRequest();
+    mockStagedSdk({
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    });
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({
+        transactions: { executeRequest: staged.executeRequest },
+        __inner: {
+          getAccount: jest.fn(async () => ({ vault: jest.fn() })),
+          getInputNote: jest.fn(async (id: string) => ({ toNote: () => ({ note: id }) })),
+          newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) }))
+        }
+      }) as any,
+      'testnet'
+    );
+
+    await client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any);
+    await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public',
+      amount: BigInt(1),
+      extraInputs: {}
+    } as any);
+    await client.swapTransaction({
+      accountId: 'acc-id',
+      faucetId: 'offered-faucet',
+      amount: BigInt(10),
+      type: 'swap',
+      extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
+    } as any);
+
+    const { buildConsumeTransactionRequest, buildSendTransactionRequest, buildPswapCreateRequest } =
+      jest.requireMock('./helpers');
+    expect(buildConsumeTransactionRequest).toHaveBeenCalledWith(expect.any(Array), EXPIRATION_DELTA_BLOCKS);
+    expect(buildSendTransactionRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      'sender',
+      'recipient',
+      'faucet',
+      BigInt(1),
+      'public',
+      EXPIRATION_DELTA_BLOCKS,
+      undefined
+    );
+    expect(buildPswapCreateRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'offered-faucet',
+      BigInt(10),
+      EXPIRATION_DELTA_BLOCKS
+    );
+  });
+
   it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
     const staged = stagedExecuteRequest();
     const inner = {
@@ -1697,15 +1720,12 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    await client.consumeNoteId(
-      {
-        accountId: 'acc-id',
-        noteId: 'note-1',
-        noteIds: ['note-1', 'note-2', 'note-3'],
-        type: 'consume'
-      } as any,
-      600
-    );
+    await client.consumeNoteId({
+      accountId: 'acc-id',
+      noteId: 'note-1',
+      noteIds: ['note-1', 'note-2', 'note-3'],
+      type: 'consume'
+    } as any);
 
     const { buildConsumeTransactionRequest } = jest.requireMock('./helpers');
     expect(buildConsumeTransactionRequest).toHaveBeenCalledWith(expect.any(Array), 600);
@@ -2345,14 +2365,11 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
         // Should not throw despite the frozen array — the catch swallows it.
-        const result = await client.consumeNoteId(
-          {
-            accountId: 'acc-id',
-            noteId: 'note-1',
-            type: 'consume'
-          } as any,
-          600
-        );
+        const result = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume'
+        } as any);
         expect(result).toBe(fakeTransactionResult);
       });
     } finally {
@@ -2385,14 +2402,11 @@ describe('MidenClientInterface', () => {
       await jest.isolateModulesAsync(async () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-        consumeResult = await client.consumeNoteId(
-          {
-            accountId: 'acc-id',
-            noteId: 'note-1',
-            type: 'consume'
-          } as any,
-          600
-        );
+        consumeResult = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume'
+        } as any);
       });
 
       expect(consumeResult).toBe(fakeTransactionResult);
@@ -2438,15 +2452,12 @@ describe('MidenClientInterface', () => {
 
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-        const result = await client.consumeNoteId(
-          {
-            accountId: 'acc-id',
-            noteId: 'note-1',
-            type: 'consume',
-            delegateTransaction: false
-          } as any,
-          600
-        );
+        const result = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: false
+        } as any);
         expect(result).toBe(fakeTransactionResult);
       });
 
@@ -2486,7 +2497,7 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
         await expect(
-          client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any, 600)
+          client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
         ).rejects.toBe(consumeErr);
       });
 
@@ -2527,15 +2538,12 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      const result = await client.consumeNoteId(
-        {
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume',
-          delegateTransaction: true
-        } as any,
-        600
-      );
+      const result = await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
 
       expect(result).toBe(fakeTransactionResult);
       expect(staged.prove).toHaveBeenCalledTimes(2); // delegate attempt + local retry
@@ -2569,15 +2577,12 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.consumeNoteId(
-          {
-            accountId: 'acc-id',
-            noteId: 'note-1',
-            type: 'consume',
-            delegateTransaction: false
-          } as any,
-          600
-        )
+        client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: false
+        } as any)
       ).rejects.toThrow('prover unreachable');
 
       // Called once (no local-prover retry) and banner untouched.
@@ -2647,15 +2652,12 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await client.consumeNoteId(
-        {
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume',
-          delegateTransaction: true
-        } as any,
-        600
-      );
+      await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
 
       expect(markConnectivityIssue).not.toHaveBeenCalled();
       expect(clearConnectivityIssue).toHaveBeenCalledWith('prover');
@@ -2673,8 +2675,8 @@ describe('MidenClientInterface', () => {
       extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
     };
     const writes: Array<[string, (client: MidenClientInterfaceType) => Promise<unknown>]> = [
-      ['consume', client => client.consumeNoteId(consumeTx as any, 600)],
-      ['swap', client => client.swapTransaction(swapTx as any, 600)]
+      ['consume', client => client.consumeNoteId(consumeTx as any)],
+      ['swap', client => client.swapTransaction(swapTx as any)]
     ];
 
     const stagedClient = async (executeRequest: jest.Mock) => {
@@ -2729,7 +2731,7 @@ describe('MidenClientInterface', () => {
       client = await stagedClient(staged.executeRequest);
       const { WasmClientPoisonedError } = await import('./wasm-client-poison');
 
-      await expect(client.swapTransaction(swapTx as any, 600)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      await expect(client.swapTransaction(swapTx as any)).rejects.toBeInstanceOf(WasmClientPoisonedError);
 
       expect(staged.prove).toHaveBeenCalledTimes(1);
       expect(staged.submit).not.toHaveBeenCalled();
@@ -2770,8 +2772,8 @@ describe('MidenClientInterface', () => {
         const client = await stagedClient(staged.executeRequest);
         const { withWasmClientLock } = await import('./miden-client');
         await withWasmClientLock(async () => {
-          if (write === 'consume') await client.consumeNoteId(consumeTx as any, 600, onStage);
-          else if (write === 'swap') await client.swapTransaction(swapTx as any, 600, onStage);
+          if (write === 'consume') await client.consumeNoteId(consumeTx as any, onStage);
+          else if (write === 'swap') await client.swapTransaction(swapTx as any, onStage);
           else await client.newTransaction('acc-id', new Uint8Array([1]), true, onStage);
         });
 
@@ -2897,17 +2899,14 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await client.sendTransaction(
-        {
-          accountId: 'sender',
-          secondaryAccountId: 'recip',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(100),
-          extraInputs: {}
-        } as any,
-        600
-      );
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any);
 
       expect(inner.executeTransaction).toHaveBeenCalledTimes(1);
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
@@ -2957,7 +2956,6 @@ describe('MidenClientInterface', () => {
           amount: BigInt(100),
           extraInputs: {}
         } as any,
-        600,
         onStage
       );
 
@@ -2997,17 +2995,14 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction(
-        {
-          accountId: 'sender',
-          secondaryAccountId: 'recip',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(100),
-          extraInputs: {}
-        } as any,
-        600
-      );
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any);
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
@@ -3050,21 +3045,18 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-        await client.sendTransaction(
-          {
-            // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
-            // suffix before parsing, or the bech32 parser sees a string it can reject.
-            accountId: 'mtst1sender_qr7qqq9wr6w',
-            // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
-            // that is otherwise valid would fail to resolve here.
-            secondaryAccountId: '0XRecipient',
-            faucetId: 'mtst1faucet',
-            noteType: 'private' as any,
-            amount: BigInt(250),
-            extraInputs
-          } as any,
-          600
-        );
+        await client.sendTransaction({
+          // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+          // suffix before parsing, or the bech32 parser sees a string it can reject.
+          accountId: 'mtst1sender_qr7qqq9wr6w',
+          // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+          // that is otherwise valid would fail to resolve here.
+          secondaryAccountId: '0XRecipient',
+          faucetId: 'mtst1faucet',
+          noteType: 'private' as any,
+          amount: BigInt(250),
+          extraInputs
+        } as any);
 
         expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
         expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
@@ -3106,14 +3098,11 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await client.consumeNoteId(
-        {
-          accountId: 'mtst1acc',
-          noteId: 'note-id-123',
-          type: 'consume'
-        } as any,
-        600
-      );
+      await client.consumeNoteId({
+        accountId: 'mtst1acc',
+        noteId: 'note-id-123',
+        type: 'consume'
+      } as any);
 
       expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
       expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
@@ -3153,14 +3142,11 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.consumeNoteId(
-          {
-            accountId: 'mtst1acc',
-            noteId: 'missing-note',
-            type: 'consume'
-          } as any,
-          600
-        )
+        client.consumeNoteId({
+          accountId: 'mtst1acc',
+          noteId: 'missing-note',
+          type: 'consume'
+        } as any)
       ).rejects.toThrow(/Note missing-note not found in store/);
     });
 
@@ -3191,7 +3177,7 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       const error = await settleThroughApplyRetry(() =>
-        client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'note-id-123', type: 'consume' } as any, 600)
+        client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'note-id-123', type: 'consume' } as any)
       );
 
       expect(error).toBeInstanceOf(ApplyAfterSubmitError);
@@ -3261,17 +3247,14 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.sendTransaction(
-          {
-            accountId: 'sender',
-            secondaryAccountId: 'recip',
-            faucetId: 'faucet',
-            noteType: 'public' as any,
-            amount: BigInt(100),
-            extraInputs: {}
-          } as any,
-          600
-        )
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
       ).rejects.toBe(trap);
       expect(stubs.proveViaOffscreen).not.toHaveBeenCalled();
       expect(inner.executeTransaction).not.toHaveBeenCalled();
@@ -3300,17 +3283,14 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.sendTransaction(
-          {
-            accountId: 'sender',
-            secondaryAccountId: 'recip',
-            faucetId: 'faucet',
-            noteType: 'public' as any,
-            amount: BigInt(100),
-            extraInputs: {}
-          } as any,
-          600
-        )
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
       ).rejects.toThrow(/execute failed/);
     });
 

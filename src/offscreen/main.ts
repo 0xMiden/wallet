@@ -537,13 +537,6 @@ type DispatchContext = {
   settled: boolean;
 };
 
-// A write's expiration delta as it crossed the bus (#1081): a positive safe integer, or the write fails before anything
-// runs, so a DTO that lost the field can never ship a request without an expiry.
-function requireExpirationDelta(value: unknown): number {
-  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value;
-  throw markErrorBeforeSubmit(new Error(`The write carried no usable expiration delta (${String(value)})`));
-}
-
 // A write's arguments decoded before its leaf runs: a failure here is before the submit by construction (#1081).
 function decodeBeforeSubmit<T>(decode: () => T): T {
   try {
@@ -824,11 +817,9 @@ const DISPATCH: Record<string, DispatchFn> = {
       noteId: string;
       noteIds: string[];
       delegateTransaction?: boolean;
-      expirationDelta?: unknown;
     }
   ) => {
-    const expirationDelta = requireExpirationDelta(dto.expirationDelta);
-    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, expirationDelta, (stage, detail) =>
+    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, (stage, detail) =>
       postStageEvent(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
@@ -859,10 +850,8 @@ const DISPATCH: Record<string, DispatchFn> = {
       amount: string;
       delegateTransaction?: boolean;
       extraInputs: { recallBlocks?: number };
-      expirationDelta?: unknown;
     }
   ) => {
-    const expirationDelta = requireExpirationDelta(dto.expirationDelta);
     // `context` arrived bound to THIS op (threaded by `handleCall` before any
     // await), so a stamp fired late (an evicted dispatch still running) carries
     // its own op_id rather than the successor's — see `postStageEvent` (#775).
@@ -873,7 +862,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
-    const result = await client.sendTransaction(tx, expirationDelta, (stage, detail) =>
+    const result = await client.sendTransaction(tx, (stage, detail) =>
       postStageEvent(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check before the serialize (#788): the staged
@@ -891,10 +880,8 @@ const DISPATCH: Record<string, DispatchFn> = {
       amount: string;
       delegateTransaction?: boolean;
       extraInputs: { requestedFaucetId: string; requestedAmount: string };
-      expirationDelta?: unknown;
     }
   ) => {
-    const expirationDelta = requireExpirationDelta(dto.expirationDelta);
     const tx = decodeBeforeSubmit(
       () =>
         ({
@@ -906,7 +893,7 @@ const DISPATCH: Record<string, DispatchFn> = {
           }
         }) as unknown as SwapTransaction
     );
-    const result = await client.swapTransaction(tx, expirationDelta, (stage, detail) =>
+    const result = await client.swapTransaction(tx, (stage, detail) =>
       postStageEvent(context, stage, detail?.evidence)
     );
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
