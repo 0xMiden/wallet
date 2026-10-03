@@ -15,8 +15,10 @@ interface Checked {
 
 export function useAgglayerEligibility(faucetId: string): AgglayerEligibility {
   const rpcUrl = getEffectiveRpcUrl();
-  // The check reads the configured bridge, so it waits for one and runs again when the config moves it.
-  const midenBridge = useBridgeConfigSnapshot().config?.agglayer.midenBridge;
+  // The check reads the configured bridge, so it runs again when the config moves it. Only a loading snapshot is a
+  // wait: a loaded one that names none settles as the failed check it would be.
+  const snapshot = useBridgeConfigSnapshot();
+  const midenBridge = snapshot.config?.agglayer.midenBridge;
   const [result, setResult] = useState<Checked>();
 
   useEffect(() => {
@@ -36,6 +38,7 @@ export function useAgglayerEligibility(faucetId: string): AgglayerEligibility {
     };
   }, [faucetId, rpcUrl, midenBridge]);
 
+  if (!midenBridge) return snapshot.status === 'loading' ? 'loading' : 'error';
   if (result?.faucetId !== faucetId || result.rpcUrl !== rpcUrl || result.midenBridge !== midenBridge) {
     return 'loading';
   }

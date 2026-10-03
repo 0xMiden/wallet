@@ -318,6 +318,23 @@ describe('useEarnPositions', () => {
       expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
     });
 
+    it.each<[string, BridgeConfig | null]>([
+      ['names no config', null],
+      ['names no positions host', { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: undefined } }]
+    ])('settles at once as a failed load, reading nothing, when a loaded snapshot %s', async (_case, config) => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      publishConfig({ ...READY, config });
+      const { result } = renderHook(() => useEarnPositions(), { wrapper });
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.loadError).toBe('The bridge config has no usable epoch.positionsUrl.');
+      expect(result.current.error).toBe('The bridge config has no usable epoch.positionsUrl.');
+      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
+      expect(fetchEarnPositions).not.toHaveBeenCalled();
+    });
+
     it('reads again at once when the config moves the positions host', async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
       jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);

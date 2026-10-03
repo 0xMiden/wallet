@@ -85,6 +85,20 @@ it('reports loading and asks no registry while the config names no bridge', asyn
   expect(isAgglayerFaucetAllowed).not.toHaveBeenCalled();
 });
 
+it.each<[string, BridgeConfigSnapshot]>([
+  ['no config', { ...configNaming(BRIDGE), config: null }],
+  ['a config without a bridge', { ...configNaming(BRIDGE), config: { ...configNaming(BRIDGE).config!, agglayer: {} } }]
+])('settles as an error, asking no registry, once the snapshot is ready with %s', async (_case, snapshot) => {
+  publishConfig(snapshot);
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
+  const { result } = renderHook(() => useAgglayerEligibility('token'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  expect(result.current).toBe('error');
+  expect(isAgglayerFaucetAllowed).not.toHaveBeenCalled();
+});
+
 it('asks again, showing loading, once the config moves the bridge', async () => {
   const pending = new Promise<boolean>(() => {});
   jest.mocked(isAgglayerFaucetAllowed).mockResolvedValueOnce(true).mockReturnValueOnce(pending);

@@ -27,21 +27,48 @@ jest.mock('wagmi', () => ({
   useWriteContract: () => ({ mutateAsync: mockMutateAsync })
 }));
 
-// The Fast USDC pair and the Slow route's L1 bridge come from the bridge config. Stable objects, as the runtime's
-// snapshot is, so the screen's effects keyed on them run once.
-const mockSnapshot = {};
-const mockEvmUsdc = {
-  address: '0x00000000000000000000000000000000000000c0',
-  symbol: 'USDC',
-  decimals: 18,
-  chainId: 84532
+// The Fast USDC pair and the Slow route's L1 bridge come from the bridge config. As in the runtime, every publish is
+// a new snapshot object, and as the real selectors do, the ones below build new objects from it on every call.
+interface MockSnapshot {
+  status: 'loading' | 'ready';
+  config: {
+    evm: { chainId: number };
+    epoch: { allocatorUrl: string; evmUsdc: string; midenUsdcFaucet: string };
+  } | null;
+  lastFetch: { at: number; ok: boolean } | null;
+}
+const READY_SNAPSHOT: MockSnapshot = {
+  status: 'ready',
+  config: {
+    evm: { chainId: 84532 },
+    epoch: {
+      allocatorUrl: 'https://allocator.test',
+      evmUsdc: '0x00000000000000000000000000000000000000c0',
+      midenUsdcFaucet: '0x00000000000000000000000000e2e0'
+    }
+  },
+  lastFetch: null
 };
-const mockMidenUsdc = { faucetId: '0x00000000000000000000000000e2e0', symbol: 'USDC', decimals: 6 };
+let mockSnapshot = READY_SNAPSHOT;
+const mockSnapshotListeners = new Set<() => void>();
+const publishSnapshot = (next: MockSnapshot) => {
+  mockSnapshot = next;
+  mockSnapshotListeners.forEach(listener => listener());
+};
 let mockAvailability: Partial<Record<BridgeFeature, FeatureAvailability>> = {};
-jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useBridgeConfigSnapshot: () => mockSnapshot,
-  useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
-}));
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const subscribe = (listener: () => void) => {
+    mockSnapshotListeners.add(listener);
+    return () => {
+      mockSnapshotListeners.delete(listener);
+    };
+  };
+  return {
+    useBridgeConfigSnapshot: () => useSyncExternalStore(subscribe, () => mockSnapshot),
+    useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
+  };
+});
 // The suite's Miden account is no real address; the Slow route only needs its EVM form to exist.
 jest.mock('lib/agglayer', () => ({
   AGGLAYER_BRIDGE_ABI: [],
@@ -49,8 +76,10 @@ jest.mock('lib/agglayer', () => ({
   midenAddrToEvmAddr: () => '0x00000000000000000000000000000000000000a1'
 }));
 jest.mock('lib/remote-config/values', () => ({
-  selectEvmUsdc: () => mockEvmUsdc,
-  selectMidenUsdc: () => mockMidenUsdc,
+  selectEvmUsdc: ({ config }: MockSnapshot) =>
+    config ? { address: config.epoch.evmUsdc, symbol: 'USDC', decimals: 18, chainId: config.evm.chainId } : null,
+  selectMidenUsdc: ({ config }: MockSnapshot) =>
+    config ? { faucetId: config.epoch.midenUsdcFaucet, symbol: 'USDC', decimals: 6 } : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
 }));
 
@@ -124,15 +153,18 @@ jest.mock('lib/walletconnect/config', () => ({
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
+    error,
     onAmountChange,
     onContinue,
     onSelectToken
   }: {
+    error?: string;
     onAmountChange: (value?: string) => void;
     onContinue: () => void;
     onSelectToken: () => void;
   }) => (
     <div>
+      <span data-testid="form-error">{error}</span>
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
         amount
       </button>
@@ -180,12 +212,26 @@ jest.mock('./EvmBridgeDepositStatus', () => ({
 }));
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: string) => void }) =>
-    open ? (
-      <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
-        ETH
-      </button>
-    ) : null
+  EvmBridgeTokenDrawer: ({
+    open,
+    onSelect,
+    usdcBalance,
+    usdcLoading
+  }: {
+    open: boolean;
+    onSelect: (token: string) => void;
+    usdcBalance: string;
+    usdcLoading: boolean;
+  }) => (
+    <div>
+      <span data-testid="usdc-balance">{usdcLoading ? 'loading' : usdcBalance}</span>
+      {open ? (
+        <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
+          ETH
+        </button>
+      ) : null}
+    </div>
+  )
 }));
 
 jest.mock('./EvmSwitchWalletDrawer', () => ({
@@ -281,6 +327,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockAvailability = {};
+    mockSnapshot = READY_SNAPSHOT;
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
   });
@@ -457,6 +504,62 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       }),
       '0xevm-wallet'
     );
+  });
+
+  it('neither reads the USDC balance again nor re-quotes on a publish that moves no value they read', async () => {
+    const quoteEVMToMiden = jest.fn().mockResolvedValue(undefined);
+    Object.assign(epochState, { quoteEVMToMiden });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
+    const reads = jest.mocked(global.fetch).mock.calls.length;
+
+    act(() => publishSnapshot({ ...mockSnapshot, lastFetch: { at: 1, ok: true } }));
+    expect(screen.getByTestId('usdc-balance')).not.toHaveTextContent('loading');
+    await settle();
+
+    expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledTimes(reads);
+  });
+
+  it.each<[string, (config: NonNullable<MockSnapshot['config']>) => MockSnapshot['config'], Record<string, unknown>]>([
+    ['the allocator', config => ({ ...config, epoch: { ...config.epoch, allocatorUrl: 'https://moved.test' } }), {}],
+    [
+      'the Miden USDC faucet',
+      config => ({ ...config, epoch: { ...config.epoch, midenUsdcFaucet: '0x00000000000000000000000000e2e1' } }),
+      { midenFaucetId: '0x00000000000000000000000000e2e1' }
+    ]
+  ])('quotes again once the config moves only %s', async (_case, move, moved) => {
+    const quoteEVMToMiden = jest.fn().mockResolvedValue(undefined);
+    Object.assign(epochState, { quoteEVMToMiden });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+
+    act(() => publishSnapshot({ ...READY_SNAPSHOT, config: move(READY_SNAPSHOT.config!) }));
+    await settle();
+
+    expect(quoteEVMToMiden).toHaveBeenCalledTimes(2);
+    expect(quoteEVMToMiden).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceChainId: 84532,
+        evmTokenAddress: '0x00000000000000000000000000000000000000c0',
+        midenFaucetId: '0x00000000000000000000000000e2e0',
+        minTokenOut: '1500000',
+        ...moved
+      }),
+      '0xevm-wallet'
+    );
+  });
+
+  it('shows the USDC balance as loading, not as an error, while the config loads', async () => {
+    mockSnapshot = { status: 'loading', config: null, lastFetch: null };
+    renderScreen();
+    await settle();
+
+    expect(screen.getByTestId('usdc-balance')).toHaveTextContent('loading');
+    expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
   });
 
   it.each<[string, BridgeFeature, () => Promise<void>]>([

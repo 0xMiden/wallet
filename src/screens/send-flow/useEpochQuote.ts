@@ -46,7 +46,16 @@ export function useEpochQuote({
   senderPublicKey,
   enabled
 }: UseEpochQuoteOpts): EpochQuoteState {
-  const outputSymbol = selectEvmUsdc(useBridgeConfigSnapshot())?.symbol ?? '';
+  const snapshot = useBridgeConfigSnapshot();
+  const outputSymbol = selectEvmUsdc(snapshot)?.symbol ?? '';
+  // The quote goes through the configured allocator for the configured token and chain, so they key it too. A move is
+  // no keystroke: it supersedes the quote at once, not after the debounce.
+  const { config } = snapshot;
+  const configKey = JSON.stringify([
+    config?.epoch.allocatorUrl ?? '',
+    config?.epoch.evmUsdc ?? '',
+    String(config?.evm.chainId ?? '')
+  ]);
   const ready = enabled && !!amount && amount > 0n && !!faucetId && !!destinationAddress && !!senderPublicKey;
   // Debounce the whole input set so neither amount nor recipient keystrokes spam
   // the quote endpoint.
@@ -80,7 +89,7 @@ export function useEpochQuote({
         if (id !== reqId.current) return;
         setState({ loading: false, error: err instanceof Error ? err.message : 'Quote failed' });
       });
-  }, [debouncedKey]);
+  }, [debouncedKey, configKey]);
 
   return { ...state, symbol: state.symbol ?? outputSymbol };
 }
