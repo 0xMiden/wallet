@@ -4,7 +4,6 @@ import {
   type NoteAssets,
   Poseidon2,
   TransactionRequest,
-  TransactionResult,
   type Word
 } from '@miden-sdk/miden-sdk/lazy';
 import { concat, keccak256, stringToBytes } from 'viem';
@@ -46,16 +45,15 @@ export function agglayerExitTxHash(note: Note): `0x${string}` {
 }
 
 /**
- * The exit hash of a row built before the hash was stored at build time, from the bytes the row kept: the request
- * bytes every Agglayer row is queued with, then the result bytes a Completed row holds. Undefined when neither
- * yields the row's own note.
+ * The exit hash of a row built before the hash was stored at build time, from the request bytes every Agglayer row
+ * is queued with and keeps: the request holds the row's one own note. Undefined when the bytes do not decode to that
+ * note.
  *
- * A source that fails to decode moves on to the next. A WebAssembly trap is rethrown, never swallowed: it has to
- * reach the caller's `withWasmClientLock`, which retires the client it trapped on.
+ * A WebAssembly trap is rethrown, never swallowed: it has to reach the caller's `withWasmClientLock`, which retires
+ * the client it trapped on.
  */
 export function agglayerExitTxHashFromRowBytes(row: {
   requestBytes?: Uint8Array;
-  resultBytes?: Uint8Array;
   outputNoteIds?: string[];
 }): `0x${string}` | undefined {
   const ownNoteId = row.outputNoteIds?.[0];
@@ -65,23 +63,6 @@ export function agglayerExitTxHashFromRowBytes(row: {
       const [note] = notes;
       if (notes.length === 1 && note !== undefined && (ownNoteId === undefined || note.id().toString() === ownNoteId)) {
         return agglayerExitTxHash(note);
-      }
-    } catch (error) {
-      if (error instanceof WebAssembly.RuntimeError) throw error;
-    }
-  }
-  if (row.resultBytes?.length && ownNoteId !== undefined) {
-    try {
-      // Matched by id, so the fee note a fee-charging chain adds can never be taken for the bridge note.
-      const output = TransactionResult.deserialize(row.resultBytes)
-        .executedTransaction()
-        .userOutputNotes()
-        .find(candidate => candidate.id().toString() === ownNoteId);
-      const assets = output?.assets();
-      if (output !== undefined && assets !== undefined) {
-        return agglayerExitTxHashFromDetailsCommitment(
-          b2aggDetailsCommitment(output.recipientDigest(), assets).toHex()
-        );
       }
     } catch (error) {
       if (error instanceof WebAssembly.RuntimeError) throw error;

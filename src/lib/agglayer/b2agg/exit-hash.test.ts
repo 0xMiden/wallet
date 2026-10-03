@@ -5,7 +5,6 @@
  * into it and in which order.
  */
 const mockRequestDeserialize = jest.fn();
-const mockResultDeserialize = jest.fn();
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   // A fake word: its one felt is its name, and its hex spells that name.
@@ -15,8 +14,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       return { items };
     },
     Poseidon2: { hashElements: (array: { items: string[] }) => fakeWord(`h(${array.items.join(',')})`) },
-    TransactionRequest: { deserialize: (...args: unknown[]) => mockRequestDeserialize(...args) },
-    TransactionResult: { deserialize: (...args: unknown[]) => mockResultDeserialize(...args) }
+    TransactionRequest: { deserialize: (...args: unknown[]) => mockRequestDeserialize(...args) }
   };
 });
 
@@ -27,21 +25,12 @@ const word = (name: string) => ({ toFelts: () => [name], toHex: () => `0x${name}
 const assetsOf = (name: string) => ({
   fungibleAssets: () => [{ vaultKey: () => word(`${name}-key`), intoWord: () => word(`${name}-value`) }]
 });
-const outputNote = (id: string, name: string, withAssets = true) => ({
-  id: () => ({ toString: () => id }),
-  recipientDigest: () => word(`${name}-recipient`),
-  assets: () => (withAssets ? assetsOf(name) : undefined)
-});
-const resultWith = (...notes: ReturnType<typeof outputNote>[]) => ({
-  executedTransaction: () => ({ userOutputNotes: () => notes })
-});
 // What the fake hash makes of note `name`: the recipient digest first, then the assets commitment.
 const exitHashOfFake = (name: string) =>
   agglayerExitTxHashFromDetailsCommitment(`0xh(${name}-recipient,h(${name}-key,${name}-value))`);
 
 beforeEach(() => {
   mockRequestDeserialize.mockReset();
-  mockResultDeserialize.mockReset();
 });
 
 describe('agglayerExitTxHashFromDetailsCommitment', () => {
@@ -58,82 +47,56 @@ describe('agglayerExitTxHashFromDetailsCommitment', () => {
   });
 });
 
-describe('agglayerExitTxHashFromRowBytes, from the result bytes', () => {
-  const resultBytes = new Uint8Array([9]);
-
-  it('hashes the output note the row recorded, not the first one (a fee note can come first)', () => {
-    mockResultDeserialize.mockReturnValue(resultWith(outputNote('0xfee', 'fee'), outputNote('0xbridge', 'bridge')));
-
-    expect(agglayerExitTxHashFromRowBytes({ resultBytes, outputNoteIds: ['0xbridge'] })).toBe(exitHashOfFake('bridge'));
+describe('agglayerExitTxHashFromRowBytes, from the request bytes', () => {
+  const requestBytes = new Uint8Array([1]);
+  const requestNote = (id: string, name: string) => ({
+    id: () => ({ toString: () => id }),
+    recipient: () => ({ digest: () => word(`${name}-recipient`) }),
+    assets: () => assetsOf(name)
   });
+  const requestWith = (...notes: ReturnType<typeof requestNote>[]) =>
+    mockRequestDeserialize.mockReturnValue({ expectedOutputOwnNotes: () => notes });
 
-  it('answers nothing when no output note is the recorded one, or it carries no assets', () => {
-    mockResultDeserialize.mockReturnValue(
-      resultWith(outputNote('0xother', 'other'), outputNote('0xbridge', 'bridge', false))
+  it('answers from the request bytes', () => {
+    requestWith(requestNote('0xbridge', 'bridge'));
+
+    expect(agglayerExitTxHashFromRowBytes({ requestBytes })).toBe(exitHashOfFake('bridge'));
+    expect(agglayerExitTxHashFromRowBytes({ requestBytes, outputNoteIds: ['0xbridge'] })).toBe(
+      exitHashOfFake('bridge')
     );
-
-    expect(agglayerExitTxHashFromRowBytes({ resultBytes, outputNoteIds: ['0xmissing'] })).toBeUndefined();
-    expect(agglayerExitTxHashFromRowBytes({ resultBytes, outputNoteIds: ['0xbridge'] })).toBeUndefined();
   });
 
-  it('never reads result bytes without a recorded note id to match', () => {
-    expect(agglayerExitTxHashFromRowBytes({ resultBytes })).toBeUndefined();
-    expect(mockResultDeserialize).not.toHaveBeenCalled();
+  it('answers nothing when the request note is not the note the row recorded', () => {
+    requestWith(requestNote('0xother', 'other'));
+
+    expect(agglayerExitTxHashFromRowBytes({ requestBytes, outputNoteIds: ['0xbridge'] })).toBeUndefined();
   });
 
-  it('falls through to the result bytes when the request bytes do not decode', () => {
+  it('answers nothing when the request carries more than one own note', () => {
+    // Each request note is hashable, so taking the first of two would answer with its hash, not none.
+    requestWith(requestNote('0xbridge', 'first'), requestNote('0xsecond', 'second'));
+
+    expect(agglayerExitTxHashFromRowBytes({ requestBytes, outputNoteIds: ['0xbridge'] })).toBeUndefined();
+  });
+
+  it('answers nothing when the request bytes do not decode', () => {
     mockRequestDeserialize.mockImplementation(() => {
       throw new Error('failed to deserialize TransactionRequest');
     });
-    mockResultDeserialize.mockReturnValue(resultWith(outputNote('0xbridge', 'bridge')));
 
-    expect(
-      agglayerExitTxHashFromRowBytes({ requestBytes: new Uint8Array([1]), resultBytes, outputNoteIds: ['0xbridge'] })
-    ).toBe(exitHashOfFake('bridge'));
-  });
-
-  it('falls through when the request carries more than one own note', () => {
-    // Each request note is hashable, so taking the first of two would answer with its hash, not none.
-    const requestNote = (id: string, name: string) => ({
-      id: () => ({ toString: () => id }),
-      recipient: () => ({ digest: () => word(`${name}-recipient`) }),
-      assets: () => assetsOf(name)
-    });
-    mockRequestDeserialize.mockReturnValue({
-      expectedOutputOwnNotes: () => [requestNote('0xbridge', 'first'), requestNote('0xsecond', 'second')]
-    });
-    mockResultDeserialize.mockReturnValue(resultWith(outputNote('0xbridge', 'bridge')));
-
-    expect(
-      agglayerExitTxHashFromRowBytes({ requestBytes: new Uint8Array([1]), resultBytes, outputNoteIds: ['0xbridge'] })
-    ).toBe(exitHashOfFake('bridge'));
+    expect(agglayerExitTxHashFromRowBytes({ requestBytes, outputNoteIds: ['0xbridge'] })).toBeUndefined();
   });
 });
 
 describe('agglayerExitTxHashFromRowBytes and a WebAssembly trap', () => {
   // The caller decodes under `withWasmClientLock`, and only a trap that reaches the lock retires the client.
-  it('rethrows a trap from the request bytes without reading the result bytes', () => {
+  it('rethrows a trap from the request bytes', () => {
     mockRequestDeserialize.mockImplementation(() => {
       throw new WebAssembly.RuntimeError('unreachable');
     });
 
     expect(() =>
-      agglayerExitTxHashFromRowBytes({
-        requestBytes: new Uint8Array([1]),
-        resultBytes: new Uint8Array([9]),
-        outputNoteIds: ['0xbridge']
-      })
-    ).toThrow(WebAssembly.RuntimeError);
-    expect(mockResultDeserialize).not.toHaveBeenCalled();
-  });
-
-  it('rethrows a trap from the result bytes', () => {
-    mockResultDeserialize.mockImplementation(() => {
-      throw new WebAssembly.RuntimeError('unreachable');
-    });
-
-    expect(() =>
-      agglayerExitTxHashFromRowBytes({ resultBytes: new Uint8Array([9]), outputNoteIds: ['0xbridge'] })
+      agglayerExitTxHashFromRowBytes({ requestBytes: new Uint8Array([1]), outputNoteIds: ['0xbridge'] })
     ).toThrow(WebAssembly.RuntimeError);
   });
 });
