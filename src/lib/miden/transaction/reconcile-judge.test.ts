@@ -28,23 +28,28 @@ interface FakeChain {
   readTakesMs?: number;
   /** Return a different header from the Nth header read on: the endpoint moved mid-pass. */
   headerChangesAfter?: number;
+  /** The tip once the headers changed: the chain behind the same URL was swapped. */
+  tipAfterChange?: AccountState;
 }
 
 const chain = (fake: FakeChain): NodeReads & { calls: string[] } => {
   const calls: string[] = [];
   let headerReads = 0;
+  const swapped = () => fake.headerChangesAfter !== undefined && headerReads > fake.headerChangesAfter;
   return {
     calls,
     blockCommitment: async block => {
       calls.push(`header:${block}`);
       headerReads += 1;
-      if (fake.headerChangesAfter !== undefined && headerReads > fake.headerChangesAfter) return OTHER;
+      if (swapped()) return OTHER;
       return fake.headers === undefined ? HEADER : fake.headers[block];
     },
     account: async (_id, atBlock, timeoutMs) => {
       calls.push(atBlock === undefined ? 'tip' : `account@${atBlock}`);
       if (atBlock === undefined)
-        return fake.tipFails ? { ok: false, pruned: false, timedOut: false } : { ok: true, state: fake.tip };
+        return fake.tipFails
+          ? { ok: false, pruned: false, timedOut: false }
+          : { ok: true, state: swapped() ? (fake.tipAfterChange ?? fake.tip) : fake.tip };
       if (fake.readTakesMs !== undefined && fake.readTakesMs > timeoutMs)
         return { ok: false, pruned: false, timedOut: true };
       const state = fake.history?.[atBlock];
@@ -124,8 +129,8 @@ describe('row 1: the account reached E.final and E has no marks', () => {
       status: ITransactionStatus.Failed,
       submitEvidence: [bareEntry({ attemptId: 'b', initialCommitment: OTHER })]
     });
-    expect(await resultOf(target, { tip: { blockNum: 150, commitment: FINAL, nonce: '6' } }, [twin])).not.toBe(
-      'landed'
+    expect(await resultOf(target, { tip: { blockNum: 150, commitment: FINAL, nonce: '6' } }, [twin])).toBe(
+      'unresolvable'
     );
   });
 
@@ -147,8 +152,8 @@ describe('row 2: an attributable output note on chain', () => {
   });
 
   it('a copy included at or before E.refBlock is never E`s', async () => {
-    expect(await resultOf(row('t'), { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 100 } })).not.toBe(
-      'landed'
+    expect(await resultOf(row('t'), { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 100 } })).toBe(
+      'pending'
     );
   });
 
@@ -159,7 +164,7 @@ describe('row 2: an attributable output note on chain', () => {
     });
     expect(
       await resultOf(row('t'), { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 140 } }, [other])
-    ).not.toBe('landed');
+    ).toBe('pending');
   });
 
   it('an execute entry elsewhere with an unknown output list blocks every note; a send`s does not', async () => {
@@ -170,7 +175,7 @@ describe('row 2: an attributable output note on chain', () => {
     });
     expect(
       await resultOf(row('t'), { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 140 } }, [blindExecute])
-    ).not.toBe('landed');
+    ).toBe('pending');
     const blindSend = row('s', {
       status: ITransactionStatus.Failed,
       submitEvidence: [{ attemptId: 'b', capturedAt: 1, source: 'end' }]
@@ -200,7 +205,7 @@ describe('row 2: an attributable output note on chain', () => {
     });
     expect(
       await resultOf(row('t'), { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 140 } }, [dapp])
-    ).not.toBe('landed');
+    ).toBe('pending');
   });
 });
 
@@ -246,6 +251,19 @@ describe('row 3: E`s nullifier spent at h with the account at E.final there', ()
         history: { 150: 'pruned' }
       })
     ).toBe('landed');
+  });
+
+  it('a recorded row-3 landing skips the read at h, so a failing read there cannot hold it back', async () => {
+    const recorded = consume({ submitEvidence: [consumeEntry({ landingSeenAtBlock: 150, landingSeenBy: 3 })] });
+    const node = chain({ tip: { blockNum: 160, commitment: OTHER }, spent: { [NULLIFIER]: 150 }, history: {} });
+    const judged = await judgeSubmitEvidence(recorded, {
+      node,
+      accountRows: [recorded],
+      nowSec: NOW,
+      cadenceMs: 3_000
+    });
+    expect(judged.entries[0]?.result).toBe('landed');
+    expect(node.calls).not.toContain('account@150');
   });
 
   it('a retired attempt that left the account unchanged is no second nullifier match', async () => {
@@ -305,14 +323,35 @@ describe('row 4: the account still at E.initial (or absent) at a block at or pas
 });
 
 describe('row 5: nonce E.initialNonce + 1 with another commitment', () => {
-  it.each<[string, AccountState, string]>([
-    ['nonce + 1, another commitment', { blockNum: 150, commitment: OTHER, nonce: '6' }, 'never-committed'],
-    ['nonce + 1 at E.final', { blockNum: 150, commitment: FINAL, nonce: '6' }, 'unresolvable'],
-    ['nonce + 2', { blockNum: 150, commitment: OTHER, nonce: '7' }, 'unresolvable'],
-    ['a private account', { blockNum: 150, commitment: OTHER }, 'pending']
-  ])('%s -> %s', async (_label, tip, expected) => {
+  it.each<[string, string, AccountState]>([
+    ['nonce + 1, another commitment', 'never-committed', { blockNum: 150, commitment: OTHER, nonce: '6' }],
+    ['nonce + 1 at E.final', 'unresolvable', { blockNum: 150, commitment: FINAL, nonce: '6' }],
+    ['nonce + 2', 'unresolvable', { blockNum: 150, commitment: OTHER, nonce: '7' }],
+    ['a private account', 'pending', { blockNum: 150, commitment: OTHER }]
+  ])('%s -> %s', async (_label, expected, tip) => {
     expect(await resultOf(row('t', { submitEvidence: [entry({ expirationBlock: undefined })] }), { tip })).toBe(
       expected
+    );
+  });
+});
+
+describe('an attempt that left the account unchanged', () => {
+  const unchanged = (overrides: Partial<ISubmitEvidence> = {}) =>
+    row('t', { type: 'consume', submitEvidence: [consumeEntry({ finalCommitment: INITIAL, ...overrides })] });
+
+  it('gets no row 4: E.initial at or past X proves nothing', async () => {
+    expect(await resultOf(unchanged(), { tip: { blockNum: 750, commitment: INITIAL } })).toBe('pending');
+  });
+
+  it('gets no row 5: nonce + 1 with another commitment proves nothing', async () => {
+    const tip = { blockNum: 150, commitment: OTHER, nonce: '6' };
+    expect(await resultOf(unchanged({ expirationBlock: undefined }), { tip })).toBe('unresolvable');
+  });
+
+  it('lands through an attributable output note while the account sits', async () => {
+    const target = unchanged({ outputNoteIds: [NOTE] });
+    expect(await resultOf(target, { tip: { blockNum: 150, commitment: INITIAL }, notes: { [NOTE]: 140 } })).toBe(
+      'landed'
     );
   });
 });
@@ -402,6 +441,20 @@ describe('row 7: the binding budget', () => {
     );
   });
 
+  it('a budget of exactly zero, 40 blocks behind the tip, is spent: no read at h, and no one-off read', async () => {
+    const atH = {
+      tip: { blockNum: 190, commitment: OTHER },
+      spent: { [NULLIFIER]: 150 },
+      history: { 150: { blockNum: 150, commitment: FINAL } }
+    };
+    expect(await resultOf(consume, atH)).toBe('unresolvable');
+    const atX = {
+      tip: { blockNum: 740, commitment: OTHER, nonce: '7' },
+      history: { 700: { blockNum: 700, commitment: INITIAL } }
+    };
+    expect(await resultOf(row('t'), atX)).toBe('unresolvable');
+  });
+
   it('a read at h that times out at the full 15 s budget is retried next pass, not given up', async () => {
     // 10 blocks behind the tip leaves 30 blocks of history at 3 s: the budget is capped at 15 s, and the read takes 20.
     const fake = {
@@ -470,6 +523,29 @@ describe('the network check', () => {
     expect(judged.entries[0]?.initialSeenAtBlock).toBeUndefined();
   });
 
+  it('a failed read after a matching check leaves a recorded otherNetworkSince, which only a judgement clears', async () => {
+    const judged = await judge(row('t', { submitEvidence: [entry({ otherNetworkSince: NOW - 60 })] }), {
+      tip: { blockNum: 750, commitment: INITIAL },
+      tipFails: true
+    });
+    expect(judged.entries[0]).toMatchObject({ result: 'no-read' });
+    expect(judged.entries[0]?.otherNetworkSince).toBeUndefined();
+  });
+
+  it('each entry reads its own tip after its own check, so a chain swapped between entries is never mixed in', async () => {
+    // A is on the first chain, B on the chain the same URL serves after the swap.
+    const target = row('t', {
+      submitEvidence: [entry(), entry({ attemptId: 'b', transactionId: hex(4), refBlockCommitment: OTHER })]
+    });
+    const judged = await judge(target, {
+      tip: { blockNum: 750, commitment: INITIAL },
+      headerChangesAfter: 2,
+      tipAfterChange: { blockNum: 150, commitment: INITIAL }
+    });
+    expect(judged.entries.map(judgement => judgement.result)).toEqual(['never-committed', 'pending']);
+    expect(judged.allDead).toBe(false);
+  });
+
   it('a failed header read means no verdict this pass', async () => {
     expect(await resultOf(row('t'), { tip: { blockNum: 750, commitment: INITIAL }, headers: {} })).toBe('no-read');
   });
@@ -482,6 +558,14 @@ describe('the live-sibling deferral', () => {
     spent: { [NULLIFIER]: 150 },
     history: { 150: { blockNum: 150, commitment: FINAL } }
   };
+
+  it('a Queued sibling defers a row 1 landing, which is still recorded', async () => {
+    const target = row('t', { type: 'execute', submitEvidence: [bareEntry()] });
+    const live = row('live', { status: ITransactionStatus.Queued, submitEvidence: undefined });
+    const judged = await judge(target, { tip: { blockNum: 150, commitment: FINAL, nonce: '6' } }, [live]);
+    expect(judged.entries[0]).toMatchObject({ result: 'deferred', landingRecord: { block: 150, by: 1 } });
+    expect(judged.landingHeld).toBe(true);
+  });
 
   it('a Queued or Generating sibling defers a row 3 landing, which is still recorded', async () => {
     const live = row('live', { status: ITransactionStatus.Queued, submitEvidence: undefined });
@@ -722,5 +806,22 @@ describe('the one-off read', () => {
       initialSeenAtBlock: 700,
       landingRecord: { block: 140, by: 2 }
     });
+  });
+
+  it('a candidate note keeps its hold when that read fails', async () => {
+    const live = row('live', {
+      type: 'execute',
+      status: ITransactionStatus.GeneratingTransaction,
+      attemptId: 'b',
+      submitEvidence: []
+    });
+    const judged = await judge(
+      row('t'),
+      { tip: { blockNum: 720, commitment: OTHER }, notes: { [NOTE]: 140 }, history: {} },
+      [live]
+    );
+    expect(judged.entries[0]).toMatchObject({ result: 'deferred', landingRecord: { block: 140, by: 2 } });
+    expect(judged.entries[0]?.initialSeenAtBlock).toBeUndefined();
+    expect(judged.landingHeld).toBe(true);
   });
 });

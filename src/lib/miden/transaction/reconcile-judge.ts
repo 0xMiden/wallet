@@ -134,17 +134,14 @@ interface EntryContext {
   others: readonly ITransaction[];
   liveSiblings: readonly ITransaction[];
   reads: VerdictReads;
+  /** A fresh read on every call: a tip read before E's first check is outside the bracket that proves E's chain. */
   tip: () => Promise<AccountRead>;
 }
 
 async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promise<EntryJudgement> {
   const { row, others, reads } = context;
-  const noRead = (otherNetworkSince?: number | null): EntryJudgement => ({
-    attemptId: entry.attemptId,
-    result: 'no-read',
-    readsFailed: true,
-    ...(otherNetworkSince === undefined ? {} : { otherNetworkSince })
-  });
+  // Nothing is written for E until the post-read check passes, a cleared otherNetworkSince included.
+  const noRead = (): EntryJudgement => ({ attemptId: entry.attemptId, result: 'no-read', readsFailed: true });
 
   // The reference block's commitment is the network identity: what the executing client's chain said at execution.
   const before = await reads.node.blockCommitment(entry.refBlock);
@@ -160,7 +157,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
   const otherNetworkSince = entry.otherNetworkSince === undefined ? undefined : null;
 
   const tipRead = await context.tip();
-  if (!tipRead.ok) return noRead(otherNetworkSince);
+  if (!tipRead.ok) return noRead();
   const tip = tipRead.state;
   const moved = entry.finalCommitment !== entry.initialCommitment;
   const expiration = entry.expirationBlock;
@@ -170,7 +167,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
   let notes: ReadonlyMap<string, number> = new Map();
   if ((offInitial || !moved) && entry.outputNoteIds.length > 0) {
     const read = await reads.node.noteInclusions(entry.outputNoteIds, RPC_READ_TIMEOUT_MS);
-    if (read === undefined) return noRead(otherNetworkSince);
+    if (read === undefined) return noRead();
     notes = read;
   }
   // A transaction is included only after its reference block, so an earlier copy of the note is never E's.
@@ -179,7 +176,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
   let spend: { nullifier: string; height: number } | undefined;
   for (const nullifier of entry.nullifiers) {
     const height = await reads.node.nullifierHeight(nullifier, entry.refBlock, RPC_READ_TIMEOUT_MS);
-    if (height === undefined) return noRead(otherNetworkSince);
+    if (height === undefined) return noRead();
     // E could commit only after its reference block and at or before X, and a nullifier is spent once.
     const inWindow = height !== null && height >= entry.refBlock && (expiration === undefined || height <= expiration);
     if (inWindow && (spend === undefined || height < spend.height)) spend = { nullifier, height };
@@ -200,7 +197,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
       } else if (read.pruned || (read.timedOut && budget < RPC_READ_TIMEOUT_MS)) {
         // A pruned block, or a read that ran out the time the budget allowed, is the budget spent.
         bindingLost = true;
-      } else return noRead(otherNetworkSince);
+      } else return noRead();
     }
   }
 
@@ -222,8 +219,11 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
       const read = await reads.node.account(row.accountId, block, budget);
       if (read.ok) accountReads.push(read.state);
       // A pruned block, or a read that ran out the time the budget allowed, is no time left: it only withholds a
-      // proof. Any other failure is retried next pass.
-      else if (!read.pruned && !(read.timedOut && budget < RPC_READ_TIMEOUT_MS)) return noRead(otherNetworkSince);
+      // proof. Any other failure is retried next pass, except beside a candidate note: the read cannot change its
+      // verdict, and a no-read would drop its hold and let Retry offer a second payment.
+      else if (candidate === undefined && !read.pruned && !(read.timedOut && budget < RPC_READ_TIMEOUT_MS)) {
+        return noRead();
+      }
     }
   }
 
@@ -275,17 +275,19 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
             ? { block: candidate[1], by: 2 }
             : undefined;
   const withRecord = { ...judged, ...(landingRecord === undefined ? {} : { landingRecord }) };
-  const accountDeferred = context.liveSiblings.length > 0;
-
-  if (row1) return { ...withRecord, result: accountDeferred ? 'deferred' : 'landed', proof: { kind: 'commitment' } };
+  if (row1) {
+    const proof: LandingProof = { kind: 'commitment' };
+    return { ...withRecord, result: deferralHolds(entry, proof, others) ? 'deferred' : 'landed', proof };
+  }
   if (attributable !== undefined)
     return { ...withRecord, result: 'landed', proof: { kind: 'note', noteId: attributable[0] } };
   if (row3 && spend !== undefined) {
-    return {
-      ...withRecord,
-      result: accountDeferred ? 'deferred' : 'landed',
-      proof: { kind: 'nullifier', nullifier: spend.nullifier, finalCommitment: entry.finalCommitment }
+    const proof: LandingProof = {
+      kind: 'nullifier',
+      nullifier: spend.nullifier,
+      finalCommitment: entry.finalCommitment
     };
+    return { ...withRecord, result: deferralHolds(entry, proof, others) ? 'deferred' : 'landed', proof };
   }
   // A candidate note might still turn out to be a live sibling's: rows 4 to 9 are not evaluated for it.
   if (candidate !== undefined) return { ...withRecord, result: 'deferred' };
@@ -367,9 +369,12 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
   const judgedEntries = [...(row.submitEvidence ?? [])];
   const others = accountOthers(row, reads.accountRows);
   const liveSiblings = others.filter(isLiveSibling);
-  let tipRead: Promise<AccountRead> | undefined;
-  const tip = (): Promise<AccountRead> =>
-    (tipRead ??= reads.node.account(row.accountId, undefined, RPC_READ_TIMEOUT_MS));
+  let tipBlock: number | undefined;
+  const tip = async (): Promise<AccountRead> => {
+    const read = await reads.node.account(row.accountId, undefined, RPC_READ_TIMEOUT_MS);
+    if (read.ok) tipBlock = read.state.blockNum;
+    return read;
+  };
 
   const entries: EntryJudgement[] = [];
   for (const entry of judgedEntries) {
@@ -393,7 +398,6 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
         judgement.readsFailed &&
         judgedEntries.find(entry => entry.attemptId === judgement.attemptId)?.landingSeenAtBlock !== undefined
     );
-  const resolvedTip = tipRead === undefined ? undefined : await tipRead;
 
   return {
     rowId: row.id,
@@ -410,6 +414,6 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
         }),
     allDead,
     landingHeld,
-    ...(resolvedTip?.ok === true ? { tipBlock: resolvedTip.state.blockNum } : {})
+    ...(tipBlock === undefined ? {} : { tipBlock })
   };
 }
