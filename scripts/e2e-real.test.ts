@@ -13,7 +13,17 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { SUITES, composeGrep, pricedAmountFrom, resolveOperatorInput, run, suiteRetries } from './e2e-real.mjs';
+import {
+  AGGLAYER_MIDEN_NETWORK_ID,
+  SUITES,
+  agglayerExitFilingProblem,
+  composeGrep,
+  pricedAmountFrom,
+  resolveOperatorInput,
+  run,
+  suiteRetries
+} from './e2e-real.mjs';
+import { MIDEN_CHAIN_ID } from '../src/lib/agglayer/constant';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -439,6 +449,72 @@ describe('pricedAmountFrom', () => {
 
   it('rejects an unparseable amount', () => {
     expect(pricedAmountFrom(reply('not-a-number'))).toBeUndefined();
+  });
+});
+
+/**
+ * The AggLayer indexer guard (#1325). The Slow bridge-out finds its deposit by the network id the indexer files
+ * Miden exits under, and a renumbering once left every bridge-out unsettled with no error anywhere. E2E Bridge runs
+ * this probe on its own, before the build, so a renumbering fails that job.
+ */
+describe('the AggLayer indexer guard', () => {
+  // Miden exit 0 as the live indexer serves it, trimmed to the fields the guard reads.
+  const LIVE = { deposit: { deposit_cnt: 0, network_id: 86, dest_net: 0, tx_hash: `0x${'1'.repeat(64)}` } };
+
+  it("looks where the wallet looks: src/lib/agglayer/constant.ts's MIDEN_CHAIN_ID", () => {
+    expect(AGGLAYER_MIDEN_NETWORK_ID).toBe(MIDEN_CHAIN_ID);
+  });
+
+  it('accepts the live filing', () => {
+    expect(agglayerExitFilingProblem(200, LIVE)).toBeUndefined();
+  });
+
+  it.each([
+    ['an unknown deposit (HTTP 500)', 500, { code: 2, message: 'not found' }, 'HTTP 500'],
+    ['a renumbered network (78)', 200, { deposit: { ...LIVE.deposit, network_id: 78 } }, 'under network 78'],
+    [
+      'an exit bound elsewhere (dest_net 1)',
+      200,
+      { deposit: { ...LIVE.deposit, dest_net: 1 } },
+      'network 1, not Sepolia'
+    ]
+  ])('refuses %s', (_label, status, body, reason) => {
+    expect(agglayerExitFilingProblem(status, body)).toContain(reason);
+  });
+
+  it('is probed by both bridge-out suites that take the Slow route', () => {
+    expect(SUITES['bridge-out-agglayer'].probes).toContain('agglayer');
+    expect(SUITES['bridge-out'].probes).toContain('agglayer');
+  });
+
+  // E2E Bridge sets E2E_SEPOLIA_RPC_URL from an optional secret, which is empty when unset, and the indexer probe
+  // reads no URL, so its own refusal must come before the empty-variable ones. No network: the suite is refused.
+  it('refuses a --suite beside --agglayer-indexer-only, ahead of any empty-variable refusal', () => {
+    const res = runCli({ E2E_SEPOLIA_RPC_URL: '' }, '--agglayer-indexer-only', '--suite', 'swap');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--agglayer-indexer-only probes one service and takes no --suite');
+    expect(res.stderr).not.toContain('is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+});
+
+describe('probeAgglayerIndexer uses the shared check', () => {
+  // Source-level, like probeEpochQuote's: the probe does live network I/O, so its call site cannot be reached
+  // behaviourally from a unit test.
+  const source = readFileSync(path.join(__dirname, 'e2e-real.mjs'), 'utf8');
+  const body = /async function probeAgglayerIndexer\([\s\S]*?\n\}/.exec(source)?.[0] ?? '';
+
+  it('finds the function', () => {
+    expect(body).not.toBe('');
+  });
+
+  it('decides with agglayerExitFilingProblem', () => {
+    expect(body).toContain('agglayerExitFilingProblem(status, body)');
+  });
+
+  it('runs for a suite that needs it and for --agglayer-indexer-only', () => {
+    expect(source).toContain("if (needs.includes('agglayer')) await probeAgglayerIndexer();");
+    expect(source.match(/await probeAgglayerIndexer\(\);/g)).toHaveLength(2);
   });
 });
 

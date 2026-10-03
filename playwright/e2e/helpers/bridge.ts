@@ -296,6 +296,8 @@ export interface BridgedSendRow {
     provider?: string;
     /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
     claimStatus?: string;
+    /** AggLayer: the indexer tx_hash of the row's exit, stored when the B2AGG note is built. */
+    agglayerExitTxHash?: string;
   };
 }
 
@@ -394,6 +396,7 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
           evmTxHash?: string;
           provider?: string;
           claimStatus?: string;
+          agglayerExitTxHash?: string;
         };
       }> = await new Promise((res, rej) => {
         const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();

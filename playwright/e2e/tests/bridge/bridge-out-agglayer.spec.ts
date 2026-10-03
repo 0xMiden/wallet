@@ -110,6 +110,10 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     expect(row!.displayMessage, 'bridged-send label').toBe('Bridged to EVM');
     expect(row!.outputNoteIds?.length, 'exactly one B2AGG output note').toBe(1);
     expect(row!.transactionId, 'a real Miden tx id').toMatch(/^0x[0-9a-fA-F]+$/);
+    // The exit hash the row looks its own deposit up by, stored when the note was built (#1325).
+    expect(row!.extraInputs?.agglayerExitTxHash, 'the exit hash binding the row to its deposit').toMatch(
+      /^0x[0-9a-f]{64}$/
+    );
 
     // Negative guards against green-on-nothing:
     //  - the Slow route was actually taken (not the silent agglayer->epoch fallback);
