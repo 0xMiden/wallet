@@ -68,6 +68,7 @@ import {
   LANDED_CONFIRM_POLL_MS,
   markBridgedSendFailed
 } from './index';
+import { getConnectivityState, resetConnectivityState } from '../activity/connectivity-state';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
@@ -4068,6 +4069,79 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(r => r.id === txId)?.submitEvidence ?? []).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
     );
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send: a failed crossing write stops the inline leaf before its submit and abandons at once (#1081)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resetConnectivityState();
+    const txId = 'send-guardian-crossing-write-fails';
+    const tx = {
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    };
+    txStore.push({ ...tx, status: ITransactionStatus.Queued, initiatedAt: Math.floor(Date.now() / 1000) });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+    const client = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+    // Only the write that records the crossing fails.
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (row: Record<string, unknown>) => void) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (row: Record<string, unknown>) => void) => {
+          const stored = txStore.find(r => r.id === query.id);
+          const probe = { ...stored };
+          fn(probe);
+          if (probe.mayHaveSubmitted === true && stored?.mayHaveSubmitted !== true) {
+            throw new Error('QuotaExceededError');
+          }
+          return handle.modify(fn);
+        }
+      };
+    });
+
+    try {
+      await generateTransaction(
+        tx as never,
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      ).catch(() => {});
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(abandonCandidate).toHaveBeenCalledWith(5);
+    expect(txStore.find(r => r.id === txId)?.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+    expect(getConnectivityState().prover.active).toBe(false);
     errorSpy.mockRestore();
     warnSpy.mockRestore();
   });

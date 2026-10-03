@@ -165,7 +165,8 @@ import {
   isPoisonedPipeline,
   isStaleInitialCommitmentError,
   isTransactionDiscardedError,
-  someInCauseChain
+  someInCauseChain,
+  SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
 import { readSubmitEvidence } from '../sdk/submit-evidence';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -482,7 +483,7 @@ const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: num
 
 /**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
- * `stage => setTransactionStage(txId, stage)`, made UNFAILABLE.
+ * `stage => setTransactionStage(txId, stage)`, unfailable except for one write.
  *
  * A stage stamp is telemetry for the generating-transaction screen's per-step
  * durations — never transaction state — so it must not be able to fail a
@@ -496,6 +497,10 @@ const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: num
  * the guard belongs HERE, at the single place the callback is produced, rather than
  * at each consumer: every path then inherits it once, and the invariant no longer
  * depends on which realm the leaf happened to run in.
+ *
+ * The exception is a reliable 'submitting' stamp's crossing write (#1081): it is the
+ * submit's precondition, so its failure stops the leaf before the submit rather than
+ * letting a write reach the network unrecorded.
  */
 const stageStampFor =
   (
@@ -503,17 +508,24 @@ const stageStampFor =
     attempt: AttemptContext | undefined
   ): ((stage: ITransactionStage, detail?: StageDetail) => Promise<void>) =>
   async (stage, detail) => {
-    try {
-      // 'submitting' is stamped immediately before the submit call, so it is the exact crossing the double-send guard
-      // needs, recorded even for an unreliable stamp and even once the row is terminal: a concurrent cancel makes the
-      // row terminal without stopping the pipeline. The crossing is recorded per attempt with the evidence the leaf
-      // read (#1081). Unlike `stage`, a dropped stamp can only under-report, which the attempt's own catch backs up.
-      // Without an attempt (see the Guardian leaf) only the flag can be recorded.
-      if (stage === 'submitting') {
+    // 'submitting' is stamped immediately before the submit call, so it is the exact crossing the double-send guard
+    // needs, recorded even for an unreliable stamp and even once the row is terminal: a concurrent cancel makes the
+    // row terminal without stopping the pipeline. The crossing is recorded per attempt with the evidence the leaf
+    // read (#1081). Without an attempt (see the Guardian leaf) only the flag can be recorded.
+    if (stage === 'submitting') {
+      try {
         await (attempt === undefined
           ? markMayHaveSubmitted(txId)
           : recordSubmitCrossing(txId, detail?.evidence, attempt));
+      } catch (err) {
+        // A reliable stamp is written in this realm before its submit call, so failing it keeps the write off the
+        // network. A replayed one arrives after the fact and can only under-report, which the attempt's catch backs up.
+        if (detail?.reliable !== false) throw new SubmitCrossingUnrecordedError(txId, err);
+        console.warn(`Stage stamp '${stage}' for transaction ${txId} failed; ignoring`, err);
+        return;
       }
+    }
+    try {
       // An UNRELIABLE stamp (replayed from the offscreen realm) records the boundary for the progress screen but must
       // not author `stage`: the requeue gates read that field to conclude a failed guardian tx never reached the chain.
       await setTransactionStage(txId, stage, { timingOnly: detail?.reliable === false });
@@ -1543,10 +1555,12 @@ const generateTransactionWithProvider = async (
       // sits squarely inside the window an eviction lands in, and requeueing
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
+      // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081).
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
         !abandonedWrite &&
+        !(error instanceof SubmitCrossingUnrecordedError) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
@@ -3631,14 +3645,15 @@ const generateGuardianTransaction = async (
   // message — so classifying the error alone would let a rotation that is
   // already in the mempool trigger a SECOND, unilateral `update_guardian`.
   let guardianCoSignReturned = false;
-  // Did THIS attempt's inline leaf report 'submitting'? Set by the stamp only `runGuardianPipeline` is handed, before it
-  // is forwarded. That leaf awaits the stamp in this realm before its submit call, so a failure past the submit always
-  // finds this set, and a failed abandon below is marked for retry only after a failure that provably preceded the
-  // submit (#1317). The offscreen leaf's stamps are fire-and-forget OFFSCREEN_STAGE_EVENTs, droppable and able to arrive
-  // after its reply, so their absence proves nothing: an attempt dispatched offscreen never marks. A failure before that
-  // dispatch (the co-sign, the bridge claim, the stage writes) never left this realm, so it is pre-submit on either
-  // route. Not the row's `mayHaveSubmitted`: sticky across attempts and stamped before dispatch on every row carrying
-  // request bytes, it would stop the retry for every recallable send, swap, Earn deposit and custom execute.
+  // Did THIS attempt's inline leaf report 'submitting'? Set by the stamp only `runGuardianPipeline` is handed, once it
+  // resolves: a failed crossing write stops that leaf before its submit. The leaf awaits the stamp in this realm before
+  // its submit call, so a failure past the submit always finds this set, and a failed abandon below is marked for retry
+  // only after a failure that provably preceded the submit (#1317). The offscreen leaf's stamps are fire-and-forget
+  // OFFSCREEN_STAGE_EVENTs, droppable and able to arrive after its reply, so their absence proves nothing: an attempt
+  // dispatched offscreen never marks. A failure before that dispatch (the co-sign, the bridge claim, the stage writes)
+  // never left this realm, so it is pre-submit on either route. Not the row's `mayHaveSubmitted`: sticky across
+  // attempts and stamped before dispatch on every row carrying request bytes, it would stop the retry for every
+  // recallable send, swap, Earn deposit and custom execute.
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
   let submitCrossed = false;
@@ -3649,9 +3664,9 @@ const generateGuardianTransaction = async (
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
   );
-  const stampAttemptStage = (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
+  const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
+    await stampStage(stage, detail);
     if (stage === 'submitting') submitCrossed = true;
-    return stampStage(stage, detail);
   };
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the

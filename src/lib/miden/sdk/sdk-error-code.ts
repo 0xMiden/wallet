@@ -297,6 +297,22 @@ export function hasErrorBeforeSubmit(err: unknown): boolean {
 }
 
 /**
+ * A reliable 'submitting' stamp whose crossing write failed (#1081). The stamp is the submit's precondition, so the
+ * leaf stopped before its submit. Not a prover failure either: nothing re-proves it, marks the prover down or takes
+ * the prover-outage requeue for it.
+ */
+export class SubmitCrossingUnrecordedError extends Error {
+  readonly errorBeforeSubmit = true;
+
+  constructor(transactionId: string, cause: unknown) {
+    super(`Transaction ${transactionId} could not record its submit crossing, so it stopped before its submit`, {
+      cause
+    });
+    this.name = 'SubmitCrossingUnrecordedError';
+  }
+}
+
+/**
  * What a landed write's failure knows about its transaction (#1233): the executed transaction's id, how
  * many private user output notes it produced and its final account commitment, each only when it could
  * be read. One object from the throw to the row, on both realms, so no layer can carry one fact and drop

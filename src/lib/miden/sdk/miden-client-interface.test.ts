@@ -922,6 +922,66 @@ describe('MidenClientInterface', () => {
     expect(proveCalls).toBe(2);
   });
 
+  it('does not re-run a delegated send whose submit crossing could not be recorded (#1081)', async () => {
+    const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        executeRequest: jest.fn(async () => ({
+          id: 'tx-id',
+          result: fakeTransactionResult,
+          prove: jest.fn(async () => ({ submit }))
+        }))
+      }
+    });
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
+      TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { SubmitCrossingUnrecordedError } = await import('./sdk-error-code');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+    const crossingFailed = new SubmitCrossingUnrecordedError('row-1', new Error('QuotaExceededError'));
+
+    const rejection = await client
+      .sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(1),
+          extraInputs: {},
+          delegateTransaction: true
+        } as any,
+        600,
+        async stage => {
+          if (stage === 'submitting') throw crossingFailed;
+        }
+      )
+      .catch((error: unknown) => error);
+
+    expect(rejection).toBe(crossingFailed);
+    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   // Regression (funds safety): `proveWithFallback`'s callback is not a prove step
   // — for every caller it also submits and applies. Retrying it wholesale after a
   // failure at or AFTER `submit()` re-broadcasts the transfer, and because the

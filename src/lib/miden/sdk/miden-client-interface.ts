@@ -78,7 +78,7 @@ import {
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { isApplyAfterSubmitError, markErrorBeforeSubmit } from './sdk-error-code';
+import { isApplyAfterSubmitError, markErrorBeforeSubmit, SubmitCrossingUnrecordedError } from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
 import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
@@ -2361,6 +2361,8 @@ export async function proveWithFallback<T>(
     clearConnectivityIssue('prover');
     return result;
   } catch (err) {
+    // A failed crossing write stopped the attempt before its submit, and no prover failed (#1081).
+    if (err instanceof SubmitCrossingUnrecordedError) throw err;
     // `submitReached` / `isApplyAfterSubmitError`: the attempt got far enough that
     // re-running it could broadcast the transaction a second time. Propagate the
     // ORIGINAL error untouched so `generateTransactionsLoop`'s

@@ -1,4 +1,5 @@
 import { ITransactionStatus, Transaction } from '../db/types';
+import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { NoteTypeEnum } from '../types';
@@ -1673,6 +1674,97 @@ describe('transactions utilities', () => {
       expect(syncIdx).toBeGreaterThanOrEqual(0);
       expect(syncIdx).toBeLessThan(lastStatusIdx);
       expect(mockSyncState).toHaveBeenCalled();
+    });
+
+    describe('the in-realm submit crossing (#1081)', () => {
+      const guardianProvider = {
+        getAccounts: async () => [],
+        getPublicKeyForCommitment: async () => '',
+        signWord: async () => ''
+      };
+      const send = {
+        id: 'tx-cross',
+        type: 'send',
+        accountId: 'acc-1',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: BigInt(1),
+        delegateTransaction: true
+      };
+
+      // A stored row whose write fails when `fails` says so, and an in-realm leaf that stamps each stage before its
+      // submit the way the interface does, passing `submitting` as its 'submitting' detail.
+      const arrange = (fails: (draft: Record<string, unknown>, stored: Record<string, unknown>) => boolean) => {
+        const stored: Record<string, unknown> = { ...send, status: ITransactionStatus.Queued };
+        mockTransactionsWhere.mockReturnValue({
+          first: jest.fn(async () => stored),
+          modify: jest.fn(async (fn: (draft: Record<string, unknown>) => unknown) => {
+            const stamps = stored.stageTimestamps;
+            const draft = { ...stored, ...(typeof stamps === 'object' ? { stageTimestamps: { ...stamps } } : {}) };
+            if (fn(draft) === false) return;
+            if (fails(draft, stored)) throw new Error('QuotaExceededError');
+            Object.assign(stored, draft);
+          })
+        });
+        const submit = jest.fn();
+        const leaf = (submitting: { reliable?: boolean }) =>
+          mockGetMidenClient.mockResolvedValue({
+            syncState: mockSyncState,
+            sendTransaction: jest.fn(
+              async (_tx: unknown, _delta: number, onStage?: (stage: string, detail?: object) => Promise<void>) => {
+                await onStage?.('executing');
+                await onStage?.('proving');
+                await onStage?.('submitting', submitting);
+                submit();
+                throw new Error('stopped after the submit');
+              }
+            )
+          });
+        return { stored, submit, leaf };
+      };
+      const run = () =>
+        generateTransaction({ ...send } as never, jest.fn(), false, guardianProvider).catch((error: unknown) => error);
+
+      it('an in-realm send whose crossing write rejects never calls submit and fails pre-submit', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { stored, submit, leaf } = arrange(
+          (draft, before) => draft.mayHaveSubmitted === true && before.mayHaveSubmitted !== true
+        );
+        leaf({});
+
+        const error = await run();
+
+        expect(submit).not.toHaveBeenCalled();
+        expect(hasErrorBeforeSubmit(error)).toBe(true);
+        expect(stored.mayHaveSubmitted).toBeUndefined();
+        warn.mockRestore();
+      });
+
+      it("a failed 'proving' stamp still continues to the submit", async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { stored, submit, leaf } = arrange(draft => draft.stage === 'proving');
+        leaf({});
+
+        await run();
+
+        expect(submit).toHaveBeenCalledTimes(1);
+        expect(stored.stageTimestamps).not.toHaveProperty('proving');
+        expect(stored.mayHaveSubmitted).toBe(true);
+        warn.mockRestore();
+      });
+
+      it("a replayed 'submitting' stamp whose crossing write rejects still continues to the submit", async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { submit, leaf } = arrange(
+          (draft, before) => draft.mayHaveSubmitted === true && before.mayHaveSubmitted !== true
+        );
+        leaf({ reliable: false });
+
+        await run();
+
+        expect(submit).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+      });
     });
   });
 });

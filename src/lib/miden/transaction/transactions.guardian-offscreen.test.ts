@@ -127,6 +127,7 @@ jest.mock('lib/miden/repo', () => ({
     where: jest.fn((query: { id: string }) => ({
       modify: jest.fn(async (fn: (tx: Record<string, unknown>) => unknown) => {
         const row = txStore.find(r => r.id === query.id);
+        const stageBefore = row?.stage;
         // Dexie hands the callback a CLONE and only writes it back when the
         // callback does not return `false` — which is the entire mechanism
         // behind the write-time terminal guards. Mutating the stored row
@@ -147,7 +148,7 @@ jest.mock('lib/miden/repo', () => ({
           if (fn(draft) === false) mockDeclinedWrites += 1;
           else Object.assign(row, draft);
         }
-        if (mockThrowOnStageWrite !== null && row?.stage === mockThrowOnStageWrite) {
+        if (mockThrowOnStageWrite !== null && row?.stage === mockThrowOnStageWrite && stageBefore !== row.stage) {
           throw new Error(`dexie write blew up stamping '${mockThrowOnStageWrite}'`);
         }
       }),
