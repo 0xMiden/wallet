@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC } from 'lib/epoch/testing/bridge-config';
 import { navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
@@ -100,7 +100,12 @@ jest.mock('./useEarnPositions', () => {
 // The deposit token comes from the account's USDC balance row. The row's stored fiatPrice is a
 // capture from when balances were read (0 here: read before any quote), which the screen must not
 // trust; its price comes from the live quote in the store.
-const USDC_ROW = { tokenId: MIDEN_USDC_FAUCET, balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
+const USDC_ROW = {
+  tokenId: TEST_MIDEN_USDC.faucetId,
+  balance: 200,
+  fiatPrice: 0,
+  metadata: { symbol: 'USDC', decimals: 6 }
+};
 let mockBalanceRows: unknown[] = [USDC_ROW];
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
@@ -114,13 +119,15 @@ jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
 
-// `lib/epoch` is the Epoch SDK barrel (wasm + network clients). Only the USDC
-// faucet constants and the id normalizer are used here.
+// `lib/epoch` is the Epoch SDK barrel (wasm + network clients). Only the id normalizer is used here.
 jest.mock('lib/epoch', () => ({
-  MIDEN_USDC_DECIMALS: 6,
-  MIDEN_USDC_FAUCET: jest.requireActual('lib/epoch/collateral').MIDEN_USDC_FAUCET,
   normalizeMidenIdToHex: (id: string) => id.toLowerCase()
 }));
+
+// The deposit collateral comes from the bridge config (an E2E run's injected faucet first).
+let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
 
 const mockNavigate = navigate as jest.Mock;
 
@@ -132,6 +139,7 @@ beforeEach(() => {
   mockNavigate.mockClear();
   mockBalanceRows = [USDC_ROW];
   mockTokenPrices = USDC_QUOTE;
+  mockCollateral = TEST_MIDEN_USDC;
 });
 
 describe('EarnDepositAmount', () => {
@@ -152,7 +160,7 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
-    expect(select).toHaveAttribute('data-token-id', MIDEN_USDC_FAUCET);
+    expect(select).toHaveAttribute('data-token-id', TEST_MIDEN_USDC.faucetId);
     expect(select).toHaveAttribute('data-token-name', 'USDC');
     expect(select).toHaveAttribute('data-token-decimals', '6');
     expect(select).toHaveAttribute('data-token-balance', '200');
@@ -330,5 +338,28 @@ describe('EarnDepositAmount with no vault', () => {
     expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+  it('offers the collateral the config names, an injected E2E faucet included', () => {
+    const injected = { faucetId: '0x00000000000000000000000000e2e0', symbol: 'tUSDC', decimals: 2 };
+    mockCollateral = injected;
+    mockBalanceRows = [USDC_ROW, { tokenId: injected.faucetId, balance: 5, fiatPrice: 0, metadata: injected }];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    const select = screen.getByTestId('select-amount');
+    expect(select).toHaveAttribute('data-token-id', injected.faucetId);
+    expect(select).toHaveAttribute('data-token-name', 'tUSDC');
+    expect(select).toHaveAttribute('data-token-decimals', '2');
+    expect(select).toHaveAttribute('data-token-balance', '5');
+  });
+
+  it('offers no token, and no Continue, while the config names no collateral', () => {
+    mockCollateral = null;
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('1');
+
+    const select = screen.getByTestId('select-amount');
+    expect(select).toHaveAttribute('data-token-name', '');
+    expect(select).toHaveAttribute('data-token-balance', '0');
+    expect(select).toHaveAttribute('data-valid', 'false');
   });
 });

@@ -133,6 +133,7 @@ jest.mock('lib/miden/metadata/utils', () => ({
 
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args),
+  normalizedFaucetId: (id: string) => id,
   tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote
 }));
 
@@ -305,6 +306,12 @@ jest.mock('lib/miden-chain/constants', () => ({
   getExplorerAccountUrl: (address: string) => `https://custom-explorer.test/account/${address}`
 }));
 
+// The Earn collateral comes from the bridge config: a withdrawal's redeemed side is priced through it, and a
+// deposit's summary falls back to it.
+let mockEarnCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockEarnCollateral }));
+
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ entry, size }: { entry: { message?: string; transactionIcon?: string }; size?: string }) => (
@@ -428,6 +435,7 @@ const sectionByTitle = (title: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEarnCollateral = null;
   mockHistoryPosition = 1;
   // Keep IndexedDB/Dexie's scheduling primitives real so the global database
   // cleanup hook can complete; only timer-based order polling needs faking.
@@ -3467,6 +3475,7 @@ describe('HistoryDetails earn-withdraw', () => {
   beforeEach(() => {
     mockRetryEarnWithdrawReceive.mockClear();
     mockRetryEarnWithdrawReceive.mockResolvedValue(undefined);
+    mockEarnCollateral = { faucetId: MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
   });
 
   it('shows the redeemed source side while the withdrawal is still in flight', async () => {
@@ -3531,6 +3540,15 @@ describe('HistoryDetails earn-withdraw', () => {
     await flush();
 
     expect(screen.getByText('9e9999999')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
+  it('prices no estimate for the redeemed side while the config names no Earn collateral', async () => {
+    mockEarnCollateral = null;
+    setMockRow(nativeWithdrawTx({ phase: 'delivering', sourceAmount: '10.50' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
     expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
   });
 
@@ -3712,6 +3730,11 @@ describe('HistoryDetails earn-withdraw', () => {
 // collateral note lands, so the pill and the poller both track the separate,
 // solver-fulfilled lending leg (`extraInputs.epochStatus`) instead.
 describe('HistoryDetails earn-deposit', () => {
+  beforeEach(() => {
+    // These deposits were made in the collateral the config names.
+    mockEarnCollateral = { faucetId: 'faucet-1', symbol: 'USDC', decimals: 6 };
+  });
+
   const earnDepositTx = (extraInputs: Record<string, unknown> = {}, overrides: Tx = {}): Tx => ({
     ...baseSendTx,
     id: 'tx-1',

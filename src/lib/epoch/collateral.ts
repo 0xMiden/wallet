@@ -1,7 +1,6 @@
 // Miden-side collateral token (the wallet's USDC faucet) and its decimals. A leaf module, so the
 // price lookup (`priceSymbolFor`) can name the faucet without pulling in the Earn flow.
 export const MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
-export const MIDEN_USDC_DECIMALS = 6;
 
 // E2E-only collateral-faucet override. The fixed `MIDEN_USDC_FAUCET` testnet id
 // can't exist on a local e2e node, and the CLI-minted faucet id is only known at

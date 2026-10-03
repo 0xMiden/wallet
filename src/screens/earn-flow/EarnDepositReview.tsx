@@ -13,7 +13,7 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { confirmSensitiveAction } from 'lib/biometric';
-import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
+import { earnCollateralFaucetId, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
@@ -24,6 +24,8 @@ import {
   type SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectMidenUsdc } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
@@ -68,14 +70,18 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  // The collateral the config names (an E2E run's injected faucet first); none, and nothing can be deposited.
+  const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  const collateralDecimals = collateral?.decimals;
   const amountBaseUnits = useMemo(() => {
+    if (collateralDecimals === undefined) return undefined;
     try {
-      return stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS);
+      return stringToBigInt(amount.replace(/,/g, ''), collateralDecimals);
     } catch {
       return undefined;
     }
-  }, [amount]);
-  const faucetId = getEarnCollateralFaucetId();
+  }, [amount, collateralDecimals]);
+  const faucetId = collateral ? earnCollateralFaucetId(collateral) : '';
 
   // Reaching review, and owning the terminal outcome. The amount screen began
   // this flow and deliberately does not settle it on handoff, so every exit from
@@ -105,7 +111,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   };
 
   const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
-    if (amountBaseUnits === undefined) return;
+    if (amountBaseUnits === undefined || !collateral) return;
     if (authorization !== undefined && authorization.accountId !== account.publicKey) {
       setSpendingLimitChallenge(undefined);
       return;
@@ -126,6 +132,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     try {
       await openEarnPosition({
         amount: amountBaseUnits,
+        collateral,
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },

@@ -21,12 +21,11 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { requireEpochAllocatorUrl } from 'lib/remote-config/values';
+import { requireEpochAllocatorUrl, requireEvmUsdc } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
-import { BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from './bridgeable-token';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
-import { EARN_PROTOCOL_HASH, EARN_UNDERLYING, resolveEarnIntentOutcome } from './earn';
+import { resolveEarnIntentOutcome } from './earn';
 import { tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
 import {
   earnWithdrawalRetryKind,
@@ -119,6 +118,7 @@ export function buildEarnWithdrawTaskDataParams(args: {
   underlyingAddress: Address;
   amountAtomic: string;
   chainId: number;
+  protocolHash: `0x${string}`;
 }) {
   return {
     taskType: TaskType.ProtocolInteraction,
@@ -129,7 +129,7 @@ export function buildEarnWithdrawTaskDataParams(args: {
       outputTokenAddress: args.underlyingAddress,
       minTokenOut: '0',
       destinationChainId: String(args.chainId),
-      protocolHashIdentifier: EARN_PROTOCOL_HASH,
+      protocolHashIdentifier: args.protocolHash,
       recipient: args.sponsorAddress
     },
     extraDataTypestring: 'string marketUid,string action,string payAsset,bool isAll,bool simulate',
@@ -153,10 +153,8 @@ export async function gaslessEarnWithdrawalToMiden(
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
-  if (
-    underlyingAddress.toLowerCase() !== EARN_UNDERLYING.toLowerCase() ||
-    args.underlyingDecimals !== BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS
-  ) {
+  const usdc = await requireEvmUsdc();
+  if (underlyingAddress.toLowerCase() !== usdc.address.toLowerCase() || args.underlyingDecimals !== usdc.decimals) {
     throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
   }
   const chainId = Number(args.marketUid.split(':')[1]);
@@ -687,14 +685,15 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
     nonce: ei.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, ei.submissionAttemptId)
   };
+  const usdc = await requireEvmUsdc();
   await gaslessEarnWithdrawalToMiden(
     {
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
-      underlyingAddress: EARN_UNDERLYING,
+      underlyingAddress: usdc.address,
       amount: ei.sourceAmount,
-      underlyingDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS
+      underlyingDecimals: usdc.decimals
     },
     {
       ...deps,

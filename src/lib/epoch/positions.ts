@@ -1,10 +1,8 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { requireEarnMarket, requireEpochPositionsUrl } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
-
-import { EPOCH_POSITIONS_URL } from './config';
-import { EARN_DESTINATION_CHAIN_ID, EARN_MARKET_UID } from './earn';
 
 /**
  * Epoch "Dummy Lending" positions — the READ side of the Earn feature.
@@ -12,7 +10,7 @@ import { EARN_DESTINATION_CHAIN_ID, EARN_MARKET_UID } from './earn';
  * `openEarnPosition` (`./earn`) WRITES a position: it deposits Miden-held USDC as
  * collateral and the solver opens an EVM lending position owned by the typed EVM
  * address. This module READS those positions back from Epoch's read-only positions
- * service (`EPOCH_POSITIONS_URL`), keyed by that EVM owner address.
+ * service (the bridge config's `epoch.positionsUrl`), keyed by that EVM owner address.
  *
  * The wallet has no single "my EVM address" (each deposit names its own owner), so
  * we collect every distinct `evmRecipient` the user has deposited to from the
@@ -23,8 +21,8 @@ import { EARN_DESTINATION_CHAIN_ID, EARN_MARKET_UID } from './earn';
  *   NOT base units — do not re-apply `decimals`.
  * - Every supported token is returned per chain even at zero balance, so we filter
  *   to positions with a non-zero deposit.
- * - `marketUid` is returned checksum-cased; match case-insensitively against our
- *   lowercase `EARN_MARKET_UID` constant.
+ * - `marketUid` is returned checksum-cased; match case-insensitively against the
+ *   configured market's lowercase uid.
  */
 
 // ---- Raw positions-service response shapes -------------------------------------
@@ -204,10 +202,11 @@ const POSITIONS_REQUEST_TIMEOUT_MS = 15_000;
  * network error.
  */
 async function fetchPositionsForOwner(
+  positionsUrl: string,
   owner: string,
   chains: number[]
 ): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string }> {
-  const url = `${EPOCH_POSITIONS_URL}/positions?account=${owner}&chains=${chains.join(',')}`;
+  const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}`;
   try {
     return await withRequestTimeout(POSITIONS_REQUEST_TIMEOUT_MS, async signal => {
       const res = await fetch(url, { signal });
@@ -252,11 +251,11 @@ function chainItemVault(item: PositionsApiChainItem): EarnVaultInfo {
 }
 
 /** Flatten one chain item's nested `data[].positions[]` into non-zero `EarnPosition`s. */
-function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosition[] {
+function flattenChainItem(owner: string, item: PositionsApiChainItem, marketUid: string): EarnPosition[] {
   const out: EarnPosition[] = [];
   for (const group of item.data) {
     for (const pos of group.positions) {
-      if (pos.marketUid.toLowerCase() !== EARN_MARKET_UID.toLowerCase()) continue;
+      if (pos.marketUid.toLowerCase() !== marketUid.toLowerCase()) continue;
       // Every supported token is returned even at zero balance — keep only funded ones.
       if (pos.deposits === '0' && pos.depositsUSD === 0) continue;
       const { asset, prices } = pos.underlyingInfo;
@@ -298,7 +297,7 @@ export interface FetchEarnPositionsArgs {
   accountId?: string;
   /** Override the owner addresses to query (defaults to those from activity). */
   owners?: string[];
-  /** Chains to query (defaults to the earn destination chain, Ethereum Sepolia). */
+  /** Chains to query (defaults to the configured Earn market's chain). */
   chains?: number[];
 }
 
@@ -308,18 +307,19 @@ export interface FetchEarnPositionsArgs {
  * for all of them at once via `Promise.all`. Per-address failures are isolated
  * (see `fetchPositionsForOwner`) and surfaced in `errors`, and so is a payload
  * that cannot be read or has a copied field of the wrong type, with none of that
- * owner's positions or vaults kept. It rejects only when the owner lookup fails,
- * before any request.
+ * owner's positions or vaults kept. It rejects only when the owner lookup fails or
+ * the bridge config names no positions host or Earn market, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const chains = args.chains ?? [EARN_DESTINATION_CHAIN_ID];
+  const [positionsUrl, market] = await Promise.all([requireEpochPositionsUrl(), requireEarnMarket()]);
+  const chains = args.chains ?? [market.chainId];
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
   // The positions endpoint also serves as the supported-vault catalog. Query a
   // neutral account when a wallet has no derived EVM owner yet so Featured
   // Vaults works for new/imported Miden accounts.
   const queryOwners = owners.length > 0 ? owners : [CATALOG_ACCOUNT];
-  const results = await Promise.all(queryOwners.map(owner => fetchPositionsForOwner(owner, chains)));
+  const results = await Promise.all(queryOwners.map(owner => fetchPositionsForOwner(positionsUrl, owner, chains)));
 
   const positions: EarnPosition[] = [];
   const vaultsByKey = new Map<string, EarnVaultInfo>();
@@ -340,7 +340,7 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     const ownerVaults: EarnVaultInfo[] = [];
     try {
       for (const item of result.items) {
-        const itemPositions = owners.length > 0 ? flattenChainItem(result.owner, item) : [];
+        const itemPositions = owners.length > 0 ? flattenChainItem(result.owner, item, market.marketUid) : [];
         try {
           ownerVaults.push(chainItemVault(item));
         } catch (err) {

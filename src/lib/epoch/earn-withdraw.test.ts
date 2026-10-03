@@ -10,7 +10,7 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { requireEpochAllocatorUrl } from 'lib/remote-config/values';
+import { requireEpochAllocatorUrl, requireEvmUsdc } from 'lib/remote-config/values';
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -28,6 +28,7 @@ import {
 import { matchesEarnWithdrawIntent } from './intent-key';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
+import { TEST_EVM_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { preparedExecution, PREPARED_FAUCET, PREPARED_RECIPIENT } from './testing/earn-prepared';
 
@@ -48,11 +49,14 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
   }
 }));
 jest.mock('./bridge', () => ({ normalizeMidenIdToHex: (v: string) => v }));
-jest.mock('./bridgeable-token', () => ({ BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS: 6 }));
 jest.mock('./config', () => ({ MIDEN_DESTINATION_CHAIN_ID: 999999999 }));
-jest.mock('lib/remote-config/values', () =>
-  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
-);
+jest.mock('lib/remote-config/values', () => {
+  const fixtures = jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config');
+  const values = fixtures.remoteConfigValuesMock();
+  // This suite's positions report a 6-decimal token.
+  values.requireEvmUsdc.mockResolvedValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
+  return values;
+});
 interface MockLeg {
   chainId?: number;
   status?: string;
@@ -62,8 +66,6 @@ jest.mock('./earn', () => {
   const DONE = new Set(['completed']);
   const FAILED = new Set(['failed']);
   return {
-    EARN_PROTOCOL_HASH: '0xhash',
-    EARN_UNDERLYING: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     EARN_DONE_STATUSES: DONE,
     EARN_FAILED_STATUSES: FAILED,
     // Mirrors the real destination-gated helper, which is unit-tested in earn.test.ts.
@@ -215,6 +217,22 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     await expect(
       gaslessEarnWithdrawalToMiden({ ...validArgs(), evmAddress: 'not-an-address' }, deps)
     ).rejects.toThrow();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('withdraws only the token the config names, at its decimals', async () => {
+    jest.mocked(requireEvmUsdc).mockResolvedValueOnce({ ...TEST_EVM_USDC, decimals: 18 });
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
+
+    await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow(
+      'Gasless withdrawal only supports the configured USDC Earn market.'
+    );
+    await expect(
+      gaslessEarnWithdrawalToMiden(
+        { ...validArgs(), underlyingAddress: '0x3333333333333333333333333333333333333333' },
+        deps
+      )
+    ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
     expect(deps.initiateRow).not.toHaveBeenCalled();
   });
 

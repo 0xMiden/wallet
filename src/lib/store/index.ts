@@ -17,6 +17,7 @@ import {
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
+import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
@@ -1057,10 +1058,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     }
   });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
-  // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
-  // THIS (page) realm. The fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet
-  // node. Zero prod impact.
+  // The Earn screens and `openEarnPosition` run page-side, so the override must be set in
+  // THIS (page) realm; a served document cannot name a faucet the suite creates at runtime.
+  // The price allowlist still reads the old setter until it moves to the bridge config.
+  // Zero prod impact.
   (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
+    setEarnCollateralFaucetOverride({ faucetId: faucetHex });
     setEarnCollateralFaucetForTest(faucetHex);
   };
   (globalThis as any).__TEST_SET_FEE_FAUCET__ = async (faucetId: string): Promise<void> => {

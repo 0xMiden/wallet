@@ -17,13 +17,9 @@ export {
   buildEarnTaskDataParams,
   getEarnQuote,
   buildEarnIntent,
-  getEarnCollateralFaucetId,
-  EARN_MARKET_UID,
-  EARN_UNDERLYING,
-  EARN_DESTINATION_CHAIN_ID,
-  EARN_PROTOCOL_HASH
+  earnCollateralFaucetId
 } from './earn';
-export { getEarnCollateralFaucet, MIDEN_USDC_FAUCET, MIDEN_USDC_DECIMALS } from './collateral';
+export { getEarnCollateralFaucet, MIDEN_USDC_FAUCET } from './collateral';
 export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote, EarnIntentOutcome, EpochLegStatus } from './earn';
 export {
   buildEarnWithdrawTaskDataParams,
