@@ -243,8 +243,8 @@ export function useSyncTrigger() {
             requestNotesRefresh();
             // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten: node reads, and
             // for each kept Guardian candidate it releases, a short WASM-lock read to build the cold service, a
-            // bounded Guardian abandon and up to 60 s of polling.
-            void reconcileUnconfirmedInApp();
+            // bounded Guardian abandon and up to 60 s of polling. Only after a sync that ran, like the resets above.
+            if (synced) void reconcileUnconfirmedInApp();
 
             const guardianAccountKeys = useWalletStore
               .getState()

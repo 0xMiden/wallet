@@ -333,6 +333,17 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: does not fire the unconfirmed reconciler when no client was there to sync (#1081)', async () => {
+    mockGetMidenClient.mockResolvedValueOnce(null as never);
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockGetMidenClient).toHaveBeenCalledTimes(1);
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockReconcile).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it('mobile/desktop: runs immediately when the banner requests a retry', async () => {
     const { unmount } = render(<HookHost />);
 

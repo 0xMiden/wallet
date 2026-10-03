@@ -23,7 +23,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
-import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -106,6 +106,15 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
+  // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
+  // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
+  useEffect(() => {
+    if (isExtension() || status !== ITransactionStatus.Unconfirmed) return;
+    void reconcileUnconfirmedInApp();
+    const timer = setInterval(() => void reconcileUnconfirmedInApp(), TRANSACTION_LOOP_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [status]);
+
   // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
   // row to the receipt (#1081).
   const transactionComplete =

@@ -74,8 +74,10 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ signTransaction: jest.fn() })
 }));
 
+const mockReconcileUnconfirmed = jest.fn(async () => {});
 jest.mock('lib/miden/front/guardian-sync', () => ({
-  zustandProvider: {}
+  zustandProvider: {},
+  reconcileUnconfirmedInApp: () => mockReconcileUnconfirmed()
 }));
 
 const getExplorerTxUrlMock = jest.fn<string | undefined, [string]>(() => undefined);
@@ -227,6 +229,52 @@ describe('GeneratingTransactionPage interval driver', () => {
 
     act(() => root.unmount());
     expect(clearIntervalSpy).toHaveBeenCalled();
+  });
+
+  describe('the unconfirmed reconciler (#1081)', () => {
+    const platform: { isExtension: jest.Mock } = jest.requireMock('lib/platform');
+    const ticks = async (count: number) => {
+      const root = createRoot(document.createElement('div'));
+      await act(async () => {
+        root.render(<GeneratingTransactionPage txId="tx-1" />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(count * 10_000);
+      });
+      act(() => root.unmount());
+    };
+
+    beforeEach(() => {
+      mockReconcileUnconfirmed.mockClear();
+      safeGenerateTransactionsLoopMock.mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      platform.isExtension.mockReturnValue(false);
+    });
+
+    it('fires on the page`s own tick while its row is Unconfirmed, since the sync tick skips this page', async () => {
+      mockRowState = { row: makeTx({ status: ITransactionStatus.Unconfirmed }), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(3);
+    });
+
+    it.each([
+      ['still being generated', ITransactionStatus.GeneratingTransaction],
+      ['Failed', ITransactionStatus.Failed],
+      ['Completed', ITransactionStatus.Completed]
+    ])('does not fire while its row is %s', async (_label, status) => {
+      mockRowState = { row: makeTx({ status }), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
+
+    it('does not fire on the extension, whose service worker reconciles after its own sync', async () => {
+      platform.isExtension.mockReturnValue(true);
+      mockRowState = { row: makeTx({ status: ITransactionStatus.Unconfirmed }), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
   });
 });
 
