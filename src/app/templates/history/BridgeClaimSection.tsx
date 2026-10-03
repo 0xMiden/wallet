@@ -95,16 +95,39 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   // lookup bind to THIS row rather than the address's sole claimable deposit (lib/agglayer/status.ts).
   const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!entry.externalTxId);
 
-  // Failed Epoch (Fast) bridge-out: the funds sit in a recallable P2IDE note that
-  // the sender can reclaim once the reclaim height passes. Gate a "Reclaim funds"
-  // button on that block height.
+  // A failed Epoch (Fast) bridge-out offers "Reclaim funds" once the reclaim height
+  // passes, and only while its note may exist: the allocator rejected the intent after
+  // the note committed, or the outcome is unknown. A definite failure never sent its
+  // note, so a reclaim would consume nothing (#1250). The stamped note id stands in for
+  // a committed one only when the pipeline claimed its submit, so an unconfirmed or
+  // route-failed row demoted before its claim offers nothing. A Completed row whose
+  // fill failed is reclaimable too: its note committed and stayed Completed.
+  const noteMayExist = entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed';
   const reclaimHeight = entry.bridgeReclaimHeight;
-  const reclaimNoteId = entry.outputNoteIds?.[0];
+  const reclaimNoteId =
+    entry.outputNoteIds?.[0] ??
+    (entry.bridgeSubmitClaimed === true && (entry.isUnconfirmed === true || entry.bridgeEpochStatus === 'failed')
+      ? entry.bridgeReclaimNoteId
+      : undefined);
+  // On the extension the page submits the intent, not the realm running the note pipeline, so a page closed after the
+  // note committed leaves a Completed row whose intent never went out (a recorded intent always sets its status).
+  const intentNeverRecorded =
+    isEpoch &&
+    entry.status === ITransactionStatus.Completed &&
+    !entry.bridgeIntentNonce &&
+    entry.bridgeEpochStatus === undefined;
+  // The fill poll records a failed fill on the Completed row without demoting it; its
+  // committed note was not consumed (#1250).
+  const fillFailed = isEpoch && entry.status === ITransactionStatus.Completed && entry.bridgeEpochStatus === 'failed';
   // `transactionFailed` is exactly the state import forces every unfinished
   // restored row into, so without the flag check a dump naming any note id gets
   // a "Reclaim funds" button that queues a real consume through the signer.
   const canShowReclaim =
-    isEpoch && transactionFailed && !restoredFromBackup && reclaimHeight != null && !!reclaimNoteId;
+    isEpoch &&
+    !restoredFromBackup &&
+    reclaimHeight != null &&
+    !!reclaimNoteId &&
+    ((transactionFailed && noteMayExist) || intentNeverRecorded || fillFailed);
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 
@@ -291,9 +314,13 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
         ))}
 
-      {/* Failed Epoch (Fast) bridge: reclaim the recallable P2IDE note once its
-          reclaim window opens (funds return to the sender's Miden account). */}
-      {canShowReclaim && (
+      {/* Failed Epoch (Fast) bridge, a Completed one whose fill failed, or one whose
+          intent never went out: reclaim the recallable P2IDE note once its reclaim
+          window opens (funds return to the sender's Miden account). A Failed row or a
+          fill-failed Completed row counts down to it - both are definitive. Only a
+          Completed row whose intent was never recorded waits for the height with
+          nothing shown. */}
+      {canShowReclaim && (reclaimReached || transactionFailed || fillFailed) && (
         <div className="mt-3 flex flex-col gap-2">
           {reclaimError && (
             <p className="text-red-500 text-xs" role="alert">

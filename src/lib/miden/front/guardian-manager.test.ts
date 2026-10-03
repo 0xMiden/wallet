@@ -15,7 +15,7 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from './guardian-manager';
-import { bumpWasmClientGeneration } from '../sdk/wasm-client-poison';
+import { bumpWasmClientGeneration, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
@@ -116,8 +116,8 @@ describe('guardian-manager', () => {
         provider.signWord,
         // The resolved per-account endpoint is now passed through to init.
         'https://default.guardian.test',
-        // As are the build's lock options - `init`'s hold is the one that parks.
-        { label: 'guardian-service-build' }
+        // As are the init's lock options - `init`'s hold is the one that parks.
+        { label: 'guardian-service-init' }
       );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
@@ -179,11 +179,11 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         'https://per-account.guardian',
-        // The build's lock options reach `init` too: its hold - the client build plus
-        // the guardian `load()` - is the longer of the two the build takes, so leaving
+        // The init's own labelled lock options reach it too: its hold - the client build
+        // plus the guardian `load()` - is the longer of the two the build takes, so leaving
         // it unlabelled and on the default backstop was what made `boundAtSyncCeiling`
         // not do what its docstring said.
-        { label: 'guardian-service-build' }
+        { label: 'guardian-service-init' }
       );
     });
 
@@ -207,6 +207,63 @@ describe('guardian-manager', () => {
 
       resolveInit(service);
       await expect(Promise.all([first, second])).resolves.toEqual([service, service]);
+    });
+
+    // Coalescing is per ceiling: the hold is inside the init, so whichever caller started the
+    // build would pick the ceiling for every caller that joined it.
+    it("a pipeline caller arriving during the idle loop's build runs its own init at the default ceiling", async () => {
+      const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'shared' };
+      let resolveInit!: (value: unknown) => void;
+      mockMultisigServiceInit
+        .mockReturnValueOnce(
+          new Promise(resolve => {
+            resolveInit = resolve;
+          })
+        )
+        .mockResolvedValueOnce(service);
+      const provider = makeProvider([guardianAccount]);
+
+      const idleLoop = getOrCreateMultisigService(GUARDIAN_PK, provider, true);
+      const pipeline = getOrCreateMultisigService(GUARDIAN_PK, provider);
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
+      expect(mockMultisigServiceInit.mock.calls[0][5]).toEqual({
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'guardian-service-init'
+      });
+      expect(mockMultisigServiceInit.mock.calls[1][5]).toEqual({ label: 'guardian-service-init' });
+
+      resolveInit(service);
+      await expect(Promise.all([idleLoop, pipeline])).resolves.toEqual([service, service]);
+    });
+
+    it('bounds the service init at the sync ceiling only for the idle loop, and labels it either way', async () => {
+      const provider = makeProvider([guardianAccount]);
+      mockMultisigServiceInit.mockResolvedValue({ guardianEndpoint: 'https://default.guardian.test' });
+
+      await getOrCreateMultisigService(GUARDIAN_PK, provider, true);
+      expect(mockMultisigServiceInit).toHaveBeenLastCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        'https://default.guardian.test',
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+      );
+
+      clearGuardianCache();
+      await getOrCreateMultisigService(GUARDIAN_PK, provider);
+      expect(mockMultisigServiceInit).toHaveBeenLastCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        'https://default.guardian.test',
+        { label: 'guardian-service-init' }
+      );
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 
     // Issue #775: lock recovery replaces the WASM client under a cached service.

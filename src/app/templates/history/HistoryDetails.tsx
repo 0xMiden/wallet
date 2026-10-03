@@ -60,6 +60,7 @@ import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
+import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
@@ -375,10 +376,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
-          message: tx.displayMessage ?? '',
+          message: tx.recovered
+            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed))
+            : (tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
-          transactionIcon: tx.displayIcon,
+          transactionIcon: tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
             : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
@@ -425,6 +428,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
           bridgeReclaimHeight: bridge?.reclaimHeight,
+          bridgeReclaimNoteId: bridge?.reclaimNoteId,
+          bridgeSubmitClaimed: bridge?.submitClaimed,
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
@@ -521,7 +526,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
   // may have landed, so it reads through the section's own unconfirmed rule like any
   // other unconfirmed bridge-out (#1250).
-  const isBridgeOut = entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true);
+  const isBridgeOut =
+    entry?.txType === 'bridged-send' && (!entry.isCancelled || entry.isUnconfirmed === true) && !transaction?.recovered;
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -671,7 +677,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
-        ) : entry.txType === 'swap' && requestedToken ? (
+        ) : entry.txType === 'swap' && requestedToken && (!transaction?.recovered || requestedToken.faucetId) ? (
           <SwapDetail
             entry={entry}
             requestedAmount={requestedToken.amount}
@@ -687,7 +693,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate(ACTIVITY_PENDING_PATH) : undefined}
+            onOpenPendingNotes={
+              receipt.offerClaimRoute && !transaction?.recovered ? () => navigate(ACTIVITY_PENDING_PATH) : undefined
+            }
             offerCancelOrder={receipt.offerCancel}
             reclaimPending={receipt.reclaimPending}
             isCancellingOrder={actions.isCancellingOrder}

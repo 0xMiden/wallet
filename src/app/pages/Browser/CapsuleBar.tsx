@@ -187,7 +187,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             (common case: <title> is just "miden.xyz") so we don't
             stack two identical strings. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-base font-semibold text-ink dark:text-white">{displayTitle}</span>
+          <span className="truncate text-base font-semibold text-ink">{displayTitle}</span>
           {showHostnameRow && <span className="truncate text-xs text-text-muted">{hostname}</span>}
         </div>
 
@@ -204,7 +204,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             data-testid="dapp-capsule-minimize"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
-            <Icon name={IconName.ArrowDown} size="sm" className="text-ink dark:text-white" fill="currentColor" />
+            <Icon name={IconName.ArrowDown} size="sm" className="text-ink" fill="currentColor" />
           </button>
         )}
 
@@ -218,7 +218,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           data-testid="dapp-capsule-reload"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
         >
-          <Icon name={IconName.Refresh} size="sm" className="text-ink dark:text-white" fill="currentColor" />
+          <Icon name={IconName.Refresh} size="sm" className="text-ink" fill="currentColor" />
         </button>
 
         {/* Close button */}
@@ -229,7 +229,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           data-testid="dapp-capsule-close"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
         >
-          <Icon name={IconName.Close} size="sm" className="text-ink dark:text-white" fill="currentColor" />
+          <Icon name={IconName.Close} size="sm" className="text-ink" fill="currentColor" />
         </button>
 
         {/* PR-5 card switcher button — sits after Close so it visually
@@ -247,8 +247,8 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             data-testid="dapp-capsule-switcher"
             className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
-            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-black dark:border-white">
-              <span className="text-[10px] font-bold leading-none text-ink dark:text-white">{tabsCount}</span>
+            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-black">
+              <span className="text-[10px] font-bold leading-none text-ink">{tabsCount}</span>
             </div>
           </button>
         )}
@@ -266,7 +266,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             data-testid="dapp-capsule-actions"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
-            <Icon name={IconName.More} size="sm" className="text-ink dark:text-white" fill="currentColor" />
+            <Icon name={IconName.More} size="sm" className="text-ink" fill="currentColor" />
           </button>
         )}
       </div>

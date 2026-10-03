@@ -138,6 +138,18 @@ describe('HomeGroupPaneBody', () => {
     expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
     expect(footer).toHaveClass('px-4');
   });
+
+  it('never lets a block shrink, so a tall block scrolls the body instead of clipping (#1291)', () => {
+    const { container } = render(
+      <HomeGroupPaneBody>
+        <section data-testid="block" className="overflow-hidden">
+          x
+        </section>
+      </HomeGroupPaneBody>
+    );
+
+    expect(body(container)).toHaveClass('[&>*]:shrink-0');
+  });
 });
 
 describe('the four panes are drawn in one box', () => {

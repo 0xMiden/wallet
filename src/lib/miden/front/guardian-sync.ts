@@ -1,8 +1,9 @@
 // lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
 // this adds no module to that cycle; the function is only called during a sync, never at module load.
 import { requestSWTransactionProcessing } from 'lib/miden/activity';
+import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED } from 'lib/miden/back/defaults';
 import { classifyGuardianRecovery, noteRecoveryDivergence } from 'lib/miden/back/guardian-recovery-dispatcher';
-import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
+import { isGuardianAuthRejection, isGuardianReRegisterRefusal, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
@@ -18,10 +19,21 @@ import {
   readDirectSwitchCommitState
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
-import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
+import { readPostSwitchLocalGuardian } from 'lib/miden/guardian/post-switch-state';
+import { guardianRetryAfterSec, isGuardianRateLimited, isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 import type { TransactionCommitState } from 'lib/miden/sdk/miden-client-interface';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
-import { monotonicNowMs } from 'lib/miden/sync-backoff';
+import { FUSED_SYNC_PROBE_INTERVAL_MS, monotonicNowMs } from 'lib/miden/sync-backoff';
+import {
+  findFailedHotKeyRotations,
+  markRotationCompleted,
+  type FailedHotKeyRotation
+} from 'lib/miden/transaction/hot-key-rotation-residual';
+import {
+  clearLocalStateNotSaved,
+  findUnsavedSwitchRow,
+  markSwitchDeltaPushed
+} from 'lib/miden/transaction/switch-guardian-residual';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { canonicalGuardianEndpoint, sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -37,13 +49,17 @@ import {
   type SelfHealOutcome
 } from './guardian-selfheal';
 import {
+  guardianAdoptFuseKey,
   guardianDriftFuseKey,
+  guardianSelfHealFuseKey,
   guardianSyncFuseKey,
   isSyncFused,
   noteNonEvictionSyncFailure,
   noteAbandonedSyncProbe,
+  noteSyncParked,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
+  PARKED_SYNC_FAILURE_MS,
   pendingRotationRecheckFuseKey,
   retireSyncFuse,
   type SyncFuseKey
@@ -99,8 +115,8 @@ export const zustandProvider: GuardianAccountProvider = {
     useWalletStore.getState().signWord(publicKey, wordHex, transactionId),
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
-  swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>
-    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey),
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) =>
+    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey),
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
     useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
 };
@@ -117,7 +133,8 @@ export const zustandProvider: GuardianAccountProvider = {
  * made the frontend AutoSync throw "missing hotPublicKey" every ~3s. Skipping
  * them is correct, not a silence: there is genuinely no hot-bound service to
  * build, and recovery happens via the banner → activation path, not here.
- * Once a hot key lands (`swapHotKey`), the next sync cycle picks the account up.
+ * Once a hot key lands (`swapHotKey`), the next sync cycle picks the account up. A rotation-pending
+ * account whose own rotation landed after its row failed gets there through `finishPendingActivations`.
  *
  * This also means the `update_guardian` threshold-2 hardening is intentionally
  * NOT applied to hot-key-less accounts here, and that's correct: a pre-activation
@@ -158,6 +175,20 @@ const selfHealLedger = createAttemptLedger(
   // breaker, the fuse and the rate cooldown all read this clock.
   monotonicNowMs
 );
+
+/** When an account's repair was last checked, and how many times it has been. */
+type ActivationCheckState = { attempts: number; lastAttemptAt: number };
+
+// When the pending-activation finisher last checked each rotation-pending account, and the heals it ran (#1233).
+// Not an AttemptLedger: the finisher backs off without end rather than spending a capped budget, and stamps
+// every exit while only a heal counts as an attempt.
+const pendingActivationState = new Map<string, ActivationCheckState>();
+// The Failed rotation rows a permanent refusal answered, per account whatever the operator, as sorted ids, and
+// the pushes the finisher made in a row against the operator and row set it last resolved: a change of operator
+// or rows a due lap observes (a return included) restarts the count, and a change and return between two due
+// laps is not seen (#1233).
+const refusedActivations = new Map<string, string>();
+const activationPushes = new Map<string, { endpoint: string; rowSet: string; pushes: number }>();
 
 // Missing-registration self-heal state, mirroring the pair above because the
 // write it guards is strictly more dangerous than a cold re-register:
@@ -381,9 +412,10 @@ export function getGuardianLastSyncAt(accountPublicKey: string): number | undefi
  * needed no sustained fault, just one header.
  *
  * The slack on top covers the sync that ENDS the cooldown: the stamp is only
- * refreshed once that round trip completes, and `service.sync()` has no client
- * deadline, so a healthy-but-slow account must not flap either. Still a statement
- * about the present rather than about the session.
+ * refreshed once that round trip completes, and the fetch boundary lets each
+ * Guardian request in `service.sync()` run up to GUARDIAN_REQUEST_TIMEOUT_MS, so a
+ * healthy-but-slow account must not flap either. Still a statement about the
+ * present rather than about the session.
  */
 export const GUARDIAN_SYNC_STAMP_FRESH_MS = SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 30_000;
 
@@ -488,16 +520,20 @@ function markGuardianUnrepairable(accountPublicKey: string, reason: string): voi
   notifyOutageListeners();
 }
 
+/** Flag this account's guardian as down, which surfaces the switch-guardian prompt. Arms once. */
+function armGuardianOutage(accountPublicKey: string, reason: string): void {
+  if (outageAccounts.has(accountPublicKey)) return;
+  console.warn(
+    `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${reason}) - surfacing the switch-guardian prompt`
+  );
+  outageAccounts.add(accountPublicKey);
+  notifyOutageListeners();
+}
+
 function recordGuardianServerFailure(accountPublicKey: string): void {
   const fails = (consecutiveServerFailures.get(accountPublicKey) ?? 0) + 1;
   consecutiveServerFailures.set(accountPublicKey, fails);
-  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD && !outageAccounts.has(accountPublicKey)) {
-    console.warn(
-      `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${fails} consecutive failures) — surfacing the switch-guardian prompt`
-    );
-    outageAccounts.add(accountPublicKey);
-    notifyOutageListeners();
-  }
+  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD) armGuardianOutage(accountPublicKey, `${fails} consecutive failures`);
 }
 
 /** The server answered (success, 401, 429) — it is alive, so the outage is over. */
@@ -617,6 +653,9 @@ export function __resetGuardianSyncOutageForTest(): void {
   consecutiveUnknownAccount.clear();
   consecutiveAuthFailures.clear();
   selfHealLedger.clearAll();
+  pendingActivationState.clear();
+  refusedActivations.clear();
+  activationPushes.clear();
   guardianRateLimit.clearAll();
   hardeningChecked.clear();
   missingRegistrationLedger.clearAll();
@@ -1128,6 +1167,95 @@ async function runPendingRotationRecheck(
 }
 
 /**
+ * Bring an account whose landed switch could not save its post-switch state to that state (#1233),
+ * from the endpoint that switch's row names as previous. That operator holds it once it canonicalized
+ * the switch delta the wallet pushed, and keeps serving reads after it released the account. Signs
+ * with this device's hot key, which the previous operator's allowlist still carries. The guardian key
+ * the local copy names once it is `endpoint`'s; undefined leaves the repair to a later tick. Rejects only
+ * with the poison of an eviction under it, once booked on the adopt's fuse.
+ */
+async function adoptFromPreviousGuardian(
+  account: WalletAccount,
+  endpoint: string,
+  hotCommitment: string
+): Promise<string | undefined> {
+  if (!account.hotPublicKey) return undefined;
+  const unsaved = await findUnsavedSwitchRow(account.publicKey, endpoint).catch(() => undefined);
+  // A direct switch fled that operator, so it never received the switch delta, and it may take the
+  // connection and go silent until the fetch boundary cuts each request off a minute in.
+  if (!unsaved || unsaved.switchedDirectly) return undefined;
+  // An adopt that parked the realm's WASM lock would park it again on the next lap.
+  const fuseKey = guardianAdoptFuseKey(account.publicKey, unsaved.previousGuardianEndpoint);
+  if (isSyncFused(fuseKey)) return undefined;
+  let adoptedGuardian: string | undefined;
+  let parked = false;
+  let trapped = false;
+  let poison: unknown;
+  // The lock time of the holds that reach that operator, each from its acquisition.
+  let heldMs = 0;
+  const onHeld = (ms: number) => {
+    heldMs += ms;
+  };
+  try {
+    const sdkAccount = await withWasmClientLock(
+      async () => midenClientProxy.getAccount(account.publicKey),
+      GUARDIAN_READ_LOCK_OPTIONS
+    );
+    if (sdkAccount) {
+      const previous = await MultisigService.init(
+        sdkAccount,
+        `0x${account.hotPublicKey}`,
+        `0x${hotCommitment}`,
+        zustandProvider.signWord,
+        unsaved.previousGuardianEndpoint,
+        GUARDIAN_ADOPT_INIT_LOCK_OPTIONS,
+        onHeld
+      );
+      // Without the delta the landed push did not deliver, that guardian never holds the post-switch
+      // state. Push it again, outside any lock; a guardian that sits on it for the whole budget would
+      // park the adopt's hold next.
+      const repush =
+        !unsaved.switchDeltaPushed && typeof unsaved.switchProposalId === 'string'
+          ? await previous.pushSwitchDeltaBounded(unsaved.switchProposalId)
+          : undefined;
+      if (repush === 'pushed') {
+        await markSwitchDeltaPushed(unsaved.id).catch((markError: unknown) => {
+          console.warn('[Guardian Sync] could not record the re-pushed switch delta:', markError);
+        });
+      }
+      if (repush === 'silent') {
+        parked = true;
+      } else {
+        await previous.adoptGuardianStateOnce(onHeld);
+        // The switch reconcile's own read rule, so both repair paths agree on what "post-switch" means.
+        const adopted = await readPostSwitchLocalGuardian(account.publicKey, endpoint);
+        if (adopted.state === 'post-switch') adoptedGuardian = adopted.localGuardian;
+      }
+    }
+  } catch (error) {
+    if (isSyncWatchdogEviction(error)) parked = true;
+    else if (isWasmClientPoisonedError(error)) trapped = true;
+    if (isWasmClientPoisonedError(error)) poison = error;
+    console.warn(
+      `[Guardian Sync] could not adopt ${account.publicKey}'s post-switch state from ${unsaved.previousGuardianEndpoint}:`,
+      error
+    );
+  }
+  // A park is an eviction, a re-push that sat out its budget, or init and the adopt together holding the
+  // lock past PARKED_SYNC_FAILURE_MS; never time queued behind another holder, and never what the copy
+  // reads, so the pause is one-shot and a fast refusal costs one lap and lights nothing. The refusal window
+  // is measured from before this ran, so an unpaused lap holding T holds the lock T of every 60 s: a gateway
+  // answering a silent operator with a 504 before the watchdog (stock HAProxy at 50 s) would hold it most
+  // of the time. A realm trap answers nothing about that operator, so it is an abandoned probe.
+  if (parked || heldMs > PARKED_SYNC_FAILURE_MS) noteSyncParked(fuseKey);
+  else if (trapped) noteAbandonedSyncProbe(fuseKey);
+  else noteSyncSuccess(fuseKey);
+  // Booked, then handed back: the abandoned call is still inside WASM, so the caller stops the pass.
+  if (poison !== undefined) throw poison;
+  return adoptedGuardian;
+}
+
+/**
  * Push a registration to an operator that reports no record of the account.
  *
  * Returns TRUE when the realm's WASM client was evicted under this attempt, so
@@ -1203,7 +1331,8 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
   // throw raised inside a `catch` is not caught by its own `try`. It rejected a
   // promise both callers discard: the pass stopped by accident and the eviction
   // was never booked. An ordinary read failure now refuses instead of taking the
-  // rest of the pass down with it.
+  // rest of the pass down with it, and is booked on the heal fuse like the heals'
+  // other holds (#1233).
   let snapshot: Awaited<ReturnType<typeof readSnapshot>>;
   try {
     snapshot = await readSnapshot();
@@ -1217,6 +1346,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       );
       return true;
     }
+    noteNonEvictionSyncFailure(fuseKey);
     console.warn(
       `[Guardian Sync] could not read ${account.publicKey} for the missing-registration self-heal:`,
       snapshotError
@@ -1325,7 +1455,41 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
     );
     return false;
   }
-  const endpointHoldsGuardianKey = await checkEndpointCommitment(endpoint, onChainGuardian);
+  // The attempt the push settles, and its count for the log line: the one opened above, unless an
+  // adopt below moves the push onto the guardian key the adopted state names.
+  let pushAttempt = attempt;
+  let pushAttempts = attempts;
+  let endpointHoldsGuardianKey = await checkEndpointCommitment(endpoint, onChainGuardian);
+  // A landed switch whose apply failed leaves this device's copy naming the OLD guardian (#1233),
+  // which the new operator must not be handed. Adopt the post-switch state from the previous one
+  // first, then check again.
+  if (endpointHoldsGuardianKey === 'mismatch') {
+    let adoptedGuardian: string | undefined;
+    try {
+      adoptedGuardian = await adoptFromPreviousGuardian(account, endpoint, onChainHot.commitment);
+    } catch (adoptError) {
+      if (!isWasmClientPoisonedError(adoptError)) throw adoptError;
+      // Booked on the adopt's own fuse where it was caught. Nothing was pushed, so the attempt is
+      // given back, and the pass stops like every other eviction in it.
+      attempt.settle('refunded');
+      console.warn(
+        `[Guardian Sync] the WASM client was evicted adopting ${account.publicKey}'s post-switch state; ` +
+          `abandoning the rest of this pass:`,
+        adoptError
+      );
+      return true;
+    }
+    if (adoptedGuardian !== undefined) {
+      endpointHoldsGuardianKey = 'match';
+      // The push now writes the adopted state, so it spends the budget of the guardian key that state names.
+      const adoptedSubject = { ...healSubject, guardianKey: adoptedGuardian };
+      const adoptedAttempts = missingRegistrationLedger.attempts(adoptedSubject);
+      const adoptedAttempt = missingRegistrationLedger.tryBegin(adoptedSubject);
+      if (!adoptedAttempt) return false;
+      pushAttempt = adoptedAttempt;
+      pushAttempts = adoptedAttempts;
+    }
+  }
   if (endpointHoldsGuardianKey !== 'match') {
     console.warn(
       `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: the operator did not confirm the ` +
@@ -1366,17 +1530,20 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       account.publicKey,
       endpoint,
       zustandProvider,
-      {
-        ...GUARDIAN_READ_LOCK_OPTIONS,
-        label: 'guardian-missing-registration'
-      },
+      GUARDIAN_SELF_HEAL_REGISTER_LOCK_OPTIONS,
       () => {
         registrationAttempted = true;
-        attempt.chargeEarly();
+        pushAttempt.chargeEarly();
       }
     );
-    attempt.settle('charged');
+    noteSyncSuccess(fuseKey);
+    pushAttempt.settle('charged');
     clearGuardianServiceFor(account.publicKey);
+    // The operator now holds the post-switch state, so a switch row that said this device could not
+    // save it no longer does (#1233).
+    await clearLocalStateNotSaved(account.publicKey, endpoint).catch(clearError =>
+      console.warn(`[Guardian Sync] could not clear the unsaved-switch flag for ${account.publicKey}:`, clearError)
+    );
     console.warn(
       `[Guardian Sync] registered ${account.publicKey} on ${endpoint} after the operator reported no record of it`
     );
@@ -1388,7 +1555,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       // no operator, and charging it is what let three parked node reads disable
       // this repair for the session. `registrationAttempted` is the only thing
       // that can tell the two apart; the error cannot.
-      attempt.settle(registrationAttempted ? 'charged' : 'refunded');
+      pushAttempt.settle(registrationAttempted ? 'charged' : 'refunded');
       // Booked here, where the error is in hand: only this frame can tell a
       // parked node from a trap, and the caller's break skips its own feed.
       noteGuardianProbeFailure(fuseKey, e);
@@ -1399,6 +1566,8 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       );
       return true;
     }
+    // Both arms below came back, so the heal fuse withdraws its evidence (#1233).
+    noteNonEvictionSyncFailure(fuseKey);
     if (isGuardianRegistrationPreflightError(e)) {
       // Give the attempt back. This failure happened before any `/configure`,
       // so the reason to count it — that the write may have landed — does not
@@ -1406,7 +1575,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       // which a truncated local read is exactly what prevents. Same booking
       // rule as the 401 self-heal's `refused-transiently`; the clock is stamped
       // either way, so this does not re-read on every 3s tick.
-      attempt.settle('refunded');
+      pushAttempt.settle('refunded');
       console.warn(
         `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet — the local account state could ` +
           `not be read completely enough to authorize the operator (no attempt spent):`,
@@ -1414,10 +1583,10 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
       );
       return false;
     }
-    attempt.settle('charged');
+    pushAttempt.settle('charged');
     console.warn(
       `[Guardian Sync] could not register ${account.publicKey} on ${endpoint} ` +
-        `(attempt ${attempts + 1}/${MISSING_REGISTRATION_MAX_ATTEMPTS}):`,
+        `(attempt ${pushAttempts + 1}/${MISSING_REGISTRATION_MAX_ATTEMPTS}):`,
       e
     );
   }
@@ -1431,6 +1600,93 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
  * that has not answered in two minutes is parked, not slow.
  */
 const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-read' };
+
+/** The previous guardian's init on the self-heal's adopt, timer-driven like the reads above. */
+const GUARDIAN_ADOPT_INIT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt-init' };
+
+/**
+ * The heals' holds that reach a guardian or the node, timer-driven like the reads above: the cold
+ * service's init, the cold re-register, and the missing-registration push's preflight read.
+ */
+const GUARDIAN_SELF_HEAL_INIT_LOCK_OPTIONS = {
+  watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+  label: 'guardian-self-heal-init'
+};
+const GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS = {
+  watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+  label: 'guardian-self-heal-reregister'
+};
+const GUARDIAN_SELF_HEAL_REGISTER_LOCK_OPTIONS = {
+  watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+  label: 'guardian-self-heal-register'
+};
+
+/** This device's own Failed rotation whose new key is the one the chain's slot 0 names (#1233). */
+type OwnRotation = FailedHotKeyRotation & { commitment: string };
+
+/** Rejects when the rows cannot be read; a key whose commitment cannot be derived is skipped. */
+async function findOwnRotation(accountPublicKey: string, onChainCommitment: string): Promise<OwnRotation | undefined> {
+  for (const row of await findFailedHotKeyRotations(accountPublicKey)) {
+    const commitment = await commitmentFromPublicKeyHex(row.newHotPublicKey).catch(() => undefined);
+    if (commitment !== undefined && sameCommitment(commitment, onChainCommitment)) return { ...row, commitment };
+  }
+  return undefined;
+}
+
+/**
+ * Point the account at the rotation's key and complete its row, once the chain-verified signer set
+ * names that key. The swap expects the hot key in the record this lap read, so a rotation the user
+ * completed during the push is never overwritten: the vault refuses with `HOT_KEY_CHANGED`, which is
+ * transient, since the pointer moved on and the next lap reads the newer record. Only the vault's
+ * `HOT_KEY_NOT_STORED` refusal is permanent: this wallet does not hold the key, so this device cannot
+ * sign as the chain's hot signer. Both are matched on the code, which the extension port carries,
+ * never on the message. Any other failure (a locked vault, the intercom, storage) returns
+ * 'attempted', since the push ran and is booked like every push: the row stays Failed, the next due
+ * heal re-verifies and swaps, and SELF_HEAL_MAX_ATTEMPTS pushes bound the `/configure` writes in both
+ * callers: the 401 arm's budget, and the pending-activation finisher's, which bounds the pushes made in a
+ * row against one operator and Failed rotation set and restarts on a change of either that a due lap
+ * observes; a change and return between two due laps is not seen.
+ */
+async function finishOwnRotation(account: WalletAccount, rotation: OwnRotation): Promise<SelfHealOutcome> {
+  try {
+    if (!zustandProvider.swapHotKey) throw new Error('swapHotKey not implemented in this provider');
+    await zustandProvider.swapHotKey(account.publicKey, rotation.newHotPublicKey, account.hotPublicKey ?? null);
+  } catch (swapError) {
+    const code =
+      typeof swapError === 'object' && swapError !== null && 'code' in swapError ? swapError.code : undefined;
+    if (code === HOT_KEY_CHANGED) {
+      console.warn(
+        `[Guardian Sync] not swapping ${account.publicKey} to the key the chain names: its hot key moved ` +
+          `since this heal read it.`,
+        swapError
+      );
+      return 'refused-transiently';
+    }
+    if (code === HOT_KEY_NOT_STORED) {
+      console.warn(
+        `[Guardian Sync] could not swap ${account.publicKey} to the key the chain names; this device cannot ` +
+          `sign as the account's hot signer:`,
+        swapError
+      );
+      return 'refused-permanently';
+    }
+    console.warn(
+      `[Guardian Sync] could not swap ${account.publicKey} to the key the chain names; a later heal retries it:`,
+      swapError
+    );
+    return 'attempted';
+  }
+  try {
+    await markRotationCompleted(rotation.id);
+  } catch (markError) {
+    console.warn(
+      `[Guardian Sync] swapped ${account.publicKey}'s key but could not complete row ${rotation.id}:`,
+      markError
+    );
+  }
+  clearGuardianServiceFor(account.publicKey);
+  return 'attempted';
+}
 
 /**
  * Re-register the account's CURRENT on-chain signer set on the guardian,
@@ -1451,12 +1707,27 @@ const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, lab
  * without any `/configure`. This is therefore defensive — for a genuinely
  * never-registered / never-canonicalized signer set. Idempotent (registers the
  * on-chain state), so a spurious run is harmless.
+ *
+ * `finishOnly` is the pending-activation finisher's call (#1233): no 401 asked for a repair, so it
+ * pushes only to finish this device's own rotation.
  */
-async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: SyncFuseKey): Promise<SelfHealOutcome> {
+async function attemptColdReRegisterSelfHeal(
+  account: WalletAccount,
+  fuseKey: SyncFuseKey,
+  finishOnly = false
+): Promise<SelfHealOutcome> {
   // A hot-key-only import (spawnFromHotKey) has no cold key to sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
 
   let attempted = false;
+  let rotation: OwnRotation | undefined;
+  let verifiedSigners: readonly string[] | undefined;
+  // What the heal's holds did, booked once on the heal fuse when the probe settles (#1233). A Guardian
+  // request timeout books as an eviction: it is the same silent Guardian, cut off at 60 s before the
+  // watchdog (#312). Poison is booked where it is caught instead, and the caller stops the pass.
+  let evicted = false;
+  let failed = false;
+  let poisoned = false;
   try {
     // getAccount needs no syncState here: buildColdMultisigService only reads the
     // COLD commitment (stable across the rotation), and
@@ -1509,6 +1780,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
     // below. Refusing here would make the heal unreachable in exactly the state
     // that needs it — the same shape of mistake as swallowing the failure, in the
     // opposite direction.
+    //
     // Bounded and labelled, like every other hold this ~3 s loop reaches. Two of them
     // live in here - the cold-commitment read and `MultisigService.init` - and both
     // used to arm at the five-minute backstop while running on the sync cadence. The
@@ -1518,7 +1790,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
       staleAccount,
       account,
       zustandProvider.signWord,
-      GUARDIAN_READ_LOCK_OPTIONS
+      GUARDIAN_SELF_HEAL_INIT_LOCK_OPTIONS
     );
     const adopted = await coldService
       .adoptGuardianStateOnce()
@@ -1534,6 +1806,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
         // was still inside WASM, and the loop's fuse feed then classified the
         // ORIGINAL 401 and zeroed the eviction count. Hand it back.
         if (isWasmClientPoisonedError(e)) throw e;
+        // The canonicalization refusal is an answer, not a failed hold.
         if (isGuardianCanonicalizationError(e)) {
           console.warn(
             `[Guardian Sync] the guardian's state for ${account.publicKey} is not ahead of local — proceeding to ` +
@@ -1541,6 +1814,11 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
             e
           );
           return true;
+        }
+        if (isGuardianRequestTimeout(e)) {
+          evicted = true;
+        } else {
+          failed = true;
         }
         console.warn(
           `[Guardian Sync] not self-healing ${account.publicKey}: could not read the guardian's state, so this ` +
@@ -1594,34 +1872,73 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
         return undefined;
       });
     }, GUARDIAN_READ_LOCK_OPTIONS);
-    const localHot = account.hotPublicKey
-      ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
-          console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
-          return undefined;
-        })
-      : undefined;
-    if (!onChainHot || !localHot) {
+    // TRANSIENT on either unreadable commitment: this device failing to look is not a finding about
+    // the account. Spending an attempt on it would let three read failures exhaust a budget that can
+    // only be reset by a successful sync, which the stale allowlist is precisely what prevents.
+    if (!onChainHot) {
       console.warn(
         `[Guardian Sync] not self-healing ${account.publicKey}: could not read the hot-signer commitment on ` +
-          `${!onChainHot && !localHot ? 'either side' : !onChainHot ? 'chain' : 'this device'}, so this device ` +
-          `cannot show it is still the account's signer.`
+          `chain, so this device cannot show it is still the account's signer.`
       );
-      // TRANSIENT: an unreadable commitment is this device failing to look, not a
-      // finding about the account. Spending an attempt on it would let three read
-      // failures exhaust a budget that can only be reset by a successful sync —
-      // which the stale allowlist is precisely what prevents.
       return 'refused-transiently';
     }
-    if (!sameCommitment(localHot, onChainHot.commitment)) {
+    // A rotation-pending account has no everyday key to compare (#1233): only its own rotation, once
+    // the chain names it, is something here to finish.
+    const keyless = !account.hotPublicKey;
+    let localHot: string | undefined;
+    if (account.hotPublicKey) {
+      localHot = await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
+        console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
+        return undefined;
+      });
+      if (!localHot) {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: could not read the hot-signer commitment on ` +
+            `this device, so this device cannot show it is still the account's signer.`
+        );
+        return 'refused-transiently';
+      }
+    }
+    if (!localHot || !sameCommitment(localHot, onChainHot.commitment)) {
+      // Slot 0 may name this device's own rotation, one that landed after its row failed. It is finished
+      // only on the signer set the re-register reads from the account it verified against the chain,
+      // never on this match alone (#1233).
+      try {
+        rotation = await findOwnRotation(account.publicKey, onChainHot.commitment);
+      } catch (readError) {
+        console.warn(`[Guardian Sync] not self-healing ${account.publicKey}: could not read its rotations:`, readError);
+        return 'refused-transiently';
+      }
+      if (!rotation && keyless) {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: it has no everyday key to repair until its own ` +
+            `rotation lands.`
+        );
+        return 'refused-transiently';
+      }
+      if (!rotation) {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
+            `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
+            `the device that now owns the account.`
+        );
+        // PERMANENT: this device was rotated out, and no later tick changes that.
+        // The caller closes the budget on this outcome, which is what stops this
+        // from re-reading once a cooldown forever for a repair that cannot apply.
+        return 'refused-permanently';
+      }
       console.warn(
-        `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
-          `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
-          `the device that now owns the account.`
+        `[Guardian Sync] ${account.publicKey}'s on-chain hot signer is this device's own rotation; ` +
+          `re-registering the chain's state to finish it`
       );
-      // PERMANENT: this device was rotated out, and no later tick changes that.
-      // The caller closes the budget on this outcome, which is what stops this
-      // from re-reading once a cooldown forever for a repair that cannot apply.
-      return 'refused-permanently';
+    }
+    // The holds got through, so the fuse books a success in the finally.
+    if (finishOnly && !rotation) {
+      console.warn(
+        `[Guardian Sync] not re-registering ${account.publicKey}: this device has no rotation of its own to ` +
+          `finish, and no 401 asked for a repair.`
+      );
+      return 'refused-transiently';
     }
 
     // Counted as an attempt from the moment the `/configure` is issued, because past
@@ -1634,15 +1951,12 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
     // eviction during a local chain sync returned `'evicted'` rather than
     // `'evicted-preflight'` and spent a budget only a successful sync can refill, on
     // an operator that had not been asked for anything. That is the exact mistake the
-    // preflight/post split was introduced to fix, surviving one level down.
-    await coldService.reRegisterCurrentStateOnGuardian(
-      () => {
-        attempted = true;
-      },
-      // The callee's own hold, bounded and labelled from here for the same reason
-      // as the two above it: this whole path runs on the ~3s tick.
-      { ...GUARDIAN_READ_LOCK_OPTIONS, label: 'guardian-re-register' }
-    );
+    // preflight/post split was introduced to fix, surviving one level down. The chain
+    // guard's refusal (#1233) also arrives before it, and wrote nothing.
+    await coldService.reRegisterCurrentStateOnGuardian(signers => {
+      attempted = true;
+      verifiedSigners = signers;
+    }, GUARDIAN_SELF_HEAL_REREGISTER_LOCK_OPTIONS);
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
     // AN EVICTION IS NOT A VERDICT ON THE OPERATOR, and this is the arm where
@@ -1656,6 +1970,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
     // so `noteNonEvictionSyncFailure` ZEROED the eviction count and the fuse
     // could never light for the wallet's default account type.
     if (isWasmClientPoisonedError(e)) {
+      poisoned = true;
       // Booked HERE, where the error itself is in hand, rather than at the
       // caller's break. The caller only learns THAT this evicted, and the fuse
       // needs to know HOW: `noteSyncWatchdogEviction` means "the node took our
@@ -1676,19 +1991,137 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
       // caller's break, which skips the check that would at least raise a prompt.
       return attempted ? 'evicted' : 'evicted-preflight';
     }
-    // Guardian still unreachable / rejecting cold — a later tick may retry per
-    // the bounded schedule (see `selfHealLedger`).
+    if (isGuardianRequestTimeout(e)) {
+      evicted = true;
+    } else {
+      failed = true;
+    }
+    // The chain guard refused before any `/configure` (#1233): the push never started, so no attempt
+    // is spent, and a later tick retries once this device's copy has caught up with the chain.
+    if (isGuardianReRegisterRefusal(e)) {
+      console.warn(
+        `[Guardian Sync] not re-registering ${account.publicKey}: its local state is not the chain's yet`,
+        e
+      );
+      return 'refused-transiently';
+    }
+    // A failed push (the guardian unreachable or rejecting cold) or a failed read: a later tick may
+    // retry per the bounded schedule (see `selfHealLedger`), and only a push spends an attempt.
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
+  } finally {
+    if (!poisoned) {
+      if (evicted) {
+        noteSyncWatchdogEviction(fuseKey);
+      } else if (failed) {
+        noteNonEvictionSyncFailure(fuseKey);
+      } else {
+        noteSyncSuccess(fuseKey);
+      }
+    }
+  }
+  // Also after a push that failed once it started: the push starts only after the chain check, so the
+  // set still stands, as completion swaps when its re-register fails.
+  const finishing = rotation;
+  if (finishing && verifiedSigners?.some(signer => sameCommitment(signer, finishing.commitment))) {
+    return await finishOwnRotation(account, finishing);
   }
   return attempted ? 'attempted' : 'refused-transiently';
 }
 
 /**
+ * Run the cold heal for each rotation-pending account with a Failed rotation of this device's (#1233).
+ * A post-recovery or migrated account usually has no hot key, so the sync loop skips it and it never
+ * 401s into the heal; this is its trigger, keyed on the flag so a hot === cold record is covered too.
+ * Adds no hold of its own: the heal's holds are bounded, labelled and fused. Backs off 1, 2, 4, 8 and
+ * 16 cooldowns, then checks every fused-probe interval without end.
+ * Every exit stamps that clock, and only a heal counts an attempt: the row read is unindexed (a row
+ * carries a bare or a composite account id, which an index matches only by prefix) and the endpoint
+ * resolve follows it, so an unstamped exit would repeat both on every 3 s lap.
+ * A permanent refusal closes the account's Failed rows whatever the operator. Its push budget of
+ * SELF_HEAL_MAX_ATTEMPTS bounds the pushes made in a row against one operator and Failed-row set. The
+ * finisher learns the operator only on a due lap: a change of operator or rows that a due lap observes (a
+ * return included) restarts the budget, and a change and return between two due laps is not seen.
+ *
+ * Returns TRUE when the realm's WASM client was evicted under a heal, so the pass takes no further
+ * holds, the same stop rule as the account loop's own heals.
+ */
+async function finishPendingActivations(accounts: WalletAccount[], generation: number): Promise<boolean> {
+  for (const account of accounts) {
+    if (generation !== syncGeneration) return false;
+    if (account.type !== WalletType.Guardian || account.requiresHotKeyRotation !== true || !account.coldPublicKey) {
+      continue;
+    }
+    const prev = pendingActivationState.get(account.publicKey);
+    const stamp = () =>
+      pendingActivationState.set(account.publicKey, { attempts: prev?.attempts ?? 0, lastAttemptAt: monotonicNowMs() });
+    try {
+      if (
+        prev &&
+        monotonicNowMs() - prev.lastAttemptAt <
+          Math.min(SELF_HEAL_COOLDOWN_MS * 2 ** Math.max(prev.attempts - 1, 0), FUSED_SYNC_PROBE_INTERVAL_MS)
+      ) {
+        continue;
+      }
+      const rows = await findFailedHotKeyRotations(account.publicKey);
+      // No guardian traffic without a row to finish.
+      if (rows.length === 0) {
+        stamp();
+        continue;
+      }
+      // The rows a permanent refusal answered are unchanged, so the push would be refused again. The
+      // Activate Device Key banner remains the repair, and a new Failed rotation reopens the heal.
+      const rowSet = rows
+        .map(row => row.id)
+        .sort()
+        .join(',');
+      if (refusedActivations.get(account.publicKey) === rowSet) {
+        stamp();
+        continue;
+      }
+      const endpoint = resolveGuardianEndpoint(account);
+      const operator = canonicalGuardianEndpoint(endpoint);
+      const spent = activationPushes.get(account.publicKey);
+      const runPushes = spent?.endpoint === operator && spent.rowSet === rowSet ? spent.pushes : 0;
+      // Before the exits below, so a lap that stops at one still records the operator and rows it saw.
+      activationPushes.set(account.publicKey, { endpoint: operator, rowSet, pushes: runPushes });
+      if (runPushes >= SELF_HEAL_MAX_ATTEMPTS) {
+        stamp();
+        continue;
+      }
+      const healFuseKey = guardianSelfHealFuseKey(account.publicKey, endpoint);
+      if (isSyncFused(healFuseKey)) {
+        stamp();
+        continue;
+      }
+      const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey, true);
+      // An eviction past the push may still land, so it counts as one; before it, nothing was sent.
+      const pushes = runPushes + (outcome === 'attempted' || outcome === 'evicted' ? 1 : 0);
+      activationPushes.set(account.publicKey, { endpoint: operator, rowSet, pushes });
+      if (outcome === 'refused-permanently') {
+        refusedActivations.set(account.publicKey, rowSet);
+      } else {
+        refusedActivations.delete(account.publicKey);
+      }
+      pendingActivationState.set(account.publicKey, {
+        attempts: (prev?.attempts ?? 0) + 1,
+        lastAttemptAt: monotonicNowMs()
+      });
+      // The heal booked the eviction on its fuse; the abandoned call is still inside WASM.
+      if (outcome === 'evicted' || outcome === 'evicted-preflight') return true;
+    } catch (error) {
+      console.warn(`[Guardian Sync] could not finish the pending activation of ${account.publicKey}:`, error);
+      stamp();
+    }
+  }
+  return false;
+}
+
+/**
  * Coalesces overlapping runs onto the in-flight one. The extension's 3s tick
- * fires `syncGuardianAccounts()` without awaiting it (`useSyncTrigger`), and a
- * guardian request has no client-side deadline, so a slow or hanging operator
- * lets runs stack — and two of this function's own invariants are per-run, not
- * per-account:
+ * fires `syncGuardianAccounts()` without awaiting it (`useSyncTrigger`), and the
+ * fetch boundary lets a guardian request run up to GUARDIAN_REQUEST_TIMEOUT_MS
+ * (a minute), so a slow or hanging operator lets runs stack, and two of this
+ * function's own invariants are per-run, not per-account:
  *
  *  - `consecutiveServerFailures` would count CALLERS rather than attempts.
  *    `MultisigService.sync()` returns one shared in-flight promise, so N
@@ -1744,9 +2177,9 @@ export function retireGuardianSyncPasses(): void {
  * May this pass still record what it just learned about `endpoint`?
  *
  * Checked AFTER the long awaits, because everything before them was decided from
- * a snapshot: the pass reads the account list once, then spends an unbounded
- * amount of time in drift reconciliation and `service.sync()` (a guardian
- * request with no client-side deadline). A user rotation committing during that
+ * a snapshot: the pass reads the account list once, then spends minutes at worst
+ * in drift reconciliation and `service.sync()` (guardian requests the fetch
+ * boundary cuts off only after a minute each). A user rotation committing during that
  * window replaces the endpoint the pass is talking to, and the verdict in hand
  * is then about an operator this account no longer uses — most visibly a
  * SUCCESS, which would stamp `lastGuardianSyncAt` and report the new guardian as
@@ -1811,6 +2244,7 @@ export function syncGuardianAccounts(): Promise<void> {
 
 async function runGuardianAccountsSync(generation: number): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
+  if (await finishPendingActivations(accounts, generation)) return;
   const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && Boolean(acc.hotPublicKey));
 
   if (guardianAccounts.length === 0) return;
@@ -2026,6 +2460,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // nobody read there (#777). The key reuses the endpoint resolved above, so the
     // evidence is booked against the operator this lap actually talks to.
     if (isSyncFused(fuseKey)) continue;
+    // The heals' own key, consulted before either heal runs so a fused lap stamps nothing (#1233).
+    const healFuseKey = guardianSelfHealFuseKey(account.publicKey, endpoint);
 
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider, true);
@@ -2129,7 +2565,11 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
         const healSubject = { accountPublicKey: account.publicKey, endpoint: canonicalGuardianEndpoint(endpoint) };
-        const attempt = fails >= SELF_HEAL_AUTH_FAILURE_THRESHOLD ? selfHealLedger.tryBegin(healSubject) : null;
+        // The heals' own fuse is consulted before the ledger, so a fused lap stamps nothing (#1233).
+        const attempt =
+          fails >= SELF_HEAL_AUTH_FAILURE_THRESHOLD && !isSyncFused(healFuseKey)
+            ? selfHealLedger.tryBegin(healSubject)
+            : null;
         if (attempt) {
           // The ledger books the budget against what the attempt DID, not
           // against the fact that it ran: `'attempted'` charges, a permanent
@@ -2139,7 +2579,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // repair for good. Every outcome re-stamps the cooldown from SETTLE
           // time, so a slow `/configure` still buys its full gap and a refusal
           // does not re-read on every 3s tick.
-          const outcome = await attemptColdReRegisterSelfHeal(account, fuseKey);
+          const outcome = await attemptColdReRegisterSelfHeal(account, healFuseKey);
           if (outcome === 'evicted' || outcome === 'evicted-preflight') {
             // WHICH SIDE OF THE POST decides the booking. Past the `/configure`
             // an eviction abandons the call without cancelling it, so it may
@@ -2216,7 +2656,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         clearGuardianServerFailures(account.publicKey);
         const unknownVerdicts = (consecutiveUnknownAccount.get(account.publicKey) ?? 0) + 1;
         consecutiveUnknownAccount.set(account.publicKey, unknownVerdicts);
-        if (unknownVerdicts >= MISSING_REGISTRATION_PERSISTENCE_THRESHOLD) {
+        if (unknownVerdicts >= MISSING_REGISTRATION_PERSISTENCE_THRESHOLD && !isSyncFused(healFuseKey)) {
           // Same stop rule as the recheck and drift arms: an eviction under the
           // self-heal leaves its call abandoned inside a client the mutex has
           // already handed to a successor, so the pass takes no further holds.
@@ -2225,7 +2665,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // it would classify is the operator's "unknown account" response rather
           // than the poison - so it would have withdrawn evidence instead of
           // adding it - and only the callee can tell a parked node from a trap.
-          if (await attemptMissingRegistrationSelfHeal(account, fuseKey)) break;
+          if (await attemptMissingRegistrationSelfHeal(account, healFuseKey)) break;
         }
       } else {
         // Non-auth error — don't accumulate auth-failure count.
@@ -2260,14 +2700,25 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // sequential, so a healthy sibling's `noteSyncSuccess` erased the parked account's
       // increment inside the same lap and the threshold could never be reached.
       //
-      // Only the WITHDRAWING note is possible here, and that is not an oversight.
-      // Every arm that can hold poison books its own eviction and `break`s before
-      // reaching this line - the arm at the TOP of this catch, and the two
-      // self-heals from inside the callee - so `error` at this point is by
-      // construction not an eviction. Restating the split here would read as a live
-      // choice and invite the opposite conclusion, that this line is the one feeding
-      // the fuse's eviction count.
-      noteNonEvictionSyncFailure(fuseKey);
+      // No WASM eviction reaches this line, and that is not an oversight. Every arm
+      // that can hold poison books its own eviction and `break`s before reaching it -
+      // the arm at the TOP of this catch, and the two self-heals from inside the
+      // callee - so `error` here is by construction not one. A Guardian request
+      // timeout is not poison either, and it is the one piece of eviction-shaped
+      // evidence that does arrive here (#312): the fetch boundary cuts a silent
+      // Guardian off at 60 s, before the watchdog would evict the hold, so it is the
+      // same parked-Guardian evidence arriving sooner.
+      const guardianTimedOut = isGuardianRequestTimeout(error);
+      if (guardianTimedOut) {
+        noteSyncWatchdogEviction(fuseKey);
+      } else {
+        noteNonEvictionSyncFailure(fuseKey);
+      }
+      // The fuse lights below the outage threshold and a fused account skips this catch until its next probe, half an
+      // hour away, so a silent Guardian would otherwise reach the switch-guardian prompt only an hour later.
+      if (guardianTimedOut && isSyncFused(fuseKey)) {
+        armGuardianOutage(account.publicKey, 'its requests keep timing out');
+      }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }
   }

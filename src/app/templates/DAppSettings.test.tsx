@@ -186,7 +186,10 @@ describe('DAppSettings', () => {
     expect(sections[0]!.parentElement).toBe(page.querySelector('[data-slot="body"]'));
     // The hostname is the section label; the rows sit in the shared DetailCard, labels without
     // the legacy trailing colon.
-    expect(within(sections[0]!).getByRole('heading', { name: 'app.example.com' })).toHaveClass('text-muted');
+    expect(within(sections[0]!).getByRole('heading', { name: 'app.example.com' })).toHaveClass(
+      'text-muted',
+      'text-row-title'
+    );
     expect(within(sections[0]!).getByText('originLabel').closest('.rounded-2xl')).toHaveClass('bg-fill');
     // Permissions are Pills; the explorer link is named for assistive tech.
     expect(within(sections[0]!).getByText('permissionLabel').closest('.rounded-full')).not.toBeNull();

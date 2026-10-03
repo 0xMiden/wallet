@@ -1,6 +1,8 @@
 package com.miden.wallet
 
+import android.os.Build
 import android.security.keystore.StrongBoxUnavailableException
+import androidx.biometric.BiometricManager
 import java.math.BigInteger
 
 /// Raised when the wrapped blob cannot be decrypted under ANY OAEP
@@ -13,13 +15,28 @@ class UnwrapFailedException(message: String, cause: Throwable?) : Exception(mess
 
 /// Pure logic split out of HotKeyPlugin so it is coverable by plain JUnit
 /// tests (no Android Keystore, emulator, or Robolectric): wire-format
-/// parsing/bounds, scalar validation, and reject-code classification. Nothing
-/// in here may touch Android runtime APIs (Log, Base64, Keystore) — the only
-/// Android reference is `is`-checks against exception TYPES, which load fine
-/// from the unit-test android.jar stubs. Base64 decoding is injected for the
+/// parsing/bounds, scalar validation, reject-code classification and prompt
+/// authenticators. Nothing in here may touch Android runtime APIs (Log,
+/// Base64, Keystore) - the only Android references are `is`-checks against
+/// exception TYPES, which load fine from the unit-test android.jar stubs, and
+/// compile-time constants (API levels, authenticator flags). Base64 decoding is injected for the
 /// same reason (android.util.Base64 in the plugin, java.util.Base64 in tests).
 object HotKeyLogic {
     const val KEY_ALIAS_PREFIX = "com.miden.wallet.hot."
+
+    /// Authenticators for every hot-key prompt, the CryptoObject-carrying
+    /// legacy unwrap and the CryptoObject-less reveal gate alike: androidx
+    /// rejects CryptoObject + DEVICE_CREDENTIAL below API 30 and does not
+    /// support BIOMETRIC_STRONG|DEVICE_CREDENTIAL at all on API 28-29, so
+    /// those two releases (the oldest the app runs on) stay biometric-only
+    /// with a negative button. The constants inline at compile time, so this
+    /// stays callable from plain JUnit.
+    fun promptAuthenticators(sdkInt: Int): Int =
+        if (sdkInt >= Build.VERSION_CODES.R) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG
+        }
 
     // Wire-format bounds: 16-byte tag suffix (24 b64 chars) + ':' +
     // RSA-2048 OAEP payload (exactly 256 bytes, 344 b64 chars). Enforced

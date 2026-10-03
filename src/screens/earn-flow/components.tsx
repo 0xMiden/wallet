@@ -8,6 +8,7 @@ import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Card } from 'components/ui/Card';
+import { Pill } from 'components/ui/Pill';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
@@ -110,6 +111,12 @@ export interface EarnHeroProps {
   meta?: React.ReactNode;
   /** Anything that belongs inside the section under the hero, e.g. the summary's metric cards. */
   children?: React.ReactNode;
+  /**
+   * `figure-first` (default): the figure, its caption, then the rate line, as a vault or a review
+   * reads. `label-first`: the caption over the figure and `meta` drawn as-is under it (the summary
+   * passes its APY pill), the way the tab root's total reads with no page title above it.
+   */
+  layout?: 'figure-first' | 'label-first';
   className?: string;
 }
 
@@ -126,20 +133,33 @@ export const EarnHero: FC<EarnHeroProps> = ({
   label,
   meta,
   children,
+  layout = 'figure-first',
   className
-}) => (
-  <section aria-labelledby={labelId} className={className}>
-    {/* The figure the page is about, on the balance card's own type style. */}
-    <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
-    {unit}
-    <p id={labelId} className="mt-2 text-label text-muted">
-      {label}
-    </p>
-    {/* `positive-tint-ink`, not the raw fill: #90BA89 is 2.2:1 and never carries text. */}
-    {meta && <p className="mt-0.5 text-value text-positive-tint-ink">{meta}</p>}
-    {children}
-  </section>
-);
+}) =>
+  layout === 'label-first' ? (
+    <section aria-labelledby={labelId} className={className}>
+      {/* The 16px label (`text-row-title`), the size the Settings section titles take. */}
+      <p id={labelId} className="mb-1.5 text-row-title text-muted">
+        {label}
+      </p>
+      <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
+      {unit}
+      {meta && <div className="mt-2 flex">{meta}</div>}
+      {children}
+    </section>
+  ) : (
+    <section aria-labelledby={labelId} className={className}>
+      {/* The figure the page is about, on the balance card's own type style. */}
+      <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
+      {unit}
+      <p id={labelId} className="mt-2 text-label text-muted">
+        {label}
+      </p>
+      {/* `positive-tint-ink`, not the raw fill: #90BA89 is 2.2:1 and never carries text. */}
+      {meta && <p className="mt-0.5 text-value text-positive-tint-ink">{meta}</p>}
+      {children}
+    </section>
+  );
 
 export const EarnSummaryPanel: FC<{
   summary: EarnSummary;
@@ -151,8 +171,10 @@ export const EarnSummaryPanel: FC<{
 
   return (
     <EarnHero
+      layout="label-first"
       labelId={titleId}
-      className={className}
+      // Set wholly in Nunito: the APY pill and the metric figures read `--font-sans` like body text.
+      className={cn('face-heading', className)}
       value={
         <AnimatedNumber
           value={summary.totalRewardsUsd}
@@ -162,11 +184,17 @@ export const EarnSummaryPanel: FC<{
       }
       label={t('earnTotalEarnedRewards')}
       meta={
-        <AnimatedNumber
-          value={summary.blendedApyPercent}
-          format={apy => t('earnEarningBlendedApy', { apy: `~${apy.toFixed(1)}%` })}
-          placeholder={t('earnEarningBlendedApy', { apy: EARN_PLACEHOLDER })}
-        />
+        <Pill
+          tone="positive"
+          icon={<span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-status-positive" />}
+          data-testid="earn-summary-apy"
+        >
+          <AnimatedNumber
+            value={summary.blendedApyPercent}
+            format={apy => t('earnPositionsApy', { apy: `~${apy.toFixed(1)}%` })}
+            placeholder={t('earnPositionsApy', { apy: EARN_PLACEHOLDER })}
+          />
+        </Pill>
       }
     >
       {/* #503 — gap-3 so Total deposited / Estimated rewards don't abut. Equal columns, so the
@@ -192,7 +220,6 @@ export const EarnSummaryPanel: FC<{
                 placeholder={EARN_PLACEHOLDER}
               />
             }
-            valueClassName="text-positive-tint-ink"
           />
         </div>
       )}

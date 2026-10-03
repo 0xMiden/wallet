@@ -169,6 +169,8 @@ const ForgotPassword: FC = () => {
   const onAction = useCallback(
     async (action: OnboardingAction) => {
       switch (action.id) {
+        // The Welcome step's Get started emits choose-protection; this page has no protection picker.
+        case 'choose-protection':
         case 'create-wallet':
           discardGuardianProbe();
           setSeedPhrase(generateMnemonic().split(' '));
@@ -204,7 +206,7 @@ const ForgotPassword: FC = () => {
           setStep(OnboardingStep.VerifySeedPhrase);
           break;
         case 'create-password':
-          setStep(OnboardingStep.CreatePassword);
+          setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           break;
         case 'create-password-submit':
           setPassword(action.payload.password);
@@ -226,7 +228,7 @@ const ForgotPassword: FC = () => {
           setStep(OnboardingStep.Confirmation);
           break;
         case 'setup-passcode-submit':
-          // Passcode IS the vault password (mobile import path).
+          // Passcode IS the vault password (mobile create and import paths).
           setPassword(action.payload);
           setStep(
             onboardingType === OnboardingType.Import
@@ -273,7 +275,9 @@ const ForgotPassword: FC = () => {
           } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
             setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           } else if (step === OnboardingStep.SetupPasscode) {
-            setStep(OnboardingStep.ImportFromSeed);
+            setStep(
+              onboardingType === OnboardingType.Create ? OnboardingStep.VerifySeedPhrase : OnboardingStep.ImportFromSeed
+            );
           } else if (step === OnboardingStep.ImportFromSeed) {
             // Back to the reset screen's own welcome step — out of the recovery.
             settleRecoverFlow(handle => handle.cancel());

@@ -1740,6 +1740,49 @@ describe('guardian note-recovery progress card', () => {
     expect(getItemSpy).not.toHaveBeenCalledWith(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY);
   });
 
+  // Once the flag is cleared only a terminal failure has a card, read once per account.
+  describe('for an account whose flag is cleared', () => {
+    it('returns a stored history-failed record', async () => {
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'history-failed', restored: 2 });
+
+      const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT, false));
+
+      await waitFor(() => expect(result.current).toMatchObject({ step: 'history-failed', restored: 2 }));
+    });
+
+    it('returns null for a stored live history record', async () => {
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'history', restored: 2 });
+      const getItemSpy = jest.spyOn(Storage.prototype, 'getItem');
+
+      const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT, false));
+
+      await waitFor(() =>
+        expect(getItemSpy).toHaveBeenCalledWith(expect.stringContaining(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY))
+      );
+      for (let i = 0; i < 10; i++) await act(async () => {});
+      expect(result.current).toBeNull();
+    });
+
+    it('picks up no later write', async () => {
+      jest.useFakeTimers();
+      try {
+        await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'history-failed', restored: 2 });
+        const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT, false));
+        await waitFor(() => expect(result.current?.restored).toBe(2));
+
+        await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'history-failed', restored: 5 });
+        await act(async () => {
+          jest.advanceTimersByTime(2_000);
+        });
+        for (let i = 0; i < 10; i++) await act(async () => {});
+
+        expect(result.current?.restored).toBe(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
   it('picks up a later write without remounting', async () => {
     jest.useFakeTimers();
     try {

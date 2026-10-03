@@ -2,7 +2,9 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
+import { confirmSensitiveAction } from 'lib/biometric';
 import { openEarnPosition } from 'lib/epoch';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
@@ -56,6 +58,14 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+jest.mock('lib/biometric', () => ({
+  confirmSensitiveAction: jest.fn()
+}));
+
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
+}));
+
 // --- Epoch SDK barrel (wasm + network clients): only the deposit entry point
 //     and the USDC decimals constant are used by this screen.
 jest.mock('lib/epoch', () => ({
@@ -64,7 +74,10 @@ jest.mock('lib/epoch', () => ({
   openEarnPosition: jest.fn(() => Promise.resolve())
 }));
 
-const mockWalletStoreState = { assessSpendingLimit: jest.fn(), readSpendingLimit: jest.fn() };
+const mockWalletStoreState = {
+  assessSpendingLimit: jest.fn(),
+  readSpendingLimit: jest.fn()
+};
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockWalletStoreState) => unknown) => selector(mockWalletStoreState)
 }));
@@ -236,6 +249,7 @@ jest.mock('./components', () => {
 });
 
 const mockOpenEarnPosition = openEarnPosition as jest.Mock;
+const mockConfirmSensitive = confirmSensitiveAction as jest.Mock;
 
 const renderReview = (vaultId: string, search = '') => {
   mockLocation.search = search;
@@ -268,6 +282,7 @@ describe('EarnDepositReview', () => {
       createdAt: 1,
       updatedAt: 2
     });
+    mockConfirmSensitive.mockResolvedValue(true);
   });
 
   describe('deposit amount header', () => {
@@ -374,6 +389,43 @@ describe('EarnDepositReview', () => {
       expect(call.evmAddress).toBe('0xdeadbeef');
       expect(call.senderPublicKey).toBe('mm1testaccount');
       expect(call.deps.signTransaction).toBe(mockSignTransaction);
+    });
+
+    it('confirms the deposit with the earn-deposit reason and the shared hardware-only protector probe', async () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() =>
+        expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmEarnDepositReason', probeHardwareProtector)
+      );
+      await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+    });
+
+    it('does not open the position when biometric confirmation is declined, leaving the CTA usable again', async () => {
+      mockConfirmSensitive.mockResolvedValue(false);
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+      const cta = screen.getByTestId('open-position-btn');
+
+      fireEvent.click(cta);
+      await waitFor(() => expect(mockConfirmSensitive).toHaveBeenCalledTimes(1));
+
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+      await waitFor(() => expect(cta).toBeEnabled());
+
+      mockConfirmSensitive.mockResolvedValue(true);
+      fireEvent.click(cta);
+      await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+    });
+
+    it("shows the screen's own error, and deposits nothing, when the protector probe rejects", async () => {
+      mockConfirmSensitive.mockRejectedValue(new Error('protector check failed'));
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('protector check failed')).toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
     it('requires strict authentication before any Earn quote or intent work when over limit', async () => {

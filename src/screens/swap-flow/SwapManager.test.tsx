@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 // Import after the mocks are registered.
@@ -217,7 +218,12 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 }));
 
 jest.mock('lib/biometric', () => ({
-  confirmSensitiveAction: (reason: string) => mockConfirmSensitive(reason)
+  confirmSensitiveAction: (reason: string, hasHardwareProtector: () => Promise<boolean>) =>
+    mockConfirmSensitive(reason, hasHardwareProtector)
+}));
+
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -1114,7 +1120,7 @@ describe('SwapFlow / SwapManager', () => {
       });
     });
 
-    it('does not submit when biometric confirmation is declined', async () => {
+    it('does not submit when biometric confirmation is declined, and leaves the button usable', async () => {
       mockConfirmSensitive.mockResolvedValue(false);
       renderFlow();
       setOffer('10');
@@ -1122,9 +1128,32 @@ describe('SwapFlow / SwapManager', () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
 
-      expect(mockConfirmSensitive).toHaveBeenCalledWith('Confirm your swap');
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', expect.any(Function));
       expect(mockInitiateSwap).not.toHaveBeenCalled();
       expect(mockWalletState.setLastCompletedTxHash).not.toHaveBeenCalled();
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+    });
+
+    it('confirms with the shared hardware-only protector probe', async () => {
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', probeHardwareProtector);
+    });
+
+    it("shows the review screen's own error, and swaps nothing, when the protector probe rejects", async () => {
+      mockConfirmSensitive.mockRejectedValue(new Error('protector check failed'));
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('protector check failed');
     });
 
     it('submits, nudges the service worker on extension, and hands off to the progress page', async () => {

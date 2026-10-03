@@ -10,7 +10,7 @@ export const MIDEN_CHAIN_ID = 86;
  * Matching is intentionally disabled whenever this is empty so ordinary
  * incoming notes cannot be mistaken for bridge deliveries.
  */
-export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aqu8zjdwvcgkeug5a67kpwmnsymvmkg0_qr7qqq9wr6w';
+export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aq9nwte8xh3nayfpdkv4hu5mjy90arem_qr7qqq9wr6w';
 /**
  * Source symbol of the only asset that sender delivers. The sender is the
  * bridged-ETH faucet itself, so its notes can settle only a native ETH deposit

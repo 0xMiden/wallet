@@ -68,7 +68,8 @@ import {
   primeNativeAssetId,
   resetNativeAssetCache,
   getVerificationBaseFee,
-  getVerificationBaseFeeSync
+  getVerificationBaseFeeSync,
+  isVerificationBaseFeeKnownAbsent
 } from './native-asset';
 
 beforeEach(async () => {
@@ -122,6 +123,19 @@ describe('native-asset module', () => {
     await getVerificationBaseFee();
 
     expect(getVerificationBaseFeeSync()).toBe(0);
+  });
+
+  it('does not call the base fee absent before any header was read', async () => {
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+  });
+
+  it.each([0, 3])('does not call a known base fee of %s absent', async fee => {
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => fee
+    };
+    await expect(getVerificationBaseFee()).resolves.toBe(fee);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
   it('rehydrates a zero base fee from storage instead of rediscovering it', async () => {
@@ -272,6 +286,10 @@ describe('native-asset module', () => {
     await expect(getVerificationBaseFee()).resolves.toBeNull();
 
     expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(true);
+    // The answer belongs to the node that gave it.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
   });
 
   it('asks for the base fee once against a node quoting an implausible one', async () => {
@@ -295,6 +313,7 @@ describe('native-asset module', () => {
     // Never persisted, so it cannot outlive the session either. (The harness reports an
     // absent key as null; a write would have put the number here.)
     expect(_g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-testnet|testnet']).toBeNull();
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(true);
   });
 
   it('does not re-probe per caller when the fee accessor THROWS', async () => {
@@ -311,11 +330,66 @@ describe('native-asset module', () => {
     };
 
     await expect(getVerificationBaseFee()).resolves.toBeNull();
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
     const afterFirst = _g.__nativeAssetTest.rpcCalls;
     await expect(getVerificationBaseFee()).resolves.toBeNull();
     await expect(getVerificationBaseFee()).resolves.toBeNull();
 
     expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+  });
+
+  // A trap here is in the RpcClient discover() builds for its one read, never in the client in the slot, so it is
+  // a failed read like any other. The fee cooldown survives resetNativeAssetCache; a node of the test's own drops
+  // one an earlier test stamped.
+  const onFreshNode = (rpcUrl: string) => {
+    isVerificationBaseFeeKnownAbsent();
+    _g.__nativeAssetTest.rpcUrl = rpcUrl;
+  };
+
+  it('a trap from the fee accessor still lets the faucet id be discovered, and the fee retries behind the cooldown', async () => {
+    onFreshNode('rpc-accessor-trap');
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => {
+        throw new WebAssembly.RuntimeError('unreachable');
+      }
+    };
+
+    await expect(getNativeAssetId()).resolves.toBe('bech32-native-acc');
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+  });
+
+  it('a trap in the fee discovery resolves null behind the cooldown', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    onFreshNode('rpc-discovery-trap');
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-discovery-trap|testnet'] = 'pre-cached-id';
+    // The fee faucet is configured in 0.17, so the header read is the discovery's one RPC and the trap lands there.
+    // A thenable rejects only once awaited, so no rejection waits unhandled between reads.
+    _g.__nativeAssetTest.deferHeader = {
+      then: (_resolve: unknown, reject: (reason: unknown) => void) =>
+        reject(new WebAssembly.RuntimeError('unreachable'))
+    };
+
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    // withRpcTimeout retries a failed read once, so one discovery is two header reads.
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
+    expect(warn).toHaveBeenCalledWith('native-asset fee discovery failed', expect.any(WebAssembly.RuntimeError));
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+    // It is the cooldown, not a latch, that holds the second read back: once it lapses the fee is read again.
+    const now = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_001);
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    now.mockRestore();
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(4);
+    warn.mockRestore();
   });
 
   it('drops a discovered base fee when the endpoint changes', async () => {

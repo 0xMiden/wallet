@@ -125,7 +125,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
-  swapHotKey: async (accountPublicKey: string, newHotPubKey: string) => {
+  swapHotKey: async (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => {
     // Fire `accountsUpdated` after the vault swap so the SW's Effector store
     // reflects the new hotPublicKey. Without this, storage is correct but the
     // Effector snapshot served via frontStore stays at the pre-rotation
@@ -143,7 +143,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // clearing its flag) would drop one of the two writes.
     return withUnlocked(({ vault }) =>
       getAccountsWriteQueue().add(async () => {
-        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey, expectedHotPubKey);
         accountsUpdated(updated);
       })
     );
@@ -212,10 +212,11 @@ export async function startTransactionProcessing(): Promise<void> {
     }
 
     let attempts = 0;
-    // Loop-pass ceiling, not a wall-clock bound: a single pass can now spend up
-    // to the guardian conflict-retry budget (~60s), so 60 passes is NOT "5
-    // minutes". Terminal per-tx caps live elsewhere (MAX_QUEUED_AGE /
-    // MAX_WAIT_BEFORE_CANCEL).
+    // Loop-pass ceiling, not a wall-clock bound: a single pass can spend a
+    // minute or more (a structural op waiting out a Guardian conflict in process,
+    // ~60s, or a Guardian request running to its GUARDIAN_REQUEST_TIMEOUT_MS
+    // cut-off), so 60 passes is NOT "5 minutes". Terminal per-tx caps live
+    // elsewhere (MAX_QUEUED_AGE / MAX_WAIT_BEFORE_CANCEL).
     const maxAttempts = 60;
 
     while (attempts < maxAttempts) {

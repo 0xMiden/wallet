@@ -36,6 +36,7 @@ const EarnPositions: FC = () => {
       ) : pending ? null : empty ? (
         <EmptyState
           surface="dashed"
+          size="compact"
           icon={IconName.Earn}
           title={t('earnNoActivePositionsTitle')}
           description={t('earnNoActivePositionsBody')}

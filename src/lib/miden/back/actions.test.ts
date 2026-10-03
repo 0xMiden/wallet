@@ -53,7 +53,8 @@ import {
   saveSpendingLimit,
   assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
-  verifyStrictActionAuthentication
+  verifyStrictActionAuthentication,
+  swapHotKey
 } from './actions';
 import packageJson from '../../../../package.json';
 
@@ -80,9 +81,19 @@ const mockVault = {
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
   updateGuardianBinding: jest.fn(),
+  swapHotKey: jest.fn(),
   retire: jest.fn(),
   insertKeySink: jest.fn()
 };
+
+// A spawned vault whose first read fails, so the action never publishes it.
+const unpublishableVault = () => ({
+  fetchAccounts: jest.fn().mockRejectedValue(new Error('account read failed')),
+  fetchSettings: jest.fn(),
+  getCurrentAccount: jest.fn(),
+  isOwnMnemonic: jest.fn(),
+  retire: jest.fn()
+});
 
 // Mock store callbacks
 const mockInited = jest.fn();
@@ -134,7 +145,8 @@ jest.mock('lib/miden/back/guardian-drift', () => ({
 }));
 
 jest.mock('lib/miden/back/guardian-recovery', () => ({
-  maybeStartGuardianRecovery: jest.fn()
+  maybeStartGuardianRecovery: jest.fn(),
+  releaseGuardianRecoveriesOnLock: jest.fn()
 }));
 
 const mockVaultGetKey = jest.fn();
@@ -407,6 +419,19 @@ describe('actions', () => {
       await lock();
 
       expect(mockLocked).toHaveBeenCalled();
+    });
+
+    it('releases the Guardian recoveries a failed source kept, once, under the WASM lock before locked', async () => {
+      const { releaseGuardianRecoveriesOnLock } = jest.requireMock('lib/miden/back/guardian-recovery');
+      releaseGuardianRecoveriesOnLock.mockClear();
+      await lock();
+      expect(releaseGuardianRecoveriesOnLock).toHaveBeenCalledTimes(1);
+      expect(releaseGuardianRecoveriesOnLock.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockWithWasmClientLock.mock.invocationCallOrder[0]!
+      );
+      expect(releaseGuardianRecoveriesOnLock.mock.invocationCallOrder[0]).toBeLessThan(
+        mockLocked.mock.invocationCallOrder[0]!
+      );
     });
 
     it('retires the vault it locks: its insert-key sink leaves the realm with it (#878)', async () => {
@@ -722,6 +747,79 @@ describe('actions', () => {
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
     });
+
+    it('undoes a created wallet when its setup fails after the spawn resolved (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const provisionalVault = unpublishableVault();
+      Vault.spawn.mockResolvedValueOnce(provisionalVault);
+
+      await expect(registerNewWallet(WalletType.OnChain, 'pw')).rejects.toThrow('account read failed');
+
+      expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
+      expect(mockUnlocked).not.toHaveBeenCalled();
+      // The spawn RESOLVED, so its own undo cannot fire: this one clears the vault it wrote.
+      expect(mockStorageRemove).toHaveBeenCalled();
+    });
+
+    it('never undoes a published wallet (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockResolvedValueOnce(mockVault);
+
+      await registerNewWallet(WalletType.OnChain, 'pw');
+
+      expect(mockVault.retire).not.toHaveBeenCalled();
+      expect(mockStorageRemove).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    ['registerNewWallet', 'spawn', () => registerNewWallet(WalletType.OnChain, 'pw')],
+    ['registerWalletFromHotKey', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
+    ['registerImportedWallet', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'mnemonic', [], [])]
+  ] as const)(
+    '%s finishes its undo before a queued retry spawns, so the undo cannot wipe the retry (#946)',
+    async (_action, spawnMethod, invoke) => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const order: string[] = [];
+      Vault[spawnMethod].mockResolvedValueOnce(unpublishableVault()).mockImplementationOnce(async () => {
+        order.push('retry spawn');
+        return mockVault;
+      });
+      mockStorageRemove.mockImplementation(async (removed: string[]) => {
+        order.push(`remove ${removed.join(',')}`);
+      });
+
+      const failed = invoke();
+      const retried = invoke();
+      await expect(failed).rejects.toThrow('account read failed');
+      await retried;
+
+      expect(order).toEqual(['remove DAppEnabled', 'retry spawn']);
+    }
+  );
+
+  describe('registerWalletFromHotKey', () => {
+    it('undoes an imported wallet when its setup fails after the spawn resolved (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const provisionalVault = unpublishableVault();
+      Vault.spawnFromHotKey.mockResolvedValueOnce(provisionalVault);
+
+      await expect(registerWalletFromHotKey('pw', 'hot:evm')).rejects.toThrow('account read failed');
+
+      expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
+      expect(mockUnlocked).not.toHaveBeenCalled();
+      expect(mockStorageRemove).toHaveBeenCalled();
+    });
+
+    it('never undoes a published wallet (#946)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromHotKey.mockResolvedValueOnce(mockVault);
+
+      await registerWalletFromHotKey('pw', 'hot:evm');
+
+      expect(mockVault.retire).not.toHaveBeenCalled();
+      expect(mockStorageRemove).not.toHaveBeenCalled();
+    });
   });
 
   describe('registerNewWallet with undefined password', () => {
@@ -1024,6 +1122,26 @@ describe('actions', () => {
 
       expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'commitment-hex');
       expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  describe('swapHotKey', () => {
+    it('passes the expectation to the vault and fires accountsUpdated (#1233)', async () => {
+      const updated = { accounts: [], currentAccount: undefined };
+      mockVault.swapHotKey.mockResolvedValueOnce(updated);
+
+      await swapHotKey('pk1', 'new-pub', 'old-pub');
+
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', 'old-pub');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith(updated);
+    });
+
+    it('passes no expectation when the caller passes none (#1233)', async () => {
+      mockVault.swapHotKey.mockResolvedValueOnce({ accounts: [], currentAccount: undefined });
+
+      await swapHotKey('pk1', 'new-pub');
+
+      expect(mockVault.swapHotKey).toHaveBeenCalledWith('pk1', 'new-pub', undefined);
     });
   });
 

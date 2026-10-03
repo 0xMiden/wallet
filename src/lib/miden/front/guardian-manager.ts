@@ -74,7 +74,7 @@ export interface GuardianAccountProvider {
   // path runs only inside the SW-side transaction processor where the
   // vault-backed provider implements them.
   persistNewHotKey?: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey?: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
+  swapHotKey?: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   // Persist a per-account guardian endpoint after a switch-guardian lands.
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.
@@ -89,7 +89,8 @@ export async function getOrCreateMultisigService(
   accountPublicKey: string,
   provider: GuardianAccountProvider,
   /**
-   * Bound the account read at the sync ceiling instead of the five-minute backstop.
+   * Bound the account read and the service init at the sync ceiling instead of the
+   * five-minute backstop. The init's load waits on the guardian's `getState` inside its hold.
    *
    * Passed by the ONE caller on a cadence — the idle loop's guardian sync — and by nobody
    * else, which is the whole point of making it a parameter rather than a constant. On the
@@ -100,7 +101,8 @@ export async function getOrCreateMultisigService(
    * four laps to light the account's fuse. The ten transaction-pipeline callers keep the
    * backstop: a user is waiting on those, and `reconcileStructuralApplyFailure` in
    * particular runs after a structural change is already on chain, where giving up three
-   * minutes sooner risks stranding the account it exists to rescue.
+   * minutes sooner risks stranding the account it exists to rescue. A caller coalesces only
+   * onto an in-flight build that asked for the same ceiling (see the coalescing check below).
    */
   boundAtSyncCeiling = false
 ): Promise<MultisigService> {
@@ -188,9 +190,10 @@ export async function getOrCreateMultisigService(
     // fix, as the two guardian-sync self-heal snapshots. The `MultisigService.init` below
     // takes a hold of its own, so it stays OUTSIDE this one: the mutex is not reentrant
     // and nesting would deadlock.
-    // ONE options object for BOTH holds the build takes. `init`'s hold is the longer
-    // of the two - it contains the client build and the guardian `load()` round trip -
-    // so bounding only the read above left this parameter's own stated purpose unmet.
+    // BOTH holds the build takes are bounded the same way, each under its own label.
+    // `init`'s hold is the longer of the two - it contains the client build and the
+    // guardian `load()` round trip - so bounding only this read left this parameter's
+    // own stated purpose unmet.
     const buildLockOptions = boundAtSyncCeiling
       ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
       : { label: 'guardian-service-build' };
@@ -229,7 +232,9 @@ export async function getOrCreateMultisigService(
       `0x${commitment}`,
       provider.signWord,
       currentEndpoint,
-      buildLockOptions
+      boundAtSyncCeiling
+        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-init' }
+        : { label: 'guardian-service-init' }
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the

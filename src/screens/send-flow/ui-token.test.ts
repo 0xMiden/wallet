@@ -71,7 +71,8 @@ describe('sameUIToken', () => {
     ['decimals', 8],
     ['balance', 6],
     ['fiatPrice', 4],
-    ['scaleIsKnown', false]
+    ['scaleIsKnown', false],
+    ['fiatPriceIsNominal', true]
   ])('is false when only %s differs', (field, value) => {
     expect(sameUIToken(base, { ...base, [field]: value })).toBe(false);
   });

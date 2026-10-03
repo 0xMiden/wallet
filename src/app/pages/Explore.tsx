@@ -35,7 +35,7 @@ import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { tokenQuote } from 'lib/miden/swap/tokens';
+import { priceSymbolFor, tokenQuote } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
@@ -216,6 +216,16 @@ const Explore: FC = () => {
     };
   }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices]);
 
+  // The price symbols of the tokens the Balance total sums, so the card waits on the feed only
+  // while one of them is a symbol the feed lists (`pricesLoaded`).
+  const totalPriceSymbols = useMemo(
+    () =>
+      allTokenBalances
+        .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
+        .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol)),
+    [allTokenBalances, isHidden]
+  );
+
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
 
@@ -327,6 +337,7 @@ const Explore: FC = () => {
             balances={allTokenBalances}
             sortedTokens={sortedTokens}
             hiddenTokens={hiddenTokens}
+            totalPriceSymbols={totalPriceSymbols}
             onUnhide={unhide}
             account={account}
             balancesLoading={balancesLoading}
@@ -350,6 +361,7 @@ interface HomeOverviewProps {
   balances: TokenBalanceData[];
   sortedTokens: TokenBalanceData[];
   hiddenTokens: TokenBalanceData[];
+  totalPriceSymbols: readonly (string | undefined)[];
   onUnhide: (tokenId: string) => Promise<boolean>;
   account: WalletAccount;
   balancesLoading: boolean;
@@ -369,6 +381,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   balances,
   sortedTokens,
   hiddenTokens,
+  totalPriceSymbols,
   onUnhide,
   account,
   balancesLoading,
@@ -395,7 +408,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={
-              !pricesLoaded(tokenPrices) || balance === null ? (
+              !pricesLoaded(tokenPrices, totalPriceSymbols) || balance === null ? (
                 '—'
               ) : (
                 // Keyed by the account: a switch lands on the new account's total instead of

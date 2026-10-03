@@ -17,6 +17,7 @@ import {
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
+import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
@@ -461,11 +462,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
     },
 
-    swapHotKey: async (accountPublicKey, newHotPubKey) => {
+    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey) => {
       const res = await request({
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey,
-        newHotPubKey
+        newHotPubKey,
+        expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
@@ -858,6 +860,13 @@ export const useWalletStore = create<WalletStore>()(
   }))
 );
 
+// The switch changes what the price helpers return for the same tokenPrices, so a memo or selector
+// keyed on tokenPrices would keep its old figure. The same prices as a new object make each recompute;
+// nothing is refetched.
+subscribeNominalUnquotedPrice(() => {
+  useWalletStore.setState(state => ({ tokenPrices: { ...state.tokenPrices } }));
+});
+
 // Export the intercom getter for use in sync hook
 export { getIntercom };
 
@@ -952,6 +961,23 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       }
     }
   );
+  // The Slow bridge-out E2E reads the real registry for the bridge's own faucet, then bridges a runtime
+  // faucet the registry never lists. The send flow checks the registry in this (page) realm, so both
+  // the check and the allowlist entry run here.
+  Reflect.set(globalThis, '__TEST_CHECK_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ isAgglayerFaucetAllowed }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    return isAgglayerFaucetAllowed(faucetRef, getEffectiveRpcUrl());
+  });
+  Reflect.set(globalThis, '__TEST_ALLOW_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ allowAgglayerFaucetForE2E }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    await allowAgglayerFaucetForE2E(faucetRef, getEffectiveRpcUrl());
+  });
   // A dApp custom/execute request is opaque base64 `TransactionRequest` bytes, which only the SDK
   // can produce - a fixture dApp page has no SDK and no vault. Built here through the very builder
   // every wallet send uses, so the bytes the suite hands to `requestTransaction` are the shape a
@@ -1207,4 +1233,71 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       setTestSyncPaused(false);
     }
   };
+  // What a guardian OPERATOR holds for an account (#1233), for the switch E2E: the commitment of its
+  // stored state, and whether it released the account. Signed with this device's hot key, which both
+  // operators' allowlists carry across a switch. Release is read off a mutation the operator refuses
+  // for a released account before anything else: signing a proposal that cannot exist answers
+  // `account_released` once released and "not found" before, and writes nothing either way.
+  Reflect.set(globalThis, '__TEST_GUARDIAN_OPERATOR_VIEW__', async (accountPublicKey: string, endpoint: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [
+        { GuardianHttpClient },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { getSignerDetailsFromAccount },
+        { isGuardianAccountReleased },
+        { WalletSigner },
+        { registerGuardianOrigin },
+        { canonicalWalletAccountId, sameWalletAccountId }
+      ] = await Promise.all([
+        import('@openzeppelin/miden-multisig-client'),
+        import('lib/miden/sdk/miden-client'),
+        import('lib/miden/guardian/account'),
+        import('lib/miden/guardian/direct-switch'),
+        import('lib/miden/guardian/signer'),
+        import('lib/miden/guardian/native-http'),
+        import('lib/miden/sdk/helpers')
+      ]);
+      const walletAccount = useWalletStore
+        .getState()
+        .accounts.find(account => sameWalletAccountId(account.publicKey, accountPublicKey));
+      if (!walletAccount?.hotPublicKey) return { error: `No hot key for ${accountPublicKey}` };
+      const hotPublicKey = walletAccount.hotPublicKey;
+      const hotCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the client build');
+          const account = await client.getAccount(walletAccount.publicKey);
+          assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the account read');
+          if (!account) throw new Error(`Guardian account ${accountPublicKey} not found in local client`);
+          return (await getSignerDetailsFromAccount(account)).commitment;
+        },
+        { label: 'e2e-guardian-operator-view' }
+      );
+      registerGuardianOrigin(endpoint);
+      const guardian = new GuardianHttpClient(endpoint);
+      guardian.setSigner(
+        new WalletSigner(`0x${hotPublicKey}`, `0x${hotCommitment}`, (publicKey: string, wordHex: string) =>
+          useWalletStore.getState().signWord(publicKey, wordHex)
+        )
+      );
+      const accountId = canonicalWalletAccountId(walletAccount.publicKey);
+      const { commitment } = await guardian.getState(accountId);
+      let released = false;
+      try {
+        await guardian.signDeltaProposal({
+          accountId,
+          commitment: `0x${'ab'.repeat(32)}`,
+          signature: { scheme: 'ecdsa', signature: '00' }
+        });
+      } catch (probeError) {
+        released = isGuardianAccountReleased(probeError);
+      }
+      return { commitment, released };
+    } catch (e) {
+      return { error: describeHookError(e) };
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
 }

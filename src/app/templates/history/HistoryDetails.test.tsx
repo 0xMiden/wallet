@@ -23,6 +23,7 @@ import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
+import { IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
@@ -306,7 +307,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
-  default: ({ size }: { size?: string }) => <div data-testid="tx-icon" data-size={size} />,
+  default: ({ entry, size }: { entry: { message?: string; transactionIcon?: string }; size?: string }) => (
+    <div data-testid="tx-icon" data-size={size} data-message={entry.message} data-icon={entry.transactionIcon} />
+  ),
   // Reads the shared constant so a future move of the activity hues carries this mock with it;
   // it was left on the retired literal when they last moved.
   getTransactionIconBackgroundColor: () => jest.requireActual('./transactionUtils').TRANSACTION_COLORS.send,
@@ -315,8 +318,14 @@ jest.mock('./TransactionIcon', () => ({
 
 // The branch adds the EVM bridge claim panel to history details. Stub it here
 // so this swap/history unit test does not load Wagmi's ESM-only runtime.
+const mockBridgeClaimSection = jest.fn((props: { entry: IHistoryEntry; restoredFromBackup: boolean }) => {
+  void props;
+});
 jest.mock('./BridgeClaimSection', () => ({
-  BridgeClaimSection: () => <div data-testid="bridge-claim-section" />
+  BridgeClaimSection: (props: { entry: IHistoryEntry; restoredFromBackup: boolean }) => {
+    mockBridgeClaimSection(props);
+    return <div data-testid="bridge-claim-section" />;
+  }
 }));
 
 jest.mock('./transactionUtils', () => ({
@@ -470,6 +479,102 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  it('shows both Guardians on a recovered switch receipt', async () => {
+    setMockRow({
+      ...baseSendTx,
+      type: 'switch-guardian',
+      amount: undefined,
+      recovered: true,
+      restoredFromBackup: true,
+      extraInputs: { previousGuardianEndpoint: 'https://old', newGuardianEndpoint: 'https://new' }
+    });
+    await renderAndLoad();
+    const summary = screen.getByTestId('guardian-change-summary');
+    expect(summary).toHaveAttribute('data-kind', 'switch');
+    expect(within(summary).getByText('old')).toBeInTheDocument();
+    expect(within(summary).getByText('new')).toBeInTheDocument();
+  });
+
+  // Recovered rows carry `recovered`, `restoredFromBackup` and `recovery` together, and a display
+  // icon unlike the one the detail page picks for them, so the page's own choice is what shows.
+  const recoveredRow = (type: string, reclaimed = false): Tx => ({
+    id: 'recovered',
+    type,
+    accountId: 'acct-A',
+    status: 2,
+    initiatedAt: 1,
+    amount: 7n,
+    faucetId: 'faucet',
+    displayIcon: type === 'swap' ? 'RECEIVE' : 'SWAP',
+    restoredFromBackup: true,
+    recovered: true,
+    recovery: {
+      version: 1,
+      network: 'testnet',
+      operators: ['https://guardian.example'],
+      nonce: 1,
+      inputNotes: [],
+      outputNotes: [],
+      completeness: 'partial',
+      reclaimed
+    }
+  });
+  const renderRecovered = async (row: Tx) => {
+    setMockRow(row);
+    const view = render(<HistoryDetails transactionId="recovered" />);
+    await act(async () => {});
+    return view;
+  };
+
+  it.each([
+    { type: 'send', reclaimed: false, title: 'sent', icon: 'SEND' },
+    { type: 'consume', reclaimed: false, title: 'received', icon: 'RECEIVE' },
+    { type: 'consume', reclaimed: true, title: 'reclaimed', icon: 'RECEIVE' },
+    { type: 'swap', reclaimed: false, title: 'guardianHistorySwap', icon: 'SWAP' },
+    { type: 'bridged-send', reclaimed: false, title: 'guardianHistoryBridgeOut', icon: 'SEND' },
+    { type: 'earn-deposit', reclaimed: false, title: 'guardianHistoryEarnDeposit', icon: 'DEFAULT' }
+  ])(
+    'uses the standard detail card for a recovered $type (reclaimed $reclaimed) with its recovered title and icon',
+    async ({ type, reclaimed, title, icon }) => {
+      const view = await renderRecovered(recoveredRow(type, reclaimed));
+      expect(screen.getByTestId('page-layout')).toBeInTheDocument();
+      expect(sectionByTitle('transferDetails')).toBeDefined();
+      expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-message', title);
+      expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-icon', icon);
+      view.unmount();
+    }
+  );
+
+  it('titles a local consume that gained recovery data with its own message and icon', async () => {
+    await renderRecovered({
+      ...recoveredRow('consume'),
+      recovered: undefined,
+      restoredFromBackup: undefined,
+      displayMessage: 'Claimed',
+      displayIcon: 'DEFAULT'
+    });
+    expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-message', 'Claimed');
+    expect(screen.getByTestId('tx-icon')).toHaveAttribute('data-icon', 'DEFAULT');
+  });
+
+  it('shows a recovered swap with no requested token on the standard card, where a local one gets the order card', async () => {
+    const recovered = await renderRecovered(recoveredRow('swap'));
+    expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
+    expect(sectionByTitle('transferDetails')).toBeDefined();
+    recovered.unmount();
+
+    await renderRecovered({ ...recoveredRow('swap'), recovered: undefined });
+    expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+  });
+
+  it('shows no bridge claim for a recovered bridged send, where a local one gets it', async () => {
+    const recovered = await renderRecovered(recoveredRow('bridged-send'));
+    expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+    recovered.unmount();
+
+    await renderRecovered({ ...recoveredRow('bridged-send'), recovered: undefined });
+    expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
+  });
   it('shows the fee bound when retrying a Miden transaction', async () => {
     mockMaxNetworkFee = '0.3 MIDEN';
     setMockRow({ ...baseSendTx, status: 3 });
@@ -1573,6 +1678,36 @@ describe('HistoryDetails', () => {
       extraInputs: { expiresAt: 1_700_000_120, ...extra }
     });
 
+    it('shows a recovered swap with its requested token and linked receive', async () => {
+      mockGetSwapTokenByFaucetId.mockImplementation((faucetId: string) => ({
+        symbol: faucetId === 'req-faucet' ? 'IETH' : 'MIDEN',
+        decimals: 8
+      }));
+      setMockRow({
+        ...swapTx({ orderId: '42', requestedFaucetId: 'req-faucet', requestedAmount: 30n, autoConsume: false }),
+        recovered: true,
+        restoredFromBackup: true
+      });
+      setMockSettlementNotes({
+        settled: ['payback'],
+        reclaimed: [],
+        reclaimedTransactions: [],
+        settledTransactions: [
+          {
+            id: 'receive',
+            noteIds: ['payback'],
+            amount: 30n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          }
+        ]
+      });
+      await renderAndLoad();
+      expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_30_30_ IETH');
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('payback');
+    });
+
     it('resolves the requested token via the swap registry and shows a filled order', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       // A filled order has nothing outstanding - a lineage reporting 'filled'
@@ -2234,6 +2369,48 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilledReclaimed');
+      expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+    });
+
+    it('offers no claim route on a recovered order whose tip was reclaimed after a partial fill', async () => {
+      // The fixture above, where a local row shows the route; a recovered row stays out of automation.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      seedTracking({
+        orderId: '42',
+        state: 'reclaimed',
+        currentDepth: 1,
+        remainingOffered: 600n,
+        remainingRequested: 600n
+      });
+      setMockRow({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false }),
+        recovered: true
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+    });
+
+    it('keeps the claim route on a file-restored order whose tip was reclaimed after a partial fill', async () => {
+      // The same fixture restored from a backup file: only a recovered row loses the route.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      seedTracking({
+        orderId: '42',
+        state: 'reclaimed',
+        currentDepth: 1,
+        remainingOffered: 600n,
+        remainingRequested: 600n
+      });
+      setMockRow({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false }),
+        restoredFromBackup: true
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
       expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
     });
 
@@ -3180,6 +3357,51 @@ describe('HistoryDetails', () => {
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('notConfirmed');
+    });
+
+    it('hands the bridge section the stamped reclaim height and note id of an unconfirmed bridge-out (#1250)', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        status: 3,
+        error: TRANSACTION_STUCK_ERROR,
+        outputNoteIds: undefined,
+        extraInputs: {
+          ...(bridgedSendTx.extraInputs as Record<string, unknown>),
+          epochStatus: undefined,
+          reclaimHeight: 3016,
+          reclaimNoteId: 'note-stamped'
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        isUnconfirmed: true,
+        bridgeReclaimHeight: 3016,
+        bridgeReclaimNoteId: 'note-stamped'
+      });
+    });
+
+    it('hands the bridge section the submit claim of a route-failed bridge-out (#1250)', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        status: 3,
+        outputNoteIds: undefined,
+        extraInputs: {
+          ...(bridgedSendTx.extraInputs as Record<string, unknown>),
+          epochStatus: 'failed',
+          reclaimHeight: 3016,
+          reclaimNoteId: 'note-stamped',
+          submitClaimed: true
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        isUnconfirmed: false,
+        bridgeEpochStatus: 'failed',
+        bridgeReclaimNoteId: 'note-stamped',
+        bridgeSubmitClaimed: true
+      });
     });
 
     // A stamped user cancel may have landed, so it keeps the bridge section like any other

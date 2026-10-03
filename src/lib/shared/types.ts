@@ -929,6 +929,7 @@ export interface SwapHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyRequest;
   accountPublicKey: string;
   newHotPubKey: string;
+  expectedHotPubKey?: string | null;
 }
 
 export interface SwapHotKeyResponse extends WalletMessageBase {

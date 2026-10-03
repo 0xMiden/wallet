@@ -133,8 +133,8 @@ export interface ConsumeNotesQueueResult {
 
 /**
  * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
- * both the WASM client (`transactions.consume({ notes })`) and the Guardian
- * consume proposal accept multiple note ids, so batching is one proof/submit
+ * both the WASM client's consume request (`newConsumeTransactionRequest`) and the
+ * Guardian consume proposal take many notes, so batching is one proof/submit
  * instead of N.
  *
  * Per-note dedup against all non-Failed consume txs, including Completed ones.
