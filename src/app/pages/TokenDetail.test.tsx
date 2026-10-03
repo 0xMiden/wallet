@@ -3,7 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -28,6 +28,8 @@ import enMessages from '../../../public/_locales/en/en.json';
 // returned string so the price-change test can assert that the +/- sign and
 // value flowed through `tokenDetailChange24h`'s `{{change}}` (mirrors the
 // sibling ReviewSwap.test.tsx mock).
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {

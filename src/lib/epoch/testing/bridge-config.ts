@@ -17,7 +17,10 @@ export const TEST_EARN_MARKET: EarnMarket = {
   underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
   chainId: TEST_EVM_CHAIN_ID
 };
-export const TEST_MIDEN_USDC: MidenUsdc = { faucetId: '0x537c15a622074e91188aa894456c52', symbol: 'USDC', decimals: 6 };
+export const TEST_MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
+export const TEST_MIDEN_USDC: MidenUsdc = { faucetId: TEST_MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
+/** The testnet bridge registry's native-ETH faucet: it mints bridged ETH and sends its deliveries. */
+export const TEST_NATIVE_ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
 
 /**
  * A `lib/remote-config/values` stand-in resolving to the fixtures above; every getter is a jest.fn a suite can

@@ -2,8 +2,10 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   fetchGuardianNoteRecoveryProgress,
@@ -59,6 +61,8 @@ const mockUnresolvedRefusal = (address: string, marker: FaucetFundingMarker, rep
 };
 
 let mockBaseFee: number | null = 0;
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({

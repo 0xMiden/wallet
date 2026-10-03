@@ -14,6 +14,8 @@ import EarnDepositAmount from './EarnDepositAmount';
 let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
 
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('lib/woozie', () => ({

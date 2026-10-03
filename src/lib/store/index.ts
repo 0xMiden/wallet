@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
-import { setEarnCollateralFaucetForTest } from 'lib/epoch/collateral';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
@@ -1058,13 +1057,11 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     }
   });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
-  // The Earn screens and `openEarnPosition` run page-side, so the override must be set in
-  // THIS (page) realm; a served document cannot name a faucet the suite creates at runtime.
-  // The price allowlist still reads the old setter until it moves to the bridge config.
-  // Zero prod impact.
+  // The Earn screens, `openEarnPosition` and the price allowlist read it page-side, so the
+  // override must be set in THIS (page) realm; a served document cannot name a faucet the
+  // suite creates at runtime. Zero prod impact.
   (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
     setEarnCollateralFaucetOverride({ faucetId: faucetHex });
-    setEarnCollateralFaucetForTest(faucetHex);
   };
   (globalThis as any).__TEST_SET_FEE_FAUCET__ = async (faucetId: string): Promise<void> => {
     const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');

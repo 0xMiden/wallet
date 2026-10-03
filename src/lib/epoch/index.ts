@@ -19,7 +19,6 @@ export {
   buildEarnIntent,
   earnCollateralFaucetId
 } from './earn';
-export { getEarnCollateralFaucet, MIDEN_USDC_FAUCET } from './collateral';
 export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote, EarnIntentOutcome, EpochLegStatus } from './earn';
 export {
   buildEarnWithdrawTaskDataParams,
