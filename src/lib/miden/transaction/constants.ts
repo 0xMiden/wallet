@@ -204,6 +204,13 @@ export const TRANSACTION_RETRY_UNSAFE_ERROR =
   'Check your activity once it syncs, and start a new one only if it never arrived.';
 
 /**
+ * The reason on a row the node proved can never commit (#1081), rendered verbatim by `TransactionFailureCard`. It joins
+ * neither reason set: the row keeps its earlier reason in `rawError`.
+ */
+export const TRANSACTION_NEVER_COMMITTED_ERROR =
+  'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.';
+
+/**
  * A lock-recovery eviction (issue #775). Deliberately hedged: recovery ABANDONS
  * the operation rather than cancelling it, so the pipeline may still be running
  * and may still submit. Every stage-based message below would claim more than
