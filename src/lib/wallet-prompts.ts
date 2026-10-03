@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
-import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
+import {
+  agglayerClaimedFields,
+  findAgglayerExitDeposit,
+  isAgglayerDepositClaimed,
+  isAgglayerDepositReady
+} from 'lib/agglayer';
 import {
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
@@ -17,7 +22,7 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import * as Repo from 'lib/miden/repo';
 import { tokenQuote } from 'lib/miden/swap/tokens';
-import { bridgedSendLandedValues, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
+import { bridgedSendLandedValues, pinAgglayerDeposit, updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import { isUnconfirmedFailure } from 'lib/miden/transaction/constants';
 import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
@@ -113,10 +118,11 @@ function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.type !== 'bridged-send') return false;
   if (tx.status !== ITransactionStatus.Completed) return true;
 
-  const inputs = tx.extraInputs as IBridgedSendExtraInputs;
-  return inputs.provider === 'epoch'
-    ? inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed'
-    : inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
+  const inputs: IBridgedSendExtraInputs = tx.extraInputs;
+  if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
+  // A row whose exit could not be bound is never polled, so nothing would ever clear its prompt (#1325).
+  if (inputs.agglayerExitTxHashUnavailable) return false;
+  return inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
 }
 
 export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
@@ -166,18 +172,29 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (!inputs) return;
 
   if (inputs.provider === 'agglayer') {
-    if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
-    // An unbound lookup on a Failed row could claim a sibling deposit for a bridge
-    // that never even landed, so a Failed row is looked up only once its own Miden
-    // transaction id is known - that is what binds the lookup to it.
-    if (failedUnconfirmed && !tx.transactionId) return;
-    // Bound to this row's own Miden transaction id: several rows can share one
-    // destination address, and marking them all ready off ANY claimable deposit
-    // points every one of them at the same deposit.
-    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
-    // Passed through unconditionally so a Failed row's write always carries the
-    // bound hash `updateBridgeClaimStatus` needs to promote it (#1250).
-    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true }, deposit.tx_hash);
+    // Bound to this row's own exit hash, the indexer's tx_hash for the B2AGG note it built: several rows can share
+    // one destination address, and only this binding tells their deposits apart. A row without one is never looked
+    // up, Failed or not (#1325).
+    const exitTxHash = inputs.agglayerExitTxHash;
+    if (inputs.claimStatus === 'claimed' || !inputs.destinationAddress || !exitTxHash) return;
+    const deposit = await findAgglayerExitDeposit(inputs.destinationAddress, exitTxHash, inputs.agglayerDepositCnt);
+    if (!deposit) return;
+    // Every claim-status write carries the deposit's own tx_hash, so a Failed row is promoted by the first (#1250).
+    // A claim by anyone settles the row: the bridge's auto-claimer claims every exit minutes after it is ready.
+    if (isAgglayerDepositClaimed(deposit)) {
+      await updateBridgeClaimStatus(tx.id, 'claimed', agglayerClaimedFields(deposit), deposit.tx_hash);
+    } else if (isAgglayerDepositReady(deposit)) {
+      if (inputs.claimStatus === 'pending') {
+        await updateBridgeClaimStatus(
+          tx.id,
+          'ready',
+          { depositReady: true, agglayerDepositCnt: deposit.deposit_cnt },
+          deposit.tx_hash
+        );
+      }
+    } else if (inputs.agglayerDepositCnt !== deposit.deposit_cnt) {
+      await pinAgglayerDeposit(tx.id, deposit.deposit_cnt);
+    }
     return;
   }
 
