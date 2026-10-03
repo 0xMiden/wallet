@@ -1,7 +1,7 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { requireEarnMarket, requireEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEarnMarket, getEpochPositionsUrl } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
 /**
@@ -311,7 +311,7 @@ export interface FetchEarnPositionsArgs {
  * the bridge config names no positions host or Earn market, before any request.
  */
 export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Promise<EarnPositionsResult> {
-  const [positionsUrl, market] = await Promise.all([requireEpochPositionsUrl(), requireEarnMarket()]);
+  const [positionsUrl, market] = [getEpochPositionsUrl(), getEarnMarket()];
   const chains = args.chains ?? [market.chainId];
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 

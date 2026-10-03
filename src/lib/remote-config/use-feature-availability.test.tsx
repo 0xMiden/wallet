@@ -30,7 +30,7 @@ jest.mock('./runtime', () => ({
       mockListeners.delete(listener);
     };
   },
-  loadBridgeConfig: () => mockLoad(),
+  initBridgeConfig: () => mockLoad(),
   holdFastPoll: () => mockHold()
 }));
 

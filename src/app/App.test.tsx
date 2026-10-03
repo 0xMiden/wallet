@@ -23,9 +23,9 @@ import React from 'react';
 
 import { render, waitFor } from '@testing-library/react';
 
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
-import { loadBridgeConfig } from 'lib/remote-config/runtime';
 import { initCrashReporting } from 'lib/telemetry/crash';
 
 // NOTE: App is required lazily (not statically imported) because App.tsx calls
@@ -72,7 +72,7 @@ jest.mock('lib/telemetry/crash', () => ({
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({
-  loadBridgeConfig: jest.fn(() => Promise.resolve())
+  initBridgeConfig: jest.fn(() => Promise.resolve())
 }));
 
 // `getThemeSetting` is here only because the (unmocked) AppKit provider reads it
@@ -416,7 +416,7 @@ describe('app/App', () => {
       const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
       rerender(<App env={{ windowType: 'FullPage', confirmWindow: false }} />);
 
-      expect(jest.mocked(loadBridgeConfig)).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(1);
     });
 
     it('loads it on the mobile and confirm-window surfaces too', () => {
@@ -427,7 +427,7 @@ describe('app/App', () => {
 
       renderApp({ windowType: 'Popup', confirmWindow: true });
 
-      expect(jest.mocked(loadBridgeConfig)).toHaveBeenCalledTimes(2);
+      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(2);
     });
   });
 

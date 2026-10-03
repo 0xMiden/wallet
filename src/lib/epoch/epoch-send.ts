@@ -3,7 +3,7 @@ import { formatUnits } from 'viem';
 
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
-import { type EvmUsdc, requireEvmChainId, requireEvmUsdc } from 'lib/remote-config/values';
+import { type EvmUsdc, getEvmChainId, getEvmUsdc } from 'lib/remote-config/values';
 
 import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
@@ -74,7 +74,7 @@ export async function quoteEpochSendOutput(args: {
   senderPublicKey: string;
 }): Promise<EpochQuoteOutput> {
   // Rejects while the config names no usable output token, before any SDK work.
-  const usdc = await requireEvmUsdc();
+  const usdc = getEvmUsdc();
   const sdk = await getEpochReadOnlySdk(args.destinationAddress);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
@@ -129,7 +129,7 @@ export interface EpochSendArgs {
  */
 export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
   // Rejects while the config names no usable output token, before any SDK or note work.
-  const usdc = await requireEvmUsdc();
+  const usdc = getEvmUsdc();
   const sdk = await getEpochReadOnlySdk(args.destinationAddress);
   const currentBlock = await getCurrentMidenBlock();
   const params = buildEpochSendParams(
@@ -248,7 +248,7 @@ export async function pollEpochIntentFill(args: {
   if (!args.intentNonce || !isEvmAddress(args.destinationAddress)) return null;
   try {
     const sdk = await getEpochReadOnlySdk(args.destinationAddress);
-    const destinationChainId = await requireEvmChainId();
+    const destinationChainId = getEvmChainId();
     const results = await readEpochIntentStatus(sdk, args.destinationAddress, args.intentNonce);
     if (!results || results.length === 0) return { status: 'pending' };
 

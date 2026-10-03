@@ -1,7 +1,6 @@
 import { canonicalFaucetId, strictPriceSymbolFor } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getPriceMicro } from 'lib/prices/usd';
-import { loadBridgeConfig } from 'lib/remote-config/runtime';
 
 import { IConsumedAssetTotal } from '../db/types';
 import { fetchTokenMetadata } from '../metadata';
@@ -56,8 +55,6 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
   } catch (cause) {
     throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
   }
-  // Never rejects.
-  await loadBridgeConfig();
   let total = 0n;
   for (const spend of spends) {
     let faucetId: string;

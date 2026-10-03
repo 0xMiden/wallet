@@ -10,7 +10,7 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { requireEpochAllocatorUrl, requireEvmUsdc } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -54,7 +54,7 @@ jest.mock('lib/remote-config/values', () => {
   const fixtures = jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config');
   const values = fixtures.remoteConfigValuesMock();
   // This suite's positions report a 6-decimal token.
-  values.requireEvmUsdc.mockResolvedValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
+  values.getEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
   return values;
 });
 interface MockLeg {
@@ -221,7 +221,7 @@ describe('gaslessEarnWithdrawalToMiden', () => {
   });
 
   it('withdraws only the token the config names, at its decimals', async () => {
-    jest.mocked(requireEvmUsdc).mockResolvedValueOnce({ ...TEST_EVM_USDC, decimals: 18 });
+    jest.mocked(getEvmUsdc).mockReturnValueOnce({ ...TEST_EVM_USDC, decimals: 18 });
     const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
 
     await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow(
@@ -237,7 +237,9 @@ describe('gaslessEarnWithdrawalToMiden', () => {
   });
 
   it('refuses before creating any row while the config names no allocator', async () => {
-    jest.mocked(requireEpochAllocatorUrl).mockRejectedValueOnce(new Error('no allocator'));
+    jest.mocked(getEpochAllocatorUrl).mockImplementationOnce(() => {
+      throw new Error('no allocator');
+    });
     const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
 
     await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow('no allocator');

@@ -4,7 +4,7 @@ import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitAccount } from '@reown/appkit/react';
 import { sepolia } from 'viem/chains';
 
-import { requireEpochAllocatorUrl } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, getEvmConnection } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -42,7 +42,7 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
     midenCache = null;
     return null;
   }
-  const apiBaseUrl = await requireEpochAllocatorUrl();
+  const apiBaseUrl = getEpochAllocatorUrl();
   const chainId = opts?.forMidenFlow ? MIDEN_DESTINATION_CHAIN_ID : sepolia.id;
   const slot = opts?.forMidenFlow ? midenCache : defaultCache;
   if (slot && slot.address === address && slot.chainId === chainId && slot.apiBaseUrl === apiBaseUrl) {
@@ -70,7 +70,7 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
  * recipient address. Caches one instance per destination.
  */
 export async function getEpochReadOnlySdk(destinationAddress: `0x${string}`): Promise<EpochIntentSDK> {
-  const apiBaseUrl = await requireEpochAllocatorUrl();
+  const apiBaseUrl = getEpochAllocatorUrl();
   const chainId = MIDEN_DESTINATION_CHAIN_ID;
   const cached = readOnlyCache;
   if (cached?.address === destinationAddress && cached.chainId === chainId && cached.apiBaseUrl === apiBaseUrl) {
@@ -96,7 +96,7 @@ export async function getEpochSigningSdk(
   midenAccountPublicKey: string,
   evmAddress: `0x${string}`
 ): Promise<EpochIntentSDK> {
-  const apiBaseUrl = await requireEpochAllocatorUrl();
+  const apiBaseUrl = getEpochAllocatorUrl();
   const cached = signingCache;
   if (cached?.address === evmAddress && cached.chainId === sepolia.id && cached.apiBaseUrl === apiBaseUrl) {
     return cached.sdk;

@@ -8,7 +8,7 @@ import {
   type BridgeConfigSnapshot,
   getBridgeConfigSnapshot,
   holdFastPoll,
-  loadBridgeConfig,
+  initBridgeConfig,
   subscribeBridgeConfig
 } from './runtime';
 
@@ -18,7 +18,7 @@ const AVAILABLE: FeatureAvailability = { state: 'available' };
 export function useBridgeConfigSnapshot(): BridgeConfigSnapshot {
   const snapshot = useSyncExternalStore(subscribeBridgeConfig, getBridgeConfigSnapshot);
   // Keyed on the network, so a Developer Settings switch loads that network's copy at once. Never rejects.
-  useEffect(() => void loadBridgeConfig(), [snapshot.network]);
+  useEffect(() => void initBridgeConfig(), [snapshot.network]);
   return snapshot;
 }
 

@@ -19,7 +19,7 @@ import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive'
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
-import { requireAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from 'lib/remote-config/values';
+import { getAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from 'lib/remote-config/values';
 import { WalletAccount } from 'lib/shared/types';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
@@ -384,7 +384,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const isNative = token === 'ETH';
         if (!isNative && !evmUsdc) throw new Error('The bridge config names no USDC token.');
         // The L1 bridge the config names, and the Miden rollup id its bridge account reports.
-        const { l1Bridge: contractAddress, rollupId } = await requireAgglayerDeposit();
+        const { l1Bridge: contractAddress, rollupId } = getAgglayerDeposit();
         const amountInBaseUnits = parseUnits(amount.trim(), isNative ? ETH_DECIMALS : usdcDecimals);
         const tokenAddress: `0x${string}` =
           isNative || !evmUsdc ? '0x0000000000000000000000000000000000000000' : evmUsdc.address;

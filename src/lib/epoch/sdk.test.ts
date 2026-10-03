@@ -1,6 +1,6 @@
 import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 
-import { requireEpochAllocatorUrl } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import { ensureEpochSmartAccount, getEpochReadOnlySdk, resetEpochSdk } from './sdk';
 import { TEST_ALLOCATOR_URL } from './testing/bridge-config';
@@ -80,7 +80,7 @@ describe('the configured allocator', () => {
   beforeEach(() => {
     resetEpochSdk();
     jest.mocked(EpochIntentSDK).mockClear();
-    jest.mocked(requireEpochAllocatorUrl).mockResolvedValue(TEST_ALLOCATOR_URL);
+    jest.mocked(getEpochAllocatorUrl).mockReturnValue(TEST_ALLOCATOR_URL);
   });
 
   const allocators = () => jest.mocked(EpochIntentSDK).mock.calls.map(([config]) => config.apiBaseUrl);
@@ -93,13 +93,15 @@ describe('the configured allocator', () => {
 
   it('rebuilds the SDK against the new host once the config moves the allocator', async () => {
     const first = await getEpochReadOnlySdk(EVM_ADDRESS);
-    jest.mocked(requireEpochAllocatorUrl).mockResolvedValue('https://moved.test');
+    jest.mocked(getEpochAllocatorUrl).mockReturnValue('https://moved.test');
     expect(await getEpochReadOnlySdk(EVM_ADDRESS)).not.toBe(first);
     expect(allocators()).toEqual([TEST_ALLOCATOR_URL, 'https://moved.test']);
   });
 
   it('builds nothing while the config names no allocator', async () => {
-    jest.mocked(requireEpochAllocatorUrl).mockRejectedValue(new Error('no allocator'));
+    jest.mocked(getEpochAllocatorUrl).mockImplementation(() => {
+      throw new Error('no allocator');
+    });
     await expect(getEpochReadOnlySdk(EVM_ADDRESS)).rejects.toThrow('no allocator');
     await expect(ensureEpochSmartAccount('miden-account', EVM_ADDRESS)).rejects.toThrow('no allocator');
     expect(EpochIntentSDK).not.toHaveBeenCalled();

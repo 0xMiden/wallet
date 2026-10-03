@@ -7,8 +7,7 @@ import { bridgePriceAllowlist } from './bridge-price-allowlist';
 
 let mockSnapshot: BridgeConfigSnapshot;
 jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () => mockSnapshot,
-  loadBridgeConfig: jest.fn()
+  getBridgeConfigSnapshot: () => mockSnapshot
 }));
 
 const USDC_FAUCET = '0x537c15a622074e91188aa894456c52';

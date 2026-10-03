@@ -29,11 +29,11 @@ export const TEST_NATIVE_ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
  */
 export function remoteConfigValuesMock() {
   return {
-    requireEpochAllocatorUrl: jest.fn(async () => TEST_ALLOCATOR_URL),
-    requireEpochPositionsUrl: jest.fn(async () => TEST_POSITIONS_URL),
-    requireEvmChainId: jest.fn(async () => TEST_EVM_CHAIN_ID),
-    requireEvmUsdc: jest.fn(async () => TEST_EVM_USDC),
-    requireEarnMarket: jest.fn(async () => TEST_EARN_MARKET),
-    requireMidenUsdc: jest.fn(async () => TEST_MIDEN_USDC)
+    getEpochAllocatorUrl: jest.fn(() => TEST_ALLOCATOR_URL),
+    getEpochPositionsUrl: jest.fn(() => TEST_POSITIONS_URL),
+    getEvmChainId: jest.fn(() => TEST_EVM_CHAIN_ID),
+    getEvmUsdc: jest.fn(() => TEST_EVM_USDC),
+    getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
+    getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)
   };
 }

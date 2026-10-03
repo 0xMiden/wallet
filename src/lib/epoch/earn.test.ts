@@ -1,6 +1,6 @@
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
-import { requireEarnMarket } from 'lib/remote-config/values';
+import { getEarnMarket } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
 import { openEarnPosition, pollEarnIntentStatus, reconcileEarnDeposits, resolveEarnIntentOutcome } from './earn';
@@ -596,10 +596,17 @@ describe('openEarnPosition guards', () => {
     );
   });
 
-  it('refuses before any SDK work while the config names no Earn market', async () => {
-    jest.mocked(requireEarnMarket).mockRejectedValueOnce(new Error('no market'));
+  it('refuses before any SDK work while the config names no Earn market, as a rejection the flow catches', async () => {
+    jest.mocked(getEarnMarket).mockImplementationOnce(() => {
+      throw new Error('no market');
+    });
 
-    await expect(openEarnPosition(baseArgs())).rejects.toThrow('no market');
+    // The getter throws synchronously; a caller's try/await must still see a rejection, never a throw at call time.
+    let pending: Promise<unknown> | undefined;
+    expect(() => {
+      pending = openEarnPosition(baseArgs());
+    }).not.toThrow();
+    await expect(pending).rejects.toThrow('no market');
     expect(mockGetSdk).not.toHaveBeenCalled();
   });
 });

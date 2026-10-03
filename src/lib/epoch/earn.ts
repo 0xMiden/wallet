@@ -11,7 +11,7 @@ import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/t
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
-import { type EarnMarket, requireEarnMarket, requireEvmChainId } from 'lib/remote-config/values';
+import { type EarnMarket, getEarnMarket, getEvmChainId } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
@@ -282,7 +282,7 @@ export function pollEarnIntentStatus(args: {
     immediate,
     tick: async context => {
       // A config that names no chain throws here, before any read, and the poll retries: the row is never failed for it.
-      const destinationChainId = await requireEvmChainId();
+      const destinationChainId = getEvmChainId();
       const stillLive = async () => txId === undefined || isLiveDeposit(txId, expected);
       if (!(await stillLive())) {
         context.markTerminal();
@@ -354,7 +354,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
   const evmRecipient = args.evmAddress;
 
-  const market = await requireEarnMarket();
+  const market = getEarnMarket();
   const sdk = await getEpochReadOnlySdk(evmRecipient);
   const currentBlock = await getCurrentMidenBlock();
 

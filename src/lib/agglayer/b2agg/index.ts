@@ -24,7 +24,7 @@ import {
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { isExtension } from 'lib/platform';
-import { requireAgglayerBridgeOut } from 'lib/remote-config/values';
+import { getAgglayerBridgeOut } from 'lib/remote-config/values';
 
 export async function createB2AggNote(
   amount: bigint,
@@ -88,7 +88,7 @@ export async function initiateB2AggBridge(args: {
   const { amount, faucetId, destinationAddress, senderPublicKey, spendingLimitAuthorization } = args;
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its
   // destination, which the row records too.
-  const { midenBridge, evmNetworkId } = await requireAgglayerBridgeOut();
+  const { midenBridge, evmNetworkId } = getAgglayerBridgeOut();
 
   // Build the note + TransactionRequest under the WASM lock; the queue stores
   // the serialized request and the processor submits it.

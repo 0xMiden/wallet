@@ -2,7 +2,7 @@ import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { BaseContract, BrowserProvider, ContractTransactionResponse, Overrides } from 'ethers';
 import { EIP1193Provider } from 'viem';
 
-import { requireAgglayerL1Bridge } from 'lib/remote-config/values';
+import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
 import { AGGLAYER_BRIDGE_ABI } from './constant';
 import { AgglayerDeposit, fetchMerkleProof } from './status';
@@ -52,7 +52,7 @@ export const claimAgglayerDeposit = async ({
   deposit: AgglayerDeposit;
   provider: EIP1193Provider;
 }): Promise<ContractTransactionResponse> => {
-  const l1Bridge = await requireAgglayerL1Bridge();
+  const l1Bridge = getAgglayerL1Bridge();
   const proof = await fetchMerkleProof(deposit.deposit_cnt, deposit.network_id);
 
   const ethersProvider = new BrowserProvider(provider);

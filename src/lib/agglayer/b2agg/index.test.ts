@@ -66,8 +66,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 // The bridge account and its L1 network id come from the remote config.
-const mockRequireBridgeOut = jest.fn();
-jest.mock('lib/remote-config/values', () => ({ requireAgglayerBridgeOut: () => mockRequireBridgeOut() }));
+const mockGetBridgeOut = jest.fn();
+jest.mock('lib/remote-config/values', () => ({ getAgglayerBridgeOut: () => mockGetBridgeOut() }));
 
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
@@ -124,7 +124,7 @@ describe('initiateB2AggBridge', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFeeAwareBuilder.withOwnOutputNotes.mockReturnValue(mockFeeAwareBuilder);
-    mockRequireBridgeOut.mockResolvedValue({ midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 });
+    mockGetBridgeOut.mockReturnValue({ midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 });
   });
 
   it('records the faucet id on the row in BECH32 form, never the raw hex constant', async () => {
@@ -291,7 +291,7 @@ describe('initiateB2AggBridge', () => {
   });
 
   it('addresses the note to the configured bridge and network, and records that network on the row', async () => {
-    mockRequireBridgeOut.mockResolvedValue({ midenBridge: '0x0123456789abcdef0123456789abcd', evmNetworkId: 7 });
+    mockGetBridgeOut.mockReturnValue({ midenBridge: '0x0123456789abcdef0123456789abcd', evmNetworkId: 7 });
 
     await initiateB2AggBridge({
       amount: 250n,
@@ -307,7 +307,9 @@ describe('initiateB2AggBridge', () => {
   });
 
   it('builds and queues nothing while the bridge config cannot name the bridge-out values', async () => {
-    mockRequireBridgeOut.mockRejectedValue(new Error('bridge out unavailable'));
+    mockGetBridgeOut.mockImplementation(() => {
+      throw new Error('bridge out unavailable');
+    });
 
     await expect(
       initiateB2AggBridge({

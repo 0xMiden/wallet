@@ -1,4 +1,4 @@
-import { requireAgglayerIndexerUrl } from 'lib/remote-config/values';
+import { getAgglayerIndexerUrl } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
 // A bridge indexer that accepts the connection then goes silent must not hang
@@ -98,7 +98,7 @@ interface BridgesResponse {
 // deposit by origin tx hash and not confuse it with an earlier bridge.
 export async function fetchDeposits(destAddr: string, limit = 10): Promise<AgglayerDeposit[]> {
   const data = await agglayerJson<BridgesResponse>(
-    `${await requireAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${limit}&offset=0`,
+    `${getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${limit}&offset=0`,
     'Agglayer bridge status'
   );
   return data.deposits ?? [];
@@ -169,7 +169,7 @@ export async function findClaimableMidenToEvmDeposit(
 // Fetch the merkle proof for a deposit (net_id is the deposit's `network_id`).
 export async function fetchMerkleProof(depositCnt: number, netId: number): Promise<AgglayerMerkleProof> {
   const data = await agglayerJson<MerkleProofResponse>(
-    `${await requireAgglayerIndexerUrl()}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
+    `${getAgglayerIndexerUrl()}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
     'Agglayer merkle-proof status'
   );
   return data.proof;

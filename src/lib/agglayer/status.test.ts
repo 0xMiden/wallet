@@ -9,8 +9,8 @@ import {
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
-const mockIndexerUrl = jest.fn(async () => 'https://indexer.one.example/api');
-jest.mock('lib/remote-config/values', () => ({ requireAgglayerIndexerUrl: () => mockIndexerUrl() }));
+const mockIndexerUrl = jest.fn(() => 'https://indexer.one.example/api');
+jest.mock('lib/remote-config/values', () => ({ getAgglayerIndexerUrl: () => mockIndexerUrl() }));
 
 const deposit = (overrides: Record<string, unknown>) =>
   ({ tx_hash: '0x1', ready_for_claim: false, ...overrides }) as any;
@@ -246,7 +246,9 @@ describe('the configured indexer', () => {
   });
 
   it('sends nothing while the config names no indexer', async () => {
-    mockIndexerUrl.mockRejectedValueOnce(new Error('no indexer'));
+    mockIndexerUrl.mockImplementationOnce(() => {
+      throw new Error('no indexer');
+    });
     await expect(fetchDeposits('0xdest')).rejects.toThrow('no indexer');
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -51,7 +51,7 @@ jest.mock('lib/agglayer', () => ({
 jest.mock('lib/remote-config/values', () => ({
   selectEvmUsdc: () => mockEvmUsdc,
   selectMidenUsdc: () => mockMidenUsdc,
-  requireAgglayerDeposit: async () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
+  getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
 }));
 
 jest.mock('use-debounce', () => ({

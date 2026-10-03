@@ -3,7 +3,7 @@ import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
-import { loadBridgeConfig } from 'lib/remote-config/runtime';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { selectNativeEthFaucet } from 'lib/remote-config/values';
 
 import { compareAccountIds } from './utils';
@@ -177,7 +177,7 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
  */
 async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
   if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
-  const faucet = selectNativeEthFaucet(await loadBridgeConfig());
+  const faucet = selectNativeEthFaucet(getBridgeConfigSnapshot());
   if (!faucet) return false;
   try {
     // The consume reads its sender in bech32; the registry names the faucet in hex.

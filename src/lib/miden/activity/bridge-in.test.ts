@@ -36,7 +36,7 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
 });
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH' }));
 // The delivery sender is the registry's native-ETH faucet (hex); the consume reads its sender in bech32.
-jest.mock('lib/remote-config/runtime', () => ({ loadBridgeConfig: jest.fn(async () => ({})) }));
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: jest.fn(() => ({})) }));
 jest.mock('lib/remote-config/values', () => ({ selectNativeEthFaucet: jest.fn(() => '0xagg') }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: (ref: string) => ({ toString: () => (ref === 'agg-sender' ? '0xAGG' : `0x${ref}`) })

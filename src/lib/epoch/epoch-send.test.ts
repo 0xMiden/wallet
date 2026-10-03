@@ -13,13 +13,13 @@ const mockUsdc = {
   decimals: 6,
   chainId: 11155111
 };
-const mockRequireEvmUsdc = jest.fn(async () => mockUsdc);
+const mockGetEvmUsdc = jest.fn(() => mockUsdc);
 
 jest.mock('./bridge', () => ({
   getCrossChainQuote: (...args: unknown[]) => mockGetCrossChainQuote(...args),
   buildCrossChainIntent: (...args: unknown[]) => mockBuildCrossChainIntent(...args)
 }));
-jest.mock('lib/remote-config/values', () => ({ requireEvmUsdc: () => mockRequireEvmUsdc() }));
+jest.mock('lib/remote-config/values', () => ({ getEvmUsdc: () => mockGetEvmUsdc() }));
 jest.mock('./chain', () => ({
   getCurrentMidenBlock: () => mockGetCurrentMidenBlock(),
   MIDEN_MIN_RECLAIM_BLOCKS: 1000,
@@ -161,7 +161,7 @@ describe('the configured output token', () => {
   });
 
   it('quotes and sends into the token and chain the config names', async () => {
-    mockRequireEvmUsdc.mockResolvedValue({
+    mockGetEvmUsdc.mockReturnValue({
       address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
       symbol: 'USDC.e',
       decimals: 18,
@@ -187,13 +187,17 @@ describe('the configured output token', () => {
       'not-applicable',
       expect.objectContaining({ outputAmount: '1.5', outputSymbol: 'USDC.e' })
     );
-    mockRequireEvmUsdc.mockResolvedValue(mockUsdc);
+    mockGetEvmUsdc.mockReturnValue(mockUsdc);
   });
 
   it('refuses before any SDK or note work while the config names no output token', async () => {
-    mockRequireEvmUsdc.mockRejectedValueOnce(new Error('no output token'));
+    mockGetEvmUsdc.mockImplementationOnce(() => {
+      throw new Error('no output token');
+    });
     await expect(quoteEpochSendOutput(quoteArgs)).rejects.toThrow('no output token');
-    mockRequireEvmUsdc.mockRejectedValueOnce(new Error('no output token'));
+    mockGetEvmUsdc.mockImplementationOnce(() => {
+      throw new Error('no output token');
+    });
     await expect(bridgeEpochSend(args())).rejects.toThrow('no output token');
     expect(mockGetEpochReadOnlySdk).not.toHaveBeenCalled();
     expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();

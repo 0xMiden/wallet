@@ -1,4 +1,4 @@
-import { requireEpochPositionsUrl } from 'lib/remote-config/values';
+import { getEpochPositionsUrl } from 'lib/remote-config/values';
 
 import {
   carryForward,
@@ -91,7 +91,9 @@ describe('fetchEarnPositions', () => {
   });
 
   it('rejects before any request while the config names no positions host', async () => {
-    jest.mocked(requireEpochPositionsUrl).mockRejectedValueOnce(new Error('no positions host'));
+    jest.mocked(getEpochPositionsUrl).mockImplementationOnce(() => {
+      throw new Error('no positions host');
+    });
 
     await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toThrow('no positions host');
     expect(global.fetch).not.toHaveBeenCalled();

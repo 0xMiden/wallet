@@ -21,7 +21,7 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { requireEpochAllocatorUrl, requireEvmUsdc } from 'lib/remote-config/values';
+import { getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -153,7 +153,7 @@ export async function gaslessEarnWithdrawalToMiden(
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
-  const usdc = await requireEvmUsdc();
+  const usdc = getEvmUsdc();
   if (underlyingAddress.toLowerCase() !== usdc.address.toLowerCase() || args.underlyingDecimals !== usdc.decimals) {
     throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
   }
@@ -162,7 +162,7 @@ export async function gaslessEarnWithdrawalToMiden(
   const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
   // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
-  const apiBaseUrl = await requireEpochAllocatorUrl();
+  const apiBaseUrl = getEpochAllocatorUrl();
 
   const initiateRow = deps.initiateRow ?? initiateEarnWithdrawTransaction;
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
@@ -685,7 +685,7 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
     nonce: ei.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, ei.submissionAttemptId)
   };
-  const usdc = await requireEvmUsdc();
+  const usdc = getEvmUsdc();
   await gaslessEarnWithdrawalToMiden(
     {
       midenAccountPublicKey: row.accountId,

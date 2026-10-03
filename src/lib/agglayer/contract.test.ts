@@ -1,6 +1,6 @@
 import type { EIP1193Provider } from 'viem';
 
-import { requireAgglayerL1Bridge } from 'lib/remote-config/values';
+import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
 import { claimAgglayerDeposit } from './contract';
 import { type AgglayerDeposit, fetchMerkleProof } from './status';
@@ -11,7 +11,7 @@ jest.mock('ethers', () => ({
   BaseContract: { from: (...args: unknown[]) => mockFrom(...args) },
   BrowserProvider: jest.fn(() => ({ getSigner: async () => 'signer' }))
 }));
-jest.mock('lib/remote-config/values', () => ({ requireAgglayerL1Bridge: jest.fn() }));
+jest.mock('lib/remote-config/values', () => ({ getAgglayerL1Bridge: jest.fn() }));
 jest.mock('./status', () => ({ fetchMerkleProof: jest.fn() }));
 
 const DEPOSIT: AgglayerDeposit = {
@@ -44,14 +44,16 @@ beforeEach(() => {
 });
 
 it('claims on the L1 bridge the config names', async () => {
-  jest.mocked(requireAgglayerL1Bridge).mockResolvedValue('0x00000000000000000000000000000000000000b2');
+  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
   await claimAgglayerDeposit({ deposit: DEPOSIT, provider });
   expect(mockFrom).toHaveBeenCalledWith('0x00000000000000000000000000000000000000b2', expect.any(Array), 'signer');
   expect(mockClaimAsset).toHaveBeenCalledTimes(1);
 });
 
 it('fetches no proof and sends nothing while the config names no L1 bridge', async () => {
-  jest.mocked(requireAgglayerL1Bridge).mockRejectedValue(new Error('no L1 bridge'));
+  jest.mocked(getAgglayerL1Bridge).mockImplementation(() => {
+    throw new Error('no L1 bridge');
+  });
   await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('no L1 bridge');
   expect(fetchMerkleProof).not.toHaveBeenCalled();
   expect(mockClaimAsset).not.toHaveBeenCalled();
