@@ -1503,7 +1503,9 @@ const generateTransactionWithProvider = async (
       // can carry a guardian pipeline today is produced next to a realm teardown, so
       // the pipeline really is dead and the requeue would be legitimate - this is the
       // invariant made local rather than inherited from that adjacency.)
-      const abandonedWrite = isKilledPipeline(error);
+      // The indefinite outcome counts too: it proves the submit call was reached, whatever stage the row still reads
+      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081).
+      const abandonedWrite = isKilledPipeline(error) || isIndefiniteSubmitOutcomeError(error);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {

@@ -5752,6 +5752,38 @@ describe('generateTransaction — Guardian routing', () => {
       }
     });
 
+    it('a delegated send whose submit came back indefinite while its row still read proving is never requeued (#1081)', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        mockGetOrCreateMultisigService.mockResolvedValue(busyService());
+        const client = makeClientApi(makeResult());
+        const row = queueRow('indefinite-at-proving', { ...SEND, delegateTransaction: true });
+        client.transactions.submitProven.mockImplementationOnce(async () => {
+          // The 'submitting' stage write failed and its stamp swallowed that, so the row still reads 'proving'.
+          const live = txStore.find(r => r.id === row.id);
+          if (live) live.stage = 'proving';
+          throw new Error(
+            `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may ` +
+              'or may not have accepted it; nothing was recorded locally'
+          );
+        });
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+
+        await run(row);
+
+        expect(stored(row.id).status).toBe(ITransactionStatus.Unconfirmed);
+        expect(stored(row.id).nextEligibleAt).toBeUndefined();
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    });
+
     it('a send cancelled mid-submit keeps its Failed state when the submit comes back indefinite, and its window ends (#1081)', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const error = jest.spyOn(console, 'error').mockImplementation(() => {});
