@@ -1,10 +1,13 @@
+import { selectNativeEthFaucet } from 'lib/remote-config/values';
+
 import {
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
   resolveBridgeInNoteId,
   suppressedLinkedConsumeIds,
   takeAgglayerBridgeInInfo,
-  applyBridgeInInfoForNotes
+  applyBridgeInInfoForNotes,
+  setAgglayerSenderForE2E
 } from './bridge-in';
 import { IBridgeInInfo, ITransaction } from '../db/types';
 
@@ -31,9 +34,12 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
   if (row) mutate(row);
   return row ? 1 : 0;
 });
-jest.mock('lib/agglayer/constant', () => ({
-  AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender',
-  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH'
+jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH' }));
+// The delivery sender is the registry's native-ETH faucet (hex); the consume reads its sender in bech32.
+jest.mock('lib/remote-config/runtime', () => ({ loadBridgeConfig: jest.fn(async () => ({})) }));
+jest.mock('lib/remote-config/values', () => ({ selectNativeEthFaucet: jest.fn(() => '0xagg') }));
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountRefToSdk: (ref: string) => ({ toString: () => (ref === 'agg-sender' ? '0xAGG' : `0x${ref}`) })
 }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -227,6 +233,45 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  it('matches nothing while the bridge config names no native-ETH faucet', async () => {
+    jest.mocked(selectNativeEthFaucet).mockReturnValueOnce(null);
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+  });
+
+  it('takes an E2E sender instead of the registry faucet', async () => {
+    setAgglayerSenderForE2E('cli-faucet');
+    try {
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+      ).resolves.toBeUndefined();
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'cli-faucet', amount: 5n })
+      ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+    } finally {
+      // An empty override clears it, so no later case inherits it.
+      setAgglayerSenderForE2E('');
+    }
   });
 });
 

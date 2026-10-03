@@ -6,15 +6,9 @@ export const BRIDGE_ASSET_ABI = [
 // the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id.
 export const MIDEN_CHAIN_ID = 86;
 /**
- * Miden account that sends notes created by AggLayer bridge-ins.
- * Matching is intentionally disabled whenever this is empty so ordinary
- * incoming notes cannot be mistaken for bridge deliveries.
- */
-export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aq9nwte8xh3nayfpdkv4hu5mjy90arem_qr7qqq9wr6w';
-/**
- * Source symbol of the only asset that sender delivers. The sender is the
- * bridged-ETH faucet itself, so its notes can settle only a native ETH deposit
- * tracker, never an ERC-20 one with the same base-unit amount.
+ * Source symbol of the only asset the AggLayer delivery sender delivers. The sender
+ * is the bridged-ETH faucet itself, so its notes can settle only a native ETH
+ * deposit tracker, never an ERC-20 one with the same base-unit amount.
  */
 export const AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL = 'ETH';
 export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([

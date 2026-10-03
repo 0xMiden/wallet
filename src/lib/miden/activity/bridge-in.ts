@@ -1,7 +1,10 @@
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { loadBridgeConfig } from 'lib/remote-config/runtime';
+import { selectNativeEthFaucet } from 'lib/remote-config/values';
 
 import { compareAccountIds } from './utils';
 import {
@@ -158,8 +161,9 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
 /**
  * E2E-only override for the AggLayer delivery sender. Production leaves this
  * null (the hook that sets it is installed only under MIDEN_E2E_TEST), so the
- * hardcoded testnet sender is used. The bridge-in localnet harness sets it to a
- * runtime-created "solver" account whose id isn't known until test time.
+ * bridge registry's native-ETH faucet is the sender. The bridge-in localnet
+ * harness sets it to a runtime-created "solver" account whose id isn't known
+ * until test time.
  */
 let e2eAgglayerSenderOverride: string | null = null;
 export function setAgglayerSenderForE2E(senderAccountId: string): void {
@@ -167,8 +171,25 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
 }
 
 /**
+ * Whether `sender` sent an AggLayer delivery: the registered faucet whose origin is native ETH on network 0 mints
+ * bridged ETH and sends its delivery notes. Matching stays off while the config cannot name that faucet, so an
+ * ordinary incoming note is never mistaken for a bridge delivery.
+ */
+async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
+  if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
+  const faucet = selectNativeEthFaucet(await loadBridgeConfig());
+  if (!faucet) return false;
+  try {
+    // The consume reads its sender in bech32; the registry names the faucet in hex.
+    return accountRefToSdk(sender).toString().toLowerCase() === faucet;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
- * The fixed sender is authoritative; amount + recipient prevent two deposits
+ * The delivery sender is authoritative; amount + recipient prevent two deposits
  * to the same wallet from being paired in the wrong order. The sender delivers
  * bridged ETH, so only native ETH trackers are compatible: an ERC-20 deposit
  * with the same base-unit amount must not adopt its note.
@@ -178,8 +199,7 @@ export async function takeAgglayerBridgeInInfo(args: {
   senderAccountId: string;
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
-  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
-  if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
+  if (!(await isAgglayerDeliverySender(args.senderAccountId))) return undefined;
 
   const matches = await Repo.transactions
     .filter(tx => {
