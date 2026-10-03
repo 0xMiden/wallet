@@ -1,10 +1,12 @@
 // The node reads one reconciler pass makes (#1081): one standalone RpcClient on the effective endpoint, built for the
-// pass and used for every read in it, taking no WASM client lock (as `readChainAccountCommitment` reads). Nothing is
-// cached across passes, so a same-URL reset or a retarget is caught by the next pass's network check. Every read is
-// bounded and never throws to its caller: a failed read means no verdict this pass.
+// pass and used for every read in it, taking no WASM client lock (as `readChainAccountCommitment` reads). No read is
+// cached across passes, so a same-URL reset or a retarget is caught by the next pass's network check; only the block
+// cadence outlives a pass, and it belongs to the endpoint it was measured on. Every read is bounded and never throws
+// to its caller: a failed read means no verdict this pass.
 import { NoteId, RpcClient, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { RpcTimeoutError, withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import { accountRefToSdk } from '../sdk/helpers';
@@ -19,7 +21,7 @@ export const DEFAULT_CADENCE_MS = 500;
 
 export interface AccountState {
   blockNum: number;
-  /** Absent for a non-inclusion witness, which is not a commitment and never marks a pre-state as seen. */
+  /** Absent for an account absent at that block, which has no commitment and never marks a pre-state as seen. */
   commitment?: string;
   /** Decimal; only when the proof carries a header, which private accounts (Guardian ones among them) never do. */
   nonce?: string;
@@ -36,20 +38,42 @@ export interface NodeReads {
   nullifierHeight(nullifier: string, fromBlock: number, timeoutMs: number): Promise<number | null | undefined>;
 }
 
-let lastTip: { block: number; atMs: number } | undefined;
+let lastTip: { scope: string; block: number; atMs: number } | undefined;
 let cadenceMs: number | undefined;
 
-/** Feed one tip read into the realm's cadence: the time per block between two reads at different heights. */
-export const observeTip = (block: number, atMs: number): void => {
-  if (lastTip !== undefined && block > lastTip.block) cadenceMs = (atMs - lastTip.atMs) / (block - lastTip.block);
-  if (lastTip === undefined || block > lastTip.block) lastTip = { block, atMs };
+/**
+ * Feed one tip read into the realm's cadence: the time per block between two reads at different heights of the node
+ * at `scope`, with `atMs` on a monotonic clock. Another endpoint, or a lower tip (a node reset on the same URL),
+ * starts the measurement over, since another chain's blocks come at another pace.
+ */
+export const observeTip = (block: number, atMs: number, scope: string = getEffectiveRpcUrl()): void => {
+  const last = lastTip;
+  if (last !== undefined && last.scope === scope && block === last.block) return;
+  // No chain the wallet runs on is faster than the default, so a shorter pace is noise, such as two reads milliseconds
+  // apart on either side of one block.
+  cadenceMs =
+    last !== undefined && last.scope === scope && block > last.block
+      ? Math.max(DEFAULT_CADENCE_MS, (atMs - last.atMs) / (block - last.block))
+      : undefined;
+  lastTip = { scope, block, atMs };
 };
 
-export const observedCadenceMs = (): number => cadenceMs ?? DEFAULT_CADENCE_MS;
+export const observedCadenceMs = (): number =>
+  cadenceMs !== undefined && lastTip?.scope === getEffectiveRpcUrl() ? cadenceMs : DEFAULT_CADENCE_MS;
 
 export const __resetCadenceForTests = (): void => {
   lastTip = undefined;
   cadenceMs = undefined;
+};
+
+const NOT_FOUND_AT_BLOCK = /\baccount \S+ not found at block (\d+)\b/;
+
+const absentAtBlock = (parts: readonly string[]): number | undefined => {
+  for (const part of parts) {
+    const block = NOT_FOUND_AT_BLOCK.exec(part)?.[1];
+    if (block !== undefined) return Number(block);
+  }
+  return undefined;
 };
 
 const once = <T>(read: () => Promise<T>, label: string, timeoutMs: number): Promise<T> =>
@@ -57,6 +81,8 @@ const once = <T>(read: () => Promise<T>, label: string, timeoutMs: number): Prom
 
 export async function createNodeReads(): Promise<NodeReads> {
   await ensureSdkWasmReady();
+  // Taken in the same tick the client is built in, so a tip read is credited to the node that answered it.
+  const scope = getEffectiveRpcUrl();
   const client = new RpcClient(getRpcEndpoint());
   return {
     blockCommitment: async blockNum => {
@@ -73,33 +99,39 @@ export async function createNodeReads(): Promise<NodeReads> {
       }
     },
     account: async (accountId, atBlock, timeoutMs) => {
+      let state: AccountState;
       try {
         const proof = await once(
           () => client.getAccountProof(accountRefToSdk(accountId), null, atBlock ?? null),
           'account',
           timeoutMs
         );
-        const blockNum = proof.blockNum();
-        if (atBlock === undefined) observeTip(blockNum, Date.now());
+        state = { blockNum: proof.blockNum() };
         const commitment = normalizeHex(proof.accountCommitment().toHex());
-        let nonce: string | undefined;
-        try {
-          nonce = proof.accountHeader()?.nonce().asInt().toString();
-        } catch {
-          nonce = undefined;
-        }
-        const state: AccountState = { blockNum };
         if (commitment !== ZERO_WORD) state.commitment = commitment;
-        if (nonce !== undefined) state.nonce = nonce;
-        return { ok: true, state };
+        try {
+          const nonce = proof.accountHeader()?.nonce().asInt().toString();
+          if (nonce !== undefined) state.nonce = nonce;
+        } catch {
+          // An unreadable header only withholds the nonce; the commitment it came with still stands.
+        }
       } catch (error) {
+        const parts = errorMessageParts(error);
         // The node keeps about 50 blocks of account history; past it the read can only fail.
-        return {
-          ok: false,
-          pruned: errorMessageParts(error).some(part => /has been pruned/i.test(part)),
-          timedOut: error instanceof RpcTimeoutError
-        };
+        const pruned = parts.some(part => /has been pruned/i.test(part));
+        // A public account's read asks for its details, and the node answers an account with no header row at or
+        // before N with "account <id> not found at block N" instead of a non-inclusion witness. Node 0.16 never prunes
+        // header rows, so that answer proves the account absent at N.
+        const absentAt = pruned ? undefined : absentAtBlock(parts);
+        if (absentAt === undefined) {
+          console.warn(`[reconcile] could not read account ${accountId} at block ${atBlock ?? 'tip'}`, error);
+          return { ok: false, pruned, timedOut: error instanceof RpcTimeoutError };
+        }
+        state = { blockNum: absentAt };
       }
+      // A wall clock can step back between two reads; the monotonic one cannot.
+      if (atBlock === undefined) observeTip(state.blockNum, performance.now(), scope);
+      return { ok: true, state };
     },
     noteInclusions: async (noteIds, timeoutMs) => {
       try {
