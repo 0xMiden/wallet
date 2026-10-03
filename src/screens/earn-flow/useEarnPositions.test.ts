@@ -6,6 +6,8 @@ import { SWRConfig } from 'swr';
 import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult } from 'lib/epoch';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BridgeConfig } from 'lib/remote-config/schema';
 
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -28,6 +30,51 @@ jest.mock('lib/epoch', () => ({
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: unknown[]) => mockUseRetryableSWR(...args)
 }));
+
+const POSITIONS_URL = 'https://positions.test';
+const MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+const READY_CONFIG: BridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  evm: { chainId: 11155111 },
+  agglayer: {},
+  epoch: {
+    positionsUrl: POSITIONS_URL,
+    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+    earnProtocol: 'dummy-lending'
+  },
+  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false }
+};
+const READY: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'ready',
+  config: READY_CONFIG,
+  derived: null,
+  lastFetch: null
+};
+const LOADING: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'loading',
+  config: null,
+  derived: null,
+  lastFetch: null
+};
+let mockConfigSnapshot = READY;
+const mockConfigListeners = new Set<() => void>();
+const publishConfig = (next: BridgeConfigSnapshot) => {
+  mockConfigSnapshot = next;
+  mockConfigListeners.forEach(listener => listener());
+};
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const subscribe = (listener: () => void) => {
+    mockConfigListeners.add(listener);
+    return () => {
+      mockConfigListeners.delete(listener);
+    };
+  };
+  return { useBridgeConfigSnapshot: () => useSyncExternalStore(subscribe, () => mockConfigSnapshot) };
+});
 
 const position = {
   owner: '0xabcdef',
@@ -67,6 +114,7 @@ describe('useEarnPositions', () => {
     jest.clearAllMocks();
     mockAccount.publicKey = 'miden-account';
     mockAccount.evmAddress = '0xABCDEF';
+    mockConfigSnapshot = READY;
   });
 
   it('maps live positions and vaults into display data', () => {
@@ -207,7 +255,7 @@ describe('useEarnPositions', () => {
     if (!loadPositions) throw new Error('positions fetcher was not registered');
     await loadPositions();
 
-    expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF']);
+    expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF', POSITIONS_URL, MARKET_UID]);
     expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
@@ -240,6 +288,45 @@ describe('useEarnPositions', () => {
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
       owners: ['0xhistorical']
+    });
+  });
+
+  describe('before the config names the positions host, with the real SWR', () => {
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(SWRConfig, { value: { provider: () => new Map(), dedupingInterval: 0 } }, children);
+
+    it('reads nothing and shows no error, then reads at once when the config lands', async () => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+      jest.mocked(fetchEarnPositions).mockImplementation(async () => {
+        if (!mockConfigSnapshot.config) throw new Error('The bridge config has no usable epoch.positionsUrl.');
+        return liveResult;
+      });
+      publishConfig(LOADING);
+      const { result } = renderHook(() => useEarnPositions(), { wrapper });
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
+      expect(fetchEarnPositions).not.toHaveBeenCalled();
+      expect(result.current.error).toBeUndefined();
+      expect(result.current.isLoading).toBe(true);
+
+      act(() => publishConfig(READY));
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads again at once when the config moves the positions host', async () => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result } = renderHook(() => useEarnPositions(), { wrapper });
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      const moved = { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: 'https://moved.test' } };
+      act(() => publishConfig({ ...READY, config: moved }));
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
     });
   });
 

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { useAgglayerEligibility } from './useAgglayerEligibility';
 
@@ -10,9 +11,88 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => mockRpcUrl
 }));
 
+const configNaming = (midenBridge: string): BridgeConfigSnapshot => ({
+  network: 'testnet',
+  status: 'ready',
+  config: {
+    network: 'testnet',
+    version: 1,
+    evm: {},
+    agglayer: { midenBridge },
+    epoch: {},
+    features: { earn: false, fastBridge: false, bridgeIn: true, bridgeOut: true }
+  },
+  derived: null,
+  lastFetch: null
+});
+const BRIDGE = '0x3b66e20b5088f25133b69216484652';
+const LOADING: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'loading',
+  config: null,
+  derived: null,
+  lastFetch: null
+};
+let mockConfigSnapshot = configNaming(BRIDGE);
+const mockConfigListeners = new Set<() => void>();
+const publishConfig = (next: BridgeConfigSnapshot) => {
+  mockConfigSnapshot = next;
+  mockConfigListeners.forEach(listener => listener());
+};
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const subscribe = (listener: () => void) => {
+    mockConfigListeners.add(listener);
+    return () => {
+      mockConfigListeners.delete(listener);
+    };
+  };
+  return { useBridgeConfigSnapshot: () => useSyncExternalStore(subscribe, () => mockConfigSnapshot) };
+});
+
 beforeEach(() => {
   jest.resetAllMocks();
   mockRpcUrl = 'https://rpc.testnet.miden.io';
+  mockConfigSnapshot = configNaming(BRIDGE);
+});
+
+it('turns allowed once a config naming the bridge loads, whatever a check before it found', async () => {
+  publishConfig(LOADING);
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.mocked(isAgglayerFaucetAllowed).mockImplementation(async () => {
+    if (!mockConfigSnapshot.config?.agglayer.midenBridge) {
+      throw new Error('The bridge config has no usable agglayer.midenBridge.');
+    }
+    return true;
+  });
+  const { result } = renderHook(() => useAgglayerEligibility('token'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  act(() => publishConfig(configNaming(BRIDGE)));
+  await waitFor(() => expect(result.current).toBe('allowed'));
+  warn.mockRestore();
+});
+
+it('reports loading and asks no registry while the config names no bridge', async () => {
+  publishConfig(LOADING);
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
+  const { result } = renderHook(() => useAgglayerEligibility('token'));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+  expect(result.current).toBe('loading');
+  expect(isAgglayerFaucetAllowed).not.toHaveBeenCalled();
+});
+
+it('asks again, showing loading, once the config moves the bridge', async () => {
+  const pending = new Promise<boolean>(() => {});
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValueOnce(true).mockReturnValueOnce(pending);
+  const { result } = renderHook(() => useAgglayerEligibility('token'));
+  await waitFor(() => expect(result.current).toBe('allowed'));
+  act(() => publishConfig(configNaming('0x537c15a622074e91188aa894456c52')));
+  expect(result.current).toBe('loading');
+  expect(isAgglayerFaucetAllowed).toHaveBeenCalledTimes(2);
 });
 
 it('shows loading, then allows an approved token', async () => {

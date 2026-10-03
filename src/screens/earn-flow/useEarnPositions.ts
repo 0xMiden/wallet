@@ -5,6 +5,8 @@ import { useSWRConfig } from 'swr';
 import { usePageActive } from 'app/layouts/page-active';
 import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectEarnMarket } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 
@@ -90,11 +92,15 @@ export function useEarnPositions(): {
   const account = useAccount();
   const onScreen = usePageActive();
   const { cache } = useSWRConfig();
+  const config = useBridgeConfigSnapshot();
+  const positionsUrl = config.config?.epoch.positionsUrl;
+  const marketUid = selectEarnMarket(config)?.marketUid;
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
-  // mounts, so a key with data reads again then only once its last read is 30 s old.
-  const key = ['earn-positions', account.publicKey, account.evmAddress];
+  // mounts, so a key with data reads again then only once its last read is 30 s old. The read goes to the configured
+  // host and market, so the key names them: none reads nothing yet, and a config that lands or moves them reads anew.
+  const key = ['earn-positions', account.publicKey, account.evmAddress, positionsUrl, marketUid];
   const id = JSON.stringify(key);
   const lastRead = keyReads.get(cache)?.get(id)?.at;
   const due = lastRead === undefined || Date.now() - lastRead >= READ_INTERVAL_MS;
@@ -104,7 +110,7 @@ export function useEarnPositions(): {
     isValidating,
     mutate
   } = useRetryableSWR(
-    onScreen ? key : null,
+    onScreen && positionsUrl && marketUid ? key : null,
     async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
       reads.at = Date.now();
