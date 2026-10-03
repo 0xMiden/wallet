@@ -189,7 +189,7 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
     // can find, is never looked up, Failed or not (#1325).
     const exitTxHash = inputs.agglayerExitTxHash;
     if (
-      inputs.claimStatus === 'claimed' ||
+      (inputs.claimStatus === 'claimed' && tx.status === ITransactionStatus.Completed) ||
       !inputs.destinationAddress ||
       !exitTxHash ||
       isAgglayerExitUnfindable(inputs)
