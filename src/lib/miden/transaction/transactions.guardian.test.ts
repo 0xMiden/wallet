@@ -68,6 +68,7 @@ import {
 import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
+  ITransactionStage,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
@@ -5628,18 +5629,28 @@ describe('generateTransaction — Guardian routing', () => {
 
       const executeError = new Error('failed to execute transaction: kernel assertion');
       it.each([
-        ['off', () => {}, 0],
+        [
+          'off',
+          'still records the mark, and the next send retries it',
+          () => {},
+          0,
+          () => expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 }),
+          2
+        ],
         [
           'on',
+          'leaves no mark, since an offscreen attempt never marks',
           () => {
             process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
             mockDispatchGuardianPipeline.mockRejectedValueOnce(executeError);
           },
+          1,
+          () => expect(getGuardianCandidate('guardian-acc')).toBeUndefined(),
           1
         ]
       ])(
-        'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s still records the mark, and the next send retries it',
-        async (flag, arrangeLeaf, dispatches) => {
+        'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s %s',
+        async (flag, _outcome, arrangeLeaf, dispatches, expectMark, abandons) => {
           jest.spyOn(console, 'warn').mockImplementation(() => {});
           jest.spyOn(console, 'error').mockImplementation(() => {});
           try {
@@ -5654,12 +5665,56 @@ describe('generateTransaction — Guardian routing', () => {
             expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(dispatches);
             expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
             expect(stored(row.id).mayHaveSubmitted).toBe(true);
-            expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+            expectMark();
 
             await run(queueRow(`bytes-execute-next-send-${flag}`, SEND));
 
-            expect(service.abandonCandidate).toHaveBeenCalledTimes(2);
+            expect(service.abandonCandidate).toHaveBeenCalledTimes(abandons);
             expect(service.abandonCandidate).toHaveBeenLastCalledWith(8);
+          } finally {
+            delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+          }
+        }
+      );
+
+      it.each([
+        ['drops its stamp', async (_onStage: (stage: ITransactionStage) => Promise<void>) => {}],
+        ["reports 'submitting'", async (onStage: (stage: ITransactionStage) => Promise<void>) => onStage('submitting')]
+      ])(
+        'an offscreen attempt whose leaf %s before a submit failure and whose abandon fails leaves no mark, so the next send does not retry it',
+        async (_label, stamp) => {
+          // Its stamps are fire-and-forget events that can be dropped or arrive after the reply, so they prove nothing.
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          jest.spyOn(console, 'error').mockImplementation(() => {});
+          try {
+            process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+            const service = busyService();
+            service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+            mockGetOrCreateMultisigService.mockResolvedValue(service);
+            arrangeClient();
+            mockDispatchGuardianPipeline.mockImplementationOnce(
+              async (
+                _accountId: unknown,
+                _requestBytes: unknown,
+                _delegate: unknown,
+                _sign: unknown,
+                onStage: (stage: ITransactionStage) => Promise<void>
+              ) => {
+                await stamp(onStage);
+                throw new Error('failed to submit proven transaction: connection reset');
+              }
+            );
+
+            await run(queueRow('offscreen-submit-abandon-failed', SEND));
+
+            expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+            expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+
+            mockDispatchGuardianPipeline.mockResolvedValueOnce(makeResult());
+            await run(queueRow('offscreen-next-send', SEND));
+
+            expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(2);
+            expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
           } finally {
             delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
           }
