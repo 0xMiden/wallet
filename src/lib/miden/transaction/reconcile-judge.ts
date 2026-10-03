@@ -182,16 +182,18 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     if (read === undefined) return noRead();
     notes = read;
   }
-  // A transaction is included only after its reference block, so an earlier copy of the note is never E's.
-  const onChain = [...notes].filter(([, block]) => block > entry.refBlock);
+  // E could be included only after its reference block and at or before X, so a copy outside that window is never E's.
+  const inWindow = (block: number): boolean =>
+    block > entry.refBlock && (expiration === undefined || block <= expiration);
+  const onChain = [...notes].filter(([, block]) => inWindow(block));
 
   let spend: { nullifier: string; height: number } | undefined;
   for (const nullifier of entry.nullifiers) {
     const height = await reads.node.nullifierHeight(nullifier, entry.refBlock, RPC_READ_TIMEOUT_MS);
     if (height === undefined) return noRead();
-    // E could commit only after its reference block and at or before X, and a nullifier is spent once.
-    const inWindow = height !== null && height >= entry.refBlock && (expiration === undefined || height <= expiration);
-    if (inWindow && (spend === undefined || height < spend.height)) spend = { nullifier, height };
+    // A nullifier is spent once, so a spend outside E's window is another transaction's.
+    if (height !== null && inWindow(height) && (spend === undefined || height < spend.height))
+      spend = { nullifier, height };
   }
 
   const recordedByAccount =

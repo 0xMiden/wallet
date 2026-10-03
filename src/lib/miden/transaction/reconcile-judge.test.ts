@@ -160,6 +160,25 @@ describe('row 2: an attributable output note on chain', () => {
     );
   });
 
+  it('a note included after the expiration is not E`s', async () => {
+    const fake = {
+      tip: { blockNum: 720, commitment: OTHER },
+      notes: { [NOTE]: 701 },
+      history: { 700: { blockNum: 700, commitment: INITIAL } }
+    };
+    const judged = await judge(row('t'), fake);
+    expect(judged.entries[0]?.result).toBe('never-committed');
+    expect(judged.landed).toBeUndefined();
+  });
+
+  it('a note included at E.refBlock + 1 or at X lands E', async () => {
+    for (const block of [101, 700]) {
+      expect(await resultOf(row('t'), { tip: { blockNum: 720, commitment: OTHER }, notes: { [NOTE]: block } })).toBe(
+        'landed'
+      );
+    }
+  });
+
   it('a note another row of the account names is not attributable', async () => {
     const other = row('o', {
       status: ITransactionStatus.Completed,
@@ -754,6 +773,29 @@ describe('E`s nullifier window', () => {
     const judged = await judgeSubmitEvidence(consume, { node, accountRows: [consume], nowSec: NOW, cadenceMs: 3_000 });
     expect(judged.entries[0]?.result).toBe('unresolvable');
     expect(node.calls).not.toContain('account@95');
+  });
+
+  it('a spend at E.refBlock is never E`s landing', async () => {
+    const consume = row('t', { type: 'consume', submitEvidence: [consumeEntry({ expirationBlock: undefined })] });
+    const judged = await judge(consume, {
+      tip: { blockNum: 120, commitment: OTHER },
+      spent: { [NULLIFIER]: 100 },
+      history: { 100: { blockNum: 100, commitment: FINAL } }
+    });
+    expect(judged.entries[0]?.result).toBe('pending');
+    expect(judged.landed).toBeUndefined();
+  });
+
+  it('a spend at E.refBlock + 1 or at X lands E', async () => {
+    const consume = row('t', { type: 'consume', submitEvidence: [consumeEntry()] });
+    for (const block of [101, 700]) {
+      const judged = await judge(consume, {
+        tip: { blockNum: block + 20, commitment: OTHER },
+        spent: { [NULLIFIER]: block },
+        history: { [block]: { blockNum: block, commitment: FINAL } }
+      });
+      expect(judged.entries[0]).toMatchObject({ result: 'landed', landingRecord: { block, by: 3 } });
+    }
   });
 
   it('a spend after X is never E`s landing, and the read at X proves it expired', async () => {
