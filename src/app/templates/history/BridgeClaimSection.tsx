@@ -5,10 +5,19 @@ import { useTranslation } from 'react-i18next';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button } from 'components/ui/Button';
 import { DetailRow } from 'components/ui/DetailCard';
-import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
+import {
+  AgglayerDeposit,
+  agglayerClaimedFields,
+  claimAgglayerDeposit,
+  findAgglayerExitDeposit,
+  isAgglayerDepositClaimed,
+  isAgglayerDepositReady,
+  useBridgeTracker
+} from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
 import {
   initiateConsumeTransactionFromId,
+  pinAgglayerDeposit,
   requestSWTransactionProcessing,
   updateBridgeClaimStatus
 } from 'lib/miden/activity';
@@ -91,9 +100,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
 
   const connectedMatchesDestination = !!evmAddress && evmAddress.toLowerCase() === destination.toLowerCase();
   const transactionFailed = entry.status === ITransactionStatus.Failed;
-  // An unconfirmed failed row may still have landed, but only with a transaction id does the
-  // lookup bind to THIS row rather than the address's sole claimable deposit (lib/agglayer/status.ts).
-  const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!entry.externalTxId);
+  // The indexer's tx_hash for this row's B2AGG note: the only thing that binds a deposit lookup to THIS row
+  // (lib/agglayer/status.ts). A row without one never looks a deposit up and offers no claim.
+  const exitTxHash = entry.bridgeAgglayerExitTxHash;
+  const [pinnedDepositCnt, setPinnedDepositCnt] = useState<number | undefined>(entry.bridgeAgglayerDepositCnt);
+  // An unconfirmed failed row may still have landed; its exit hash binds the lookup to its own deposit.
+  const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!exitTxHash);
 
   // A failed Epoch (Fast) bridge-out offers "Reclaim funds" once the reclaim height
   // passes, and only while its note may exist: the allocator rejected the intent after
@@ -131,27 +143,51 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 
-  // Poll the bridge indexer for a claimable deposit to the destination. Stateless
-  // / indexer-driven, so it surfaces deposits from a previous session too. The
-  // lookup is bound to THIS row's Miden transaction id, so a second bridge-out to
-  // the same address can't hand this row the sibling deposit — which would claim
-  // the wrong amount on L1 and mark this row claimed for a claim it never made.
+  // Poll the bridge indexer for THIS row's own exit deposit. Stateless and
+  // indexer-driven, so it surfaces deposits from a previous session too. The
+  // lookup is bound to the row's exit hash, so a second bridge-out to the same
+  // address can't hand this row its sibling's deposit, which would claim the
+  // wrong amount on L1 and mark this row claimed for a claim it never made. It
+  // keeps polling past ready: the bridge's auto-claimer claims every exit within
+  // minutes, and that claim settles the row too (#1325).
   useBridgeTracker({
     // A restored row polls nothing and claims nothing: `destination` and the
     // deposit it matches come from the dump, and `handleClaim` signs an EVM
     // transaction. Display still shows whatever the backup recorded.
-    active: isAgglayer && mayStillClaim && !restoredFromBackup && status !== 'claimed' && !!destination,
+    active: isAgglayer && mayStillClaim && !restoredFromBackup && status !== 'claimed' && !!destination && !!exitTxHash,
     intervalMs: 8000,
     poll: async () => {
-      const deposit = await findClaimableMidenToEvmDeposit(destination, entry.externalTxId);
+      // `active` already requires it; this only narrows the type for the lookup.
+      if (!exitTxHash) return true;
+      const deposit = await findAgglayerExitDeposit(destination, exitTxHash, pinnedDepositCnt);
       if (!deposit) return false;
-      setClaimable(deposit);
-      if (status === 'pending' && entry.txId) {
-        setStatus('ready');
-        // Bound to this row's own transaction hash, so the write can only promote THIS row (#1250).
-        await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true }, deposit.tx_hash);
+      // Every write passes the deposit's own tx_hash, so it can only promote THIS row (#1250).
+      if (isAgglayerDepositClaimed(deposit)) {
+        setStatus('claimed');
+        setClaimable(null);
+        if (entry.txId) {
+          await updateBridgeClaimStatus(entry.txId, 'claimed', agglayerClaimedFields(deposit), deposit.tx_hash);
+        }
+        return true;
       }
-      return true;
+      if (isAgglayerDepositReady(deposit)) {
+        setClaimable(deposit);
+        if (status === 'pending' && entry.txId) {
+          setStatus('ready');
+          await updateBridgeClaimStatus(
+            entry.txId,
+            'ready',
+            { depositReady: true, agglayerDepositCnt: deposit.deposit_cnt },
+            deposit.tx_hash
+          );
+        }
+        return false;
+      }
+      if (pinnedDepositCnt !== deposit.deposit_cnt) {
+        setPinnedDepositCnt(deposit.deposit_cnt);
+        if (entry.txId) await pinAgglayerDeposit(entry.txId, deposit.deposit_cnt);
+      }
+      return false;
     }
   });
 
@@ -191,24 +227,34 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   }, [isEpoch, restoredFromBackup, epochStatus, intentNonce, destination, txId]);
 
   const handleClaim = useCallback(async () => {
-    if (!claimable || !evmProvider || !entry.txId || restoredFromBackup) return;
+    if (!claimable || !evmProvider || !entry.txId || !exitTxHash || restoredFromBackup) return;
     hapticMedium();
     setError(null);
     setStatus('claiming');
-    await updateBridgeClaimStatus(entry.txId, 'claiming', undefined, claimable.tx_hash);
+    const pin = { agglayerDepositCnt: claimable.deposit_cnt };
+    await updateBridgeClaimStatus(entry.txId, 'claiming', pin, claimable.tx_hash);
     try {
       const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider, network: 'sepolia' });
       await tx.wait();
       setStatus('claimed');
-      await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash }, claimable.tx_hash);
+      await updateBridgeClaimStatus(entry.txId, 'claimed', { ...pin, claimTxHash: tx.hash }, claimable.tx_hash);
       setClaimable(null);
     } catch (err) {
+      // The bridge's auto-claimer may have claimed the deposit first, and then this claim reverts. The deposit is
+      // claimed either way, so the row settles instead of failing. A failed re-check counts as not claimed.
+      const settled = await findAgglayerExitDeposit(destination, exitTxHash, claimable.deposit_cnt).catch(() => null);
+      if (settled && isAgglayerDepositClaimed(settled)) {
+        setStatus('claimed');
+        setClaimable(null);
+        await updateBridgeClaimStatus(entry.txId, 'claimed', agglayerClaimedFields(settled), settled.tx_hash);
+        return;
+      }
       console.error('[bridge-claim] claim failed', err);
       setStatus('failed');
       await updateBridgeClaimStatus(entry.txId, 'failed');
       setError(err instanceof Error ? err.message : 'Claim failed');
     }
-  }, [claimable, evmProvider, entry.txId, restoredFromBackup]);
+  }, [claimable, evmProvider, entry.txId, exitTxHash, destination, restoredFromBackup]);
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {
@@ -292,24 +338,26 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       {isAgglayer &&
         mayStillClaim &&
         (status !== 'claimed' ? (
-          <div className="mt-3 flex flex-col gap-2">
-            {error && (
-              <p className="text-red-500 text-xs" role="alert">
-                {error}
-              </p>
-            )}
-            {!isConnected ? (
-              <Button size="sm" onClick={connect}>
-                {t('connectEvmWallet')}
-              </Button>
-            ) : !connectedMatchesDestination ? (
-              <p className="text-xs text-ink/60">{t('connectDestinationWalletToClaim')}</p>
-            ) : (
-              <Button size="sm" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
-                {status === 'claiming' ? t('claiming') : !claimable ? t('claimPending') : t('claimAsset')}
-              </Button>
-            )}
-          </div>
+          !!exitTxHash && (
+            <div className="mt-3 flex flex-col gap-2">
+              {error && (
+                <p className="text-red-500 text-xs" role="alert">
+                  {error}
+                </p>
+              )}
+              {!isConnected ? (
+                <Button size="sm" onClick={connect}>
+                  {t('connectEvmWallet')}
+                </Button>
+              ) : !connectedMatchesDestination ? (
+                <p className="text-xs text-ink/60">{t('connectDestinationWalletToClaim')}</p>
+              ) : (
+                <Button size="sm" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
+                  {status === 'claiming' ? t('claiming') : !claimable ? t('claimPending') : t('claimAsset')}
+                </Button>
+              )}
+            </div>
+          )
         ) : (
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
         ))}

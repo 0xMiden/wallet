@@ -196,49 +196,6 @@ export async function findAgglayerExitDeposit(
   return deposits.find(isThisExit) ?? null;
 }
 
-/**
- * The Miden→EVM (L2→L1) deposit produced by the bridge-out whose Miden
- * transaction id is `originTxHash`, once AggLayer says it can be claimed on L1 —
- * or null. L2-logged deposits carry `network_id === 1`.
- *
- * The lookup is BOUND to the row that is claiming, because the caller submits
- * `claimAsset` for whatever comes back and then stamps that claim (and its hash)
- * onto its own activity row: returning a sibling deposit claims the wrong amount
- * and reports the wrong bridge as claimed, while leaving the row's real deposit
- * unclaimed on L1. `originTxHash` is the row's own `transactionId`, which the
- * indexer echoes as the deposit's `tx_hash` — the same match
- * `reconcileBridgedReceives` makes for the EVM→Miden direction.
- *
- * A row that completed through the apply-after-submit path records the id its
- * failure carried (#1233), but one whose id could not be read has none, so an
- * unbound lookup is still answered - but only while the answer is unambiguous.
- * With two claimable deposits and nothing to tell them apart, null is the only
- * safe answer: the wallet would otherwise pick one at random and call it this
- * row's.
- */
-export async function findClaimableMidenToEvmDeposit(
-  l1Dest: string,
-  originTxHash?: string
-): Promise<AgglayerDeposit | null> {
-  const deposits = await fetchDeposits(l1Dest);
-  const claimable = deposits.filter(
-    deposit => deposit.network_id === 1 && isAgglayerDepositReady(deposit) && !isAgglayerDepositClaimed(deposit)
-  );
-
-  if (originTxHash) {
-    const bound = claimable.find(deposit => sameTxHash(deposit.tx_hash, originTxHash));
-    if (!bound && claimable.length > 0) {
-      console.warn('[agglayer] no claimable deposit matches this bridge-out; not claiming a sibling deposit', {
-        originTxHash,
-        claimableTxHashes: claimable.map(deposit => deposit.tx_hash)
-      });
-    }
-    return bound ?? null;
-  }
-
-  return claimable.length === 1 ? claimable[0]! : null;
-}
-
 // Fetch the merkle proof for a deposit (net_id is the deposit's `network_id`).
 export async function fetchMerkleProof(depositCnt: number, netId: number): Promise<AgglayerMerkleProof> {
   const data = await agglayerJson<MerkleProofResponse>(
