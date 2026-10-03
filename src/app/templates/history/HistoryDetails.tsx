@@ -490,7 +490,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // strings. Shared with `SwapDetail`, which renders the swap branch of this same
   // page - see `useTransactionActions`.
   const actions = useTransactionActions(transactionId, entry, transaction);
-  const { canCancel, canRetry, earnRetryKind } = actions;
+  const { canCancel, canRetry, earnRetryKind, acknowledgement } = actions;
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
@@ -1181,19 +1181,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
               isLoading={actions.isRetrying}
               disabled={actions.isRetrying}
-              onClick={() => actions.onRetry(false)}
+              onClick={() => actions.onRetry()}
               className="max-w-none"
             />
             {/* Only after the refusal above has been shown, so the warning is
                 always read first. */}
-            {actions.needsSendAcknowledgement && (
+            {acknowledgement !== null && (
               <Button
                 data-testid="history-retry-anyway-button"
                 variant={ButtonVariant.Secondary}
                 title={t('retryAnyway')}
                 isLoading={actions.isRetrying}
                 disabled={actions.isRetrying}
-                onClick={() => actions.onRetry(true)}
+                onClick={() => actions.onRetry(acknowledgement)}
                 className="mt-2 max-w-none"
               />
             )}

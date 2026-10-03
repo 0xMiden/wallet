@@ -12,10 +12,10 @@ import { FlowLayout } from 'components/flow/FlowLayout';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import {
+  acknowledgementOf,
   bridgeProviderOf,
   isOutcomeUnconfirmed,
   isRequeueableTransaction,
-  isUnverifiableSendRetryError,
   notConfirmedHintKey,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
@@ -62,7 +62,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
+  const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
   // Queued → GeneratingTransaction → Completed | Failed and never disappears,
@@ -141,18 +141,15 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const canRetry = !!active && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
 
   const handleRetry = useCallback(
-    async (acknowledgeUnverifiedSend = false) => {
+    async (acknowledged?: { attemptId: string | null }) => {
       if (!active) return;
       setIsRetrying(true);
       setRetryError(null);
-      setNeedsSendAcknowledgement(false);
+      setAcknowledgement(null);
       try {
         // Requeue flips this row back to Queued; the page (subscribed via
         // useTransactionRow) re-renders as processing — no navigation needed.
-        await requeueFailedTransaction(
-          active.id,
-          acknowledgeUnverifiedSend ? { acknowledged: { attemptId: active.attemptId ?? null } } : {}
-        );
+        await requeueFailedTransaction(active.id, acknowledged === undefined ? {} : { acknowledged });
         requestSWTransactionProcessing();
       } catch (error) {
         console.error('[GeneratingTransaction] Failed to retry transaction:', error);
@@ -160,7 +157,9 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         // Not a dead end: the wallet cannot tell whether this send landed, but the
         // user can see it in their balance. Offer that as an explicit second step
         // rather than leaving a Retry button that throws the same error forever.
-        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
+        // The acknowledgement answers exactly the attempt the refusal named, never
+        // re-read from the live row, which may already name a newer attempt (#1081).
+        setAcknowledgement(acknowledgementOf(error));
       } finally {
         setIsRetrying(false);
       }
@@ -168,8 +167,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     [active, t]
   );
 
-  const onRetry = useCallback(() => handleRetry(false), [handleRetry]);
-  const onRetryAnyway = useCallback(() => handleRetry(true), [handleRetry]);
+  const onRetry = useCallback(() => handleRetry(), [handleRetry]);
+  const onRetryAnyway = useCallback(() => {
+    if (acknowledgement !== null) void handleRetry(acknowledgement);
+  }, [acknowledgement, handleRetry]);
 
   // Drop any hash left over from an EARLIER receipt as soon as this screen
   // starts tracking a different row. `lastCompletedTxHash` is module-global and
@@ -257,7 +258,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
           onRetry={onRetry}
-          onRetryAnyway={needsSendAcknowledgement ? onRetryAnyway : undefined}
+          onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
           canRetry={canRetry}
           isRetrying={isRetrying}
           retryError={retryError}

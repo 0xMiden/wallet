@@ -17,7 +17,7 @@ jest.mock('lib/woozie', () => ({ navigate: jest.fn(), Redirect: () => <div data-
 jest.mock('lib/miden/activity', () => ({
   bridgeProviderOf: () => undefined,
   isRequeueableTransaction: () => false,
-  isUnverifiableSendRetryError: () => false,
+  acknowledgementOf: () => null,
   requestSWTransactionProcessing: jest.fn(),
   requeueFailedTransaction: jest.fn(),
   safeGenerateTransactionsLoop: jest.fn(),

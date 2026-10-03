@@ -95,13 +95,13 @@ const safeGenerateTransactionsLoopMock = jest.fn();
 const requeueFailedTransactionMock = jest.fn();
 const requestSWTransactionProcessingMock = jest.fn();
 const isRequeueableTransactionMock = jest.fn((..._a: unknown[]) => true);
-const isUnverifiableSendRetryErrorMock = jest.fn((..._a: unknown[]) => false);
+const mockAcknowledgementOf = jest.fn((..._a: unknown[]): { attemptId: string | null } | null => null);
 jest.mock('lib/miden/activity', () => ({
   safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
   requeueFailedTransaction: (...a: any[]) => requeueFailedTransactionMock(...a),
   requestSWTransactionProcessing: (...a: any[]) => requestSWTransactionProcessingMock(...a),
   isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a),
-  isUnverifiableSendRetryError: (...a: any[]) => isUnverifiableSendRetryErrorMock(...a),
+  acknowledgementOf: (...a: any[]) => mockAcknowledgementOf(...a),
   // Real helper: the retry gate reads the provider off the row's `extraInputs`,
   // and an Epoch (Fast) bridged-send must not be offered a Retry.
   bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf,
@@ -256,8 +256,8 @@ describe('GeneratingTransactionPage container effects', () => {
     requestSWTransactionProcessingMock.mockClear();
     isRequeueableTransactionMock.mockReset();
     isRequeueableTransactionMock.mockReturnValue(true);
-    isUnverifiableSendRetryErrorMock.mockReset();
-    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
+    mockAcknowledgementOf.mockReset();
+    mockAcknowledgementOf.mockReturnValue(null);
     window.location.hash = '';
   });
 
@@ -374,7 +374,7 @@ describe('GeneratingTransactionPage container effects', () => {
     isRequeueableTransactionMock.mockReturnValue(true);
     mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
     requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may already have reached the network'));
-    isUnverifiableSendRetryErrorMock.mockReturnValue(true);
+    mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
 
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
@@ -396,7 +396,7 @@ describe('GeneratingTransactionPage container effects', () => {
       findRetryAnyway()!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
-    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: null } });
+    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
     act(() => root.unmount());
   });
 
@@ -404,7 +404,7 @@ describe('GeneratingTransactionPage container effects', () => {
     isRequeueableTransactionMock.mockReturnValue(true);
     mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
     requeueFailedTransactionMock.mockRejectedValueOnce(new Error('row is gone'));
-    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
+    mockAcknowledgementOf.mockReturnValue(null);
 
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
     const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
@@ -413,6 +413,55 @@ describe('GeneratingTransactionPage container effects', () => {
     });
 
     expect(container.textContent).toContain('row is gone');
+    expect(
+      Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway'))
+    ).toBeUndefined();
+    act(() => root.unmount());
+  });
+
+  // The page watches the LIVE row: another surface may have run a newer attempt since the refusal
+  // rendered. The acknowledgement still answers the attempt the user was shown (#1081).
+  it('passes back the attempt the rendered refusal named, not the newer attempt on the live row', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'send', attemptId: 'a1' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may already have reached the network'));
+    mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    mockRowState = { row: makeTx({ status: 3, type: 'send', attemptId: 'a2' }), loaded: true };
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+    const retryAnyway = Array.from(container.querySelectorAll('button')).find(b =>
+      b.textContent?.includes('retryAnyway')
+    );
+    requeueFailedTransactionMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      retryAnyway!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
+    act(() => root.unmount());
+  });
+
+  it('offers no "retry anyway" for the liveness refusal (#1081)', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'execute' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may still be finishing in the background'));
+    mockAcknowledgementOf.mockReturnValue(null);
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain('may still be finishing in the background');
     expect(
       Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway'))
     ).toBeUndefined();
