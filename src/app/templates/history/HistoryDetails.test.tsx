@@ -3370,6 +3370,26 @@ describe('HistoryDetails', () => {
       });
     });
 
+    it('hands the bridge section the exit hash and pinned deposit of a Slow bridge-out (#1325)', async () => {
+      setMockRow({
+        ...bridgedSendTx,
+        extraInputs: {
+          provider: 'agglayer',
+          destinationAddress: '0xdest',
+          destinationNetwork: 0,
+          claimStatus: 'pending',
+          agglayerExitTxHash: '0xexit',
+          agglayerDepositCnt: 16
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
+        bridgeAgglayerExitTxHash: '0xexit',
+        bridgeAgglayerDepositCnt: 16
+      });
+    });
+
     // A stamped user cancel may have landed, so it keeps the bridge section like any other
     // unconfirmed bridge-out; an unstamped one never reached the pipeline and falls out of it (#1250).
     it('keeps the bridge section for a stamped user cancel on an Agglayer bridged-send', async () => {

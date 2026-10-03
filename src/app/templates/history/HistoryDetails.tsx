@@ -428,6 +428,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeReclaimNoteId: bridge?.reclaimNoteId,
           bridgeSubmitClaimed: bridge?.submitClaimed,
+          bridgeAgglayerExitTxHash: bridge?.agglayerExitTxHash,
+          bridgeAgglayerDepositCnt: bridge?.agglayerDepositCnt,
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,

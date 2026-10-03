@@ -625,6 +625,31 @@ describe('transactions utilities', () => {
       );
     });
 
+    it('stores the Agglayer exit hash on the bridged-send row it queues (#1325)', async () => {
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        0,
+        'agglayer',
+        new Uint8Array([1]),
+        true,
+        undefined,
+        undefined,
+        '0xexit'
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'bridged-send',
+          extraInputs: expect.objectContaining({ claimStatus: 'pending', agglayerExitTxHash: '0xexit' })
+        }),
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        undefined
+      );
+    });
+
     it('routes Earn deposit through the atomic outgoing queue with its authorization', async () => {
       await initiateEarnDepositTransaction(
         'account-a',

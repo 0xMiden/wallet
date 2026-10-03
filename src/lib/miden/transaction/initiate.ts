@@ -571,7 +571,8 @@ export const initiateBridgedSendTransaction = async (
   requestBytes?: Uint8Array,
   delegateTransaction?: boolean,
   sendParams?: IBridgedSendNoteParams,
-  spendingLimitAuthorization?: SpendingLimitAuthorization
+  spendingLimitAuthorization?: SpendingLimitAuthorization,
+  agglayerExitTxHash?: string
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -582,7 +583,8 @@ export const initiateBridgedSendTransaction = async (
     faucetId,
     requestBytes,
     delegateTransaction,
-    sendParams
+    sendParams,
+    agglayerExitTxHash
   );
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
