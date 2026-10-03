@@ -57,7 +57,9 @@ jest.mock('./helper', () => ({
   updateTransactionStatus: jest.fn(),
   markMayHaveSubmitted: jest.fn(),
   markCancelledInFlight: jest.fn(),
-  clearCancelledInFlight: jest.fn()
+  clearCancelledInFlight: jest.fn(),
+  recordKillEnd: jest.fn(async () => {}),
+  recordOutOfBandEnd: jest.fn(async () => {})
 }));
 jest.mock('../sdk/miden-client', () => ({ withWasmClientLock: jest.fn() }));
 

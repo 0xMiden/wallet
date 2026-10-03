@@ -24,7 +24,14 @@ import {
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { getTransactionsInProgress } from './get';
-import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, updateTransactionStatus } from './helper';
+import {
+  clearCancelledInFlight,
+  markCancelledInFlight,
+  markMayHaveSubmitted,
+  recordKillEnd,
+  recordOutOfBandEnd,
+  updateTransactionStatus
+} from './helper';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -252,6 +259,8 @@ export const cancelTransaction = async (
  * request — the rebuild this guard exists to gate, not to prevent.
  */
 const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
+  // Before the cancel, while the row is still in flight: liveness reads this end, never the source (#1081).
+  await recordOutOfBandEnd(tx.id);
   // Only a `send` reaches the retry path this protects. The in-flight half of the
   // condition — that there is a pipeline to outlive the cancel at all, rather
   // than a Queued row never picked up — is re-tested inside
@@ -356,6 +365,9 @@ export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, err
     const committed = await Repo.transactions.where({ id: tx.id }).first();
     abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '') && committed?.processingStartedAt === undefined;
   }
+  // The kill route marks the attempt's end for every type (#1081): the abandoned pipeline may still submit, and the
+  // live-sibling and liveness rules read this end. The send-only flag below is unchanged.
+  if (killed && !abandonedPreWrite) await recordKillEnd(tx.id, tx.attemptId);
   if (tx.type === 'send' && !abandonedPreWrite && killed) {
     await markMayHaveSubmitted(tx.id);
     if (isPoisonedPipeline(error)) {
@@ -598,9 +610,14 @@ export const failInterruptedTransactions = async () => {
         (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT))
   );
   await Promise.all(
-    transactions.map(async tx =>
-      cancelTransaction(tx, TRANSACTION_INTERRUPTED_ON_STARTUP, 'Interrupted — check your activity after it syncs')
-    )
+    transactions.map(async tx => {
+      await recordOutOfBandEnd(tx.id);
+      return cancelTransaction(
+        tx,
+        TRANSACTION_INTERRUPTED_ON_STARTUP,
+        'Interrupted - check your activity after it syncs'
+      );
+    })
   );
 };
 
@@ -610,9 +627,10 @@ export const failInterruptedTransactions = async () => {
  */
 export const forceCaneclAllInProgressTransactions = async () => {
   const transactions = await getTransactionsInProgress();
-  const cancelTransactionUpdates = transactions.map(async tx =>
-    cancelTransaction(tx, TRANSACTION_FORCE_CANCELLED_ERROR)
-  );
+  const cancelTransactionUpdates = transactions.map(async tx => {
+    await recordOutOfBandEnd(tx.id);
+    return cancelTransaction(tx, TRANSACTION_FORCE_CANCELLED_ERROR);
+  });
   await Promise.all(cancelTransactionUpdates);
 };
 
@@ -897,6 +915,7 @@ const verifyStuckTransactions = async (): Promise<number> => {
       // this function returns and what `useClaimNotes` reports, so counting a
       // refused write — a row a concurrent driver already settled — overstates
       // what the reaper did.
+      await recordOutOfBandEnd(tx.id);
       if (await cancelTransaction(tx, INVALID_NOTE_ERROR)) resolvedCount++;
     } else if (verdict === 'not-landed' || verdict === 'landed-external') {
       // Either the note is not consumed at all, or it is consumed by someone who is
@@ -909,6 +928,7 @@ const verifyStuckTransactions = async (): Promise<number> => {
         ? activeProcessingSeconds(tx.processingStartedAt, Math.floor(Date.now() / 1000))
         : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
+        await recordOutOfBandEnd(tx.id);
         if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR)) resolvedCount++;
       }
     }

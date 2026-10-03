@@ -730,6 +730,43 @@ export const recordLeafEnd = async (id: string, attempt: AttemptContext): Promis
 };
 
 /**
+ * The kill route's record (#1081): an eviction or an offscreen deadline kill abandoned this attempt, which may still
+ * be running and submit. It finds the attempt's pin or stamp entry, or creates one, and marks the end; the first end
+ * wins. Guard-free, because the cancel that follows makes the row terminal.
+ */
+export const recordKillEnd = async (id: string, attemptId: string | undefined): Promise<void> => {
+  if (attemptId === undefined) return;
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attemptId,
+      { source: 'kill', endedBy: 'kill', fromExecute: tx.type === 'execute' },
+      nowSec
+    );
+  });
+};
+
+/**
+ * A writer is ending this row from outside its pipeline (#1081): a user cancel, the stuck reaper, the cold-start
+ * sweep, the force-cancel, the stuck-consume verifier. Only a GeneratingTransaction row has a pipeline that can
+ * outlive the end. `mayHaveSubmitted` stays unset: setting it would pin a Guardian send's bytes for good.
+ */
+export const recordOutOfBandEnd = async (id: string): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.GeneratingTransaction || tx.attemptId === undefined) return false;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      tx.attemptId,
+      { source: 'out-of-band', endedBy: 'out-of-band', fromExecute: tx.type === 'execute' },
+      nowSec
+    );
+    return undefined;
+  });
+};
+
+/**
  * Claim the submit point of an Epoch bridged-send, in the same write that checks
  * the row is not Failed. A `markBridgedSendFailed` that already abandoned the
  * bridge stops the pipeline here (the claim returns false and writes nothing),

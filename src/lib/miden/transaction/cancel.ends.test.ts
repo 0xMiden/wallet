@@ -1,0 +1,155 @@
+import * as Repo from 'lib/miden/repo';
+
+import {
+  cancelStuckTransactions,
+  cancelTransactionAfterPipelineStopped,
+  cancelTransactionById,
+  failInterruptedTransactions,
+  forceCaneclAllInProgressTransactions,
+  verifyStuckTransactionsFromNode
+} from './cancel';
+import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import { ITransaction, ITransactionStatus } from '../db/types';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+
+jest.mock('../back/background-notification', () => ({
+  notifyBackgroundTransactionFailed: jest.fn(),
+  notifyBackgroundTransactionNotConfirmed: jest.fn()
+}));
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isMobile: () => false }));
+const mockNoteDetails = jest.fn(async (): Promise<unknown[]> => []);
+jest.mock('../back/miden-client-proxy', () => ({
+  midenClientProxy: { getInputNoteDetails: () => mockNoteDetails() }
+}));
+jest.mock('../sdk/miden-client', () => ({
+  withWasmClientLock: async (fn: (hold: object) => unknown) => fn({}),
+  assertWasmHoldCurrent: () => {}
+}));
+
+const NOW = Math.floor(Date.now() / 1000);
+
+const generating = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+  id: 'tx-1',
+  type: 'execute',
+  accountId: 'acct',
+  status: ITransactionStatus.GeneratingTransaction,
+  initiatedAt: NOW - 100,
+  processingStartedAt: NOW - 50,
+  attemptId: 'a1',
+  stage: 'sending',
+  displayIcon: 'DEFAULT',
+  ...overrides
+});
+
+const read = (id = 'tx-1') => Repo.transactions.where({ id }).first();
+
+beforeEach(async () => {
+  await Repo.transactions.clear();
+  mockNoteDetails.mockReset();
+});
+
+describe('out-of-band ends (#1081)', () => {
+  it('a user cancel of a running execute records an out-of-band end and leaves mayHaveSubmitted unset', async () => {
+    await Repo.transactions.put(generating());
+    await cancelTransactionById('tx-1', USER_CANCELLED_TRANSACTION_REASON);
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({
+        attemptId: 'a1',
+        source: 'out-of-band',
+        endedBy: 'out-of-band',
+        endedAt: expect.any(Number),
+        fromExecute: true
+      })
+    ]);
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('a cancel of a Queued row records nothing: no pipeline outlives it', async () => {
+    await Repo.transactions.put(
+      generating({ status: ITransactionStatus.Queued, attemptId: undefined, processingStartedAt: undefined })
+    );
+    await cancelTransactionById('tx-1', USER_CANCELLED_TRANSACTION_REASON);
+    expect((await read())?.submitEvidence).toBeUndefined();
+  });
+
+  it('a cancel of a row already Failed records nothing, though the row keeps its attemptId', async () => {
+    await Repo.transactions.put(generating({ status: ITransactionStatus.Failed }));
+    await cancelTransactionById('tx-1', USER_CANCELLED_TRANSACTION_REASON);
+    expect((await read())?.submitEvidence).toBeUndefined();
+  });
+
+  it('finds the pin already there and marks its end, without changing its source', async () => {
+    await Repo.transactions.put(
+      generating({ submitEvidence: [{ attemptId: 'a1', capturedAt: NOW, source: 'pin', raisedFlag: true }] })
+    );
+    await cancelTransactionById('tx-1', USER_CANCELLED_TRANSACTION_REASON);
+    expect((await read())?.submitEvidence).toEqual([
+      expect.objectContaining({ source: 'pin', endedBy: 'out-of-band' })
+    ]);
+  });
+
+  it.each<[string, () => Promise<unknown>, Partial<ITransaction>]>([
+    ['the stuck reaper', () => cancelStuckTransactions(), { processingStartedAt: NOW - 60 * 60 }],
+    ['the cold-start sweep', () => failInterruptedTransactions(), { processingStartedAt: 1 }],
+    ['the force-cancel', () => forceCaneclAllInProgressTransactions(), {}]
+  ])('%s records an out-of-band end', async (_label, run, overrides) => {
+    await Repo.transactions.put(generating(overrides));
+    await run();
+    expect((await read())?.submitEvidence?.[0]).toMatchObject({ endedBy: 'out-of-band' });
+  });
+
+  it('the stuck-consume verifier records an out-of-band end before it fails the claim', async () => {
+    const { InputNoteState } = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+    mockNoteDetails.mockResolvedValue([{ state: InputNoteState?.Invalid ?? 'Invalid' }]);
+    await Repo.transactions.put(generating({ type: 'consume', noteId: 'n1', noteIds: ['n1'] }));
+    await verifyStuckTransactionsFromNode();
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.submitEvidence?.[0]).toMatchObject({ endedBy: 'out-of-band' });
+  });
+
+  it('the stuck-consume verifier records an out-of-band end on a claim that has not landed past its grace window', async () => {
+    mockNoteDetails.mockResolvedValue([{ state: 'Committed' }]);
+    await Repo.transactions.put(
+      generating({ type: 'consume', noteId: 'n1', noteIds: ['n1'], processingStartedAt: NOW - 120 })
+    );
+    await verifyStuckTransactionsFromNode();
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.submitEvidence?.[0]).toMatchObject({ endedBy: 'out-of-band' });
+  });
+});
+
+describe('the kill route (#1081)', () => {
+  it('records a kill end for any type, keeping mayHaveSubmitted for sends only', async () => {
+    await Repo.transactions.put(generating({ type: 'consume' }));
+    await cancelTransactionAfterPipelineStopped(
+      generating({ type: 'consume' }),
+      new WasmClientPoisonedError('watchdog', new Error('x'))
+    );
+    const row = await read();
+    expect(row?.submitEvidence).toEqual([expect.objectContaining({ source: 'kill', endedBy: 'kill' })]);
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('first end wins: a kill after an out-of-band cancel keeps the cancel', async () => {
+    await Repo.transactions.put(generating());
+    await cancelTransactionById('tx-1', USER_CANCELLED_TRANSACTION_REASON);
+    await cancelTransactionAfterPipelineStopped(generating(), new WasmClientPoisonedError('watchdog', new Error('x')));
+    expect((await read())?.submitEvidence?.[0]).toMatchObject({ endedBy: 'out-of-band' });
+  });
+
+  it('records nothing for an attempt that was provably pre-write', async () => {
+    const preWrite = generating({
+      status: ITransactionStatus.Queued,
+      stage: 'syncing',
+      processingStartedAt: undefined
+    });
+    await Repo.transactions.put(preWrite);
+    await cancelTransactionAfterPipelineStopped(preWrite, new WasmClientPoisonedError('watchdog', new Error('x')));
+    expect((await read())?.submitEvidence).toBeUndefined();
+  });
+});
