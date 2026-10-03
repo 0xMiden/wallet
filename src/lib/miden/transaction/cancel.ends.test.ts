@@ -10,6 +10,8 @@ import {
   verifyStuckTransactionsFromNode
 } from './cancel';
 import { USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import { judgeSubmitEvidence } from './reconcile-judge';
+import { NodeReads } from './reconcile-reads';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -138,6 +140,63 @@ describe('the kill route (#1081)', () => {
     const row = await read();
     expect(row?.submitEvidence).toEqual([expect.objectContaining({ source: 'kill', endedBy: 'kill' })]);
     expect(row?.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('marks a killed execute`s entry fromExecute, so its unknown outputs block another row`s note', async () => {
+    await Repo.transactions.put(generating());
+    await cancelTransactionAfterPipelineStopped(generating(), new WasmClientPoisonedError('watchdog', new Error('x')));
+    const killed = await read();
+    expect(killed?.submitEvidence).toEqual([
+      expect.objectContaining({ source: 'kill', endedBy: 'kill', fromExecute: true })
+    ]);
+    if (killed === undefined) return;
+
+    // A send of the same account whose note is on chain, past its reference block.
+    const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+    const send: ITransaction = {
+      id: 'send-1',
+      type: 'send',
+      accountId: 'acct',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: NOW - 100,
+      displayIcon: 'SEND',
+      submitEvidence: [
+        {
+          attemptId: 's1',
+          capturedAt: NOW - 60,
+          source: 'stage',
+          transactionId: hex(2),
+          initialCommitment: hex(10),
+          finalCommitment: hex(11),
+          initialNonce: '5',
+          outputNoteIds: [hex(20)],
+          nullifiers: [],
+          refBlock: 100,
+          refBlockCommitment: hex(1),
+          expirationBlock: 700
+        }
+      ]
+    };
+    const node: NodeReads = {
+      blockCommitment: async () => hex(1),
+      account: async () => ({ ok: true, state: { blockNum: 150, commitment: hex(12) } }),
+      noteInclusions: async () => new Map([[hex(20), 140]]),
+      nullifierHeight: async () => null
+    };
+    const judge = (nowSec: number) =>
+      judgeSubmitEvidence(send, { node, accountRows: [send, killed], nowSec, cadenceMs: 3_000 });
+
+    // While the killed run may still be running, the note is held for it; once it cannot be, it still blocks.
+    expect((await judge(NOW)).entries[0]?.result).toBe('deferred');
+    const later = Date.now() + 2 * 60 * 60 * 1000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(later);
+    try {
+      const judged = await judge(Math.floor(later / 1000));
+      expect(judged.entries[0]?.result).toBe('pending');
+      expect(judged.landed).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('first end wins: a kill after an out-of-band cancel keeps the cancel', async () => {
