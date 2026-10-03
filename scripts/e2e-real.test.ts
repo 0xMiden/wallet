@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  AGGLAYER_INDEXER,
   AGGLAYER_MIDEN_NETWORK_ID,
   SUITES,
   agglayerExitFilingProblem,
@@ -24,7 +25,7 @@ import {
   run,
   suiteRetries
 } from './e2e-real.mjs';
-import { MIDEN_CHAIN_ID } from '../src/lib/agglayer/constant';
+import { AGGLAYER_BRIDGE_API, MIDEN_CHAIN_ID } from '../src/lib/agglayer/constant';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -464,6 +465,10 @@ describe('the AggLayer indexer guard', () => {
 
   it("looks where the wallet looks: src/lib/agglayer/constant.ts's MIDEN_CHAIN_ID", () => {
     expect(AGGLAYER_MIDEN_NETWORK_ID).toBe(MIDEN_CHAIN_ID);
+  });
+
+  it('looks where the wallet looks: AGGLAYER_BRIDGE_API, without /bridges', () => {
+    expect(`${AGGLAYER_INDEXER}/bridges`).toBe(AGGLAYER_BRIDGE_API);
   });
 
   it('accepts the live filing', () => {

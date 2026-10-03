@@ -43,7 +43,7 @@ const SEPOLIA_AGGLAYER_BRIDGE = '0x1348947e282138d8f377b467f7d9c2eb0f335d1f';
  */
 export const AGGLAYER_MIDEN_NETWORK_ID = 86;
 /** The AggLayer bridge indexer, src/lib/agglayer/constant.ts `AGGLAYER_BRIDGE_API` without `/bridges`. */
-const AGGLAYER_INDEXER = 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api';
+export const AGGLAYER_INDEXER = 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api';
 
 const MIDEN_RPC = {
   testnet: 'https://rpc.testnet.miden.io',
