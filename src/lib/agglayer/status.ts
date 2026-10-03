@@ -191,9 +191,13 @@ export async function fetchMidenToEvmDeposit(depositCnt: number): Promise<Agglay
 /** Pages of an address's history, ten deposits each, that one search for an unpinned exit reads at most. */
 export const AGGLAYER_EXIT_SEARCH_MAX_PAGES = 10;
 
-// Exits whose address history this realm has searched past the first page. An exit the indexer has not filed yet is
-// looked up every 8 s by the background poll and the open detail page, so later lookups read the first page only.
-const exitHistoriesSearched = new Set<string>();
+// How a finished search past the first page missed an exit: it read the whole history (`missed`), or the page cap or
+// an empty page stopped it (`capped`). An exit the indexer has not filed yet is looked up every 8 s by the background
+// poll and the open detail page, so a later search reads the first page only and answers from this. A found exit is
+// pinned by its caller and a search that threw is run again, so neither is recorded.
+const exitHistoryMisses = new Map<string, 'missed' | 'capped'>();
+// The search in flight per exit, shared by concurrent callers.
+const exitHistorySearches = new Map<string, Promise<AgglayerExitSearch>>();
 
 /** What a search for one exit found. A miss is `complete` only when it read the address's whole history. */
 export interface AgglayerExitSearch {
@@ -212,8 +216,8 @@ export interface AgglayerExitSearch {
  *
  * `depositCnt` is the row's pin: one GET for that deposit, kept only while it still carries this exit, so a
  * renumbered or reset indexer, or a failed GET, falls back to the address's history. That reads the ten newest
- * deposits, then, once per exit per realm session, pages back through older ones up to
- * `AGGLAYER_EXIT_SEARCH_MAX_PAGES`.
+ * deposits, then pages back through older ones up to `AGGLAYER_EXIT_SEARCH_MAX_PAGES`, until one search per exit per
+ * realm session has finished without finding it.
  */
 export async function searchAgglayerExitDeposit(
   l1Dest: string,
@@ -234,19 +238,37 @@ export async function searchAgglayerExitDeposit(
       // Not found, or the indexer is down; the address history below answers either way.
     }
   }
-  for (let page = 0; page < AGGLAYER_EXIT_SEARCH_MAX_PAGES; page++) {
-    if (page === 1) {
-      if (exitHistoriesSearched.has(exitTxHash)) break;
-      exitHistoriesSearched.add(exitTxHash);
-    }
+  let search = exitHistorySearches.get(exitTxHash);
+  if (search === undefined) {
+    search = searchExitHistory(l1Dest, exitTxHash, isThisExit).finally(() => exitHistorySearches.delete(exitTxHash));
+    exitHistorySearches.set(exitTxHash, search);
+  }
+  return search;
+}
+
+async function searchExitHistory(
+  l1Dest: string,
+  exitTxHash: string,
+  isThisExit: (deposit: AgglayerDeposit) => boolean
+): Promise<AgglayerExitSearch> {
+  let page = 0;
+  for (; page < AGGLAYER_EXIT_SEARCH_MAX_PAGES; page++) {
     const offset = page * AGGLAYER_DEPOSITS_PAGE_SIZE;
     const { deposits, total } = await fetchDepositsPage(l1Dest, offset);
     const deposit = deposits.find(isThisExit);
     if (deposit) return { deposit, complete: true };
-    if (offset + deposits.length >= total) return { deposit: null, complete: true };
+    if (offset + deposits.length >= total) return exitHistoryMiss(exitTxHash, page, 'missed');
     if (deposits.length === 0) break;
+    const recorded = page === 0 ? exitHistoryMisses.get(exitTxHash) : undefined;
+    if (recorded !== undefined) return { deposit: null, complete: recorded === 'missed' };
   }
-  return { deposit: null, complete: false };
+  return exitHistoryMiss(exitTxHash, page, 'capped');
+}
+
+// A miss on the first page alone spends nothing, so only a search that paged back is recorded.
+function exitHistoryMiss(exitTxHash: string, lastPage: number, miss: 'missed' | 'capped'): AgglayerExitSearch {
+  if (lastPage > 0) exitHistoryMisses.set(exitTxHash, miss);
+  return { deposit: null, complete: miss === 'missed' };
 }
 
 /** `searchAgglayerExitDeposit`'s deposit, for a caller that never retires a row on a miss. */

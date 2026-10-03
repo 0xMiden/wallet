@@ -229,8 +229,8 @@ describe('findAgglayerExitDeposit (#1325)', () => {
       };
     });
   const offsetsRead = () => fetchMock.mock.calls.map(([url]) => Number(new URL(url).searchParams.get('offset')));
-  // Exit `cnt` to the same address. A search past the first page is once per exit per session, so each test looks
-  // up its own.
+  // Exit `cnt` to the same address. A finished search is remembered per exit for the session, so each test looks up
+  // its own.
   const exitAt = (cnt: number): AgglayerDeposit => ({
     ...LIVE_16,
     deposit_cnt: cnt,
@@ -245,7 +245,7 @@ describe('findAgglayerExitDeposit (#1325)', () => {
     expect(offsetsRead()).toEqual([0, 10]);
   });
 
-  it('searches past the first page once per exit: a second lookup in the session reads one page', async () => {
+  it('remembers a complete miss: a later search reads the first page only and reports it complete', async () => {
     serveHistory(exitsFrom(210, 25));
 
     expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(200).tx_hash)).toEqual({
@@ -256,6 +256,67 @@ describe('findAgglayerExitDeposit (#1325)', () => {
 
     fetchMock.mockClear();
     expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(200).tx_hash)).toEqual({
+      deposit: null,
+      complete: true
+    });
+    expect(offsetsRead()).toEqual([0]);
+  });
+
+  it("lets the background poll answer from a detail page's complete miss, without paging", async () => {
+    serveHistory(exitsFrom(410, 25));
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(400).tx_hash)).toBeNull();
+    expect(offsetsRead()).toEqual([0, 10, 20]);
+
+    fetchMock.mockClear();
+    const background = await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(400).tx_hash);
+    expect(offsetsRead()).toEqual([0]);
+    expect(background).toEqual({ deposit: null, complete: true });
+  });
+
+  it('a failed page fetch leaves the search to run again', async () => {
+    serveHistory(exitsFrom(510, 25));
+    const served = fetchMock.getMockImplementation();
+    fetchMock.mockImplementationOnce(served).mockImplementationOnce(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+
+    await expect(searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(500).tx_hash)).rejects.toThrow('Failed to fetch');
+
+    fetchMock.mockClear();
+    const again = await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(500).tx_hash);
+    expect(offsetsRead()).toEqual([0, 10, 20]);
+    expect(again).toEqual({ deposit: null, complete: true });
+  });
+
+  it('runs one search for concurrent lookups of one exit, fetching each page once', async () => {
+    serveHistory(exitsFrom(610, 25));
+
+    const [poll, detail] = await Promise.all([
+      searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(600).tx_hash),
+      searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(600).tx_hash)
+    ]);
+
+    expect(offsetsRead()).toEqual([0, 10, 20]);
+    expect(poll).toEqual({ deposit: null, complete: true });
+    expect(detail).toEqual(poll);
+  });
+
+  it('never calls a search that ended on an empty page with no total complete, and does not repeat it', async () => {
+    const history = exitsFrom(710, 15);
+    fetchMock.mockImplementation(async (url: string) => {
+      const offset = Number(new URL(url).searchParams.get('offset'));
+      return { ok: true, json: async () => ({ deposits: history.slice(offset, offset + 10) }) };
+    });
+
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(700).tx_hash)).toEqual({
+      deposit: null,
+      complete: false
+    });
+    expect(offsetsRead()).toEqual([0, 10, 20]);
+
+    fetchMock.mockClear();
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(700).tx_hash)).toEqual({
       deposit: null,
       complete: false
     });
@@ -270,6 +331,49 @@ describe('findAgglayerExitDeposit (#1325)', () => {
       complete: false
     });
     expect(fetchMock).toHaveBeenCalledTimes(AGGLAYER_EXIT_SEARCH_MAX_PAGES);
+  });
+
+  it('records nothing for a found exit, so a later search finds it on page 2 again', async () => {
+    serveHistory([...exitsFrom(1010, 10), exitAt(1000)]);
+    await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(1000).tx_hash);
+
+    fetchMock.mockClear();
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(1000).tx_hash)).toEqual({
+      deposit: exitAt(1000),
+      complete: true
+    });
+    expect(offsetsRead()).toEqual([0, 10]);
+  });
+
+  it('records nothing for a search that read the first page only, so a later one still pages back', async () => {
+    serveHistory(exitsFrom(910, 25));
+    // An empty first page with no total, as an indexer mid-reindex might serve it.
+    fetchMock.mockImplementationOnce(async () => ({ ok: true, json: async () => ({ deposits: [] }) }));
+
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(900).tx_hash)).toEqual({
+      deposit: null,
+      complete: false
+    });
+    expect(offsetsRead()).toEqual([0]);
+
+    fetchMock.mockClear();
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(900).tx_hash)).toEqual({
+      deposit: null,
+      complete: true
+    });
+    expect(offsetsRead()).toEqual([0, 10, 20]);
+  });
+
+  it('does not repeat a search the page cap stopped', async () => {
+    serveHistory(exitsFrom(810, AGGLAYER_EXIT_SEARCH_MAX_PAGES * 10 + 1));
+    await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(800).tx_hash);
+
+    fetchMock.mockClear();
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(800).tx_hash)).toEqual({
+      deposit: null,
+      complete: false
+    });
+    expect(offsetsRead()).toEqual([0]);
   });
 });
 
