@@ -20,6 +20,10 @@ function amountTextSize(value?: string): string {
   return 'text-6xl';
 }
 
+/** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
+const CENTERED_INPUT_LAYOUT = '[grid-area:1/1] w-0 min-w-full caret-accent-primary';
+const INLINE_INPUT_LAYOUT = 'w-full';
+
 /**
  * Accept a comma as the decimal separator (comma-decimal locales/keyboards — es,
  * de, fr, …) by normalizing it to a dot before the field parses the input (#433).
@@ -37,6 +41,7 @@ function amountTextSize(value?: string): string {
  * resolves to `1.000`, and a European-format `1.000,50` (dot groups + comma
  * decimal) mis-parses because the comma decimal is dropped as if it were a group.
  */
+
 export function normalizeDecimalInput(rawValue: string): string {
   if (rawValue.includes('.')) {
     return rawValue.replace(/,/g, '');
@@ -69,6 +74,14 @@ export interface AmountInputProps {
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
   loading?: boolean;
+  /** A unit drawn before the number (e.g. "$"), outside the input so the value stays bare digits. */
+  prefix?: React.ReactNode;
+  /**
+   * `center` sizes the input to its value and centres it with the prefix, which it draws smaller and
+   * raised, like a price. Defaults to `left`, the send and swap layout.
+   */
+  align?: 'left' | 'center';
+  'aria-label'?: string;
   className?: string;
   'data-testid'?: string;
 }
@@ -93,10 +106,50 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   autoFocus,
   disabled,
   loading,
+  prefix,
+  align = 'left',
+  'aria-label': ariaLabel,
   className,
   'data-testid': dataTestId
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const centered = align === 'center';
+  const amountClasses = classNames(
+    'font-heading font-bold leading-none text-[4rem]',
+    centered ? 'text-center' : 'text-left',
+    amountTextSize(value)
+  );
+  const stateClasses =
+    invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
+  const input = (layoutClassName: string) => (
+    <CurrencyInput
+      ref={inputRef}
+      className={classNames(amountClasses, 'bg-transparent p-0 outline-none', layoutClassName, stateClasses)}
+      value={value}
+      onValueChange={onValueChange}
+      placeholder={placeholder}
+      transformRawValue={normalizeDecimalInput}
+      disableGroupSeparators
+      // `disableGroupSeparators` only stops grouping in the *display*; the
+      // library still derives a group separator from the ambient locale and
+      // strips it from the raw input on every keystroke. On a `.`-group
+      // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
+      // produced, undoing the fix. Passing "" doesn't help — the library
+      // coalesces a falsy group separator back to the locale default — so
+      // pin it to a space, which never collides with our "." decimal (#433).
+      groupSeparator=" "
+      decimalSeparator="."
+      decimalsLimit={6}
+      allowNegativeValue={false}
+      maxLength={16}
+      enterKeyHint="done"
+      autoFocus={autoFocus}
+      disabled={disabled}
+      aria-invalid={invalid || !!error}
+      aria-label={ariaLabel}
+      data-testid={dataTestId}
+    />
+  );
 
   return (
     <div className={classNames('flex flex-col', className)}>
@@ -107,44 +160,39 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           label
         ))}
 
-      <div className="flex cursor-text items-baseline mt-3" onClick={() => inputRef.current?.focus()}>
+      <div
+        // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
+        className={classNames(
+          'flex cursor-text mt-3',
+          centered ? classNames('items-start justify-center text-[4rem]', amountTextSize(value)) : 'items-baseline'
+        )}
+        onClick={() => inputRef.current?.focus()}
+      >
+        {prefix != null && !loading && (
+          <span
+            aria-hidden="true"
+            className={classNames(
+              'font-heading font-bold leading-none text-muted',
+              centered ? 'mr-0.5 mt-[0.1em] text-[0.6em]' : 'mr-1',
+              !centered && amountTextSize(value)
+            )}
+          >
+            {prefix}
+          </span>
+        )}
         {loading ? (
           <Skeleton className="h-14 w-40 rounded-xl" />
+        ) : centered ? (
+          // An invisible copy of the value sizes the grid cell, so the input is exactly as wide as
+          // what it holds and the prefix + number centre as one.
+          <span className="inline-grid">
+            <span aria-hidden="true" className={classNames(amountClasses, 'invisible whitespace-pre [grid-area:1/1]')}>
+              {value || placeholder}
+            </span>
+            {input(CENTERED_INPUT_LAYOUT)}
+          </span>
         ) : (
-          <CurrencyInput
-            ref={inputRef}
-            className={classNames(
-              'w-full bg-transparent p-0 outline-none font-heading font-bold leading-none text-left text-[4rem]',
-              amountTextSize(value),
-              invalid || error
-                ? 'text-red-500 placeholder-red-500'
-                : value
-                  ? 'text-ink'
-                  : 'text-grey-300 placeholder-grey-300'
-            )}
-            value={value}
-            onValueChange={onValueChange}
-            placeholder={placeholder}
-            transformRawValue={normalizeDecimalInput}
-            disableGroupSeparators
-            // `disableGroupSeparators` only stops grouping in the *display*; the
-            // library still derives a group separator from the ambient locale and
-            // strips it from the raw input on every keystroke. On a `.`-group
-            // locale (de-DE, pt-BR, …) that strips the dot our normalizer just
-            // produced, undoing the fix. Passing "" doesn't help — the library
-            // coalesces a falsy group separator back to the locale default — so
-            // pin it to a space, which never collides with our "." decimal (#433).
-            groupSeparator=" "
-            decimalSeparator="."
-            decimalsLimit={6}
-            allowNegativeValue={false}
-            maxLength={16}
-            enterKeyHint="done"
-            autoFocus={autoFocus}
-            disabled={disabled}
-            aria-invalid={invalid || !!error}
-            data-testid={dataTestId}
-          />
+          input(INLINE_INPUT_LAYOUT)
         )}
       </div>
 
@@ -154,7 +202,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           <span className="text-red-500 text-sm">{error}</span>
         </div>
       ) : helper ? (
-        <div className="flex flex-col pt-2">{helper}</div>
+        <div className={classNames('flex flex-col pt-2', centered && 'items-center text-center')}>{helper}</div>
       ) : null}
 
       {showDivider && (
@@ -164,7 +212,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         />
       )}
 
-      {tokenSelector != null && <div className={classNames(showDivider && 'mt-4')}>{tokenSelector}</div>}
+      {/* 8px under the helper or error line when there is no divider between them, so the line
+          does not sit on the token pill. */}
+      {tokenSelector != null && <div className={showDivider ? 'mt-4' : 'mt-2'}>{tokenSelector}</div>}
     </div>
   );
 };

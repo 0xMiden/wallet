@@ -156,6 +156,17 @@ describe('AmountInput', () => {
       expect(screen.getByTestId('token')).toBeInTheDocument();
     });
 
+    it('sits 8px under the helper line with no divider, and 16px under the divider', () => {
+      const token = <button data-testid="token">USDC</button>;
+      const { rerender } = render(
+        <AmountInput showDivider={false} helper="Available 0" tokenSelector={token} data-testid={TESTID} />
+      );
+      expect(screen.getByTestId('token').parentElement).toHaveClass('mt-2');
+
+      rerender(<AmountInput showDivider helper="Available 0" tokenSelector={token} data-testid={TESTID} />);
+      expect(screen.getByTestId('token').parentElement).toHaveClass('mt-4');
+    });
+
     it('does not render a token selector chip when omitted', () => {
       render(<AmountInput data-testid={TESTID} />);
       expect(screen.queryByTestId('token')).not.toBeInTheDocument();
@@ -179,6 +190,46 @@ describe('AmountInput', () => {
 
       rerender(<AmountInput accent="swap" data-testid={TESTID} />);
       expect(screen.getByTestId('amount-token-divider')).toHaveClass('bg-accent-swap');
+    });
+  });
+
+  describe('prefix and alignment', () => {
+    it('draws a prefix outside the input, so the value stays bare digits and screen readers skip it', () => {
+      render(<AmountInput prefix="$" value="25" aria-label="Limit" data-testid={TESTID} />);
+
+      const input = screen.getByTestId(TESTID);
+      expect(input).toHaveValue('25');
+      expect(input).toHaveAccessibleName('Limit');
+      const prefix = screen.getByText('$');
+      expect(prefix).toHaveAttribute('aria-hidden', 'true');
+      expect(prefix).not.toContainElement(input);
+    });
+
+    it('left-aligns by default: one baseline row, the input spanning it', () => {
+      render(<AmountInput prefix="$" value="25" data-testid={TESTID} />);
+
+      const input = screen.getByTestId(TESTID);
+      expect(input).toHaveClass('text-left', 'w-full');
+      expect(screen.getByText('$').parentElement).toHaveClass('items-baseline');
+    });
+
+    it('centres the prefix and a value-sized input as one, the prefix smaller and raised', () => {
+      render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
+
+      const input = screen.getByTestId(TESTID);
+      expect(input).toHaveClass('text-center', 'min-w-full');
+      expect(input).not.toHaveClass('w-full');
+      const prefix = screen.getByText('$');
+      expect(prefix).toHaveClass('text-[0.6em]', 'text-muted');
+      expect(prefix.parentElement).toHaveClass('justify-center');
+      // The invisible sizing copy holds the value, so the input is exactly as wide as it.
+      expect(input.parentElement?.querySelector('[aria-hidden="true"].invisible')).toHaveTextContent('25');
+    });
+
+    it('sizes a centred empty field to its placeholder', () => {
+      render(<AmountInput align="center" placeholder="0" value="" data-testid={TESTID} />);
+
+      expect(screen.getByTestId(TESTID).parentElement?.querySelector('.invisible')).toHaveTextContent('0');
     });
   });
 

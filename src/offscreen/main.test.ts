@@ -21,6 +21,7 @@
  */
 
 import { encodeArg, OFFSCREEN_SIGN_REQUEST } from 'lib/miden/back/offscreen-codec';
+import { GuardianHistoryDataError } from 'lib/miden/guardian/history-errors';
 
 type Listener = (msg: any, sender: any, sendResponse: (r?: any) => void) => boolean | undefined;
 
@@ -411,6 +412,11 @@ function resetControl() {
     clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
+    clientDecodeGuardianHistory: jest.fn(async (_encoded: string) => ({
+      accountId: 'account',
+      inputNotes: [],
+      outputNotes: []
+    })),
     clientImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 1, failures: 0 })),
     clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
@@ -428,8 +434,13 @@ function resetControl() {
     // Overridable so a test can choose between a transport-shaped failure (which
     // is what marks a prover outage) and a semantic one (which must not).
     guardianProveFailureMessage: 'remote prover deadline expired',
+    // When set, the failing prove throws this instead of an Error carrying the message above.
+    guardianProveError: undefined as Error | undefined,
     guardianSubmitted: false,
     guardianApplied: false,
+    // #1233: the apply retry's read of the local account, on the raw client the pipeline drives.
+    // Default: no such account, so a retry fails closed and the older tests keep wrapping.
+    clientAccountsGet: jest.fn(async (_accountId: unknown): Promise<unknown> => null),
     deserializeProof: jest.fn((bytes: Uint8Array) => ({ __proofFromBytes: Array.from(bytes) })),
     // #945: a worker proof is submitted through submitProven with the result it proves.
     guardianSubmitProven: jest.fn(async (_proof: unknown, _result: unknown) => {
@@ -451,7 +462,7 @@ function resetControl() {
           if (options?.prover?.__local) throw new Error('in-realm prove reached');
           if (g2.__off.guardianProveShouldFailOnce) {
             g2.__off.guardianProveShouldFailOnce = false;
-            throw new Error(g2.__off.guardianProveFailureMessage);
+            throw g2.__off.guardianProveError ?? new Error(g2.__off.guardianProveFailureMessage);
           }
           return {
             submit: jest.fn(async () => {
@@ -508,6 +519,7 @@ function resetControl() {
         getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
         importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
         drainPrivateNoteTransport: (...a: any[]) => (globalThis as any).__off.clientDrainPrivateNoteTransport(...a),
+        decodeGuardianHistory: (...a: any[]) => (globalThis as any).__off.clientDecodeGuardianHistory(...a),
         importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
         recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
         sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
@@ -529,6 +541,7 @@ function resetControl() {
           syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
           getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
           sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
+          accounts: { get: (...a: any[]) => (globalThis as any).__off.clientAccountsGet(...a) },
           pswap: {
             lineage: (orderId: string) => G.__off.clientLineage(orderId),
             lineages: () => G.__off.clientLineages()
@@ -1191,6 +1204,27 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("call 'getAccount' failed"), expect.any(Error));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp).toEqual({ ok: false, op_id: 'op-abc', error: 'store read boom' });
+  });
+
+  it('names a history data error on the ok:false reply, so the SW rebuilds its class', async () => {
+    await loadModule();
+    let liveHold: unknown;
+    G.__off.clientDecodeGuardianHistory = jest.fn(async () => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      throw new GuardianHistoryDataError('Guardian summary is too large');
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'decodeGuardianHistory', argsB64: [encodeArg('summary')] }), {}, sendResponse);
+    await flush();
+
+    expect(liveHold).toBeDefined();
+    expect(G.__off.clientDecodeGuardianHistory).toHaveBeenCalledWith('summary', liveHold);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      op_id: 'op-abc',
+      errorName: 'GuardianHistoryDataError',
+      error: 'Guardian summary is too large'
+    });
   });
 
   it('preserves the SDK errorCode on the ok:false reply when a WRITE throws an apply-after-submit error (#260 funds-critical)', async () => {
@@ -2446,6 +2480,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   it('dispatches importNoteBytes → imports into the offscreen store and ships the id back as bytes', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportNoteBytes = jest.fn(async (_bytes: Uint8Array, _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return '0ximportedid';
+    });
     const sendResponse = jest.fn();
     const noteBytes = new Uint8Array([0xab, 0xcd, 0xef]);
     capturedListener!(callReq({ method: 'importNoteBytes', argsB64: [encodeArg(noteBytes)] }), {}, sendResponse);
@@ -2454,6 +2493,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // The raw note bytes crossed intact and were imported into THIS client's store.
     expect(G.__off.clientImportNoteBytes).toHaveBeenCalledTimes(1);
     expect(Array.from(G.__off.clientImportNoteBytes.mock.calls[0][0])).toEqual([0xab, 0xcd, 0xef]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportNoteBytes.mock.calls[0][1]).toBe(liveHold);
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Buffer.from(resp.resultB64, 'base64').toString('utf8')).toBe('0ximportedid');
@@ -2461,6 +2502,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
   it('dispatches proposal-note import and restores note bytes', async () => {
     await loadModule();
+    let liveHold: unknown;
+    G.__off.clientImportRecoveryNoteBytes = jest.fn(async (_notes: Uint8Array[], _hold: unknown) => {
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      return { imported: 1, failures: 0 };
+    });
     const sendResponse = jest.fn();
     const encodedNotes = [Buffer.from([1, 2]).toString('base64'), Buffer.from([3]).toString('base64')];
     const ret = capturedListener!(
@@ -2476,6 +2522,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       new Uint8Array([1, 2]),
       new Uint8Array([3])
     ]);
+    expect(liveHold).toEqual(expect.anything());
+    expect(G.__off.clientImportRecoveryNoteBytes.mock.calls[0][1]).toBe(liveHold);
     const response = sendResponse.mock.calls[0][0];
     expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
       imported: 1,
@@ -3524,6 +3572,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
+  it('guardianPipeline (delegated): a trap from the delegated prove fails the write without a local re-prove', async () => {
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    G.__off.guardianProveError = new WebAssembly.RuntimeError('unreachable');
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: 'unreachable' });
+    expect(mockProveTransport.prove).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitProven).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('delegated guardian prove failed'),
+      expect.anything()
+    );
+  });
+
   it('guardianPipeline (delegated): a worker failure on the fallback leg fails the write before submit (#945)', async () => {
     await loadModule();
     G.__off.guardianProveShouldFailOnce = true;
@@ -3636,6 +3708,255 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.ok).toBe(false);
     expect(resp.error).toContain('local apply failed after submit');
     expect(resp.errorCode).toBe('ApplyTransactionAfterSubmitFailed');
+  });
+
+  // #1233: a failed apply waits in real time before its retry reads the account, so every reply
+  // after one comes later than a flush.
+  const waitForReply = async (sendResponse: jest.Mock) => {
+    for (let i = 0; i < 60 && sendResponse.mock.calls.length === 0; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  };
+
+  it('guardianPipeline: an apply failure after submit replies with the apply-after-submit code (#1233)', async () => {
+    await loadModule();
+    const { isApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      G.__off.guardianSubmitted = true;
+      return {
+        apply: jest.fn(async () => {
+          throw new Error('IndexedDB transaction aborted while applying the transaction update: QuotaExceededError');
+        })
+      };
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await waitForReply(sendResponse);
+
+    expect(G.__off.guardianSubmitted).toBe(true);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorName: 'ApplyAfterSubmitError'
+    });
+    expect(resp.errorReason).toBeUndefined();
+    // The `cause` never crosses the realm. The service worker rebuilds
+    // `Offscreen call '<method>' failed: <error>` with the code re-attached
+    // (miden-client-proxy finishOp), and each signal alone classifies as landed.
+    expect(isApplyAfterSubmitError({ errorCode: resp.errorCode })).toBe(true);
+    expect(isApplyAfterSubmitError(new Error(`Offscreen call 'guardianPipeline' failed: ${resp.error}`))).toBe(true);
+  });
+
+  it('guardianPipeline: a rejected submit replies without the apply-after-submit code (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianSubmitProven = jest.fn(async () => {
+      throw new Error('node refused the proven transaction');
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp).toMatchObject({ ok: false, error: 'node refused the proven transaction' });
+    expect(resp.errorCode).toBeUndefined();
+    expect(resp.errorName).toBeUndefined();
+  });
+
+  it('guardianPipeline: an apply error that cannot be stringified still replies with the apply-after-submit code (#1233)', async () => {
+    await loadModule();
+    // `String()` throws on a null-prototype object. The apply-failure breadcrumb stringifies the
+    // error even with markers off, so an unguarded one would replace the landed verdict.
+    G.__off.guardianSubmitProven = jest.fn(async () => ({
+      apply: jest.fn(async () => {
+        throw Object.create(null);
+      })
+    }));
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await waitForReply(sendResponse);
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorName: 'ApplyAfterSubmitError'
+    });
+  });
+
+  // #1233: the apply retry runs in this realm's own hold, off the executed result's initial account
+  // commitment.
+  const retryableResult = () => ({
+    serialize: () => new Uint8Array([55, 66, 77]),
+    executedTransaction: () => ({
+      id: () => ({ toHex: () => '0xlanded' }),
+      accountId: () => 'sdk-guardian',
+      initialAccountHeader: () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) })
+    })
+  });
+  const callGuardianPipeline = (sendResponse: jest.Mock) =>
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+
+  it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    const apply = jest.fn(async () => {}).mockRejectedValueOnce(new Error('IndexedDB transaction aborted'));
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+    G.__off.clientAccountsGet = jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    expect(apply).toHaveBeenCalledTimes(2);
+    expect(G.__off.clientAccountsGet).toHaveBeenCalledWith('sdk-guardian');
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true });
+  });
+
+  it('guardianPipeline: an apply whose account write landed is not applied again (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    const apply = jest.fn(async () => {
+      throw new Error('note update failed');
+    });
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+    // The store's account already moved to the post-transaction state.
+    G.__off.clientAccountsGet = jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xfinal' }) }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed'
+    });
+  });
+
+  it('guardianPipeline: an apply whose hold is evicted after the first failure is not applied again (#1233)', async () => {
+    // The eviction settles the reply with the waiter's poison first, so only the abandoned dispatch
+    // shows the wrap. The store still holds the initial account: only the hold check stops a retry.
+    await loadModule();
+    const { isApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    const miden = jest.requireMock<
+      typeof import('lib/miden/sdk/miden-client') & {
+        __evictHolder: () => void;
+        __lastRunning: () => Promise<unknown> | null;
+      }
+    >('lib/miden/sdk/miden-client');
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    let dispatch: Promise<unknown> | null = null;
+    const apply = jest
+      .fn(async () => {})
+      .mockImplementationOnce(async () => {
+        dispatch = miden.__lastRunning();
+        miden.__evictHolder();
+        throw new Error('IndexedDB transaction aborted');
+      });
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply }));
+    G.__off.clientAccountsGet = jest.fn(async () => ({ to_commitment: () => ({ toHex: () => '0xinitial' }) }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+    const abandoned = await Promise.resolve(dispatch).catch((caught: unknown) => caught);
+
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'WasmClientPoisonedError' });
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientAccountsGet).not.toHaveBeenCalled();
+    expect(isApplyAfterSubmitError(abandoned)).toBe(true);
+  });
+
+  it('guardianPipeline: an apply that keeps failing replies with the landed transaction id beside its code (#1233)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    G.__off.guardianSubmitProven = jest.fn(async () => ({
+      apply: jest.fn(async () => {
+        throw new Error('QuotaExceededError');
+      })
+    }));
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    const reply = sendResponse.mock.calls[0][0];
+    expect(reply).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorLanded: { transactionId: '0xlanded' }
+    });
+    expect(reply).not.toHaveProperty('errorTransactionId');
+    expect(reply).not.toHaveProperty('errorPrivateOutputNotes');
+  });
+
+  it('guardianPipeline: a landed failure replies with its private output note count (#1233)', async () => {
+    await loadModule();
+    const { ApplyAfterSubmitError } = await import('lib/miden/sdk/sdk-error-code');
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      throw new ApplyAfterSubmitError(new Error('QuotaExceededError'), {
+        transactionId: '0xlanded',
+        privateOutputNotes: 2
+      });
+    });
+    const sendResponse = jest.fn();
+
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+
+    const reply = sendResponse.mock.calls[0][0];
+    expect(reply).toMatchObject({
+      ok: false,
+      errorCode: 'ApplyTransactionAfterSubmitFailed',
+      errorLanded: { transactionId: '0xlanded', privateOutputNotes: 2 }
+    });
+    expect(reply).not.toHaveProperty('errorTransactionId');
+    expect(reply).not.toHaveProperty('errorPrivateOutputNotes');
   });
 
   it('guardianPipeline: the executeRequest keystore sign reverses to the SW via OFFSCREEN_SIGN_REQUEST tagged with the op_id', async () => {
@@ -4090,6 +4411,47 @@ describe('offscreen/main — WASM lock recovery hook', () => {
       { txResult: new Uint8Array([9]) }
     ]);
     expect(G.__off.webClientCtorCount).toBe(0);
+  });
+
+  it('a decode that retires its trapped client replies with the data error and the next call rebuilds', async () => {
+    await loadModule();
+    const r1 = jest.fn();
+    capturedListener!(callReq({}), {}, r1);
+    await flush();
+    expect(G.__off.createOptions).toHaveLength(1);
+
+    let passedHold: unknown;
+    let liveHold: unknown;
+    G.__off.clientDecodeGuardianHistory = jest.fn(async (_encoded: string, hold: unknown) => {
+      passedHold = hold;
+      liveHold = jest.requireMock('lib/miden/sdk/miden-client').getCurrentWasmLockHold();
+      firePoisoned();
+      throw new GuardianHistoryDataError('Guardian summary does not deserialize', {
+        cause: new WebAssembly.RuntimeError('unreachable')
+      });
+    });
+    const r2 = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-2', method: 'decodeGuardianHistory', argsB64: [encodeArg('summary')] }),
+      {},
+      r2
+    );
+    await flush();
+    expect(r2.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      errorName: 'GuardianHistoryDataError',
+      error: 'Guardian summary does not deserialize'
+    });
+    expect(liveHold).toBeDefined();
+    expect(passedHold).toBe(liveHold);
+    expect(G.__off.clientMarkPoisoned).toHaveBeenCalledTimes(1);
+
+    const r3 = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-3' }), {}, r3);
+    await flush();
+    expect(r3.mock.calls[0][0].ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(2);
+    expect(G.__off.createOptions[1].useWorker).toBe(false);
   });
 
   it('a no-op fire (nothing built yet) neither logs nor breaks the next call', async () => {
@@ -4626,6 +4988,39 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
 
       const lines = markerLines(posted);
       expect(lines.some(l => /call 'guardianPipeline' FAILED .*detail=RuntimeError: unreachable$/.test(l))).toBe(true);
+    });
+  });
+
+  // #1233: a failed apply after submit crosses back as `ApplyAfterSubmitError`, whose text
+  // replaces the store's on the FAILED marker while its cause stays in this realm, so the
+  // pipeline's own marker is the only record the harness can read of why the local write failed.
+  it('names the store error when an apply fails after submit (#1233)', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      G.__off.guardianSubmitProven = jest.fn(async () => ({
+        apply: jest.fn(async () => {
+          throw new Error('IndexedDB transaction aborted: QuotaExceededError');
+        })
+      }));
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      const pipelineLines = markerLines(posted).filter(l => l.includes('] guardianPipeline '));
+      expect(
+        pipelineLines.some(l =>
+          l.endsWith(
+            'guardianPipeline apply FAILED after submit (Error: IndexedDB transaction aborted: QuotaExceededError)'
+          )
+        )
+      ).toBe(true);
     });
   });
 });

@@ -527,7 +527,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
       <SubPageHeaderProvider
         value={{ title: subPageTitle, onBack: handleSubPageBack, focusTitleOnMount: focusSubPageTitle }}
       >
-        <activeTab.Component />
+        {/* Every Settings sub-page is set wholly in Nunito: `contents` adds no box, so the page's
+            layout is untouched, and the roles that read `--font-sans` resolve to the heading face. */}
+        <div className="contents face-heading">
+          <activeTab.Component />
+        </div>
       </SubPageHeaderProvider>
     );
   }

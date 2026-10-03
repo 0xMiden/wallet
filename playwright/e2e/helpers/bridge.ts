@@ -161,16 +161,17 @@ export interface BridgeOutSlowOptions {
   stepTimeoutMs?: number;
 }
 
+const STEP_TIMEOUT_MS = 30_000;
+// The route step reads the real bridge registry: up to two 15 s RPC attempts.
+const REGISTRY_READ_TIMEOUT_MS = 60_000;
+
 /**
- * Drive the real Send flow to bridge a token to a 0x address via the Slow
- * (AggLayer) route. Unlike Fast, there is NO live quote — the Slow card shows a
- * fixed "no fee" and `bridge-route-confirm` is never disabled, so nothing is
- * waited on beyond the route becoming enabled. The Slow route carries whichever
- * token is picked, so the funded test token bridges directly.
+ * Drive the real Send flow to the cross-chain route step: 0x recipient -> Sepolia
+ * -> token + amount -> confirm. UI-only, like `bridgeOutFast`.
  */
-export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
+export async function openRouteStep(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
   const { page, extensionId } = wallet;
-  const step = opts.stepTimeoutMs ?? 30_000;
+  const step = opts.stepTimeoutMs ?? STEP_TIMEOUT_MS;
 
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`);
   await expect(page.getByTestId('send-flow')).toBeVisible({ timeout: step });
@@ -188,14 +189,93 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
   await flow.getByTestId('send-amount-input').fill(opts.amount);
   await flow.getByTestId('send-amount-confirm').click({ timeout: step });
 
-  // Route: Slow (AggLayer), enabled for every token.
-  await expect(flow.getByTestId('bridge-route-slow')).toBeEnabled({ timeout: step });
+  await expect(flow.getByTestId('bridge-route-slow')).toBeVisible({ timeout: step });
+}
+
+/**
+ * On the current route step, the bridge registry refuses the token: Slow is
+ * disabled and the notice says so. A registry read that throws shows the
+ * check-failed copy instead, which this assertion names.
+ */
+export async function expectSlowRouteUnsupported(wallet: Wallet): Promise<void> {
+  const flow = wallet.page.getByTestId('send-flow');
+  await expect(
+    flow.getByRole('status'),
+    'the registry must refuse this token; "Could not check this token" means the registry read threw'
+  ).toHaveText('This token does not support the Slow route.', { timeout: REGISTRY_READ_TIMEOUT_MS });
+  await expect(flow.getByTestId('bridge-route-slow')).toBeDisabled();
+}
+
+/** Back out of the route step to the amount step, which unmounts SendRoute and its registry answer. */
+export async function backToAmountStep(wallet: Wallet): Promise<void> {
+  const flow = wallet.page.getByTestId('send-flow');
+  await flow.getByTestId('flow-back').filter({ visible: true }).click({ timeout: STEP_TIMEOUT_MS });
+  await expect(flow.getByTestId('send-amount-confirm')).toBeVisible({ timeout: STEP_TIMEOUT_MS });
+}
+
+/** The real registry approves the bridge's own faucet: the one check of the approving branch against a node. */
+export async function expectRegistryApproves(page: Page, faucetHex: string): Promise<void> {
+  const approved = await page.evaluate(async faucetRef => {
+    const hook: unknown = Reflect.get(globalThis, '__TEST_CHECK_AGGLAYER_FAUCET__');
+    if (typeof hook !== 'function') {
+      throw new Error('__TEST_CHECK_AGGLAYER_FAUCET__ is missing: the wallet was not built with MIDEN_E2E_TEST=true');
+    }
+    return hook(faucetRef);
+  }, faucetHex);
+  expect(
+    approved,
+    'the bridge registry must approve its own faucet; false means the registry key layout or flag index is wrong'
+  ).toBe(true);
+}
+
+/**
+ * Allowlist a runtime-created faucet for the Slow route through the E2E-only
+ * page hook. The entry lives in the page's memory: a reload drops it.
+ */
+export async function allowAgglayerFaucetForE2E(page: Page, faucetHex: string): Promise<void> {
+  await page.evaluate(async faucetRef => {
+    const hook: unknown = Reflect.get(globalThis, '__TEST_ALLOW_AGGLAYER_FAUCET__');
+    if (typeof hook !== 'function') {
+      throw new Error('__TEST_ALLOW_AGGLAYER_FAUCET__ is missing: the wallet was not built with MIDEN_E2E_TEST=true');
+    }
+    await hook(faucetRef);
+  }, faucetHex);
+}
+
+/** Confirm the amount step, so a fresh route step mounts and checks the registry again. */
+export async function confirmAmountStep(wallet: Wallet): Promise<void> {
+  const flow = wallet.page.getByTestId('send-flow');
+  await flow.getByTestId('send-amount-confirm').click({ timeout: STEP_TIMEOUT_MS });
+  await expect(flow.getByTestId('bridge-route-slow')).toBeVisible({ timeout: STEP_TIMEOUT_MS });
+}
+
+/**
+ * On the route step, take Slow and submit through review, ending on the
+ * generating-transaction screen. Slow is enabled only for a token the bridge
+ * registry lists or one allowlisted with `allowAgglayerFaucetForE2E`.
+ */
+export async function selectSlowAndSubmit(wallet: Wallet, stepTimeoutMs = STEP_TIMEOUT_MS): Promise<void> {
+  const { page } = wallet;
+  const flow = page.getByTestId('send-flow');
+
+  await expect(flow.getByTestId('bridge-route-slow')).toBeEnabled({ timeout: REGISTRY_READ_TIMEOUT_MS });
   await flow.getByTestId('bridge-route-slow').click();
-  await flow.getByTestId('bridge-route-confirm').click({ timeout: step });
+  await flow.getByTestId('bridge-route-confirm').click({ timeout: stepTimeoutMs });
 
   // Review -> submit -> generating-transaction.
-  await page.getByTestId('send-review-submit').click({ timeout: step });
+  await page.getByTestId('send-review-submit').click({ timeout: stepTimeoutMs });
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
+}
+
+/**
+ * Drive the real Send flow to bridge a token to a 0x address via the Slow
+ * (AggLayer) route. Unlike Fast, there is NO live quote: the Slow card shows a
+ * fixed "no fee". Slow is enabled for a token the bridge registry lists or one
+ * allowlisted with `allowAgglayerFaucetForE2E`; for any other token this fails.
+ */
+export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
+  await openRouteStep(wallet, opts);
+  await selectSlowAndSubmit(wallet, opts.stepTimeoutMs);
 }
 
 export interface BridgedSendRow {

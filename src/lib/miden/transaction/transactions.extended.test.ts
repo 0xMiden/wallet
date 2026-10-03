@@ -20,10 +20,12 @@ import { ITransactionStatus, Transaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
   cancelTransaction,
+  claimBridgeSubmit,
   completeConsumeTransaction,
   forceCaneclAllInProgressTransactions,
   initiateConsumeTransaction,
   markBridgedSendFailed,
+  recordBridgeNoteLanded,
   requestCustomTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
@@ -817,6 +819,7 @@ describe('completeCustomTransaction', () => {
 
   it('processes private output notes by sending them via the WASM client', async () => {
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => ({ valid: true }) as any
     };
@@ -836,6 +839,7 @@ describe('completeCustomTransaction', () => {
   it('handles sendPrivateNote rejections gracefully and still marks the tx complete', async () => {
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => ({}) as any
     };
@@ -852,6 +856,7 @@ describe('completeCustomTransaction', () => {
 
   it('skips notes whose intoFull returns undefined', async () => {
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => undefined
     };
@@ -869,6 +874,7 @@ describe('completeCustomTransaction', () => {
 
   it('skips notes whose intoFull throws', async () => {
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => {
         throw new Error('boom');
@@ -888,6 +894,7 @@ describe('completeCustomTransaction', () => {
   it('handles transactions without secondaryAccountId by skipping the note', async () => {
     txStore[0]!.secondaryAccountId = undefined;
     const fakeNote = {
+      id: () => ({ toString: () => '0xnote' }),
       metadata: () => ({ noteType: () => 'private' }),
       intoFull: () => ({}) as any
     };
@@ -917,6 +924,73 @@ describe('completeCustomTransaction', () => {
     const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
+  });
+
+  it('records only the private note as owed a relay when a public note rides along', async () => {
+    // `outputNoteIds` lists both, so without this the sweep cannot tell which id its verdict is about.
+    const note = (id: string, noteType: string) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => ({ noteType: () => noteType }),
+      intoFull: () => ({}) as any
+    });
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({ notes: () => [note('0xpublic', 'public'), note('0xprivate', 'private')] })
+      })
+    } as any;
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, txResult);
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(txStore[0]!.relayNoteIds).toEqual(['0xprivate']);
+  });
+
+  it('still counts a private note it could not convert as owed a relay', async () => {
+    // The row's label and state cover this note too, so a verdict on the other one must not speak for it.
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    const note = (id: string, full: unknown) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => ({ noteType: () => 'private' }),
+      intoFull: () => full
+    });
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({ notes: () => [note('0xsent', {}), note('0xunconvertible', undefined)] })
+      })
+    } as any;
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, txResult);
+    errSpy.mockRestore();
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
+    expect(txStore[0]!.relayNoteIds).toEqual(['0xsent', '0xunconvertible']);
+  });
+
+  it('records the recipient the relay used, not the sender a consume reading puts in its place', async () => {
+    jest
+      .requireMock('../activity/helpers')
+      .interpretTransactionResult.mockImplementationOnce((tx: any) =>
+        Object.assign(tx, { type: 'consume', secondaryAccountId: 'sender', displayMessage: 'Received' })
+      );
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () => [
+            {
+              id: () => ({ toString: () => '0xprivate' }),
+              metadata: () => ({ noteType: () => 'private' }),
+              intoFull: () => ({}) as any
+            }
+          ]
+        })
+      })
+    } as any;
+    const { completeCustomTransaction } = require('./index');
+    await completeCustomTransaction(txStore[0]!, txResult);
+
+    expect(mockSendPrivateNote).toHaveBeenCalledWith({}, 'acc-2');
+    expect(txStore[0]).toMatchObject({ secondaryAccountId: 'sender', relayRecipientId: 'acc-2' });
   });
 });
 
@@ -1100,17 +1174,29 @@ describe('initiateConsumeTransaction reuse path', () => {
         type: 'bridged-send',
         status: ITransactionStatus.Completed,
         displayMessage: 'Bridged to EVM',
-        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+        outputNoteIds: ['note-stamped'],
+        extraInputs: {
+          provider: 'epoch',
+          claimStatus: 'not-applicable',
+          epochStatus: 'pending',
+          reclaimHeight: 3016,
+          reclaimNoteId: 'note-stamped'
+        }
       });
 
-      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small', 12345);
+      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small');
 
       const row = txStore.find(t => t.id === 'bs-fail-1')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.displayMessage).toBe('Bridge failed — funds reclaimable');
+      expect(row.displayMessage).toBe('Bridge failed - funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.reclaimHeight).toBe(12345);
+      // Stamped when the note was built; the demotion keeps both (#1250).
+      expect(row.extraInputs.reclaimHeight).toBe(3016);
+      expect(row.extraInputs.reclaimNoteId).toBe('note-stamped');
+      expect(mockedReportOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'errored', step: 'submitting' })
+      );
     });
 
     it('leaves a row the note pipeline already failed untouched, and reports nothing (#1250)', async () => {
@@ -1126,7 +1212,7 @@ describe('initiateConsumeTransaction reuse path', () => {
         extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'pending' }
       });
 
-      await markBridgedSendFailed('bs-fail-pipeline', 'allocator rejected the intent', 99999);
+      await markBridgedSendFailed('bs-fail-pipeline', 'allocator rejected the intent');
 
       const row = txStore.find(t => t.id === 'bs-fail-pipeline')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
@@ -1136,22 +1222,213 @@ describe('initiateConsumeTransaction reuse path', () => {
       expect(mockedReportOperation).not.toHaveBeenCalled();
     });
 
-    it('still demotes a row that was in flight (not yet terminal)', async () => {
+    it('demotes an in-flight row whose pipeline claimed the submit as reclaimable (#1250)', async () => {
       txStore.push({
         id: 'bs-fail-in-flight',
         type: 'bridged-send',
         status: ITransactionStatus.GeneratingTransaction,
-        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+        stage: 'sending',
+        extraInputs: {
+          provider: 'epoch',
+          claimStatus: 'not-applicable',
+          epochStatus: 'pending',
+          reclaimNoteId: 'note-stamped',
+          submitClaimed: true
+        }
       });
 
-      await markBridgedSendFailed('bs-fail-in-flight', 'allocator rejected the intent', 54321);
+      await markBridgedSendFailed('bs-fail-in-flight', 'allocator rejected the intent');
 
       const row = txStore.find(t => t.id === 'bs-fail-in-flight')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).toContain('funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.reclaimHeight).toBe(54321);
+      expect(row.extraInputs.submitClaimed).toBe(true);
+      expect(row.extraInputs.reclaimNoteId).toBe('note-stamped');
+      expect(mockedReportOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'errored', step: 'sending' })
+      );
     });
+
+    it('demotes a Queued row as a plain failure, reporting where it stood (#1250)', async () => {
+      txStore.push({
+        id: 'bs-fail-queued',
+        type: 'bridged-send',
+        status: ITransactionStatus.Queued,
+        extraInputs: {
+          provider: 'epoch',
+          claimStatus: 'not-applicable',
+          epochStatus: 'pending',
+          reclaimNoteId: 'note-stamped'
+        }
+      });
+
+      await markBridgedSendFailed('bs-fail-queued', 'allocator rejected the intent');
+
+      const row = txStore.find(t => t.id === 'bs-fail-queued')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).toBe('Bridge failed');
+      expect(row.extraInputs.epochStatus).toBe('failed');
+      expect(mockedReportOperation).toHaveBeenCalledTimes(1);
+      expect(mockedReportOperation.mock.lastCall?.[0].step).not.toBe('submitting');
+    });
+  });
+});
+
+describe('claimBridgeSubmit (#1250)', () => {
+  it('claims a row in flight, recording that its note may be submitted', async () => {
+    txStore.push({
+      id: 'bs-claim',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending', reclaimNoteId: 'note-1' }
+    });
+
+    await expect(claimBridgeSubmit('bs-claim')).resolves.toBe(true);
+
+    const row = txStore.find(t => t.id === 'bs-claim')!;
+    expect(row.extraInputs.submitClaimed).toBe(true);
+    expect(row.extraInputs.reclaimNoteId).toBe('note-1');
+    // Bridge-only: the retry and unconfirmed-outcome readers of this flag see no submit.
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('refuses a row markBridgedSendFailed already abandoned, writing nothing', async () => {
+    const extraInputs = { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed', reclaimNoteId: 'note-1' };
+    txStore.push({
+      id: 'bs-claim-abandoned',
+      type: 'bridged-send',
+      status: ITransactionStatus.Failed,
+      extraInputs: { ...extraInputs }
+    });
+
+    await expect(claimBridgeSubmit('bs-claim-abandoned')).resolves.toBe(false);
+
+    const row = txStore.find(t => t.id === 'bs-claim-abandoned')!;
+    expect(row.extraInputs).toEqual(extraInputs);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+});
+
+describe('recordBridgeNoteLanded (#1250)', () => {
+  it('records the landed note and the failed route on an Epoch row (#1250)', async () => {
+    const extraInputs = {
+      provider: 'epoch',
+      claimStatus: 'not-applicable',
+      reclaimNoteId: 'note-stamped',
+      submitClaimed: true
+    };
+    txStore.push(
+      {
+        id: 'bs-landed-generating',
+        type: 'bridged-send',
+        status: ITransactionStatus.GeneratingTransaction,
+        displayMessage: 'Generating',
+        extraInputs: { ...extraInputs }
+      },
+      {
+        // Already failed by a demotion that landed first.
+        id: 'bs-landed-failed',
+        type: 'bridged-send',
+        status: ITransactionStatus.Failed,
+        error: 'allocator rejected the intent',
+        displayMessage: 'Bridge failed',
+        extraInputs: { ...extraInputs }
+      }
+    );
+
+    await recordBridgeNoteLanded('bs-landed-generating');
+    await recordBridgeNoteLanded('bs-landed-failed');
+
+    const generating = txStore.find(t => t.id === 'bs-landed-generating')!;
+    expect(generating.outputNoteIds).toEqual(['note-stamped']);
+    expect(generating.extraInputs).toEqual({ ...extraInputs, claimStatus: 'failed', epochStatus: 'failed' });
+    expect(generating.status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(generating.error).toBeUndefined();
+    expect(generating.displayMessage).toBe('Generating');
+    const failed = txStore.find(t => t.id === 'bs-landed-failed')!;
+    expect(failed.outputNoteIds).toEqual(['note-stamped']);
+    expect(failed.extraInputs).toEqual({ ...extraInputs, claimStatus: 'failed', epochStatus: 'failed' });
+    expect(failed.status).toBe(ITransactionStatus.Failed);
+    expect(failed.error).toBe('allocator rejected the intent');
+    expect(failed.displayMessage).toBe('Bridge failed');
+    expect(mockedReportOperation).not.toHaveBeenCalled();
+  });
+
+  it('keeps an existing epochStatus and outputNoteIds (#1250)', async () => {
+    const recorded = () => ({
+      id: 'bs-landed-recorded',
+      type: 'bridged-send',
+      status: ITransactionStatus.Completed,
+      outputNoteIds: ['note-1'],
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending',
+        reclaimNoteId: 'note-stamped',
+        submitClaimed: true
+      }
+    });
+    txStore.push(recorded(), {
+      id: 'bs-landed-pending',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending',
+        reclaimNoteId: 'note-2',
+        submitClaimed: true
+      }
+    });
+
+    await recordBridgeNoteLanded('bs-landed-recorded');
+    await recordBridgeNoteLanded('bs-landed-pending');
+
+    expect(txStore.find(t => t.id === 'bs-landed-recorded')).toEqual(recorded());
+    const pending = txStore.find(t => t.id === 'bs-landed-pending')!;
+    expect(pending.outputNoteIds).toEqual(['note-2']);
+    expect(pending.extraInputs.epochStatus).toBe('pending');
+    expect(pending.extraInputs.claimStatus).toBe('not-applicable');
+  });
+
+  it('records nothing for an Agglayer row or a row without a stamped id (#1250)', async () => {
+    const agglayer = () => ({
+      id: 'bs-landed-agglayer',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', reclaimNoteId: 'note-stamped', submitClaimed: true }
+    });
+    const unstamped = () => ({
+      id: 'bs-landed-unstamped',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', submitClaimed: true }
+    });
+    txStore.push(agglayer(), unstamped());
+
+    await recordBridgeNoteLanded('bs-landed-agglayer');
+    await recordBridgeNoteLanded('bs-landed-unstamped');
+
+    expect(txStore.find(t => t.id === 'bs-landed-agglayer')).toEqual(agglayer());
+    expect(txStore.find(t => t.id === 'bs-landed-unstamped')).toEqual(unstamped());
+  });
+
+  it('records nothing for a row whose submit was never claimed (#1250)', async () => {
+    txStore.push({
+      id: 'bs-landed-unclaimed',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', reclaimNoteId: 'note-stamped' }
+    });
+
+    await recordBridgeNoteLanded('bs-landed-unclaimed');
+
+    const row = txStore.find(t => t.id === 'bs-landed-unclaimed')!;
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(row.extraInputs.epochStatus).toBeUndefined();
+    expect(row.extraInputs.claimStatus).toBe('not-applicable');
   });
 });
 

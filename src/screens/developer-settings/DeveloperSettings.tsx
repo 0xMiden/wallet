@@ -438,6 +438,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
                 presetName: CUSTOM_PRESET
               }))
             }
+            pressed={form.allowNoGuardian}
             trailing={<CheckboxIndicator checked={form.allowNoGuardian} />}
           />
         </ListGroup>

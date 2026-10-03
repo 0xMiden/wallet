@@ -3,8 +3,11 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
+import { checkBiometricAvailability } from 'lib/biometric';
 
 import RotateGuardianReview from './RotateGuardianReview';
+
+const mockCheckBiometricAvailability = checkBiometricAvailability as jest.Mock;
 
 const mockUnlock = jest.fn();
 const mockInitiateSwitch = jest.fn();
@@ -19,6 +22,7 @@ const mockHasHardwareProtector = jest.fn();
 const mockHasPasswordProtector = jest.fn();
 const mockIsMobile = jest.fn(() => false);
 const mockIsExtension = jest.fn(() => true);
+const mockIsIOS = jest.fn(() => false);
 const mockCurrentAccount = {
   publicKey: 'guardian-account',
   name: 'Guardian',
@@ -126,7 +130,6 @@ jest.mock('components/Alert', () => ({
 }));
 
 jest.mock('lib/biometric', () => ({
-  isBiometricEnabled: jest.fn().mockResolvedValue(false),
   checkBiometricAvailability: jest.fn()
 }));
 
@@ -152,7 +155,8 @@ jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { provider:
 
 jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension(),
-  isMobile: () => mockIsMobile()
+  isMobile: () => mockIsMobile(),
+  isIOS: () => mockIsIOS()
 }));
 
 // Real `sanitizeGuardianUrl`/`isValidGuardianUrl`: they ARE the endpoint guards
@@ -194,6 +198,7 @@ beforeEach(() => {
   mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
+  mockIsIOS.mockReturnValue(false);
   mockHasHardwareProtector.mockResolvedValue(false);
   mockHasPasswordProtector.mockResolvedValue(true);
   mockUnlock.mockResolvedValue(undefined);
@@ -926,4 +931,47 @@ it('does not redirect after the user backs out of the credential step mid-flight
 
   await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
   expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+describe('hot-key label (face / fingerprint)', () => {
+  beforeEach(() => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+  });
+
+  it('reads faceUnlock for a face biometric on Android', async () => {
+    mockIsIOS.mockReturnValue(false);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('faceUnlock')).toBeInTheDocument();
+  });
+
+  it('reads faceId for a face biometric on iOS', async () => {
+    mockIsIOS.mockReturnValue(true);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('faceId')).toBeInTheDocument();
+  });
+
+  it('reads fingerprint for a fingerprint biometric', async () => {
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'fingerprint' });
+
+    render(<RotateGuardianReview />);
+
+    expect(await screen.findByText('fingerprint')).toBeInTheDocument();
+  });
+
+  it('reads the password label when the vault has no hardware protector, even if biometrics are available', async () => {
+    mockHasHardwareProtector.mockResolvedValue(false);
+    mockCheckBiometricAvailability.mockResolvedValue({ isAvailable: true, biometryType: 'face' });
+
+    render(<RotateGuardianReview />);
+    await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+
+    expect(screen.getByText('password')).toBeInTheDocument();
+    expect(mockCheckBiometricAvailability).not.toHaveBeenCalled();
+  });
 });

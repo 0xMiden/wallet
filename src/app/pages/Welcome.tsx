@@ -53,26 +53,6 @@ async function checkHardwareSecurityAvailable(): Promise<boolean> {
   return false;
 }
 
-/**
- * Biometric / FaceID protection is only ever available on mobile (Capacitor).
- * On the browser extension and Tauri desktop there is no biometric API at all,
- * so the "choose how to protect your wallet" step collapses to a single real
- * option. When biometric can't work, onboarding skips that screen entirely and
- * goes straight to the full-password step (passcodes are mobile-only).
- */
-function biometricProtectionSupported(): boolean {
-  return isMobile();
-}
-
-/**
- * Where the create flow's protection step lives per platform: mobile offers the
- * biometric-vs-passcode choice; the extension and desktop keep the classic
- * full password (no passcode UI at all — passcodes are mobile-only).
- */
-function protectionStepRoute(): string {
-  return biometricProtectionSupported() ? '/#choose-protection' : '/#create-password';
-}
-
 const READY_WAIT_BUDGET_MS = 5_000;
 const READY_POLL_INTERVAL_MS = 100;
 
@@ -191,7 +171,10 @@ const Welcome: FC = () => {
   const [guardianEndpoint, setGuardianEndpoint] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
-  const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
+  // The vault's hardware probe, the one setupHardwareProtector reads; null on mobile until it answers.
+  const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState<boolean | null>(() =>
+    isMobile() ? null : false
+  );
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   // The recovery-method screen's failure text, or null. It keeps its own copy because the page
@@ -334,6 +317,28 @@ const Welcome: FC = () => {
       setIsHardwareSecurityAvailable(available);
     });
   }, []);
+
+  /**
+   * The create flow offers the biometric-vs-passcode choice only where the vault can protect its key with
+   * biometrics: on mobile, once the vault's hardware probe has passed. Android 9 and 10 fail it (androidx does not
+   * support BIOMETRIC_STRONG | DEVICE_CREDENTIAL there), and the extension and desktop have no biometric API at all.
+   */
+  const biometricProtectionSupported = useCallback(
+    () => isMobile() && isHardwareSecurityAvailable === true,
+    [isHardwareSecurityAvailable]
+  );
+
+  /**
+   * Where the create flow's protection step lives: the chooser where biometric can work, passcode setup on a mobile
+   * whose probe failed, and the full password on the extension and desktop (passcodes are mobile-only). A probe
+   * still pending goes to the chooser's route, which waits for the answer.
+   */
+  const protectionStepRoute = useCallback(() => {
+    if (biometricProtectionSupported() || (isMobile() && isHardwareSecurityAvailable === null)) {
+      return '/#choose-protection';
+    }
+    return isMobile() ? '/#setup-passcode' : '/#create-password';
+  }, [biometricProtectionSupported, isHardwareSecurityAvailable]);
 
   // Test bypass: skip onboarding via URL param or CDP global (mobile testing only)
   // Usage from CDP: node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.hash = ""'
@@ -597,9 +602,8 @@ const Welcome: FC = () => {
     const startCreateFlow = () => {
       setWalletFilePayload(null);
       setOnboardingType(OnboardingType.Create);
-      // Biometric is unavailable on the extension/desktop, so the
-      // choose-protection screen has only one real option — skip it and go
-      // straight to the full-password step.
+      // Where biometric can't work the choose-protection screen has only one
+      // real option, so skip it for the platform's own protection step.
       navigate(protectionStepRoute());
     };
     const startImportFlow = () => {
@@ -981,15 +985,19 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.SelectWalletType);
         break;
       case '#choose-protection':
+      case '#setup-biometric':
         setOnboardingType(OnboardingType.Create);
-        // Never render the choose-protection screen where biometric can't work
-        // (guards direct hash navigation / reload); redirect to the platform's
-        // protection step instead.
+        // Never render the choose-protection or biometric setup screen where
+        // biometric can't work (guards direct hash navigation, reload and history
+        // jumps); redirect to the platform's protection step instead. Until the
+        // mobile probe answers this waits, and the probe's answer re-runs this effect.
+        if (isMobile() && isHardwareSecurityAvailable === null) break;
         if (!biometricProtectionSupported()) {
           navigate(protectionStepRoute());
           break;
         }
-        setStep(OnboardingStep.ChooseProtection);
+        if (hash === '#choose-protection') setStep(OnboardingStep.ChooseProtection);
+        else setStep(OnboardingStep.SetupBiometric);
         break;
       case '#setup-passcode':
         // The import flow also lands here on mobile — don't clobber its type.
@@ -1001,10 +1009,6 @@ const Welcome: FC = () => {
           break;
         }
         setStep(OnboardingStep.SetupPasscode);
-        break;
-      case '#setup-biometric':
-        setOnboardingType(OnboardingType.Create);
-        setStep(OnboardingStep.SetupBiometric);
         break;
       case '#meet-guardian':
       case '#choose-guardian':
@@ -1062,7 +1066,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType]);
+  }, [hash, password, onboardingType, isHardwareSecurityAvailable, biometricProtectionSupported, protectionStepRoute]);
 
   // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
   // password or type change, and a reset there would wipe what the next action just set.
@@ -1136,7 +1140,8 @@ const Welcome: FC = () => {
           password={password}
           isLoading={isLoading}
           useBiometric={useBiometric}
-          isHardwareSecurityAvailable={isHardwareSecurityAvailable}
+          isHardwareSecurityAvailable={isHardwareSecurityAvailable === true}
+          skipProtectionChoice={isMobile() && isHardwareSecurityAvailable === false}
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
           guardianLookupFailure={guardianLookupFailure}

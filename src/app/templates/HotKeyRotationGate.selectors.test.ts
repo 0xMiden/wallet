@@ -325,6 +325,17 @@ describe('describeRotationFailure', () => {
     });
   });
 
+  it('reads a rotation the node discarded as failed, even past the submit crossing (#1233)', () => {
+    const discardText =
+      'GuardianWriteDiscardedError: Guardian replace-hot-key 0xabc did not land: the node discarded it.';
+    expect(
+      describeRotationFailure(
+        failed({ error: discardText, mayHaveSubmitted: true, extraInputs: { nodeDiscarded: true } }),
+        null
+      )
+    ).toEqual({ unconfirmed: false, message: null, details: discardText });
+  });
+
   it('puts an unclassified failure before the submit crossing behind the generic message', () => {
     expect(describeRotationFailure(failed({ error: rawTimeout }), null)).toEqual({
       unconfirmed: false,

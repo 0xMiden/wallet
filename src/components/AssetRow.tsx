@@ -10,6 +10,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { isNominalQuote } from 'lib/prices/binance';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 
 export interface AssetRowProps {
@@ -48,13 +49,16 @@ export const AssetRow: FC<AssetRowProps> = ({
   // the token and show no quantity, and drop the fiat line with it: a dollar
   // figure derived from that balance is the same fiction, one step further on.
   const scaleIsKnown = hasKnownScale(metadata);
-  // The quote of the symbol the feed prices this token under (IETH at ETH). Without one there is
-  // no dollar figure and no 24h move to show, rather than the token count at $1 a unit.
+  // The quote of the symbol the feed prices this token under (IETH at ETH), or the nominal $1 a
+  // unit `quotedPrice` gives a token the feed does not quote while the switch is on. Without one
+  // there is no dollar figure and no 24h move to show.
   const priceSymbol = priceSymbolFor(asset.tokenId, metadata.symbol);
   const quote = quotedPrice(tokenPrices, priceSymbol);
-  // Only a quote has a 24h move; without one there is no direction to colour anything by.
-  const direction: 'positive' | 'negative' | null = quote
-    ? quote.percentageChange24h >= 0
+  // Only a feed quote has a 24h move. The nominal rate is a dollar figure with no market behind it,
+  // so it has no direction to colour anything by, like no quote at all.
+  const feedQuote = quote && !isNominalQuote(quote) ? quote : undefined;
+  const direction: 'positive' | 'negative' | null = feedQuote
+    ? feedQuote.percentageChange24h >= 0
       ? 'positive'
       : 'negative'
     : null;
@@ -93,8 +97,8 @@ export const AssetRow: FC<AssetRowProps> = ({
         ) : undefined
       }
       delta={
-        quote && direction
-          ? { value: <AnimatedNumber value={quote.percentageChange24h} format={formatPercent} />, direction }
+        feedQuote && direction
+          ? { value: <AnimatedNumber value={feedQuote.percentageChange24h} format={formatPercent} />, direction }
           : undefined
       }
       badge={

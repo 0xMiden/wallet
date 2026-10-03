@@ -133,6 +133,8 @@ export const NewContactPage: React.FC = () => {
     <>
       <SubPageLayout
         data-testid="contact-new"
+        // Set wholly in Nunito, like the Settings sub-pages it opens from.
+        bodyClassName="face-heading"
         title={t('newContact')}
         // `back` is claim-gated once per location, and `save()` calls it again when the write
         // lands. A tap while the save is in flight consumes the claim AND navigates, which resets
@@ -173,6 +175,7 @@ export const NewContactPage: React.FC = () => {
         <TextField
           multiline
           label={t('address')}
+          labelSize="md"
           value={address}
           onChange={event => {
             setAddress(event.target.value);

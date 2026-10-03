@@ -138,6 +138,8 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: process.env.MODE_ENV !== 'production',
     target: 'es2022',
+    // midenVitePlugin's esnext build.target wins the merge, and an esnext CSS minify drops -webkit-backdrop-filter.
+    cssTarget: 'es2022',
     modulePreload: { polyfill: false },
     rollupOptions: {
       input: resolve(__dirname, 'mobile.html'),

@@ -10,6 +10,7 @@ import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
@@ -439,7 +440,7 @@ const SwapManager: React.FC = () => {
         setSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction('Confirm your swap'))) {
+      if (!(await confirmSensitiveAction(t('confirmSwapReason'), probeHardwareProtector))) {
         setSubmitting(false);
         return;
       }

@@ -118,7 +118,8 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
     >
       {/* Every line of the screen is Nunito: the body styles that read `--font-sans` resolve to the
           heading face here. */}
-      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center face-heading">
+      {/* Bottom-weighted padding lifts the centred block above true centre, so it doesn't read as sitting low. */}
+      <div className="my-auto flex flex-col items-center gap-4 pt-6 pb-24 text-center face-heading">
         <Hero
           nameAs="h1"
           nameSize="lg"

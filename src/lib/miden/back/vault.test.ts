@@ -5,6 +5,7 @@
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { getMessage } from 'lib/i18n';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { importedAccountBackupFailure } from 'lib/miden/backup-file';
 import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
@@ -14,7 +15,7 @@ import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-e
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { PublicError } from './defaults';
+import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED, PublicError } from './defaults';
 import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import { encryptAndSaveMany, fetchAndDecryptOne, getPlain, isStored, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
@@ -1489,6 +1490,133 @@ describe('Vault.withAccountFileKeyReader', () => {
   });
 });
 
+describe('Vault.swapHotKey', () => {
+  const seedGuardianAccount = async (extraKeys: [string, string][] = []) => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex'
+    };
+    await encryptAndSaveMany(
+      [[keys.accounts, [account]], [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT'], ...extraKeys],
+      vaultKey
+    );
+    return vault;
+  };
+
+  // A swap to a key this vault lacks would point the account at nothing: an encrypted-file restore
+  // keeps the rotation rows but not necessarily the key a rotation minted (#1233).
+  it('swapHotKey refuses a key this wallet does not hold', async () => {
+    const vault = await seedGuardianAccount();
+
+    const swap = vault.swapHotKey('guardian-acc-1', 'missing-pub');
+    await expect(swap).rejects.toBeInstanceOf(PublicError);
+    // The heal closes its budget on this code alone, never on the message (#1233).
+    await expect(swap).rejects.toMatchObject({ code: HOT_KEY_NOT_STORED });
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
+  });
+
+  it('swapHotKey repoints and releases the old key when the new one is stored', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub');
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(false);
+    expect(mockDeleteHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+  });
+
+  // A background heal swaps only if the pointer is still where it read it; a rotation that completed
+  // meanwhile owns the account's key (#1233).
+  it('refuses a stale expectation and changes nothing (#1233)', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    const caught = await vault.swapHotKey('guardian-acc-1', 'new-pub', 'stale-pub').then(
+      () => undefined,
+      (e: unknown) => e
+    );
+
+    expect(caught).toBeInstanceOf(PublicError);
+    expect(caught).toMatchObject({ code: HOT_KEY_CHANGED });
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(true);
+    expect(await isStored(keys.accAuthSecretKey('new-pub'))).toBe(true);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
+    // The extension's port carries the code the heal matches on.
+    expect(deserializeInternalError(serializeInternalError(caught)).code).toBe(HOT_KEY_CHANGED);
+  });
+
+  it('refuses a keyless expectation once the account has a key (#1233)', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    await expect(vault.swapHotKey('guardian-acc-1', 'new-pub', null)).rejects.toMatchObject({
+      code: HOT_KEY_CHANGED
+    });
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('hot-pub-hex');
+  });
+
+  it('reports a moved pointer before a missing key (#1233)', async () => {
+    const vault = await seedGuardianAccount();
+
+    await expect(vault.swapHotKey('guardian-acc-1', 'missing-pub', 'stale-pub')).rejects.toMatchObject({
+      code: HOT_KEY_CHANGED
+    });
+  });
+
+  it('swaps when the expectation matches (#1233)', async () => {
+    const vault = await seedGuardianAccount([[keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']]);
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub', 'hot-pub-hex');
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(await isStored(keys.accAuthSecretKey('hot-pub-hex'))).toBe(false);
+    expect(mockDeleteHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+  });
+
+  it('swaps a keyless record when the expectation is null (#1233)', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const pending: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      coldPublicKey: 'cold-pub-hex',
+      requiresHotKeyRotation: true
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [pending]],
+        [keys.accAuthSecretKey('new-pub'), 'NEW_CIPHERTEXT']
+      ],
+      vaultKey
+    );
+
+    await vault.swapHotKey('guardian-acc-1', 'new-pub', null);
+
+    const [account] = await vault.fetchAccounts();
+    expect(account?.hotPublicKey).toBe('new-pub');
+    expect(account?.requiresHotKeyRotation).toBe(false);
+    expect(mockDeleteHotKey).not.toHaveBeenCalled();
+  });
+});
+
 describe('Vault.revealHotKey', () => {
   it('unwraps the hot ciphertext via the secure-hot-key facade and returns plaintext hex', async () => {
     const vault = await seedVault('pw');
@@ -2185,6 +2313,107 @@ describe('Vault.spawn', () => {
     // Once at step 5, once more from inside the lock after finding it disposed.
     expect(mockGetMidenClient).toHaveBeenCalledTimes(2);
   });
+
+  it('leaves no protector behind when creation is rejected, and keeps what every setup keeps (#946)', async () => {
+    memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+
+    expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
+    expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
+  });
+
+  it('undoes a creation that fails after its check key landed, so a reload does not open Unlock (#946)', async () => {
+    // The current-account pointer is the last write but one, after the check key, the mnemonic and the accounts.
+    Object.defineProperty(memoryStore, keys.currentAccPubKey, {
+      configurable: true,
+      get: () => undefined,
+      set: () => {
+        throw new Error('disk full');
+      }
+    });
+    try {
+      await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+    } finally {
+      delete memoryStore[keys.currentAccPubKey];
+    }
+
+    expect(await Vault.isExist()).toBe(false);
+    expect(await isStored(keys.mnemonic)).toBe(false);
+    expect(await Vault.hasPasswordProtector()).toBe(false);
+  });
+
+  it('leaves the existing wallet untouched when creation fails before its opening wipe (#946)', async () => {
+    await seedVault('old-pw');
+    const protector = await getPlain(keys.vaultKeyPassword);
+    expect(protector).toEqual(expect.any(String));
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const importKey = jest.spyOn(crypto.subtle, 'importKey').mockRejectedValueOnce(new Error('key import failed'));
+
+    try {
+      await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+    } finally {
+      importKey.mockRestore();
+    }
+
+    expect(clearStorage).not.toHaveBeenCalled();
+    expect(await Vault.isExist()).toBe(true);
+    expect(await getPlain(keys.vaultKeyPassword)).toBe(protector);
+  });
+
+  it('retires its provisional realm sink when creation is rejected (#946)', async () => {
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    (globalThis as any).__vaultTestRealmUninstalled = null;
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow('Failed to create wallet');
+
+    expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
+    expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+  });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the spawn is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    let settled = false;
+    const spawning = Vault.spawn(WalletType.OnChain, 'pw');
+    spawning.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(spawning).rejects.toThrow('Failed to create wallet');
+  });
 });
 
 const MALFORMED = 'Encrypted file contains malformed imported account data';
@@ -2691,6 +2920,51 @@ describe('Vault.spawnFromMidenClient', () => {
     const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
     expect((insertedSecret as any).__marker).toBe('ecdsa-secret');
   });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the restore is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    let settled = false;
+    const restoring = restoreVersionTwo();
+    restoring.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(restoring).rejects.toThrow(PublicError);
+  });
 });
 
 describe('Vault.importAccountFromPrivateKey', () => {
@@ -2897,6 +3171,7 @@ describe('Vault hardware branches', () => {
     generateHardwareKey: jest.fn(),
     encryptWithHardwareKey: jest.fn().mockResolvedValue('enc-hw-key'),
     decryptWithHardwareKey: jest.fn().mockResolvedValue(''),
+    deleteHardwareKey: jest.fn(),
     tauriLog: jest.fn().mockResolvedValue(undefined)
   };
   const mockMobileBiometric = {
@@ -2980,6 +3255,21 @@ describe('Vault hardware branches', () => {
     await Vault.spawn(WalletType.OnChain, undefined as any);
     expect(mockDesktopSecureStorage.generateHardwareKey).not.toHaveBeenCalled();
     expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
+  });
+
+  it('leaves no wrapped vault key after a rejected hardware creation, and keeps the device key (#946)', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
+    mockDesktopSecureStorage.hasHardwareKey.mockResolvedValue(true);
+    mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
+
+    await expect(Vault.spawn(WalletType.OnChain, '')).rejects.toThrow('Failed to create wallet');
+
+    // The wrapped key was written before the rejection, so its absence is the undo's doing.
+    expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
+    expect(await Vault.hasHardwareProtector()).toBe(false);
+    expect(mockDesktopSecureStorage.deleteHardwareKey).not.toHaveBeenCalled();
   });
 
   it('setupHardwareProtector on desktop catches errors and returns false', async () => {
@@ -4196,6 +4486,32 @@ describe('seed phrase removal', () => {
     }
   );
 
+  it('keeps the phrase while Guardian recovery is pending, and removes it once the flag is cleared', async () => {
+    const account: WalletAccount = {
+      publicKey: 'guardian',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false,
+      hotPublicKey: 'hot-key',
+      coldPublicKey: '02' + 'ab'.repeat(32),
+      guardianNoteRecoveryPending: true
+    };
+    const vault = await seedVault('password123', { accounts: [account] });
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const key = await Passworder.importVaultKey(await Passworder.decryptVaultKeyWithPassword(protector, 'password123'));
+    await encryptAndSaveMany([[keys.accAuthSecretKey('hot-key'), 'daily-secret']], key);
+
+    await expect(vault.removeSeedPhrase()).rejects.toThrow();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('stored');
+
+    // The write the detached recovery's clearPendingFlag makes.
+    await vault.setGuardianNoteRecoveryPending(account.publicKey, false);
+    await vault.removeSeedPhrase();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('removed');
+  });
+
   // An evicted callback keeps running after its caller saw the poison, so a
   // missing re-check keeps deleting keys that nobody is waiting on.
   async function guardianRemovalVault() {
@@ -4478,6 +4794,62 @@ describe('Vault.spawnFromHotKey', () => {
   it('requires a password when hardware protection is unavailable', async () => {
     await expect(Vault.spawnFromHotKey(undefined, PAIR, ENDPOINT)).rejects.toThrow(PublicError);
     expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+  });
+
+  it('leaves no protector behind when the guardian lookup rejects after the wipe (#946)', async () => {
+    memoryStore['endpoint_overrides'] = { rpcUrl: 'https://rpc.custom' };
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    (globalThis as any).__vaultTestRealmUninstalled = null;
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('guardian unreachable'));
+
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow('guardian unreachable');
+
+    expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
+    expect(memoryStore['endpoint_overrides']).toEqual({ rpcUrl: 'https://rpc.custom' });
+    expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
+    expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+  });
+
+  it('finishes its undo before the caller sees the rejection, so a queued retry cannot race it (#946)', async () => {
+    const { clearStorage } = jest.requireMock('lib/miden/reset');
+    const defaultClear = clearStorage.getMockImplementation();
+    let entered!: () => void;
+    let release!: () => void;
+    const entered$ = new Promise<void>(resolve => {
+      entered = resolve;
+    });
+    const release$ = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first call is the opening wipe, left to run for real; the second is the undo,
+    // held open until the assertions below have seen it, so an awaited undo and a
+    // fire-and-forget one are told apart by whether the spawn is still unsettled.
+    clearStorage.mockImplementationOnce(defaultClear).mockImplementationOnce(async () => {
+      entered();
+      await release$;
+    });
+    mockRecoverGuardianAccountByHotKey.mockRejectedValueOnce(new Error('guardian unreachable'));
+
+    let settled = false;
+    const spawning = Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+    spawning.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    await entered$;
+    await new Promise<void>(resolve => jest.requireActual('timers').setImmediate(resolve));
+
+    expect(clearStorage).toHaveBeenCalledTimes(2);
+    expect(clearStorage).toHaveBeenNthCalledWith(2, false);
+    expect(settled).toBe(false);
+
+    release();
+    await expect(spawning).rejects.toThrow('guardian unreachable');
   });
 
   it('falls back to the network default endpoint when none is passed', async () => {

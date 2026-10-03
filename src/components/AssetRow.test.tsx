@@ -6,6 +6,7 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import AssetRowDefault, { AssetRow } from './AssetRow';
 
@@ -15,6 +16,10 @@ import AssetRowDefault, { AssetRow } from './AssetRow';
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo" data-symbol={symbol} />
 }));
+// The figures under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 jest.mock('components/ui', () => ({
   // The three figures are nodes now, not strings, so the stub renders them instead of stringifying
@@ -196,6 +201,22 @@ describe('AssetRow', () => {
     expect(screen.queryByTestId('row-delta')).toBeNull();
     // No move is known either, so real points are drawn neutral, not in a stand-in 0%'s green.
     expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
+  });
+
+  // The nominal rate is a dollar figure, not a market, so it has no 24h move to show.
+  it('values the native token at the nominal rate, with no 24h move, when the feed does not quote it', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    tokenPrices = {};
+    const native = { ...makeAsset({ symbol: 'MIDEN', name: 'Miden', balance: 7 }), tokenId: 'mtst1native' };
+
+    try {
+      render(<AssetRow asset={native} tokenPrices={tokenPrices} />);
+
+      expect(screen.getByTestId('row-price')).toHaveTextContent('$7.00');
+      expect(screen.queryByTestId('row-delta')).toBeNull();
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
   });
 
   it('gives no price to a faucet outside the allowlist that names itself BTC', () => {

@@ -1,15 +1,26 @@
 name: Local E2E (Chrome)
 on:
   pull_request:
+  workflow_dispatch: {}
 concurrency:
   group: local-e2e-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  # Name and work read the same base value (#1071): only a pull request based on
+  # main or next gets the full suite and this required name; a stacked pull
+  # request reports a name no branch requires, which can never satisfy a check
+  # on that commit, so a retarget with no push leaves the required name missing
+  # until a push, or a close and reopen, runs the pull request's own event for
+  # real. A by-hand workflow_dispatch run reports the required name on the
+  # branch head (not the merge ref), against published packages, with no
+  # linked-PR injection: the inject actions exit on any event but pull_request.
+  # Branch protection accepts that check for a pull request at the same
+  # commit, which is the spec's by-hand escape hatch.
   chrome-local:
-    # Required-check name: keep this exact string.
-    name: local-e2e (chrome)
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}
     # The full suite imports the published Linux napi module, which has no ARM64
     # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
     # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x

@@ -721,32 +721,42 @@ export function __resetInFlightFaucetRequestsForTest(): void {
 }
 
 /**
- * Live progress of the post-seed-recovery pending-note scan, or null when no
- * scan is running. Extension surfaces get push updates via storage change
- * events (the SW writes through the same storage area); mobile/desktop have no
- * storage events, so a light poll keeps the card advancing there too.
+ * The live progress record of the post-seed-recovery pending-note scan, or a
+ * terminal 'history-partial'/'history-failed' record until its card is
+ * dismissed or the next run replaces it; null otherwise. Extension surfaces
+ * get push updates via storage change events (the SW writes through the same
+ * storage area); mobile/desktop have no storage events, so a light poll keeps
+ * the card advancing there too.
  *
- * Pass the viewed account's id only while its `guardianNoteRecoveryPending`
- * flag is set, and null otherwise. That gate is the whole reason this hook can
- * be cheap: only a pending account can have a run to narrate, and the flag is
- * cleared strictly after the progress record is, so gating on it can never hide
- * a live card. Every other wallet — nearly all of them, nearly always — does no
- * reads at all.
+ * `pending` is the viewed account's `guardianNoteRecoveryPending` flag. Only a
+ * pending account can have a run to narrate, so only then is the record
+ * subscribed to and polled. A terminal history failure clears the flag and
+ * keeps its record, so without the flag the record is read once per account
+ * and returned only when its step is 'history-failed'. Every other wallet,
+ * nearly all of them nearly always, does one read. Pass null for no account.
  *
  * Records are stored per account, so a run for a different recovered account
  * cannot narrate itself on this account's home view.
  */
-export function useGuardianNoteRecoveryProgress(accountId: string | null): GuardianNoteRecoveryProgress | null {
+export function useGuardianNoteRecoveryProgress(
+  accountId: string | null,
+  pending = true
+): GuardianNoteRecoveryProgress | null {
   const [progress, setProgress] = useState<GuardianNoteRecoveryProgress | null>(null);
   const cancelledRef = useRef(false);
 
-  // A run that died with its realm stops refreshing the record. The card is
-  // non-dismissible, so without ageing the record out it would sit on screen
-  // forever.
-  const accept = useCallback((next: GuardianNoteRecoveryProgress | null) => {
-    if (cancelledRef.current) return;
-    setProgress(next && isGuardianNoteRecoveryProgressStale(next) ? null : next);
-  }, []);
+  // The age rule drops only a live-step record whose run died with its realm:
+  // that card is non-dismissible, so without it the card would sit on screen
+  // forever. A terminal record stays until its card is dismissed or the next
+  // run replaces it.
+  const accept = useCallback(
+    (next: GuardianNoteRecoveryProgress | null) => {
+      if (cancelledRef.current) return;
+      if (!pending) setProgress(next?.step === 'history-failed' ? next : null);
+      else setProgress(next && isGuardianNoteRecoveryProgressStale(next) ? null : next);
+    },
+    [pending]
+  );
 
   const refresh = useCallback(() => {
     if (!accountId) return;
@@ -762,6 +772,11 @@ export function useGuardianNoteRecoveryProgress(accountId: string | null): Guard
     }
     cancelledRef.current = false;
     refresh();
+    if (!pending) {
+      return () => {
+        cancelledRef.current = true;
+      };
+    }
     const unsubscribe = onStorageChanged(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, value =>
       accept(normalizeGuardianNoteRecoveryProgress(value, accountId))
     );
@@ -776,9 +791,10 @@ export function useGuardianNoteRecoveryProgress(accountId: string | null): Guard
       unsubscribe();
       clearInterval(interval);
     };
-  }, [accept, accountId, refresh]);
+  }, [accept, accountId, pending, refresh]);
 
-  return progress;
+  // State outlives an account switch until the new account's read lands, so another account's card never shows.
+  return progress?.accountId === accountId ? progress : null;
 }
 
 export function useWalletPromptStorage() {
