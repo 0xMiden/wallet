@@ -117,6 +117,7 @@ jest.mock('lib/walletconnect/receipt', () => ({
 
 jest.mock('lib/walletconnect/config', () => ({
   DEFAULT_CHAIN_ID: 11155111,
+  SUPPORTED_CHAINS: [{ id: 11155111 }],
   getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
 }));
 
