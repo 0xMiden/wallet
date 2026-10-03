@@ -588,7 +588,7 @@ describe('isIndefiniteSubmitOutcomeError (#1081)', () => {
   it('reads the id from the part that carries the phrase, lower-cased', () => {
     expect(indefiniteSubmitTransactionId(new Error(indefinite(ID.toUpperCase().replace('0X', '0x'))))).toBe(ID);
     // A wrapper naming another id without the phrase does not supply it.
-    const wrapped = new Error(`retrying transaction ${OTHER_ID}`, { cause: new Error(indefinite()) });
+    const wrapped = new Error(`submission of transaction ${OTHER_ID} failed`, { cause: new Error(indefinite()) });
     expect(indefiniteSubmitTransactionId(wrapped)).toBe(ID);
     expect(indefiniteSubmitTransactionId(new Error(`submission of transaction ${ID} failed`))).toBeUndefined();
     expect(
