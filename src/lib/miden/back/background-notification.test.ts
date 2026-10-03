@@ -15,6 +15,9 @@ jest.mock('lib/i18n', () => ({ getMessage: () => '' }));
 const mockIsExtension = isExtension as jest.Mock;
 const mockGetIntercom = getIntercom as jest.Mock;
 
+const NOT_CONFIRMED_BODY =
+  'The wallet could not confirm whether a transaction went through. Open the wallet before you try again.';
+
 const notificationsCreate = jest.fn();
 
 beforeEach(() => {
@@ -115,10 +118,19 @@ describe('notifyBackgroundTransactionNotConfirmed', () => {
       'miden-transaction-not-confirmed',
       expect.objectContaining({
         title: 'Transaction not confirmed',
-        message:
-          'The wallet could not confirm whether a transaction went through. Open the wallet before you send it again.'
+        message: NOT_CONFIRMED_BODY
       }),
       expect.any(Function)
+    );
+  });
+
+  // The fallback is the English the locale file ships, so a missing message never reads differently (#1081).
+  it('falls back to the en.json body verbatim, and the hint names no transaction type', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const en: Record<string, unknown> = require('../../../../public/_locales/en/en.json');
+    expect(en.transactionNotConfirmedNotificationBody).toBe(NOT_CONFIRMED_BODY);
+    expect(en.transactionNotConfirmedHint).toBe(
+      'The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again.'
     );
   });
 
