@@ -59,6 +59,7 @@ import {
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
   markStartedInThisRealm,
+  markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -4319,7 +4320,13 @@ export const generateTransactionsLoop = async (
 
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
-    if (tx && !hasLeftQueue(tx)) await cancelTransactionAfterPipelineStopped(tx, e);
+    if (tx && !hasLeftQueue(tx)) {
+      await cancelTransactionAfterPipelineStopped(tx, e);
+    } else if (tx?.status === ITransactionStatus.Failed && isIndefiniteSubmitOutcomeError(e) && canAwaitVerdict(tx)) {
+      // A row a user cancel already failed still takes the Unconfirmed write's terminal-row branch, as the Guardian
+      // catch's does: the pipeline has stopped, so the cancel's in-flight window ends and the attempt gains its entry.
+      await markTransactionUnconfirmed(tx, e);
+    }
     return false;
   }
 

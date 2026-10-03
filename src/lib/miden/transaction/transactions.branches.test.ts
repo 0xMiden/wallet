@@ -16,7 +16,12 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
-import { TRANSACTION_ENGINE_RECOVERED_ERROR, TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } from './constants';
+import { cancelTransactionById } from './cancel';
+import {
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { isLockedError } from './helper';
 import {
   completeSendTransaction,
@@ -1444,6 +1449,36 @@ describe('generateTransactionsLoop error paths', () => {
     expect(txStore[0]!.mayHaveSubmitted).toBe(true);
     expect(txStore[0]!.nextEligibleAt).toBeUndefined();
     sdk.withWasmClientLock = origLock;
+  });
+
+  it('a send a user cancel failed mid-submit keeps Failed when the submit comes back indefinite, and its window ends (#1081)', async () => {
+    const indefiniteId = `0x${'ab'.repeat(32)}`;
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById('tx-cancelled-indefinite', USER_CANCELLED_TRANSACTION_REASON);
+        throw new Error(
+          `submission of transaction ${indefiniteId} came back without a definite outcome, so the node may or ` +
+            'may not have accepted it; nothing was recorded locally'
+        );
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-cancelled-indefinite',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    const row = txStore[0]!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(row.submitEvidence).toEqual([
+      expect.objectContaining({ attemptId: row.attemptId, transactionId: indefiniteId })
+    ]);
   });
 
   // The row left the queue as Unconfirmed while its leaf was failing: only the reconciler moves it now (#1081).
