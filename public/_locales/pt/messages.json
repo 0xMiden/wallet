@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Cofres em destaque",
-    "englishSource": "Featured Vaults"
+    "message": "Cofres disponíveis",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",

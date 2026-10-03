@@ -63,6 +63,13 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 
+// The real exit hash needs the real SDK (exit-hash.real-sdk.test.ts); here it only has to reach the row.
+const mockAgglayerExitTxHash = jest.fn((...args: unknown[]): string => {
+  void args;
+  return '0xexit';
+});
+jest.mock('./exit-hash', () => ({ agglayerExitTxHash: (...args: unknown[]) => mockAgglayerExitTxHash(...args) }));
+
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
 
@@ -252,7 +259,8 @@ describe('initiateB2AggBridge', () => {
       })
     ).rejects.toThrow('operation abandoned before the bridge request build');
 
-    // Nothing past the guard ran: no request round-trip, no queued row.
+    // Nothing past the guard ran: no exit hash, no request round-trip, no queued row.
+    expect(mockAgglayerExitTxHash).not.toHaveBeenCalled();
     expect(TransactionRequest.deserialize).not.toHaveBeenCalled();
     expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
@@ -276,6 +284,39 @@ describe('initiateB2AggBridge', () => {
       expect(mockDeltas).toEqual([delta]);
     }
   );
+
+  // The indexer files the exit under this hash, and the row needs it to find its own deposit (#1325).
+  it('hands the row the exit hash of the note it built', async () => {
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      destinationNetwork: 0,
+      guardianProvider
+    });
+
+    expect(mockAgglayerExitTxHash).toHaveBeenCalledWith({ note: true });
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe('0xexit');
+  });
+
+  it('queues no row when the exit hash cannot be computed, since that row could never settle', async () => {
+    mockAgglayerExitTxHash.mockImplementationOnce(() => {
+      throw new Error('A B2AGG note carries at least one fungible asset');
+    });
+
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        destinationNetwork: 0,
+        guardianProvider
+      })
+    ).rejects.toThrow('A B2AGG note carries at least one fungible asset');
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
+  });
 });
 
 // Bridge-in matching compares the sender string verbatim, so the bech32 literal must stay the same account as the

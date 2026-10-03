@@ -10,6 +10,7 @@
 
 ### Changes
 
+- [CHANGE][ui] Earn calls the vault list “Available Vaults” instead of “Featured Vaults,” so the heading describes the choices without implying a recommendation (#1322).
 - [FEATURE][all] Settings > Developer > Advanced Settings gains a "Value unquoted tokens at $1" switch, off by default: on, a token the price feed does not list is valued at $1 per unit on testnet, devnet and a local network and its figures no longer wait for the feed, so a wallet that holds only the native token shows a total instead of a dash; off, and always on mainnet, a token without a quote keeps showing no figure (#1296).
 - [FIX][all] The bottom navbar returns when a Send, Swap, or other action subscreen moves out of view (#1270).
 - [FIX][all] A Guardian send, claim, swap or Earn deposit whose proposal request timed out now goes back to the queue even when the timeout arrives wrapped in another error, and an interrupted transaction is recognised even when wrapped in another error, so it is never requeued and shows the interrupted-transaction message instead of saying the Guardian could not be reached (#1313).
@@ -136,6 +137,7 @@
 - [FIX][all] A wallet restored for an account whose Guardian recovery already ran or was interrupted starts its own recovery without an app restart (#1302).
 - [FIX][all] A link that opens the hidden Activity tab with a new filter shows the list already in place, with no rows sliding (#1198).
 - [FIX][mobile] Biometric setup says why biometrics can't be used and what to do: with no fingerprint or face enrolled it says so (in an Android work profile, Fingerprint or Face Unlock for work) and on Android offers Open Settings, then checks again when you come back; Android setup offers biometrics only when a strong (class 3) biometric is enrolled, as the vault key needs; and Unlock's biometric icon matches an Android device's fingerprint or face sensor, and the Rotate Guardian review's hot-key row names it Face unlock on Android, Face ID on iOS; a device with only a weaker biometric enrolled is now told to set up a stronger one instead of a generic enrollment message (in a work profile, for work), with Open Settings offered there too, and on iOS, a Face ID the user turned off for the app now says so instead of a generic hardware-unavailable message (#465).
+- [FIX][all] A Slow (Agglayer) bridge to Sepolia turns Claimed once its deposit is claimed, by you or the bridge's auto-claimer, and Home's bridge prompt clears; a bridge stuck since 8 September 2026 settles after the update, and an older one the bridge service no longer lists stops showing the prompt (#1325).
 
 ## 1.16.2 (2026-09-24)
 

@@ -257,10 +257,25 @@ export interface IBridgedSendExtraInputs {
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
   claimStatus: IBridgeClaimStatus;
-  /** agglayer: a deposit to `destinationAddress` is claimable on L1. */
+  /** agglayer: this row's bound exit deposit is claimable on L1. */
   depositReady?: boolean;
-  /** agglayer: L1 claim tx hash once claimed. */
+  /** agglayer: L1 claim tx hash once claimed: the wallet's own, or the indexer's `claim_tx_hash` for anyone's. */
   claimTxHash?: string;
+  /**
+   * agglayer: the bridge indexer's `tx_hash` for this row's exit, keccak of its B2AGG note's details commitment
+   * (`lib/agglayer/b2agg/exit-hash.ts`). It is the only value that binds an indexer deposit to this row. Set when
+   * the note is built; a row built before that is back-filled from the bytes it kept.
+   */
+  agglayerExitTxHash?: string;
+  /** agglayer: none of this row's bytes held its note, so it has no exit hash and is never looked up. */
+  agglayerExitTxHashUnavailable?: true;
+  /**
+   * agglayer: a search of the address's whole history missed this row's exit, and the row was initiated before the
+   * indexer's renumbering (`MIDEN_CHAIN_ID_RENUMBERED_AT`), so it is never looked up again.
+   */
+  agglayerExitUnfiled?: true;
+  /** agglayer: `deposit_cnt` of the bound exit deposit, pinned once the indexer first reports it. */
+  agglayerDepositCnt?: number;
   /** epoch: solver/intent hash (informational). */
   evmTxHash?: string;
   /**
@@ -1182,7 +1197,8 @@ export class BridgedSendTransaction implements ITransaction {
     faucetId: string,
     requestBytes?: Uint8Array,
     delegateTransaction?: boolean,
-    sendParams?: IBridgedSendNoteParams
+    sendParams?: IBridgedSendNoteParams,
+    agglayerExitTxHash?: string
   ) {
     this.id = uuid();
     this.type = 'bridged-send';
@@ -1205,6 +1221,7 @@ export class BridgedSendTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
+      agglayerExitTxHash,
       recallBlocks: sendParams?.recallBlocks,
       reclaimHeight: sendParams?.reclaimHeight,
       reclaimNoteId: sendParams?.reclaimNoteId

@@ -90,7 +90,7 @@
   "earnSeeAll": "See All",
   "earnNoActivePositionsTitle": "No active positions",
   "earnNoActivePositionsBody": "Deposit into a vault below to start earning rewards.",
-  "earnVaultsTitle": "Featured Vaults",
+  "earnVaultsTitle": "Available Vaults",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ on $network$",
   "earnCurrentPositionsTitle": "Current Positions",

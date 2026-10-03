@@ -90,7 +90,7 @@
   "earnSeeAll": "查看全部",
   "earnNoActivePositionsTitle": "無持倉",
   "earnNoActivePositionsBody": "請將資金存入下方的金庫，即可開始賺取獎勵。",
-  "earnVaultsTitle": "精選保險庫",
+  "earnVaultsTitle": "可用保險庫",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ 網址：$network$",
   "earnCurrentPositionsTitle": "當前持倉",

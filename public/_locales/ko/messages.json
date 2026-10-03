@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "추천 금고",
-    "englishSource": "Featured Vaults"
+    "message": "이용 가능한 금고",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",

@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Рекомендовані сховища",
-    "englishSource": "Featured Vaults"
+    "message": "Доступні сховища",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",

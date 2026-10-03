@@ -23,6 +23,7 @@ import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types
 import { isExtension } from 'lib/platform';
 
 import { MIDEN_BRIDGE_ID } from './constant';
+import { agglayerExitTxHash } from './exit-hash';
 
 export async function createB2AggNote(
   amount: bigint,
@@ -113,7 +114,7 @@ export async function initiateB2AggBridge(args: {
   // Decided before the WASM hold: the bytes go to a Guardian proposal, inside its pending hold, or straight to the
   // node (#1081).
   const expirationDelta = expirationDeltaBlocks(await isGuardianAccount(senderPublicKey, guardianProvider));
-  const { requestBytes, faucetBech32 } = await withWasmClientLock(async hold => {
+  const { requestBytes, faucetBech32, exitTxHash } = await withWasmClientLock(async hold => {
     const note = await createB2AggNote(amount, faucetId, destinationAddress, senderPublicKey, destinationNetwork);
     // The awaited note build parks (the lazy SDK load can be the long one), and
     // an eviction during it hands the mutex to a successor without stopping this
@@ -124,6 +125,9 @@ export async function initiateB2AggBridge(args: {
     // BEFORE `initiateBridgedSendTransaction` queues a row, since a queued row
     // would hand the abandoned request to the processor as a fresh write.
     assertWasmHoldCurrent(hold, 'before the bridge request build');
+    // The indexer files this note's exit under this hash, and the row needs it to find its own deposit (#1325).
+    // A throw aborts here, before a row is queued: a row without it could never settle.
+    const exitTxHash = agglayerExitTxHash(note);
     // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
     // only on the builder.
     let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
@@ -141,7 +145,8 @@ export async function initiateB2AggBridge(args: {
     }
     return {
       requestBytes: serialisedReq,
-      faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(faucetId))
+      faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(faucetId)),
+      exitTxHash
     };
   });
 
@@ -157,7 +162,8 @@ export async function initiateB2AggBridge(args: {
     requestBytes,
     true,
     undefined,
-    spendingLimitAuthorization
+    spendingLimitAuthorization,
+    exitTxHash
   );
 }
 
