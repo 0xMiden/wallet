@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 
 import { ensureFeeFunded } from './fee-funding';
+import { NATIVE_ASSET_ID_CACHE } from '../../../src/lib/miden-chain/native-asset-cache-keys';
 
 jest.mock('@playwright/test', () => ({
   expect: (actual: unknown, message?: string) => ({
@@ -32,7 +33,11 @@ function fixture(opts: { rows?: Row[]; feeId?: string | null; charges?: boolean 
       const previousChrome = Reflect.get(globalThis, 'chrome');
       Reflect.set(globalThis, '__TEST_STORE__', { getState: () => state });
       Reflect.set(globalThis, 'chrome', {
-        storage: { local: { get: async () => ({ 'native_asset_id:v4:devnet': discoveredId }) } }
+        storage: {
+          local: {
+            get: async () => ({ [`${NATIVE_ASSET_ID_CACHE}:https://rpc.devnet.miden.io|devnet`]: discoveredId })
+          }
+        }
       });
       try {
         return await fn(arg);
