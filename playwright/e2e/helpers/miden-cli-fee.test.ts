@@ -31,14 +31,10 @@ describe('MidenCli.ensureNativeFaucetId', () => {
     expect(discover).toHaveBeenCalledWith('https://rpc.devnet.miden.io');
   });
 
-  it('shares concurrent discovery and retries a failed query', async () => {
+  it('retries a failed query instead of caching the failure', async () => {
     const cli = makeCli('devnet');
     discover.mockRejectedValueOnce(new Error('sync failed')).mockResolvedValue(FEE_FAUCET);
-    const first = cli.ensureNativeFaucetId();
-    const second = cli.ensureNativeFaucetId();
-    await expect(first).rejects.toThrow('sync failed');
-    await expect(second).rejects.toThrow('sync failed');
-    expect(discover).toHaveBeenCalledTimes(1);
+    await expect(cli.ensureNativeFaucetId()).rejects.toThrow('sync failed');
     await expect(cli.ensureNativeFaucetId()).resolves.toBe(FEE_FAUCET);
     expect(discover).toHaveBeenCalledTimes(2);
   });

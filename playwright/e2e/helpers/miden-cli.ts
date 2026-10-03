@@ -320,17 +320,11 @@ export class MidenCli {
    */
   private funderIds: string[] = [];
   private nativeFaucetId?: string;
-  private nativeFaucetDiscovery?: Promise<string>;
 
   async ensureNativeFaucetId(): Promise<string | undefined> {
     await this.init();
     if (!this.nativeFaucetId && this.env.name !== 'localhost') {
-      const discovery = (this.nativeFaucetDiscovery ??= discoverFeeFaucetId(this.env.rpcUrl));
-      try {
-        this.nativeFaucetId = await discovery;
-      } finally {
-        if (this.nativeFaucetDiscovery === discovery) this.nativeFaucetDiscovery = undefined;
-      }
+      this.nativeFaucetId = await discoverFeeFaucetId(this.env.rpcUrl);
     }
     return this.nativeFaucetId;
   }
