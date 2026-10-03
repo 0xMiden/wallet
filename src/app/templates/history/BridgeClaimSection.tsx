@@ -101,8 +101,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   const connectedMatchesDestination = !!evmAddress && evmAddress.toLowerCase() === destination.toLowerCase();
   const transactionFailed = entry.status === ITransactionStatus.Failed;
   // The indexer's tx_hash for this row's B2AGG note: the only thing that binds a deposit lookup to THIS row
-  // (lib/agglayer/status.ts). A row without one never looks a deposit up and offers no claim.
-  const exitTxHash = entry.bridgeAgglayerExitTxHash;
+  // (lib/agglayer/status.ts). A row without one, or one no lookup can find, never looks a deposit up and offers no
+  // claim.
+  const exitTxHash = entry.bridgeAgglayerExitUnfindable ? undefined : entry.bridgeAgglayerExitTxHash;
   const [pinnedDepositCnt, setPinnedDepositCnt] = useState<number | undefined>(entry.bridgeAgglayerDepositCnt);
   // An unconfirmed failed row may still have landed; its exit hash binds the lookup to its own deposit.
   const mayStillClaim = !transactionFailed || (entry.isUnconfirmed === true && !!exitTxHash);

@@ -1,4 +1,5 @@
 import fixture from './b2agg/exit-hash.vectors.json';
+import { MIDEN_CHAIN_ID_RENUMBERED_AT } from './constant';
 import {
   AgglayerDeposit,
   agglayerClaimedFields,
@@ -6,7 +7,8 @@ import {
   fetchMerkleProof,
   findAgglayerExitDeposit,
   isAgglayerDepositClaimed,
-  isAgglayerDepositReady
+  isAgglayerDepositReady,
+  isAgglayerExitUnfindable
 } from './status';
 
 const fetchMock = jest.fn();
@@ -210,5 +212,35 @@ describe('agglayerClaimedFields (#1325)', () => {
 
     expect(fields).toEqual({ agglayerDepositCnt: 16 });
     expect(fields).not.toHaveProperty('claimTxHash');
+  });
+});
+
+// Before the renumbering the indexer filed Miden exits under network 78, which it no longer serves (#1325).
+describe('isAgglayerExitUnfindable (#1325)', () => {
+  const BEFORE = MIDEN_CHAIN_ID_RENUMBERED_AT - 1;
+
+  it('retires a row whose bytes held no note', () => {
+    expect(
+      isAgglayerExitUnfindable(
+        { provider: 'agglayer', agglayerExitTxHashUnavailable: true },
+        MIDEN_CHAIN_ID_RENUMBERED_AT
+      )
+    ).toBe(true);
+  });
+
+  it('retires a row from before the renumbering that was never found under the new id', () => {
+    expect(isAgglayerExitUnfindable({ provider: 'agglayer' }, BEFORE)).toBe(true);
+  });
+
+  it('keeps a row from before the renumbering that was pinned under the new id', () => {
+    expect(isAgglayerExitUnfindable({ provider: 'agglayer', agglayerDepositCnt: 16 }, BEFORE)).toBe(false);
+  });
+
+  it('keeps a row from the moment of the renumbering on', () => {
+    expect(isAgglayerExitUnfindable({ provider: 'agglayer' }, MIDEN_CHAIN_ID_RENUMBERED_AT)).toBe(false);
+  });
+
+  it('never retires an Epoch row, which has no exit', () => {
+    expect(isAgglayerExitUnfindable({ provider: 'epoch' }, BEFORE)).toBe(false);
   });
 });

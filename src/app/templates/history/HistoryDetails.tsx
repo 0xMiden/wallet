@@ -16,6 +16,7 @@ import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
 import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
@@ -430,6 +431,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeSubmitClaimed: bridge?.submitClaimed,
           bridgeAgglayerExitTxHash: bridge?.agglayerExitTxHash,
           bridgeAgglayerDepositCnt: bridge?.agglayerDepositCnt,
+          bridgeAgglayerExitUnfindable: bridge !== undefined && isAgglayerExitUnfindable(bridge, tx.initiatedAt),
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,

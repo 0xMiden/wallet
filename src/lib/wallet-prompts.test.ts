@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
@@ -88,7 +89,8 @@ jest.mock('lib/agglayer', () => {
     agglayerClaimedFields: status.agglayerClaimedFields,
     findAgglayerExitDeposit: (...args: unknown[]) => findExitDeposit(...args),
     isAgglayerDepositClaimed: status.isAgglayerDepositClaimed,
-    isAgglayerDepositReady: status.isAgglayerDepositReady
+    isAgglayerDepositReady: status.isAgglayerDepositReady,
+    isAgglayerExitUnfindable: status.isAgglayerExitUnfindable
   };
 });
 jest.mock('lib/miden/transaction/complete', () => ({
@@ -1834,13 +1836,15 @@ describe('guardian note-recovery progress card', () => {
 });
 
 describe('bridge prompts', () => {
+  // Seconds after the indexer's renumbering: an older Slow row that was never found is retired (#1325).
+  const at = (seconds: number) => MIDEN_CHAIN_ID_RENUMBERED_AT + seconds;
   const baseBridge = (over: Partial<ITransaction>): ITransaction =>
     ({
       id: 'bridge-1',
       type: 'bridged-send',
       accountId: 'acct-1',
       status: ITransactionStatus.Completed,
-      initiatedAt: 100,
+      initiatedAt: at(100),
       displayIcon: 'SEND',
       extraInputs: { provider: 'epoch' },
       ...over
@@ -1863,17 +1867,21 @@ describe('bridge prompts', () => {
 
   it('returns unsettled bridged-sends for the account, newest first', async () => {
     bridgeRows.push(
-      baseBridge({ id: 'in-flight', status: ITransactionStatus.GeneratingTransaction, initiatedAt: 50 }),
-      baseBridge({ id: 'epoch-pending', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: 300 }),
+      baseBridge({ id: 'in-flight', status: ITransactionStatus.GeneratingTransaction, initiatedAt: at(50) }),
+      baseBridge({
+        id: 'epoch-pending',
+        extraInputs: { provider: 'epoch', epochStatus: 'pending' },
+        initiatedAt: at(300)
+      }),
       baseBridge({ id: 'epoch-confirmed', extraInputs: { provider: 'epoch', epochStatus: 'confirmed' } }),
       baseBridge({
         id: 'agg-unclaimed',
         extraInputs: { provider: 'agglayer', claimStatus: 'pending' },
-        initiatedAt: 200
+        initiatedAt: at(200)
       }),
       baseBridge({ id: 'agg-claimed', extraInputs: { provider: 'agglayer', claimStatus: 'claimed' } }),
       baseBridge({ id: 'failed', status: ITransactionStatus.Failed }),
-      baseBridge({ id: 'other-account', accountId: 'acct-2', initiatedAt: 400 })
+      baseBridge({ id: 'other-account', accountId: 'acct-2', initiatedAt: at(400) })
     );
 
     const active = await fetchActiveBridgePrompts('acct-1');
@@ -1891,16 +1899,16 @@ describe('bridge prompts', () => {
         id: 'restored-epoch',
         restoredFromBackup: true,
         extraInputs: { provider: 'epoch', epochStatus: 'pending' },
-        initiatedAt: 500
+        initiatedAt: at(500)
       }),
       baseBridge({
         id: 'restored-agg',
         restoredFromBackup: true,
         extraInputs: { provider: 'agglayer', claimStatus: 'ready' },
-        initiatedAt: 400
+        initiatedAt: at(400)
       }),
       baseBridge({ id: 'restored-in-flight', restoredFromBackup: true, status: ITransactionStatus.Queued }),
-      baseBridge({ id: 'mine', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: 10 })
+      baseBridge({ id: 'mine', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: at(10) })
     );
 
     const active = await fetchActiveBridgePrompts('acct-1');
@@ -1914,14 +1922,62 @@ describe('bridge prompts', () => {
       baseBridge({
         id: 'agg-unbindable',
         extraInputs: { provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHashUnavailable: true },
-        initiatedAt: 200
+        initiatedAt: at(200)
       }),
-      baseBridge({ id: 'agg-bound', extraInputs: { provider: 'agglayer', claimStatus: 'pending' }, initiatedAt: 100 })
+      baseBridge({
+        id: 'agg-bound',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending' },
+        initiatedAt: at(100)
+      })
     );
 
     const active = await fetchActiveBridgePrompts('acct-1');
 
     expect(active.map(tx => tx.id)).toEqual(['agg-bound']);
+  });
+
+  // Before the renumbering the indexer filed exits under network 78, which it no longer serves, so a row from then
+  // that was never found under 86 can never be looked up. The auto-claimer claimed every network-78 exit (#1325).
+  describe('a Slow bridge-out from before the indexer renumbering', () => {
+    const slowRow = (id: string, initiatedAt: number, agglayerDepositCnt?: number) =>
+      baseBridge({
+        id,
+        initiatedAt,
+        extraInputs: {
+          provider: 'agglayer',
+          claimStatus: 'pending',
+          destinationAddress: '0xdest',
+          agglayerExitTxHash: '0xexit',
+          agglayerDepositCnt
+        }
+      });
+
+    it('is neither looked up nor prompted when it was never found under the new id', async () => {
+      bridgeRows.push(slowRow('agg-before', at(-1)));
+
+      await reconcileBridgedSends();
+
+      expect(findExitDeposit).not.toHaveBeenCalled();
+      expect(await fetchActiveBridgePrompts('acct-1')).toEqual([]);
+    });
+
+    it('is still polled and prompted once it was pinned under the new id', async () => {
+      bridgeRows.push(slowRow('agg-before-pinned', at(-1), 16));
+
+      await reconcileBridgedSends();
+
+      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', 16);
+      expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['agg-before-pinned']);
+    });
+
+    it('leaves a row from the moment of the renumbering on unaffected', async () => {
+      bridgeRows.push(slowRow('agg-after', at(0)));
+
+      await reconcileBridgedSends();
+
+      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined);
+      expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['agg-after']);
+    });
   });
 
   it('reconciles every unsettled bridged-send across accounts and skips settled or restored rows', async () => {

@@ -145,6 +145,8 @@ export interface IHistoryEntry {
   bridgeAgglayerExitTxHash?: string;
   /** agglayer: `deposit_cnt` of this row's exit deposit, once the indexer has reported it. */
   bridgeAgglayerDepositCnt?: number;
+  /** agglayer: no lookup can ever find this row's exit (`isAgglayerExitUnfindable`), so it is treated as unbound. */
+  bridgeAgglayerExitUnfindable?: boolean;
   /**
    * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
    * detail view can withhold affordances that turn a row back into work —

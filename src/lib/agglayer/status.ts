@@ -1,7 +1,8 @@
+import type { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { EVM_AGGLAYER_NETWORK_ID } from './b2agg/constant';
-import { AGGLAYER_BRIDGE_API, MIDEN_CHAIN_ID } from './constant';
+import { AGGLAYER_BRIDGE_API, MIDEN_CHAIN_ID, MIDEN_CHAIN_ID_RENUMBERED_AT } from './constant';
 
 // A bridge indexer that accepts the connection then goes silent must not hang
 // the claim/poll flow forever; bound every AggLayer request, its body read
@@ -147,6 +148,22 @@ export function sameTxHash(left: string, right: string): boolean {
 /** A deposit the indexer filed as a Miden -> EVM exit. */
 export const isMidenToEvmDeposit = (deposit: AgglayerDeposit): boolean =>
   deposit.network_id === MIDEN_CHAIN_ID && deposit.dest_net === EVM_AGGLAYER_NETWORK_ID;
+
+/**
+ * A Slow bridge-out no lookup can ever find, so it is never polled, prompts nothing and offers no claim: its bytes
+ * held no note, or it was initiated before the indexer's renumbering (`MIDEN_CHAIN_ID_RENUMBERED_AT`) and never
+ * found under the new id. That exit is filed under network 78, which the indexer no longer serves; the bridge's
+ * auto-claimer claimed every network-78 exit, so its funds arrived (#1325). A pin means it was found under the new
+ * id, so a pinned row keeps polling whenever it was initiated.
+ */
+export function isAgglayerExitUnfindable(
+  inputs: Pick<IBridgedSendExtraInputs, 'provider' | 'agglayerExitTxHashUnavailable' | 'agglayerDepositCnt'>,
+  initiatedAt: number
+): boolean {
+  if (inputs.provider !== 'agglayer') return false;
+  if (inputs.agglayerExitTxHashUnavailable) return true;
+  return inputs.agglayerDepositCnt === undefined && initiatedAt < MIDEN_CHAIN_ID_RENUMBERED_AT;
+}
 
 interface DepositResponse {
   deposit: AgglayerDeposit;

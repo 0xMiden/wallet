@@ -6,6 +6,11 @@ export const BRIDGE_ASSET_ABI = [
 // the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id. It is
 // also the `network_id` the bridge indexer files every Miden -> EVM exit under.
 export const MIDEN_CHAIN_ID = 86;
+// When the indexer renumbered Miden's exits from network 78 to MIDEN_CHAIN_ID, in unix seconds like a row's
+// `initiatedAt`. It serves nothing under 78 any more, so an exit filed before this can never be looked up (#1325).
+// The issue's evidence dates the switch only to the day (the last network-78 claim is on 2026-09-08), so this is
+// the start of that day, UTC: a row from later that day is still polled rather than retired while it might settle.
+export const MIDEN_CHAIN_ID_RENUMBERED_AT = Date.parse('2026-09-08T00:00:00Z') / 1000;
 /**
  * Miden account that sends notes created by AggLayer bridge-ins.
  * Matching is intentionally disabled whenever this is empty so ordinary

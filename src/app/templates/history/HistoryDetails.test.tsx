@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
@@ -3387,6 +3388,30 @@ describe('HistoryDetails', () => {
       expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({
         bridgeAgglayerExitTxHash: '0xexit',
         bridgeAgglayerDepositCnt: 16
+      });
+    });
+
+    // Filed under the indexer's old network id, which it no longer serves, so no lookup can find it (#1325).
+    describe('a Slow bridge-out never found under the new network id', () => {
+      const slow = {
+        provider: 'agglayer',
+        destinationAddress: '0xdest',
+        destinationNetwork: 0,
+        claimStatus: 'pending'
+      };
+
+      it('is unfindable when it was initiated before the renumbering', async () => {
+        setMockRow({ ...bridgedSendTx, initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT - 1, extraInputs: slow });
+        await renderAndLoad({ transactionId: 'bridge-out' });
+
+        expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({ bridgeAgglayerExitUnfindable: true });
+      });
+
+      it('is still findable from the moment of the renumbering on', async () => {
+        setMockRow({ ...bridgedSendTx, initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT, extraInputs: slow });
+        await renderAndLoad({ transactionId: 'bridge-out' });
+
+        expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({ bridgeAgglayerExitUnfindable: false });
       });
     });
 

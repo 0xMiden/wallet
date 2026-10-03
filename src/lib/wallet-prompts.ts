@@ -6,7 +6,8 @@ import {
   agglayerClaimedFields,
   findAgglayerExitDeposit,
   isAgglayerDepositClaimed,
-  isAgglayerDepositReady
+  isAgglayerDepositReady,
+  isAgglayerExitUnfindable
 } from 'lib/agglayer';
 import { agglayerExitTxHashFromRowBytes } from 'lib/agglayer/b2agg/exit-hash';
 import {
@@ -128,8 +129,8 @@ function isBridgePromptActive(tx: ITransaction): boolean {
 
   const inputs: IBridgedSendExtraInputs = tx.extraInputs;
   if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
-  // A row whose exit could not be bound is never polled, so nothing would ever clear its prompt (#1325).
-  if (inputs.agglayerExitTxHashUnavailable) return false;
+  // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
+  if (isAgglayerExitUnfindable(inputs, tx.initiatedAt)) return false;
   return inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
 }
 
@@ -181,10 +182,17 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 
   if (inputs.provider === 'agglayer') {
     // Bound to this row's own exit hash, the indexer's tx_hash for the B2AGG note it built: several rows can share
-    // one destination address, and only this binding tells their deposits apart. A row without one is never looked
-    // up, Failed or not (#1325).
+    // one destination address, and only this binding tells their deposits apart. A row without one, or one no lookup
+    // can find, is never looked up, Failed or not (#1325).
     const exitTxHash = inputs.agglayerExitTxHash;
-    if (inputs.claimStatus === 'claimed' || !inputs.destinationAddress || !exitTxHash) return;
+    if (
+      inputs.claimStatus === 'claimed' ||
+      !inputs.destinationAddress ||
+      !exitTxHash ||
+      isAgglayerExitUnfindable(inputs, tx.initiatedAt)
+    ) {
+      return;
+    }
     const deposit = await findAgglayerExitDeposit(inputs.destinationAddress, exitTxHash, inputs.agglayerDepositCnt);
     if (!deposit) return;
     // Every claim-status write carries the deposit's own tx_hash, so a Failed row is promoted by the first (#1250).

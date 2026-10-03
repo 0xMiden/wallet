@@ -555,6 +555,16 @@ describe('BridgeClaimSection', () => {
       expect(screen.getByText(/t:claimPending/)).toBeInTheDocument();
     });
 
+    // Filed under the indexer's old network id, which it no longer serves, so no lookup can find it (#1325).
+    it('looks nothing up and offers no claim for a row no lookup can find, even with an exit hash', () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      renderSection({ entry: agglayer({ bridgeAgglayerExitUnfindable: true }) });
+
+      expect(mockFindExitDeposit).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      expect(screen.getByText(/t:claimPending/)).toBeInTheDocument();
+    });
+
     it('shows the submitted state once the deposit is claimed', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       renderSection({ entry: agglayer({ bridgeClaimStatus: 'claimed' }) });
