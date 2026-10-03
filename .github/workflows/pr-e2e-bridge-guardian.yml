@@ -40,10 +40,11 @@ jobs:
       MIDEN_NTX_AUTH: e2e-ntx-secret
       # Baked into the app bundle at BUILD time (vite defines). The guardian
       # bridge spec starts the matching hermetic doubles at RUN time on these
-      # exact ports: the fake Epoch allocator (quote / miden-recipient / compact)
-      # on :8548, and a local Anvil (Compact stub) the one EVM read hits on :8545.
-      # No positions catalog is needed — bridge-out drives the Send UI, not /earn.
-      EPOCH_ALLOCATOR_URL: http://127.0.0.1:8548
+      # exact ports: the config document (playwright/e2e/fixtures/hermetic-bridge.ts)
+      # on :8550, which points the wallet at the fake Epoch allocator (:8548), and a
+      # local Anvil (Compact and USDC stubs) the EVM reads hit on :8545. No positions
+      # catalog is needed: bridge-out drives the Send UI, not /earn.
+      MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
       GUARDIAN_URL: http://localhost:3000
     steps:

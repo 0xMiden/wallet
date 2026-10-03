@@ -36,14 +36,13 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
-      # Baked into the app bundle at BUILD time (vite defines). The earn spec
-      # starts the matching hermetic doubles at RUN time on these exact ports:
-      #   - the fake Epoch allocator (quote / miden-recipient / compact /
-      #     intentStatus) on :8548,
-      #   - the fake Epoch positions catalog on :8549,
-      #   - a local Anvil (Compact stub) the deposit's one EVM read hits on :8545.
-      EPOCH_ALLOCATOR_URL: http://127.0.0.1:8548
-      EPOCH_POSITIONS_URL: http://127.0.0.1:8549
+      # Baked into the app bundle at BUILD time (vite defines). The earn specs
+      # start the matching hermetic doubles at RUN time on these exact ports:
+      #   - the config document (playwright/e2e/fixtures/hermetic-bridge.ts) on
+      #     :8550, which points the wallet at the fake Epoch allocator (:8548) and
+      #     positions catalog (:8549) and names the Anvil MockUsdc as its USDC,
+      #   - a local Anvil (Compact and USDC stubs) the EVM reads hit on :8545.
+      MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
     steps:
       - uses: actions/checkout@v4
