@@ -2410,6 +2410,35 @@ describe('the pin is per attempt and retires on a tagged failure (#1081)', () =>
     expect(row.mayHaveSubmitted).toBeUndefined();
   });
 
+  it('a request that cannot serialize is never pinned', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const row = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: { recallBlocks: 100 },
+      requestBytes: new Uint8Array([1])
+    };
+    const { service } = arrange('pin-unserializable', row);
+    service.signAndCreateTransactionRequest.mockResolvedValueOnce({
+      serialize: () => {
+        throw new Error('request serialize failed');
+      },
+      authArg: () => undefined
+    });
+    await generateTransaction(
+      buildTx('pin-unserializable', row) as never,
+      signCallback,
+      false,
+      provider as never
+    ).catch(() => undefined);
+    const stored = txStore.find(r => r.id === 'pin-unserializable');
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(stored?.submitEvidence).toBeUndefined();
+    expect(stored?.mayHaveSubmitted).toBeUndefined();
+  });
+
   it('an untagged failure keeps the pin and the flag', async () => {
     mockDispatchGuardianPipeline.mockRejectedValueOnce(new Error('guardianPipeline: result decode failed'));
     const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });

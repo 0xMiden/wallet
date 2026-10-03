@@ -3551,7 +3551,8 @@ const generateGuardianTransaction = async (
   let offscreenDispatched = false;
   let submitCrossed = false;
   // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
-  // proposal. A row without an attempt id (none reaches here through pickup) keeps the flag-only stamp.
+  // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
+  // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
   const stampStage = stageStampFor(
     transaction.id,
     transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
@@ -3658,11 +3659,11 @@ const generateGuardianTransaction = async (
       // brick every non-recallable guardian send on its FIRST failure, the
       // vault-slot rejection included. A guardian send with no recall window
       // takes `createSendProposal` and caches nothing, so it is left alone.
+      // Serialized before the pin and the flag: a request that cannot serialize never reached the leaf.
+      const requestBytes = tr.serialize();
       if (transaction.requestBytes !== undefined) {
         await pinGuardianCrossing(transaction.id, attempt);
       }
-      // Serialized before the flag is set: a request that cannot serialize never reached the leaf.
-      const requestBytes = tr.serialize();
       offscreenDispatched = true;
       // The proposal's ChainAnchor rides along (protocol 0.16): the signed
       // summary binds the reference block it was built at, so the leaf's

@@ -2445,7 +2445,8 @@ export async function proveWithFallback<T>(
     // one prove outcome that goes unreported.
     reportProve({ startedAt, step: 'prove_local', error: err });
     // Not retryable (local prove, already-submitted attempt, or an
-    // apply-after-submit failure): the original error propagates unchanged.
+    // apply-after-submit failure): the original error propagates, tagged when
+    // its attempt never reached its submit (#1081).
     throw submitReached ? err : markErrorBeforeSubmit(err);
   } finally {
     telemetryAttempt.end();

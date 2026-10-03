@@ -3361,6 +3361,39 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.getMidenClient).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    [
+      'the client build',
+      () => {
+        G.__off.getMidenClient = jest.fn(async () => {
+          throw new Error('genesis fetch failed');
+        });
+      },
+      [encodeArg('a'), encodeArg(new Uint8Array([1])), encodeArg(false)],
+      'genesis fetch failed'
+    ],
+    [
+      'init',
+      () => {
+        G.__off.getWasmOrThrow = jest.fn(async () => {
+          throw new Error('wasm load failed');
+        });
+      },
+      [encodeArg('a'), encodeArg(new Uint8Array([1])), encodeArg(false)],
+      'wasm load failed'
+    ],
+    ['the argument decode', () => {}, ['x:not-an-encoded-argument'], 'unrecognized argument tag']
+  ])('a failure in %s, before any leaf runs, replies tagged (#1081)', async (_step, arrange, argsB64, reason) => {
+    arrange();
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'newTransaction', argsB64 }), {}, sendResponse);
+    await flush();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+    expect(sendResponse.mock.calls[0][0].error).toContain(reason);
+    expect(G.__off.clientNewTransaction).not.toHaveBeenCalled();
+  });
+
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
   it('guardianPipeline: deserializes the co-signed request, proves in the prove worker, submits the proof and applies', async () => {
     await loadModule();

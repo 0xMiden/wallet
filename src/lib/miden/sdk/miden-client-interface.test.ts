@@ -1220,6 +1220,23 @@ describe('MidenClientInterface', () => {
     expect(hasErrorBeforeSubmit(submitError)).toBe(false);
   });
 
+  it('tags a local prove that fails with nothing to fall back to (#1081)', async () => {
+    mockStagedSdk();
+    const { hasErrorBeforeSubmit } = jest.requireActual('./sdk-error-code');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const failing = stagedExecuteRequest(() => {
+      throw new Error('local prover exploded');
+    });
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: failing.executeRequest } }) as any,
+      'net'
+    );
+    const error = await client.newTransaction('acc-id', new Uint8Array([1]), false).catch((e: unknown) => e);
+    expect(error).toHaveProperty('message', 'local prover exploded');
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+    expect(failing.submit).not.toHaveBeenCalled();
+  });
+
   it('tags a recall sync that fails before any request exists (#1081)', async () => {
     mockStagedSdk();
     const { hasErrorBeforeSubmit } = jest.requireActual('./sdk-error-code');

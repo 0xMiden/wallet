@@ -3562,7 +3562,8 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
       const { __test } = await loadProxy(true);
       const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
       fakeChrome.runtime.sendMessage.mockImplementation(() => new Promise(() => {}));
-      const live = __test.dispatchCritical('sendTransaction', [{}], 60_000);
+      // No deadline, so no timer of its own: only a stale op's backstop could settle it.
+      const live = __test.dispatchCritical('sendTransaction', [{}], null);
       let liveSettled = false;
       live.promise.then(
         () => (liveSettled = true),
@@ -3577,7 +3578,7 @@ describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
         .promise.catch((e: unknown) => e);
       expect(hasErrorBeforeSubmit(failed)).toBe(true);
       expect(__test.inFlightOpIds()).toEqual([live.op_id]);
-      await jest.advanceTimersByTimeAsync(1_000);
+      await jest.advanceTimersByTimeAsync(__test.criticalDispatchBackstopMs() + 1);
       expect(liveSettled).toBe(false);
     } finally {
       jest.useRealTimers();

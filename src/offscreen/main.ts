@@ -553,6 +553,15 @@ function decodeBeforeSubmit<T>(decode: () => T): T {
   }
 }
 
+// The realm's own steps before any leaf runs, its init and the client build, fail before the submit too (#1081).
+async function stepBeforeSubmit<T>(step: () => Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
+}
+
 const DISPATCH: Record<string, DispatchFn> = {
   getAccount: async (context, client, accountId: string) => {
     const account = await client.getAccount(accountId);
@@ -1461,7 +1470,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
   // dispatch-time backstop is a flat 5 minutes either way.
   recordProveTiming(`call '${msg?.method}' op=${msg?.op_id} entered`);
   try {
-    await ensureInit();
+    await stepBeforeSubmit(ensureInit);
     const dispatch = DISPATCH[msg.method];
     if (!dispatch) {
       sendResponse({
@@ -1475,7 +1484,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // NOTE: the client is deliberately NOT resolved here — it is resolved inside
     // the lock below, at execution start (issue #775).
     recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
-    const args = msg.argsB64.map(decodeArg);
+    const args = decodeBeforeSubmit(() => msg.argsB64.map(decodeArg));
     // W1: serialize actual WASM entry inside THIS doc's own mutex (design §5,
     // §8-risk-5). The offscreen realm has its own module-level `wasmClientMutex`
     // (imported here in the offscreen bundle — distinct from the SW's instance),
@@ -1500,7 +1509,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // the poison hook had already dropped (issue #775). Same reasoning as the
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
-      const client = await getOrCreateClient();
+      const client = await stepBeforeSubmit(getOrCreateClient);
       // The client build is a parking await inside the hold — its eager genesis fetch
       // goes to the very node a `syncState` dispatch is now bounded against (above),
       // so an eviction here is reachable rather than theoretical. An eviction abandons

@@ -345,6 +345,15 @@ describe('an attempt that may have crossed is never invisible (#1081)', () => {
     expect(entriesOf('tx-end')).toEqual([expect.objectContaining({ source: 'end' })]);
   });
 
+  it('offscreen: an untagged execute failure leaves an end entry marked as an execute', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    proxyMock().newTransaction.mockRejectedValueOnce(new Error('newTransaction: result decode failed'));
+    await expect(runRow({ id: 'tx-exec-end', type: 'execute', requestBytes: new Uint8Array([1]) })).rejects.toThrow(
+      'result decode failed'
+    );
+    expect(entriesOf('tx-exec-end')).toEqual([expect.objectContaining({ source: 'end', fromExecute: true })]);
+  });
+
   it('offscreen: a tagged failure leaves none', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
