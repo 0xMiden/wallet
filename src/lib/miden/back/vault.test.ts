@@ -1500,6 +1500,7 @@ describe('Vault.swapHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       hotPublicKey: 'hot-pub-hex',
       coldPublicKey: 'cold-pub-hex'
     };
@@ -1597,6 +1598,7 @@ describe('Vault.swapHotKey', () => {
       isPublic: false,
       type: WalletType.Guardian,
       hdIndex: 0,
+      authScheme: 'ecdsa',
       coldPublicKey: 'cold-pub-hex',
       requiresHotKeyRotation: true
     };
@@ -4492,6 +4494,7 @@ describe('seed phrase removal', () => {
       name: 'Guardian',
       type: WalletType.Guardian,
       hdIndex: -1,
+      authScheme: 'ecdsa',
       isPublic: false,
       hotPublicKey: 'hot-key',
       coldPublicKey: '02' + 'ab'.repeat(32),
