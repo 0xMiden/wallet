@@ -7,6 +7,7 @@ import {
   isFailedClaim,
   isProvable,
   isUnresolvedEntry,
+  keptCandidateHoldUntil,
   notConfirmedHintKey,
   OTHER_NETWORK_GIVE_UP_SEC,
   upsertEvidenceEntry
@@ -253,5 +254,37 @@ describe('notConfirmedHintKey (#1081)', () => {
     expect(notConfirmedHintKey(row({ status: ITransactionStatus.Failed, restoredFromBackup: true }), NOW)).toBe(
       'transactionRestoredHint'
     );
+  });
+});
+
+describe('keptCandidateHoldUntil (#1081)', () => {
+  const NOW = 1_800_000_000;
+  const kept = (capturedAt: number, overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
+    attemptId: `a-${capturedAt}`,
+    capturedAt,
+    source: 'pin',
+    candidateKept: true,
+    guardianProposalNonce: 4,
+    ...overrides
+  });
+
+  it('holds until 600 s after the capture of a kept candidate', () => {
+    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW - 100)] }, NOW)).toBe(NOW + 500);
+  });
+
+  it('takes the latest clear time across entries, and ignores entries whose candidate is not kept', () => {
+    const entries = [kept(NOW - 300), kept(NOW - 50), kept(NOW - 10, { candidateKept: undefined })];
+    expect(keptCandidateHoldUntil({ submitEvidence: entries }, NOW)).toBe(NOW + 550);
+  });
+
+  it('holds nothing once 600 s have passed', () => {
+    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW - 600)] }, NOW)).toBeUndefined();
+    expect(keptCandidateHoldUntil({ submitEvidence: [] }, NOW)).toBeUndefined();
+  });
+
+  // Review Focus 4: a capture ahead of the clock means the clock stepped back since; its age is unknown.
+  it('holds nothing for a capture ahead of the clock, however far', () => {
+    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW + 5)] }, NOW)).toBeUndefined();
+    expect(keptCandidateHoldUntil({ submitEvidence: [kept(NOW + 10 * 24 * 3600)] }, NOW)).toBeUndefined();
   });
 });

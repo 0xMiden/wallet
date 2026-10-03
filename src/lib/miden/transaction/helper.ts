@@ -700,6 +700,42 @@ export const pinGuardianCrossing = async (id: string, attempt: AttemptContext): 
 };
 
 /**
+ * The Guardian leaf kept this attempt's candidate instead of abandoning it (#1081), on a row that awaits a verdict:
+ * after a kill, whose pipeline may still land it, or after a failure that may have followed the attempt's submit
+ * crossing. Retry's hold reads it and the reconciler releases it. The leaf's catch holds the proposal nonce the kill
+ * route lacks, so it records both; `source` names the end only when this creates the entry. Never throws: the catch's
+ * own error is the one the row must record, and a lost mark only shortens the hold to the Guardian's pending-delta
+ * conflict.
+ */
+export const recordKeptCandidate = async (
+  id: string,
+  attempt: AttemptContext,
+  source: 'kill' | 'error-text' | 'end'
+): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attempt.attemptId,
+        {
+          source,
+          candidateKept: true,
+          guardianProposalNonce: attempt.guardianProposalNonce,
+          fromExecute: attempt.fromExecute
+        },
+        nowSec
+      );
+    });
+  } catch (error) {
+    console.warn(
+      `[submit-evidence] could not record the kept candidate of attempt ${attempt.attemptId} on ${id}`,
+      error
+    );
+  }
+};
+
+/**
  * The attempt's leaf proved it ended before its submit call (#1081): its entry is ruled out everywhere, and the
  * `mayHaveSubmitted` its pin raised is cleared, never one an earlier crossing raised. Never throws: it runs in the
  * leaf's catch, whose own error is the one the row must record.

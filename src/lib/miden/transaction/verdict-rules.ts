@@ -129,6 +129,25 @@ export const latestEntry = (row: Pick<ITransaction, 'submitEvidence'>): ISubmitE
   return entries[entries.length - 1];
 };
 
+/**
+ * When Retry's Guardian hold clears (#1081): the latest `capturedAt + GUARDIAN_PENDING_HOLD_SEC` over the entries
+ * whose candidate the Guardian may still hold, while that is still ahead. A capture ahead of the clock means the
+ * clock stepped back since, so the candidate's age is unknown; it is not held, because an unbounded hold would strand
+ * the row, and the Guardian's pending-delta conflict still stops a second proposal.
+ */
+export const keptCandidateHoldUntil = (
+  row: Pick<ITransaction, 'submitEvidence'>,
+  nowSec: number
+): number | undefined => {
+  let until: number | undefined;
+  for (const entry of row.submitEvidence ?? []) {
+    if (entry.candidateKept !== true || entry.capturedAt > nowSec) continue;
+    const clears = entry.capturedAt + GUARDIAN_PENDING_HOLD_SEC;
+    if (clears > nowSec && (until === undefined || clears > until)) until = clears;
+  }
+  return until;
+};
+
 export interface EvidencePatch {
   source: SubmitEvidenceSource;
   evidence?: SubmitEvidenceFields;

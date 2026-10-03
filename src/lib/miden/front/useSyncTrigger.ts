@@ -20,7 +20,7 @@ import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
-import { syncGuardianAccounts } from './guardian-sync';
+import { reconcileUnconfirmedInApp, syncGuardianAccounts } from './guardian-sync';
 import { requestNotesRefresh } from './note-refresh';
 import { noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction, syncFuseUntilMs } from './sync-fuse';
 import { isTestSyncPaused } from './test-sync-pause';
@@ -241,10 +241,10 @@ export function useSyncTrigger() {
             // waiting out the claimable-notes SWR interval (up to 5s) — the note
             // read runs after the sync's wasm lock has been released (#462).
             requestNotesRefresh();
-            // Settle transactions whose submit outcome was unknown (#1081): node reads only, fired and forgotten.
-            void import('lib/miden/transaction/reconcile-unconfirmed')
-              .then(({ reconcileUnconfirmedTransactions }) => reconcileUnconfirmedTransactions())
-              .catch(e => console.warn('[useSyncTrigger] unconfirmed reconcile failed', e));
+            // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten: node reads, and
+            // for each kept Guardian candidate it releases, a short WASM-lock read to build the cold service, a
+            // bounded Guardian abandon and up to 60 s of polling.
+            void reconcileUnconfirmedInApp();
 
             const guardianAccountKeys = useWalletStore
               .getState()

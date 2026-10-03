@@ -193,8 +193,11 @@ jest.mock('../transaction/initiate', () => ({
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsume(...args)
 }));
 
+// The unconfirmed reconciler (#1081) owns its own suite; here only whether the lap fires it.
+const mockReconcile = jest.fn(async () => {});
 jest.mock('./transaction-processor', () => ({
-  startTransactionProcessing: jest.fn(async () => {})
+  startTransactionProcessing: jest.fn(async () => {}),
+  reconcileUnconfirmedInWorker: () => mockReconcile()
 }));
 
 // The private-note delivery sweep rides on every sync tick. Mocked here (it owns a
@@ -204,12 +207,6 @@ jest.mock('./transaction-processor', () => ({
 const mockSweepNoteDeliveries = jest.fn(() => Promise.resolve());
 jest.mock('../transaction/note-delivery-sweep', () => ({
   sweepNoteDeliveries: () => mockSweepNoteDeliveries()
-}));
-
-// The unconfirmed reconciler (#1081) owns its own suite; here only whether the lap fires it.
-const mockReconcile = jest.fn(async () => {});
-jest.mock('../transaction/reconcile-unconfirmed', () => ({
-  reconcileUnconfirmedTransactions: () => mockReconcile()
 }));
 
 // ── Imports under test ─────────────────────────────────────────────

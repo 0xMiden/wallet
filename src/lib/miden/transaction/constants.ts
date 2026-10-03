@@ -214,6 +214,17 @@ export const TRANSACTION_NEVER_COMMITTED_ERROR =
 export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
   'The wallet is checking this transaction right now. Try again in a moment.';
 
+/** Retry met a candidate the Guardian still holds for this row (#1081); `{time}` is when its hold clears. */
+export const GUARDIAN_HOLD_RETRY_ERROR =
+  'The Guardian is still holding this transaction. You can retry it after {time}.';
+
+/** The hold refusal, naming the local time at which `clearsAtSec` (unix seconds) falls. */
+export const guardianHoldRetryMessage = (clearsAtSec: number): string =>
+  GUARDIAN_HOLD_RETRY_ERROR.replace(
+    '{time}',
+    new Date(clearsAtSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+
 /**
  * Retry found a landing the deferral holds, a landed write that gave up, or a recorded landing it could not re-read
  * (#1081): the row may already have landed, so it must not reach the acknowledgeable refusal.

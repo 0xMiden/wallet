@@ -95,11 +95,13 @@ import {
   markMayHaveSubmitted,
   pinGuardianCrossing,
   recordBridgeNoteLanded,
+  recordKeptCandidate,
   recordLeafEnd,
   recordSubmitCrossing,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
+import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { canAwaitVerdict } from './verdict-rules';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
@@ -2852,6 +2854,13 @@ const ABANDON_RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TI
 type ProposalStamps = Pick<GuardianCandidate, 'proposedAt' | 'proposedAtMono'>;
 
 /**
+ * A candidate's age (#1317): the larger of its two clocks' elapsed times since the proposal, so neither a wall clock
+ * set back (the monotonic one keeps counting) nor device sleep (the wall clock keeps counting) can shrink it.
+ */
+const proposalAgeMs = (stamps: ProposalStamps): number =>
+  Math.max(Date.now() - stamps.proposedAt, monotonicNowMs() - stamps.proposedAtMono);
+
+/**
  * Retry, before the account's next proposal, the abandon a failed Guardian write could not get through (#1317): until
  * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
@@ -2879,7 +2888,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
     proposedAt: prior.proposedAt,
     proposedAtMono: prior.proposedAtMono
   };
-  const age = Math.max(Date.now() - prior.proposedAt, monotonicNowMs() - prior.proposedAtMono);
+  const age = proposalAgeMs(prior);
   if (age >= ABANDON_RETRY_WINDOW_MS) {
     recordGuardianCandidate(accountId, plain);
     return;
@@ -2920,20 +2929,24 @@ const assertPriorCandidateSettled = async (transaction: ITransaction, service: M
 };
 
 /**
- * Remember the candidate a Guardian write whose submit resolved left on its Guardian, for the next proposal's
- * settlement gate (#312). Every Guardian write records, structural ones included, so a send after a rotation waits
- * for the rotation's delta too. `proposalStamps` are the caller's, taken before its proposal (#1317).
+ * Remember the candidate a Guardian write left on its Guardian, for the next proposal's settlement gate (#312): one
+ * whose submit resolved, or one the leaf kept for the node's verdict, whose release reads these stamps (#1081). Every
+ * Guardian write whose submit resolved records, structural ones included, so a send after a rotation waits for the
+ * rotation's delta too. `proposalStamps` are the caller's, taken before its proposal (#1317). Only the keep passes
+ * `attemptId`, the keeping attempt's, which the release must find on the record before it abandons that nonce.
  */
 const recordLeftCandidate = (
   transaction: ITransaction,
   service: MultisigService,
   proposal: Proposal,
-  proposalStamps: ProposalStamps
+  proposalStamps: ProposalStamps,
+  attemptId?: string
 ): void =>
   recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
-    ...proposalStamps
+    ...proposalStamps,
+    ...(attemptId === undefined ? {} : { attemptId })
   });
 
 /**
@@ -2963,6 +2976,85 @@ const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
   const key = canonicalWalletAccountId(accountId);
   const recorded = getGuardianCandidate(key);
   if (recorded?.nonce === nonce) recordGuardianCandidate(key, { ...recorded, abandon: true });
+};
+
+/**
+ * The reconciler's release of a candidate the Guardian leaf kept for the node's verdict (#1081): a cold service, which
+ * needs no hot key, built under the outgoing-guardian deadline as `requireLandedCommit` builds its abandon, then the
+ * abandon under the same deadline. The poll reads the same service, so it asks the Guardian that took the abandon, and
+ * cuts each read off at the caller's time left or the outgoing deadline, whichever comes first.
+ *
+ * It only reads the record and never writes it, so not `abandonDiscardedCandidate`, whose failure flags the record at
+ * the nonce. While the release checks and sends, the kept candidate still holds its nonce at the Guardian, so no write
+ * can have taken it; the hazard is a write after the abandon. This runs from the sync lap, outside the account's
+ * Guardian lock, and when the Guardian took the abandon but the answer was lost or cut off, a write that skips the
+ * settlement gate (a structural type, a bridged send) can propose at the freed nonce while the old record stands and
+ * end without recording its own (a poison eviction, #1317's mark gate after a crossing). Any mark, even on the very
+ * record this release checked, would then have #1317's retry abandon that write's live candidate. So a failed abandon
+ * returns no poll and leaves the record and the entry's `candidateKept` as they were: the record's settlement gate and
+ * Retry's hold wait out the Guardian's own discard, which the abandon window already bounds.
+ *
+ * An abandon is keyed only by nonce, so it is sent only while this realm's record is still the one the entry's
+ * attempt kept, at that nonce, and younger than ABANDON_RETRY_WINDOW_MS: past that the Guardian has released it, or
+ * will before the abandon arrives, and a later write may hold the nonce. The record's identity, not its time, tells it
+ * from a later write's at the same nonce: an attempt can outlive the Guardian's own discard while it proves and be kept
+ * after the nonce was freed, and the next write can propose that nonce within the same second. With no such record
+ * (another realm, a restart, another write's record) nothing is sent, and Retry's hold, counted from `capturedAt`,
+ * outlasts the Guardian's own discard.
+ */
+export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvider): CandidateRelease => {
+  const releasable = (accountId: string, nonce: number, attemptId: string): GuardianCandidate | undefined => {
+    const record = getGuardianCandidate(canonicalWalletAccountId(accountId));
+    if (record?.nonce !== nonce || record.attemptId !== attemptId) return undefined;
+    return proposalAgeMs(record) < ABANDON_RETRY_WINDOW_MS ? record : undefined;
+  };
+  return {
+    abandon: async (accountId, nonce, attemptId) => {
+      if (releasable(accountId, nonce, attemptId) === undefined) {
+        console.warn(`[Guardian] not releasing kept candidate ${nonce}: no record of its keep inside its window`);
+        return undefined;
+      }
+      let service: MultisigService;
+      try {
+        service = await withOutgoingGuardianDeadline(
+          () => buildColdServiceForAccount(accountId, guardianProvider),
+          'loading the cold service to release a kept candidate'
+        );
+      } catch (buildError) {
+        console.warn(
+          `[Guardian] could not build the cold service to release the kept candidate at nonce ${nonce}:`,
+          buildError
+        );
+        return undefined;
+      }
+      // Checked again as the abandon leaves: the build can take the whole outgoing deadline, and a switch since the
+      // keep leaves the candidate on another Guardian than the one this service reaches.
+      const record = releasable(accountId, nonce, attemptId);
+      if (record === undefined || !sameGuardianEndpoint(record.endpoint, service.guardianEndpoint)) return undefined;
+      try {
+        await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(nonce),
+          'abandoning a kept candidate on its guardian'
+        );
+      } catch (abandonError) {
+        // No mark, not even on this record: the Guardian may have taken the abandon, and a write may since have
+        // proposed at the freed nonce without recording it, whose live candidate #1317's retry would then abandon.
+        console.warn(
+          `[Guardian] could not abandon the kept candidate at nonce ${nonce}; leaving it to its Guardian's discard:`,
+          abandonError
+        );
+        return undefined;
+      }
+      return {
+        status: timeoutMs =>
+          withTimeout(
+            service.abandonStatus(nonce),
+            Math.min(timeoutMs, OUTGOING_GUARDIAN_DEADLINE_MS),
+            'reading the release of a kept candidate'
+          )
+      };
+    }
+  };
 };
 
 /**
@@ -3707,6 +3799,28 @@ const generateGuardianTransaction = async (
     if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
       await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
     }
+    // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
+    // or once this attempt may have crossed its submit, abandoning would retract a co-signature the chain may be about
+    // to consume. The crossing is this attempt's own, as for the mark below: the inline leaf awaits its 'submitting'
+    // stamp before it submits, and the offscreen leaf tags every error it raises before its submit call. Never the
+    // row's `mayHaveSubmitted`, which an earlier attempt or the pre-dispatch pin may have raised: it would keep a
+    // candidate that can never land, and the entry recorded for it would keep the row from ever being proven safe. A
+    // refusal after the crossing is kept too, since no classifier tells it from a lost response; a resolved submit is
+    // the landed path's.
+    const keptForVerdict =
+      canAwaitVerdict(transaction) &&
+      !isApplyAfterSubmitError(error) &&
+      (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
+    if (keptForVerdict) {
+      // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
+      // it, and the release dates it and abandons its nonce only while the record is still this attempt's
+      // (`guardianCandidateRelease`).
+      recordLeftCandidate(transaction, service, proposalResult, proposalStamps, transaction.attemptId);
+      if (transaction.attemptId !== undefined) {
+        const source = isKilledPipeline(error) ? 'kill' : isIndefiniteSubmitOutcomeError(error) ? 'error-text' : 'end';
+        await recordKeptCandidate(transaction.id, attemptContextOf(transaction, proposalResult.nonce), source);
+      }
+    }
     if (isPoisonedPipeline(error)) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the
@@ -3746,7 +3860,7 @@ const generateGuardianTransaction = async (
     ) {
       transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
     }
-    if (!submitResolved) {
+    if (!submitResolved && !keptForVerdict) {
       try {
         // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
         // This call reaches the same operator, over the same transport, that the

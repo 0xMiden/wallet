@@ -4,6 +4,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import {
+  guardianHoldRetryMessage,
   TRANSACTION_BEING_CHECKED_RETRY_ERROR,
   TRANSACTION_LANDING_PENDING_RETRY_ERROR,
   TRANSACTION_RETRY_UNSAFE_ERROR,
@@ -12,7 +13,7 @@ import {
 import { completeVerifiedLandedTransaction, verifiedLandingRowFields } from './helper';
 import { latestEndMayStillRun } from './reconcile-judge';
 import { checkEvidenceForRetry } from './reconcile-unconfirmed';
-import { awaitingVerdict, evidenceKey, isUnresolvedEntry, nowSeconds } from './verdict-rules';
+import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
@@ -386,7 +387,7 @@ interface RequeuePlan {
   baseline: string;
 }
 
-/** Steps 1 and 3 to 5: refuse, complete, or say how to requeue. Undefined when the row was completed instead. */
+/** Steps 1 to 5: refuse, complete, or say how to requeue. Undefined when the row was completed instead. */
 const planRequeue = async (
   tx: ITransaction,
   acknowledged: RetryOptions['acknowledged']
@@ -396,6 +397,10 @@ const planRequeue = async (
     throw new Error(`Transaction ${tx.id} (${tx.type}) is not retryable`);
   }
   const nowSec = nowSeconds();
+  // The next proposal would meet the kept candidate: the 409 arm for most types, an outright failure for a
+  // bridged-send. Proven or not, and acknowledged or not, the row waits for the Guardian's own discard.
+  const holdUntil = keptCandidateHoldUntil(tx, nowSec);
+  if (holdUntil !== undefined) throw new Error(guardianHoldRetryMessage(holdUntil));
   let proven = tx.neverCommittedAt !== undefined;
   let baseline = evidenceKey(tx.submitEvidence);
   let checked = false;

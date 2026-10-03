@@ -61,6 +61,7 @@ import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
@@ -70,6 +71,10 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // guardian co-signatures survives serialize; verified end-to-end at the WASM level in
 // the flag-flip guardian E2E, structurally here).
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
+
+const INDEFINITE = `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`;
+// The attempt's entry records its kept candidate with the proposal nonce (#1081).
+const KEPT_AT_7 = expect.arrayContaining([expect.objectContaining({ candidateKept: true, guardianProposalNonce: 7 })]);
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -570,6 +575,59 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       expect(complete.mock.calls[0]).toContain(dispatched);
     }
   );
+
+  it('an unknown submit outcome from the offscreen leaf keeps the candidate for the verdict (#1081)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${INDEFINITE}`)
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-indefinite', row);
+
+    await generateTransaction(buildTx('on-send-indefinite', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-indefinite') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(stored.submitEvidence).toEqual([expect.objectContaining({ candidateKept: true, guardianProposalNonce: 7 })]);
+  });
+
+  it('a failure the offscreen leaf proved came before its submit still abandons at once, so it is retryable at once (#1081)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error("Offscreen call 'guardianPipeline' failed: failed to execute transaction: kernel assertion")
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-pre-submit', row);
+
+    await generateTransaction(buildTx('on-send-pre-submit', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-pre-submit') as Record<string, unknown>;
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+  });
+
+  it('an untagged failure after the offscreen dispatch keeps the candidate, a node refusal included (#1081)', async () => {
+    // Once the request reached the leaf no classifier tells a refusal from a lost response, so the candidate waits
+    // for the node's verdict or the Guardian's own discard.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error("Offscreen call 'guardianPipeline' failed: node refused the proven transaction")
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-refused', row);
+
+    await generateTransaction(buildTx('on-send-refused', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-refused') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+  });
 
   it('an "unauthorized" execution failure requeues even though the realm cannot author `stage`', async () => {
     // The guardian co-signs a summary bound to the state it saw; if that state
@@ -2522,10 +2580,22 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
   );
 });
 
+// An Agglayer bridged-send can await the node's verdict, so its killed attempt keeps the candidate (#1081); an earn
+// deposit cannot, so it still abandons at once.
+type KillCase = Case & { abandons: number[][]; evidence: unknown };
+const bridgeEarnKillCases = (): KillCase[] => [
+  { ...bridgeEarnCases()[0]!, abandons: [], evidence: KEPT_AT_7 },
+  {
+    ...bridgeEarnCases()[1]!,
+    abandons: [[7]],
+    evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
+  }
+];
+
 describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an offscreen kill FAILS the row, no auto-requeue', () => {
-  it.each(bridgeEarnCases())(
+  it.each(bridgeEarnKillCases())(
     '$type: an OperationAbortedError marks the row Failed, does NOT requeue, and dispatches exactly ONCE (no double-send)',
-    async ({ row, complete }) => {
+    async ({ row, complete, abandons, evidence }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       // A wedge-kill fires AFTER the offscreen submit may have landed → retryable
       // OperationAbortedError. bridged-send has no input-note nullifier (fresh
@@ -2539,9 +2609,9 @@ describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an
       await generateTransaction(buildTx(`be-kill-${row.type}`, row) as never, signCallback, false, provider as never);
 
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate.mock.calls).toEqual(abandons);
       const finalRow = txStore.find(r => r.id === `be-kill-${row.type}`)!;
+      expect(finalRow.submitEvidence ?? []).toEqual(evidence);
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
       expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
       expect(finalRow.nextEligibleAt).toBeUndefined();
@@ -2654,12 +2724,12 @@ describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS t
 
       // Dispatched exactly ONCE — the abort did NOT trigger a second offscreen submit.
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      // The killed attempt may have submitted, so its candidate is kept for the node's verdict, not abandoned (#1081).
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       // The row is terminally FAILED — NOT requeued to Queued (which would let a fresh
       // retry double-send), and carries no requeue cooldown stamp.
       const finalRow = txStore.find(r => r.id === `kill-${row.type}`)!;
+      expect(finalRow.submitEvidence).toEqual(KEPT_AT_7);
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
       expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
       expect(finalRow.nextEligibleAt).toBeUndefined();
@@ -2696,9 +2766,9 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    // Dispatched once; the guardian candidate was still abandoned (idempotent).
+    // Dispatched once; the killed consume keeps its candidate for the node's verdict (#1081).
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     // Node-verified landed → Completed with the normal consume label, no requeue.
     const finalRow = txStore.find(r => r.id === 'kill-consume-landed')!;
     expect(finalRow.status).toBe(ITransactionStatus.Completed);
@@ -2726,7 +2796,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-external')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
@@ -2747,7 +2817,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-committed')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
@@ -2768,7 +2838,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-nodeerr')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(mockComplete.consume).not.toHaveBeenCalled();
@@ -2790,7 +2860,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     expect(mockProxyGetInputNoteDetails).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-noid')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
@@ -2828,10 +2898,13 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 
   it('send: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Raised before the offscreen leaf's submit call, so the leaf tags it (Task 8) and the catch abandons at once (#1081).
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
-          'local nonce 4 but commitments differ for account 0xacc'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+            'local nonce 4 but commitments differ for account 0xacc'
+        )
       )
     );
     const row = {
@@ -2873,10 +2946,13 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 
   it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Raised before the offscreen leaf's submit call, so the leaf tags it (Task 8) and the catch abandons at once (#1081).
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
-          'local nonce 4 but commitments differ for account 0xacc'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+            'local nonce 4 but commitments differ for account 0xacc'
+        )
       )
     );
     const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };

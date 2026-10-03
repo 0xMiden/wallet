@@ -3,8 +3,11 @@
 // the caller. What still writes outside the lock (the pipeline's stamps, the out-of-band enders, the Agglayer
 // promotion) can only fill or add entries or complete the row, so the status-changing writes re-check the status and
 // the entries' evidence, and the landed write the account's other rows.
+import type { AbandonStatus } from '@openzeppelin/guardian-client';
+
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
@@ -330,17 +333,118 @@ export const nextScheduleEntry = (
   return { nextCheckAt: nowMs + waitMs, step: step + 1 };
 };
 
+/** Polls one abandon's resolution on the service that asked for it. */
+export interface KeptCandidatePoll {
+  /**
+   * Where the abandon stands. Rejects once `timeoutMs`, or the outgoing-guardian deadline if that comes first, passes
+   * with no answer.
+   */
+  status(timeoutMs: number): Promise<AbandonStatus>;
+}
+
+/**
+ * Releases a kept Guardian candidate (#1081). Injected, because only `index.ts` can build the cold service and each
+ * realm passes its own provider: the service worker its vault, the app realm its store.
+ */
+export interface CandidateRelease {
+  /**
+   * Asks the account's Guardian to abandon the candidate at `nonce` that the attempt `attemptId` kept. Undefined when
+   * there is nothing to poll: this realm's record of the account's candidate is not that attempt's at that nonce
+   * (another realm, a restart, another write's record), its abandon window closed, the account's Guardian changed, no
+   * service could be built, or the abandon failed, so the Guardian may never have taken it.
+   */
+  abandon(accountId: string, nonce: number, attemptId: string): Promise<KeptCandidatePoll | undefined>;
+}
+
+export const CANDIDATE_RELEASE_POLL_MS = 3_000;
+export const CANDIDATE_RELEASE_BOUND_MS = 60_000;
+const CANDIDATE_CLEAR_WAIT_MS = 10_000;
+
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Clear the kept mark of one candidate the Guardian released, under the row's verdict lock like every evidence write. */
+const clearKeptCandidate = async (rowId: string, attemptId: string, nonce: number): Promise<void> => {
+  await inVerdictTurn(
+    rowId,
+    () =>
+      Repo.transactions.where({ id: rowId }).modify(row => {
+        const entries = row.submitEvidence ?? [];
+        const index = entries.findIndex(
+          entry =>
+            entry.attemptId === attemptId && entry.guardianProposalNonce === nonce && entry.candidateKept === true
+        );
+        const current = entries[index];
+        if (current === undefined) return false;
+        const released: ISubmitEvidence = { ...current };
+        delete released.candidateKept;
+        row.submitEvidence = entries.map((entry, at) => (at === index ? released : entry));
+        return undefined;
+      }),
+    { waitMs: CANDIDATE_CLEAR_WAIT_MS }
+  );
+};
+
+/**
+ * After a never-committed write, ask the Guardian to abandon each candidate the row's attempts kept (#1081). An
+ * accepted abandon is only an intent: the Guardian quarantines the candidate before it releases the account, so the
+ * resolution is polled every 3 s for at most 60 s. Only 'abandoned' clears the mark; any other answer, no poll
+ * (nothing asked, or an abandon that failed), or the time running out leaves it, and Retry's hold then waits for the
+ * Guardian's own discard. Best-effort and bounded: a later pass joins this one meanwhile, which is rare (only right
+ * after such a proof) and cheaper than a second release. The bound reads the monotonic clock and caps every read at
+ * the time left, so neither a wall clock set back nor a Guardian slow to answer can hold the pass past it.
+ */
+async function releaseKeptCandidates(
+  accountId: string,
+  rowId: string,
+  entries: readonly ISubmitEvidence[],
+  release: CandidateRelease,
+  nowMono: () => number,
+  sleep: (ms: number) => Promise<void>
+): Promise<void> {
+  for (const entry of entries) {
+    const nonce = entry.guardianProposalNonce;
+    if (entry.candidateKept !== true || nonce === undefined) continue;
+    try {
+      const poll = await release.abandon(accountId, nonce, entry.attemptId);
+      if (poll === undefined) continue;
+      const deadline = nowMono() + CANDIDATE_RELEASE_BOUND_MS;
+      let status: AbandonStatus = 'waiting';
+      // Another interval only while a read would still have time after it.
+      while (status === 'waiting' && deadline - nowMono() > CANDIDATE_RELEASE_POLL_MS) {
+        await sleep(CANDIDATE_RELEASE_POLL_MS);
+        // A timer can fire late, so the time left is read again after the sleep.
+        const left = deadline - nowMono();
+        if (left <= 0) break;
+        // A failed or cut-off read is no answer: keep polling until the bound.
+        status = await poll.status(left).catch((): AbandonStatus => 'waiting');
+      }
+      if (status === 'abandoned') await clearKeptCandidate(rowId, entry.attemptId, nonce);
+      else console.warn(`[reconcile] the Guardian has not released candidate ${nonce} of ${rowId} (${status})`);
+    } catch (error) {
+      console.warn(`[reconcile] could not release candidate ${nonce} of ${rowId}`, error);
+    }
+  }
+}
+
 export interface ReconcileDeps {
   storage?: StorageProvider;
   createReads?: () => Promise<NodeReads>;
   now?: () => number;
+  /** Releases kept Guardian candidates after a never-committed write; absent, none is released. */
+  release?: CandidateRelease;
+  sleep?: (ms: number) => Promise<void>;
+  /** The release's clock (`monotonicNowMs` when absent): a wall clock set back must not stretch its 60 s. */
+  nowMono?: () => number;
 }
 
 let runningPass: Promise<void> | undefined;
 
 /**
  * One reconciler pass in this realm (#1081), fired and forgotten after a successful sync; a second call joins the
- * running pass. It takes no WASM client lock and never rejects: each row is judged in its own try.
+ * running pass. Judging takes no WASM client lock: its reads go to the node. With a `release`, each kept Guardian
+ * candidate of a row proven never committed adds a short WASM-lock read to build the cold service, a Guardian abandon
+ * under the outgoing deadline, and at most 60 s of polling. Never rejects: each row is judged, and each candidate
+ * released, in its own try.
  */
 export const reconcileUnconfirmedTransactions = (deps: ReconcileDeps = {}): Promise<void> => {
   runningPass ??= runPass(deps).finally(() => {
@@ -358,6 +462,7 @@ async function runPass(deps: ReconcileDeps): Promise<void> {
     const raw: unknown = (await storage.get([SCHEDULE_KEY]))[SCHEDULE_KEY];
     const stored = parseSchedule(raw);
     const schedule: Schedule = {};
+    const released: Array<{ accountId: string; rowId: string; entries: ISubmitEvidence[] }> = [];
     for (const row of rows) {
       const entry = stored[row.id];
       if (entry !== undefined) schedule[row.id] = entry;
@@ -386,6 +491,13 @@ async function runPass(deps: ReconcileDeps): Promise<void> {
             );
           } else {
             delete schedule[row.id];
+            if (outcome.kind === 'never-committed') {
+              released.push({
+                accountId: row.accountId,
+                rowId: row.id,
+                entries: applyEntryWrites(outcome.judgement.judgedEntries, outcome.judgement)
+              });
+            }
           }
         } catch (error) {
           // No reachable read throws, so this is a fault: it backs off like a pass with no verdict, never every lap.
@@ -396,6 +508,19 @@ async function runPass(deps: ReconcileDeps): Promise<void> {
       if (Object.keys(failures).length > 0) console.warn('[reconcile] could not judge these transactions', failures);
     }
     if (JSON.stringify(raw) !== JSON.stringify(schedule)) await storage.set({ [SCHEDULE_KEY]: schedule });
+    // After the schedule is saved, so a slow Guardian never costs a row its next check time.
+    if (deps.release !== undefined) {
+      for (const { accountId, rowId, entries } of released) {
+        await releaseKeptCandidates(
+          accountId,
+          rowId,
+          entries,
+          deps.release,
+          deps.nowMono ?? monotonicNowMs,
+          deps.sleep ?? delay
+        );
+      }
+    }
   } catch (error) {
     console.warn('[reconcile] the unconfirmed reconcile pass failed', error);
   }

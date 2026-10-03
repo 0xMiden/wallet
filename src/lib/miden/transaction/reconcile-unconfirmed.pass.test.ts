@@ -1,3 +1,5 @@
+import type { AbandonStatus } from '@openzeppelin/guardian-client';
+
 import * as Repo from 'lib/miden/repo';
 
 import { __resetCadenceForTests, AccountState, NodeReads, observeTip } from './reconcile-reads';
@@ -356,5 +358,176 @@ describe('the pass (#1081)', () => {
         now
       })
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('releasing a kept Guardian candidate (#1081)', () => {
+  const keptRow = () =>
+    row('g', { submitEvidence: [entry({ expirationBlock: 700, candidateKept: true, guardianProposalNonce: 9 })] });
+  const deadNode = () => pendingNode({ blockNum: 750, commitment: INITIAL });
+  // The release's bound reads a monotonic clock, which a wall clock set back does not move.
+  let mono = 0;
+  const nowMono = () => mono;
+  const sleep = async (ms: number) => {
+    clock += ms;
+    mono += ms;
+  };
+  const releaseAnswering = (answers: AbandonStatus[]) => {
+    const status = jest.fn(async (_timeoutMs: number): Promise<AbandonStatus> => answers.shift() ?? 'waiting');
+    const abandon = jest.fn(async (_accountId: string, _nonce: number, _attemptId: string) => ({ status }));
+    return { release: { abandon }, abandon, status };
+  };
+  const stored = () => Repo.transactions.where({ id: 'g' }).first();
+
+  beforeEach(() => {
+    mono = 0;
+  });
+
+  it('asks for the abandon after the never-committed write, and clears candidateKept once released', async () => {
+    await Repo.transactions.put(keptRow());
+    const { release, abandon, status } = releaseAnswering(['waiting', 'abandoned']);
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release
+    });
+    // With the entry's attempt id, which the release must find on this realm's record before it abandons that nonce.
+    expect(abandon).toHaveBeenCalledWith('mtst1acct_s', 9, 'a1');
+    expect(status).toHaveBeenCalledTimes(2);
+    expect((await stored())?.neverCommittedAt).toBe(NOW);
+    expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBeUndefined();
+  });
+
+  // #1317 run A: a submit failure the classifier does not read as unknown ends the row Failed, not Unconfirmed, and
+  // a Failed row that can await a verdict is judged and released the same way.
+  it('releases the kept candidate of a Failed row too', async () => {
+    await Repo.transactions.put({ ...keptRow(), status: ITransactionStatus.Failed });
+    const { release, abandon } = releaseAnswering(['abandoned']);
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release
+    });
+    expect(abandon).toHaveBeenCalledWith('mtst1acct_s', 9, 'a1');
+    expect((await stored())?.status).toBe(ITransactionStatus.Failed);
+    expect((await stored())?.neverCommittedAt).toBe(NOW);
+    expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBeUndefined();
+  });
+
+  it('polls every 3 s for at most 60 s, then leaves candidateKept set', async () => {
+    await Repo.transactions.put(keptRow());
+    const { release, status } = releaseAnswering([]);
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release
+    });
+    // The last read is at 57 s: one more interval would leave no time to read in.
+    expect(status).toHaveBeenCalledTimes(19);
+    expect(mono).toBe(57_000);
+    expect(clock - NOW_MS).toBe(57_000);
+    expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBe(true);
+  });
+
+  it('caps each status read at the time left, so reads that each take 30 s still end the release within 60 s', async () => {
+    await Repo.transactions.put(keptRow());
+    // A Guardian that answers each read after 30 s, cut off at the timeout the release passes, as the real read is.
+    const status = jest.fn(async (timeoutMs: number): Promise<AbandonStatus> => {
+      const took = Math.min(30_000, timeoutMs);
+      clock += took;
+      mono += took;
+      return 'waiting';
+    });
+    const release = {
+      abandon: jest.fn(async (_accountId: string, _nonce: number, _attemptId: string) => ({ status }))
+    };
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release
+    });
+    expect(mono).toBeLessThanOrEqual(60_000);
+    expect(status.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([57_000, 24_000]);
+    expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBe(true);
+  });
+
+  it('bounds the poll on the monotonic clock, so a wall clock set back an hour mid-poll still ends it by 60 s', async () => {
+    await Repo.transactions.put(keptRow());
+    const { release, status } = releaseAnswering([]);
+    status
+      .mockImplementationOnce(async () => 'waiting')
+      .mockImplementationOnce(async () => {
+        clock -= 3_600_000;
+        return 'waiting';
+      });
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release
+    });
+    expect(status).toHaveBeenCalledTimes(19);
+    expect(mono).toBe(57_000);
+  });
+
+  it.each<AbandonStatus>(['landed', 'retained', 'unexpected'])(
+    'stops at %s and leaves candidateKept set',
+    async answer => {
+      await Repo.transactions.put(keptRow());
+      const { release, status } = releaseAnswering([answer]);
+      await reconcileUnconfirmedTransactions({
+        storage: memoryStorage(),
+        createReads: async () => deadNode(),
+        now,
+        nowMono,
+        sleep,
+        release
+      });
+      expect(status).toHaveBeenCalledTimes(1);
+      expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBe(true);
+    }
+  );
+
+  it('leaves candidateKept set when nothing was asked of the Guardian', async () => {
+    await Repo.transactions.put(keptRow());
+    const abandon = jest.fn(async () => undefined);
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release: { abandon }
+    });
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBe(true);
+  });
+
+  it('releases nothing for a row still pending', async () => {
+    await Repo.transactions.put(keptRow());
+    const { release, abandon } = releaseAnswering(['abandoned']);
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => pendingNode(),
+      now,
+      nowMono,
+      sleep,
+      release
+    });
+    expect(abandon).not.toHaveBeenCalled();
   });
 });

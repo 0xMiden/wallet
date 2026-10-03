@@ -1,6 +1,6 @@
 // lib/miden/activity and this module already reach each other through their imports (this side via lib/store), so
-// this adds no module to that cycle; the function is only called during a sync, never at module load.
-import { requestSWTransactionProcessing } from 'lib/miden/activity';
+// this adds no module to that cycle; the functions are only called during a sync, never at module load.
+import { guardianCandidateRelease, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { HOT_KEY_CHANGED, HOT_KEY_NOT_STORED } from 'lib/miden/back/defaults';
 import { isGuardianAuthRejection, isGuardianReRegisterRefusal, MultisigService } from 'lib/miden/guardian';
 import {
@@ -25,6 +25,7 @@ import {
   markRotationCompleted,
   type FailedHotKeyRotation
 } from 'lib/miden/transaction/hot-key-rotation-residual';
+import { reconcileUnconfirmedTransactions } from 'lib/miden/transaction/reconcile-unconfirmed';
 import {
   clearLocalStateNotSaved,
   findUnsavedSwitchRow,
@@ -81,6 +82,10 @@ export const zustandProvider: GuardianAccountProvider = {
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
     useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
 };
+
+/** The app realm's reconciler pass (#1081), releasing kept Guardian candidates through the store. */
+export const reconcileUnconfirmedInApp = (): Promise<void> =>
+  reconcileUnconfirmedTransactions({ release: guardianCandidateRelease(zustandProvider) });
 
 /**
  * Sync Guardian state for all Guardian accounts. Called from AutoSync after chain

@@ -391,12 +391,14 @@ async function runSync(force: boolean): Promise<void> {
       }
     }
 
-    // Settle transactions whose submit outcome was unknown (#1081): node reads only, no WASM lock, fired and forgotten
-    // so a slow node never holds the lap. Only after a successful sync, and skipped after an evicted one like the sweep.
-    // Imported dynamically, like transaction-processor below, to keep the service worker's init order acyclic.
+    // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten so a slow node or Guardian
+    // never holds the lap: node reads, and for each kept Guardian candidate the pass releases, a short WASM-lock read
+    // to build the cold service, a bounded Guardian abandon and up to 60 s of polling. Only after a successful sync,
+    // and skipped after an evicted one like the sweep. transaction-processor is imported dynamically, as below, to keep
+    // the service worker's init order acyclic; it holds the vault-backed Guardian provider the release needs.
     if (syncSucceededAt !== undefined && !(inlineWasm && syncHoldEvicted)) {
-      void import('../transaction/reconcile-unconfirmed')
-        .then(({ reconcileUnconfirmedTransactions }) => reconcileUnconfirmedTransactions())
+      void import('./transaction-processor')
+        .then(({ reconcileUnconfirmedInWorker }) => reconcileUnconfirmedInWorker())
         .catch(err => console.warn('[SyncManager] unconfirmed reconcile failed', err));
     }
 

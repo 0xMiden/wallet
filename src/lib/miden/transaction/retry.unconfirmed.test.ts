@@ -2,7 +2,11 @@
 import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 
-import { TRANSACTION_BEING_CHECKED_RETRY_ERROR, TRANSACTION_LANDING_PENDING_RETRY_ERROR } from './constants';
+import {
+  guardianHoldRetryMessage,
+  TRANSACTION_BEING_CHECKED_RETRY_ERROR,
+  TRANSACTION_LANDING_PENDING_RETRY_ERROR
+} from './constants';
 import { NodeReads } from './reconcile-reads';
 import { acknowledgementOf, requeueFailedTransaction, RETRY_REFUSAL_COPY, RetryOptions } from './retry';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
@@ -485,5 +489,66 @@ describe('the refusal copy (#1081)', () => {
     expect(error).toHaveProperty('message', RETRY_REFUSAL_COPY.sendStopped);
     expect(acknowledgementOf(error)).toEqual({ attemptId: 'a1' });
     expect((await read())?.submitEvidence?.[0]?.verdict).toBe('unresolvable');
+  });
+});
+
+describe('the Guardian hold (#1081)', () => {
+  const kept = (capturedAt: number) => entry({ candidateKept: true, guardianProposalNonce: 9, capturedAt });
+
+  it('refuses while a kept candidate is under 600 s old, naming when it clears; an acknowledgement does not bypass it', async () => {
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 100)] }));
+    const expected = guardianHoldRetryMessage(NOW + 500);
+    expect(((await refusal()) as Error).message).toBe(expected);
+    expect(((await refusal('tx-1', { acknowledged: { attemptId: 'a1' } })) as Error).message).toBe(expected);
+    expect((await read())?.status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  it('holds a proven row too', async () => {
+    await Repo.transactions.put(
+      unconfirmedSend({
+        status: ITransactionStatus.Failed,
+        neverCommittedAt: NOW - 10,
+        submitEvidence: [kept(NOW - 100)]
+      })
+    );
+    expect(((await refusal()) as Error).message).toBe(guardianHoldRetryMessage(NOW + 500));
+  });
+
+  it('holds a guardian Agglayer row too', async () => {
+    await Repo.transactions.put(
+      unconfirmedSend({
+        type: 'bridged-send',
+        extraInputs: { provider: 'agglayer' },
+        requestBytes: new Uint8Array([1]),
+        submitEvidence: [kept(NOW - 100)]
+      })
+    );
+    expect(((await refusal()) as Error).message).toBe(guardianHoldRetryMessage(NOW + 500));
+  });
+
+  // Hold bounds, on an injected clock: refused at capturedAt + 599 s, today's path at + 600 s.
+  it('holds until capturedAt + 600 s exactly, then takes the acknowledgeable path', async () => {
+    const clock = jest.spyOn(Date, 'now');
+    try {
+      await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 599)] }));
+      clock.mockReturnValue(NOW * 1000);
+      expect(((await refusal()) as Error).message).toBe(guardianHoldRetryMessage(NOW + 1));
+      clock.mockReturnValue((NOW + 1) * 1000);
+      expect(acknowledgementOf(await refusal())).toEqual({ attemptId: 'a1' });
+      await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a1' } });
+      expect((await read())?.status).toBe(ITransactionStatus.Queued);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('lets the row through once the hold has passed, and never asks for an abandon itself', async () => {
+    mockNode.current = DEAD;
+    await Repo.transactions.put(unconfirmedSend({ submitEvidence: [kept(NOW - 601)] }));
+    await requeueFailedTransaction('tx-1');
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Queued);
+    // Retry runs in the UI realm, which on the extension holds no Guardian service: the entry stays as it was.
+    expect(row?.submitEvidence?.[0]?.candidateKept).toBe(true);
   });
 });

@@ -117,8 +117,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockSyncGuardianAccounts = jest.fn(async (..._args: unknown[]) => {});
+const mockReconcile = jest.fn(async () => {});
 jest.mock('./guardian-sync', () => ({
-  syncGuardianAccounts: (...args: unknown[]) => mockSyncGuardianAccounts(...args)
+  syncGuardianAccounts: (...args: unknown[]) => mockSyncGuardianAccounts(...args),
+  reconcileUnconfirmedInApp: () => mockReconcile()
 }));
 
 const mockMarkConnectivityIssue = jest.fn();
@@ -138,11 +140,6 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
 const mockRequestNotesRefresh = jest.fn();
 jest.mock('./note-refresh', () => ({
   requestNotesRefresh: () => mockRequestNotesRefresh()
-}));
-
-const mockReconcile = jest.fn(async () => {});
-jest.mock('lib/miden/transaction/reconcile-unconfirmed', () => ({
-  reconcileUnconfirmedTransactions: () => mockReconcile()
 }));
 
 const HookHost: React.FC = () => {

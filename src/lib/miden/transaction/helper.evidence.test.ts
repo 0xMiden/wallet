@@ -3,6 +3,7 @@ import * as Repo from 'lib/miden/repo';
 import {
   markAttemptPreSubmitEnd,
   pinGuardianCrossing,
+  recordKeptCandidate,
   recordLeafEnd,
   recordSubmitCrossing,
   updateTransactionStatus
@@ -129,5 +130,36 @@ describe('the Guardian pin and its retirement (#1081)', () => {
     expect((await read())?.submitEvidence).toEqual([
       { attemptId: 'a1', capturedAt: expect.any(Number), source: 'end', fromExecute: true }
     ]);
+  });
+});
+
+describe('recordKeptCandidate (#1081)', () => {
+  it('marks the entry of the attempt kept with its proposal nonce, creating it when the leaf left none', async () => {
+    await Repo.transactions.put(generating());
+    await recordKeptCandidate('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 7 }, 'error-text');
+    expect((await read())?.submitEvidence).toEqual([
+      expect.objectContaining({ attemptId: 'a1', source: 'error-text', candidateKept: true, guardianProposalNonce: 7 })
+    ]);
+  });
+
+  it('keeps the source and evidence of an existing pin entry', async () => {
+    await Repo.transactions.put(generating());
+    await pinGuardianCrossing('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 7 });
+    await recordKeptCandidate('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 7 }, 'kill');
+    expect((await read())?.submitEvidence).toEqual([
+      expect.objectContaining({ source: 'pin', raisedFlag: true, candidateKept: true, guardianProposalNonce: 7 })
+    ]);
+  });
+
+  it('never throws, since it runs in the catch of the leaf', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const where = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(() => {
+      throw new Error('QuotaExceededError');
+    });
+    await expect(
+      recordKeptCandidate('tx-1', { attemptId: 'a1', fromExecute: false, guardianProposalNonce: 7 }, 'kill')
+    ).resolves.toBeUndefined();
+    where.mockRestore();
+    warn.mockRestore();
   });
 });
