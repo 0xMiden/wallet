@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getUncompletedTransactions } from 'lib/miden/activity';
+import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -208,7 +208,7 @@ async function fetchNotesFromLocalClient(
     throw e;
   }
 
-  const uncompletedTxs = await getUncompletedTransactions(publicAddress);
+  const uncompletedTxs = await getNoteHoldingTransactions(publicAddress);
   const notesBeingClaimed = claimingTxIdByNoteId(uncompletedTxs);
 
   // Per-order PSWAP lineage inside classifySwapOrderNotes routes through the proxy
@@ -500,13 +500,14 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   // row is what mobile and desktop already do, and unlike the broadcast it also covers
   // a consume that FAILED -- that row leaves Queued/GeneratingTransaction, so the note
   // becomes claimable again instead of staying hidden. Polled on the same 3s cadence as
-  // the sync read above so both gates move together.
+  // the sync read above so both gates move together. Held claims count too: the dedup
+  // refuses a second claim of their notes (#1081).
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
 
     const readClaiming = () => {
-      getUncompletedTransactions(publicAddress)
+      getNoteHoldingTransactions(publicAddress)
         .then(txs => {
           if (!cancelled) setClaimingTxIds(claimingTxIdByNoteId(txs));
         })

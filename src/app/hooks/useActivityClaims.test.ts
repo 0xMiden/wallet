@@ -13,8 +13,9 @@ const note: ClaimableNoteWithMetadata = {
   type: 'unknown',
   metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
 };
-type MockRow = { id: string; status: number; completedAt?: number };
+type MockRow = { id: string; status: number; completedAt?: number; held?: boolean };
 const mockQueue = jest.fn();
+const mockRequeue = jest.fn();
 const mockStart = jest.fn();
 const mockRequest = jest.fn();
 const mockQueueMany = jest.fn();
@@ -54,7 +55,10 @@ jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
   initiateConsumeNotesTransaction: (...args: Parameters<typeof mockQueueMany>) => mockQueueMany(...args),
   startBackgroundTransactionProcessing: (...args: Parameters<typeof mockStart>) => mockStart(...args),
-  requestSWTransactionProcessing: () => mockRequest()
+  requestSWTransactionProcessing: () => mockRequest(),
+  requeueFailedTransaction: (...args: unknown[]) => mockRequeue(...args),
+  // The hook only asks it about rows the test settles, so the stub keys on a test-only flag.
+  holdsNotes: (row: { status: number; held?: boolean }) => row.held === true
 }));
 jest.mock('lib/dexie-live-query', () => ({
   subscribeToLiveQuery: (query: () => Promise<unknown>, observer: (typeof mockSubscriptions)[number]['observer']) => {
@@ -69,7 +73,7 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/miden/db/types', () => ({
-  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 }
+  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 }
 }));
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
@@ -91,6 +95,7 @@ function settle(rows: MockRow[]) {
 
 beforeEach(() => {
   mockQueue.mockReset();
+  mockRequeue.mockReset();
   mockStart.mockReset();
   mockRequest.mockReset();
   mockQueueMany.mockReset();
@@ -643,5 +648,50 @@ describe('note_handle reporting', () => {
     });
     expect(mockQueueMany).toHaveBeenCalledTimes(2);
     expect(mockReported).toEqual(['ok', 'ok']);
+  });
+});
+
+describe('held claims (#1081)', () => {
+  it('a claiming item whose row is held shows as held, from a session attempt and from a fresh mount alike', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-held', held: true });
+  });
+
+  it('Retry on a held item requeues that row in place and starts processing, without a second claim', async () => {
+    mockRequeue.mockResolvedValue(undefined);
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    await act(async () => {
+      await result.current.retryHeld(result.current.items[0]!);
+    });
+    expect(mockRequeue).toHaveBeenCalledWith('tx-held');
+    expect(mockQueue).not.toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalled();
+  });
+
+  it('a refusal stays on the item as its message', async () => {
+    mockRequeue.mockRejectedValue(
+      new Error('The Guardian is still holding this transaction. You can retry it after 10:00:00.')
+    );
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    await act(async () => {
+      await result.current.retryHeld(result.current.items[0]!);
+    });
+    expect(result.current.items[0]?.retryError).toMatch(/still holding this transaction/);
+  });
+
+  it('a row that holds nothing settles the attempt to failed', async () => {
+    mockQueue.mockResolvedValue('tx-new');
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    settle([{ id: 'tx-new', status: 4, held: false }]);
+    expect(result.current.items[0]?.status).toBe('failed');
   });
 });

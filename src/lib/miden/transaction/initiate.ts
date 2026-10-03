@@ -21,6 +21,7 @@ import {
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
+  isLiveTransaction,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -37,6 +38,7 @@ import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
+import { holdsNotes } from './verdict-rules';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -273,6 +275,7 @@ const queueConsumeRows = async (
     // Notes that have already lost a shared batch row and so must not join another.
     const isolate: ConsumableNote[] = [];
     let blockingId: string | null = null;
+    const nowSec = Math.floor(Date.now() / 1000);
 
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
@@ -292,8 +295,12 @@ const queueConsumeRows = async (
         tx => tx.type === 'consume' && !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
       );
 
-      // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.
-      const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
+      // A live or completed claim wins, and so does one that holds its notes while the reconciler still judges it
+      // (#1081): a second consume would compete for the nullifier the reconciler reads. One that holds nothing does
+      // not block, since only a verdict would ever release it.
+      const liveOrCompleted = sameAccount.find(
+        tx => isLiveTransaction(tx) || tx.status === ITransactionStatus.Completed || holdsNotes(tx, nowSec)
+      );
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
         // An explicit user retry must take effect NOW, even when the blocking row
@@ -322,7 +329,6 @@ const queueConsumeRows = async (
       // tap must always queue a fresh attempt rather than be throttled by the
       // auto-consume backoff.
       if (!manualRetry) {
-        const nowSec = Math.floor(Date.now() / 1000);
         const failures = sameAccount
           .filter(tx => tx.status === ITransactionStatus.Failed && (!rotationFunding || tx.rotationFunding === true))
           .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));

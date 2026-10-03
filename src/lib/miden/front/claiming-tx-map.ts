@@ -17,7 +17,7 @@ import type { ITransaction } from 'lib/miden/db/types';
  * user to that transaction's progress screen instead of showing a dead label.
  *
  * Pass rows already narrowed to the account and to uncompleted statuses
- * (`getUncompletedTransactions`); this only filters them down to consumes.
+ * (`getNoteHoldingTransactions`); this only filters them down to consumes.
  */
 export function claimingTxIdByNoteId(uncompletedTxs: readonly ITransaction[]): Map<string, string> {
   const byNoteId = new Map<string, string>();

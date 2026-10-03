@@ -8,12 +8,15 @@ import { __resetClaimChecksForTest, useClaimCheckInvalidNoteIds, useClaimNotes }
 // the re-run behaviour (#456) without the SDK or IndexedDB.
 
 const mockGetFailedTransactions = jest.fn();
+const mockGetUnconfirmedTransactions = jest.fn(async (): Promise<unknown[]> => []);
 const mockGetInputNoteDetails = jest.fn();
 const mockInitiateConsume = jest.fn();
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-miden' }));
 jest.mock('lib/miden/activity', () => ({
   getFailedTransactions: (...args: unknown[]) => mockGetFailedTransactions(...args),
+  getUnconfirmedTransactions: (...args: unknown[]) => mockGetUnconfirmedTransactions(...args),
+  isFailedClaim: jest.requireActual('lib/miden/transaction/verdict-rules').isFailedClaim,
   initiateConsumeNotesTransaction: (...args: unknown[]) => mockInitiateConsume(...args),
   requestSWTransactionProcessing: jest.fn(),
   verifyStuckTransactionsFromNode: jest.fn().mockResolvedValue(0)
@@ -58,7 +61,23 @@ jest.mock('lib/woozie', () => ({
 
 const note = (id: string, faucetId = 'f') => ({ id, isBeingClaimed: false, amount: '1', faucetId, metadata: {} });
 
-const failedConsume = (...noteIds: string[]) => ({ type: 'consume', noteIds });
+// Status 3 is Failed: a claim is retriable only when it holds nothing (`isFailedClaim`), and this one carries no evidence.
+const failedConsume = (...noteIds: string[]) => ({ type: 'consume', status: 3, noteIds });
+const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+/** Every field a verdict reads, unjudged: a claim carrying it holds its notes. */
+const checkable = {
+  attemptId: 'a1',
+  capturedAt: Math.floor(Date.now() / 1000),
+  source: 'stage',
+  transactionId: hex(1),
+  initialCommitment: hex(2),
+  finalCommitment: hex(3),
+  initialNonce: '1',
+  outputNoteIds: [],
+  nullifiers: [hex(4)],
+  refBlock: 10,
+  refBlockCommitment: hex(5)
+};
 
 function setNotes(...ids: string[]) {
   mockUseClaimableNotes.mockReturnValue({
@@ -80,6 +99,8 @@ describe('useClaimNotes failed-note check (#456)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetFailedTransactions.mockResolvedValue([]);
+    mockGetUnconfirmedTransactions.mockReset();
+    mockGetUnconfirmedTransactions.mockResolvedValue([]);
     mockGetInputNoteDetails.mockResolvedValue([]);
     setNotes('a');
   });
@@ -91,6 +112,30 @@ describe('useClaimNotes failed-note check (#456)', () => {
 
     await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(true));
     expect(result.current.invalidNoteIds.has('a')).toBe(false);
+  });
+
+  it('leaves the note of a held Failed claim not retriable, since a fresh claim of it is refused (#1081)', async () => {
+    setNotes('a', 'b');
+    mockGetFailedTransactions.mockResolvedValue([
+      { type: 'consume', status: 3, noteIds: ['a'], submitEvidence: [checkable] },
+      failedConsume('b')
+    ]);
+
+    const { result } = renderHook(() => useClaimNotes());
+
+    // 'b' proves the check ran to its end, so the absence of 'a' is the hold, not a check still in flight.
+    await waitFor(() => expect(result.current.retriableNoteIds.has('b')).toBe(true));
+    expect(result.current.retriableNoteIds.has('a')).toBe(false);
+  });
+
+  it('flags the note of an Unconfirmed claim that holds nothing as retriable (#1081)', async () => {
+    mockGetUnconfirmedTransactions.mockResolvedValue([
+      { type: 'consume', status: 4, noteIds: ['a'], submitEvidence: [{ attemptId: 'x', capturedAt: 1, source: 'end' }] }
+    ]);
+
+    const { result } = renderHook(() => useClaimNotes());
+
+    await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(true));
   });
 
   it('flags a note the client reports as Invalid as invalid (not retriable), terminally', async () => {
@@ -214,10 +259,12 @@ describe('useClaimNotes publishes its invalid set per account', () => {
     // Reset, not just cleared: a run a failing case never started would leave its queued gate
     // for the next case's first call.
     mockGetFailedTransactions.mockReset();
+    mockGetUnconfirmedTransactions.mockReset();
     mockGetInputNoteDetails.mockReset();
     __resetClaimChecksForTest();
     mockUseAccount.mockReturnValue({ publicKey: 'A' });
     mockGetFailedTransactions.mockResolvedValue([]);
+    mockGetUnconfirmedTransactions.mockResolvedValue([]);
     mockGetInputNoteDetails.mockResolvedValue([]);
     setNotes('a');
   });

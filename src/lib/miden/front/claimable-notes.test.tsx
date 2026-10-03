@@ -114,7 +114,7 @@ jest.mock('../back/miden-client-proxy', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
-  getUncompletedTransactions: async () => {
+  getNoteHoldingTransactions: async () => {
     if ((globalThis as any).__cnTest.uncompletedTxsError) throw new Error('dexie unavailable');
     return (globalThis as any).__cnTest.uncompletedTxs;
   }
@@ -254,6 +254,26 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.claimingTxId).toBe('tx-9');
   });
 
+  it('gates a note whose claim is held while the node decides, and points at that row (#1081)', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+    // Status 4 is Unconfirmed: the note-holding read returns it while the reconciler still judges it.
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-held', type: 'consume', status: 4, noteIds: ['n1'] }];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-held');
+  });
+
   it('keeps the previous gate when the consume-row read fails', async () => {
     // Better a stale gate for one tick than a Claim button that reappears under a live
     // consume: a failed read must not be read as "nothing is being claimed".
@@ -278,7 +298,7 @@ describe('useClaimableNotes (extension mode)', () => {
 
   it('un-gates a note once no consume row is in flight for it', async () => {
     // A row leaving Queued/GeneratingTransaction is reported by omission from
-    // `getUncompletedTransactions` -- and that includes a consume that FAILED. The broadcast
+    // `getNoteHoldingTransactions` -- and that includes a consume that FAILED. The broadcast
     // gate this replaced had no path back from a failure: the note stays consumable, so the
     // note-gone clear never fired and the Claim button did not return.
     _g.__cnTest.walletState.extensionClaimableNotes = [

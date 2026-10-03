@@ -36,7 +36,7 @@ import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../s
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
-import { getUncompletedTransactions } from '../transaction/get';
+import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { ConsumableNote, NoteTypeEnum } from '../types';
@@ -595,7 +595,7 @@ async function runSync(force: boolean): Promise<void> {
             // newly-arrived dust note rode in on the in-flight batch's value and was
             // then claimed by itself for a full fee.
             const notesBeingClaimed = new Set(
-              (await getUncompletedTransactions(accountPubKey))
+              (await getNoteHoldingTransactions(accountPubKey))
                 .filter(tx => tx.type === 'consume')
                 .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
             );

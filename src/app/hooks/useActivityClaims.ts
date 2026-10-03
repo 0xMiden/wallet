@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
+  holdsNotes,
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
+  requeueFailedTransaction,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -46,6 +48,10 @@ function updateAttempts(key: string, update: (previous: Attempts) => Attempts) {
   listeners.forEach(listener => listener());
 }
 
+function sameIds(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size === b.size && [...a].every(id => b.has(id));
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => {
@@ -69,10 +75,17 @@ export function useActivityClaims() {
   // `claiming` status is what keeps the note from being accepted again.
   const busy = slotOf(key).busy;
 
-  // Transaction rows of the queued claims that have not settled yet.
+  // Rows of every claiming item: session attempts and the claiming map's held rows alike (#1081).
   const watchedTxIds = [
-    ...new Set([...attempts.values()].flatMap(item => (item.status === 'claiming' && item.txId ? [item.txId] : [])))
-  ].join(',');
+    ...new Set([
+      ...[...attempts.values()].flatMap(item => (item.status === 'claiming' && item.txId ? [item.txId] : [])),
+      ...claim.safeClaimableNotes.flatMap(n => (n.isBeingClaimed && n.claimingTxId ? [n.claimingTxId] : []))
+    ])
+  ]
+    .sort()
+    .join(',');
+  const [heldTxIds, setHeldTxIds] = useState<ReadonlySet<string>>(new Set());
+  const [retryErrors, setRetryErrors] = useState<ReadonlyMap<string, string>>(new Map());
 
   useEffect(() => {
     if (!watchedTxIds) return;
@@ -80,13 +93,17 @@ export function useActivityClaims() {
     return subscribeToLiveQuery(() => Repo.transactions.where('id').anyOf(txIds).toArray(), {
       next: rows => {
         const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt'>>();
+        const held = new Set<string>();
         for (const tx of rows) {
           if (tx.status === ITransactionStatus.Completed) {
             settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt });
-          } else if (tx.status === ITransactionStatus.Failed) {
-            settled.set(tx.id, { status: 'failed', claimedAt: tx.completedAt });
+          } else if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed) {
+            if (holdsNotes(tx)) held.add(tx.id);
+            else settled.set(tx.id, { status: 'failed', claimedAt: tx.completedAt });
           }
         }
+        // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
+        setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
         updateAttempts(key, previous => {
           let next: Map<string, PendingActivityItem> | undefined;
           for (const [noteId, item] of previous) {
@@ -103,6 +120,15 @@ export function useActivityClaims() {
   }, [watchedTxIds, key]);
 
   const items = useMemo(() => {
+    // A refusal belongs to the held claim whose Retry met it: once the row settles or runs again it no longer applies.
+    const heldFields = (
+      status: PendingActivityStatus,
+      txId: string | undefined
+    ): Pick<PendingActivityItem, 'held' | 'retryError'> => {
+      if (status !== 'claiming' || txId === undefined || !heldTxIds.has(txId)) return {};
+      const retryError = retryErrors.get(txId);
+      return retryError === undefined ? { held: true } : { held: true, retryError };
+    };
     const result = new Map<string, PendingActivityItem>();
     for (const note of claim.safeClaimableNotes) {
       let status: PendingActivityStatus = 'pending';
@@ -121,7 +147,8 @@ export function useActivityClaims() {
           status = 'failed';
           break;
       }
-      result.set(note.id, { note, status, txId: note.claimingTxId });
+      const txId = note.claimingTxId;
+      result.set(note.id, { note, status, txId, ...heldFields(status, txId) });
     }
     for (const [id, attempt] of attempts) {
       const current = result.get(id);
@@ -130,10 +157,18 @@ export function useActivityClaims() {
       // Claimed receipts and queued claims outlive the note on purpose.
       if (attempt.status === 'failed' && (!current || (current.status !== 'pending' && current.status !== 'failed')))
         continue;
-      result.set(id, { ...attempt, note: current?.note ?? attempt.note });
+      result.set(id, { ...attempt, note: current?.note ?? attempt.note, ...heldFields(attempt.status, attempt.txId) });
     }
     return [...result.values()];
-  }, [claim.safeClaimableNotes, claim.checkingNoteIds, claim.invalidNoteIds, claim.retriableNoteIds, attempts]);
+  }, [
+    claim.safeClaimableNotes,
+    claim.checkingNoteIds,
+    claim.invalidNoteIds,
+    claim.retriableNoteIds,
+    attempts,
+    heldTxIds,
+    retryErrors
+  ]);
 
   const accept = async (note: ClaimableNoteWithMetadata) => {
     // A cache-first entry is displayed before any live read has confirmed it, so it
@@ -216,10 +251,35 @@ export function useActivityClaims() {
     }
   };
 
+  // A held claim's Retry requeues its own row in place: History hides that row while this card stands in for its
+  // notes, so this is its only Retry (#1081). No history entry, no navigation, so this starts processing itself.
+  const retryHeld = async (item: PendingActivityItem) => {
+    const { txId } = item;
+    if (txId === undefined || item.held !== true) return;
+    setRetryErrors(previous => {
+      const next = new Map(previous);
+      next.delete(txId);
+      return next;
+    });
+    try {
+      await requeueFailedTransaction(txId);
+    } catch (error) {
+      setRetryErrors(previous => new Map(previous).set(txId, error instanceof Error ? error.message : String(error)));
+      return;
+    }
+    try {
+      if (isExtension()) requestSWTransactionProcessing();
+      else startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+    } catch (error) {
+      console.warn('[activity] Could not start claim processing', error);
+    }
+  };
+
   return {
     items,
     accept,
     acceptMany,
+    retryHeld,
     account: claim.account,
     isLoadingNotes: claim.isFetchingNotes || claim.checkingNoteIds.size > 0
   };
