@@ -1,5 +1,5 @@
 import type { FeatureAvailability, UnavailableReason } from './availability';
-import type { DerivedBridgeConfig } from './derive';
+import type { BridgeToken, DerivedBridgeConfig } from './derive';
 import { failedDerivation } from './derived-snapshot';
 import {
   _resetBridgeConfigRuntimeForTest,
@@ -17,6 +17,7 @@ import {
 } from './runtime';
 import type { BridgeConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
+import { selectNativeEthFaucet } from './values';
 
 let mockNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -615,6 +616,60 @@ describe('commits from another realm', () => {
     await expect(refreshing).resolves.toMatchObject({ config: config(4), derived: derivedFor(config(4), NOW + 1) });
     await flush();
     expect(mockStorage.get(DERIVED)).toEqual(derivedFor(config(4), NOW + 1));
+  });
+});
+
+describe('a re-derivation that cannot read a value', () => {
+  const ETH_FAUCET = '0x0a0b0c0d0e0f101112131415161700';
+  const ETH: BridgeToken = {
+    midenFaucetId: ETH_FAUCET,
+    originToken: `0x${'0'.repeat(40)}`,
+    originNetwork: 0,
+    scale: 10
+  };
+  const USDC = { symbol: 'USDC', decimals: 18 };
+  const down = { state: 'error', message: 'timeout' } as const;
+  const read = (source: BridgeConfig): DerivedBridgeConfig => {
+    const base = derivedFor(source, Date.now());
+    return {
+      ...base,
+      agglayer: { ...base.agglayer, tokens: { state: 'ok', value: [ETH] }, l1BridgeCode: { state: 'ok', value: true } },
+      epoch: { ...base.epoch, evmUsdc: { state: 'ok', value: USDC } }
+    };
+  };
+  const unread = (source: BridgeConfig): DerivedBridgeConfig => {
+    const base = derivedFor(source, Date.now());
+    return {
+      ...base,
+      agglayer: { ...base.agglayer, tokens: down, l1BridgeCode: { state: 'absent' } },
+      epoch: { ...base.epoch, allocator: down, evmUsdc: down }
+    };
+  };
+
+  it('keeps value probes a failed re-derivation could not read', async () => {
+    serve(1);
+    mockDerive.mockImplementationOnce(async source => read(source));
+    await initBridgeConfig();
+    await flush();
+    mockDerive.mockImplementationOnce(async source => unread(source));
+    await _refreshBridgeConfigForTest();
+    await flush();
+    expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBe(ETH_FAUCET);
+    const kept = {
+      tokens: { state: 'ok', value: [ETH] },
+      evmUsdc: { state: 'ok', value: USDC },
+      allocator: down,
+      l1BridgeCode: { state: 'absent' }
+    };
+    const { derived } = getBridgeConfigSnapshot();
+    expect({ ...derived?.agglayer, ...derived?.epoch }).toMatchObject(kept);
+    const stored = mockStorage.get(DERIVED);
+    expect(stored).toEqual(derived);
+    serve(2);
+    mockDerive.mockImplementationOnce(async source => unread(source));
+    await _refreshBridgeConfigForTest();
+    expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+    expect(getBridgeConfigSnapshot().derived?.epoch.evmUsdc).toEqual(down);
   });
 });
 

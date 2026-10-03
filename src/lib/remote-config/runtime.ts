@@ -8,7 +8,7 @@ import {
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
-import { deriveBridgeConfig, type DerivedBridgeConfig } from './derive';
+import { deriveBridgeConfig, type DerivedBridgeConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
 import type { BridgeConfig } from './schema';
@@ -230,6 +230,32 @@ async function derive(
   }
 }
 
+const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
+  next.state === 'error' && previous.state === 'ok' ? previous : next;
+
+// A read that failed says nothing new about a value of the same document, so a transient failure keeps the value
+// last read (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still clears it,
+// and liveness (allocator, indexer) always reports the latest read.
+function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig | null): DerivedBridgeConfig {
+  if (!previous || previous.network !== next.network || previous.version !== next.version) return next;
+  const { agglayer, epoch } = next;
+  return {
+    ...next,
+    agglayer: {
+      ...agglayer,
+      rollupId: kept(agglayer.rollupId, previous.agglayer.rollupId),
+      tokens: kept(agglayer.tokens, previous.agglayer.tokens),
+      evmNetworkId: kept(agglayer.evmNetworkId, previous.agglayer.evmNetworkId),
+      l1BridgeCode: kept(agglayer.l1BridgeCode, previous.agglayer.l1BridgeCode)
+    },
+    epoch: {
+      ...epoch,
+      midenUsdcFaucet: kept(epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
+      evmUsdc: kept(epoch.evmUsdc, previous.epoch.evmUsdc)
+    }
+  };
+}
+
 async function refresh(state: NetworkState): Promise<void> {
   // The RPC of the network this refresh is for: a switch while the fetch is out must not point its reads elsewhere.
   const midenRpcUrl = getEffectiveRpcUrl();
@@ -252,9 +278,10 @@ async function refresh(state: NetworkState): Promise<void> {
   if (getEffectiveNetworkName() !== state.network) return;
   // A newer document adopted from another realm while this ran stays; the run still counts as a check.
   const superseded = state.stored !== null && target !== null && state.stored.config.version > target.config.version;
+  const derived = result ? keepValuesRead(result.derived, state.derived) : null;
   if (!superseded) {
     state.stored = target;
-    state.derived = result?.derived ?? null;
+    state.derived = derived;
   }
   state.failures = fetched ? 0 : state.failures + 1;
   state.lastFetch = lastFetch;
@@ -262,7 +289,7 @@ async function refresh(state: NetworkState): Promise<void> {
   state.checkedAt = Date.now();
   publish(state);
   if (!superseded && result?.store) {
-    void putToStorage(bridgeConfigDerivedKey(state.network), result.derived).catch(error =>
+    void putToStorage(bridgeConfigDerivedKey(state.network), derived).catch(error =>
       console.warn(`[remote-config] could not store the derived snapshot for ${state.network}:`, error)
     );
   }
