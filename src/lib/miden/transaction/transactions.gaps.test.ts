@@ -1664,13 +1664,16 @@ describe('generateTransaction execute + consume default switch arms', () => {
     };
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
+    const consumeNoteId = jest.fn(async (_tx: unknown, _expirationDelta: number) => fakeResult);
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(),
-      consumeNoteId: jest.fn(async () => fakeResult)
+      consumeNoteId
     });
     try {
       await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      // A non-Guardian consume carries the wallet's expiration delta (#1081).
+      expect(consumeNoteId).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-consume' }), 600);
     } finally {
       sdk.getMidenClient = origGetClient;
     }

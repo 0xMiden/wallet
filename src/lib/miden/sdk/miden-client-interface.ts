@@ -61,6 +61,7 @@ import { decodeGuardianSummary, guardianResultCommitment } from './guardian-hist
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
 import {
   accountRefToSdk,
+  buildConsumeTransactionRequest,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
@@ -1582,7 +1583,7 @@ export class MidenClientInterface {
     );
   }
 
-  async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
+  async consumeNoteId(transaction: ConsumeTransaction, expirationDelta: number): Promise<TransactionResult> {
     const { accountId, noteId, noteIds } = transaction;
 
     // Batch claims consume every note in one transaction (one proof/submit).
@@ -1594,17 +1595,9 @@ export class MidenClientInterface {
         recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
         if (this.shouldUseOffscreenProver(prover)) {
           return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
-            // The bundled `transactions.consume` resolves string note IDs via
-            // `inner.getInputNote(...)` and unwraps to `Note` via `.toNote()`,
-            // then passes a plain JS array `Note[]` to
-            // `newConsumeTransactionRequest`. wasm-bindgen converts the
-            // array to Vec<Note> internally — DO NOT use `wasm.NoteArray`
-            // here. wasm.NoteArray is a different wasm-bindgen type (a
-            // pre-built Vec<Note> handle); the request builder accepts the
-            // JS array form, and passing the typed-array handle silently
-            // produces a tx with zero input notes (the prove succeeds, then
-            // completeConsumeTransaction trips on `inputNotes().notes()[0]`
-            // being undefined).
+            // The request is the consume builder's, as on the staged path: each note read from the
+            // store and the expiration delta, equal to the SDK's own consume request apart from the
+            // delta (scripts/consume-request-equivalence.mjs).
             const notes: Note[] = [];
             for (const id of targetNoteIds) {
               recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
@@ -1615,15 +1608,7 @@ export class MidenClientInterface {
               }
               notes.push(inputNoteRecord.toNote());
             }
-            recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-            // A fresh handle, not `acctId` below: defensive, not required - the pinned SDK
-            // borrows `&AccountId` here too (see the doc above buildSendExecuteArgs), and a
-            // fresh handle keeps this builder correct whichever way a later SDK passes it.
-            const request: TransactionRequest = await inner.newConsumeTransactionRequest(
-              notes,
-              walletAccountIdToSdk(accountId)
-            );
-            recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
+            const request: TransactionRequest = buildConsumeTransactionRequest(notes, expirationDelta);
             const acctId = resolveAccountId(wasm, accountId);
             recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
             return { accountId: acctId, request };
@@ -1631,9 +1616,10 @@ export class MidenClientInterface {
         }
         // Staged for every attempt the offscreen prover does not take, so the apply after the
         // submit is reachable and a failure there classifies as landed (#1233): a worker leg proves
-        // in the prove worker (#945), every other leg proves here. The request is the one the SDK's
-        // own consume builds: each note read from the store, and the consuming account, which SDK
-        // 0.16.1 requires. It crosses the SDK lock as bytes, like the send's.
+        // in the prove worker (#945), every other leg proves here. The request is the consume
+        // builder's: each note read from the store and the expiration delta, equal to the SDK's own
+        // consume request apart from the delta (scripts/consume-request-equivalence.mjs). It crosses
+        // the SDK lock as bytes, like the send's.
         const requestBytes = await this.withInnerClient(async inner => {
           const notes: Note[] = [];
           for (const id of targetNoteIds) {
@@ -1641,7 +1627,7 @@ export class MidenClientInterface {
             if (!record) throw new Error(`Note not found: ${id}`);
             notes.push(record.toNote());
           }
-          const request = await inner.newConsumeTransactionRequest(notes, walletAccountIdToSdk(accountId));
+          const request = buildConsumeTransactionRequest(notes, expirationDelta);
           return request.serialize();
         });
         try {

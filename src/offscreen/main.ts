@@ -787,9 +787,16 @@ const DISPATCH: Record<string, DispatchFn> = {
   consumeNoteId: async (
     _context,
     client,
-    dto: { accountId: string; noteId: string; noteIds: string[]; delegateTransaction?: boolean }
+    dto: {
+      accountId: string;
+      noteId: string;
+      noteIds: string[];
+      delegateTransaction?: boolean;
+      expirationDelta?: unknown;
+    }
   ) => {
-    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction);
+    const expirationDelta = requireExpirationDelta(dto.expirationDelta);
+    const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction, expirationDelta);
     // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
     // has submitted (and applied) by the time it returns, on either leg, so the
     // consume may already be broadcast. Completing beats aborting past

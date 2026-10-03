@@ -788,6 +788,9 @@ type OffscreenConsumeDto = {
   noteId: string;
   noteIds: string[];
   delegateTransaction?: boolean;
+  /** Required: the handler refuses a DTO without it, so a dropped field fails the write instead of shipping a request
+   * with no expiration (#1081). */
+  expirationDelta: number;
 };
 
 /** `sendTransaction` reads exactly these fields off the `SendTransaction` row
@@ -1538,7 +1541,7 @@ export const midenClientProxy = {
    *
    *   Flag OFF (default) / offscreen unavailable: the consume runs inline on the
    *   realm's one client under the WASM lock, `withWasmClientLock(() =>
-   *   getMidenClient().consumeNoteId(tx))`; the realm signer `Actions.init`
+   *   getMidenClient().consumeNoteId(tx, expirationDelta))`; the realm signer `Actions.init`
    *   installed signs it, and the `signCallback` argument is unused (#878).
    *
    *   Flag ON: the whole execute→prove→submit→apply chain runs in the offscreen
@@ -1547,15 +1550,20 @@ export const midenClientProxy = {
    *   The SW WASM lock is NOT held (design §7.1) — the offscreen doc's own mutex
    *   serializes the write.
    */
-  async consumeNoteId(transaction: ConsumeTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+  async consumeNoteId(
+    transaction: ConsumeTransaction,
+    expirationDelta: number,
+    signCallback: RawSignCallback
+  ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction));
+      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction, expirationDelta));
     }
     const dto: OffscreenConsumeDto = {
       accountId: transaction.accountId,
       noteId: transaction.noteId,
       noteIds: transaction.noteIds,
-      delegateTransaction: transaction.delegateTransaction
+      delegateTransaction: transaction.delegateTransaction,
+      expirationDelta
     };
     return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback);
   },

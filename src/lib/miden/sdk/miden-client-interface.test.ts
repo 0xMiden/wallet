@@ -150,7 +150,8 @@ describe('MidenClientInterface', () => {
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
-      buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) }))
+      buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) })),
+      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -216,7 +217,8 @@ describe('MidenClientInterface', () => {
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
-      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
+      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) }))
     }));
     jest.doMock('../helpers', () => ({
       // Real `isPrivateNoteType`: it is the note-type validation under test on
@@ -279,12 +281,15 @@ describe('MidenClientInterface', () => {
       } as any,
       600
     );
-    await client.consumeNoteId({
-      accountId: 'id',
-      noteId: 'note',
-      faucetId: 'f',
-      type: 'consume'
-    } as any);
+    await client.consumeNoteId(
+      {
+        accountId: 'id',
+        noteId: 'note',
+        faucetId: 'f',
+        type: 'consume'
+      } as any,
+      600
+    );
     await client.newTransaction('acc-id', new Uint8Array([1, 2]));
 
     // Freed last: a disposed client refuses to submit a write (#1233).
@@ -358,12 +363,15 @@ describe('MidenClientInterface', () => {
         buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
         'net'
       );
-      await client.consumeNoteId({
-        accountId: 'acc-id',
-        noteId: 'note-1',
-        type: 'consume',
-        delegateTransaction: true
-      } as any);
+      await client.consumeNoteId(
+        {
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: true
+        } as any,
+        600
+      );
 
       return proveTelemetry;
     }
@@ -403,7 +411,7 @@ describe('MidenClientInterface', () => {
       );
 
       await expect(
-        client.consumeNoteId({ accountId: 'a', noteId: 'n', type: 'consume', delegateTransaction: false } as any)
+        client.consumeNoteId({ accountId: 'a', noteId: 'n', type: 'consume', delegateTransaction: false } as any, 600)
       ).rejects.toThrow('note has already been consumed');
 
       // Had the failed attempt been left open, this step would arrive in an
@@ -1067,12 +1075,15 @@ describe('MidenClientInterface', () => {
     );
 
     const error = await settleThroughApplyRetry(() =>
-      client.consumeNoteId({
-        accountId: 'acc-id',
-        noteId: 'note-1',
-        type: 'consume',
-        delegateTransaction: true
-      } as any)
+      client.consumeNoteId(
+        {
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: true
+        } as any,
+        600
+      )
     );
 
     expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
@@ -1193,7 +1204,7 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any);
+    const result = await client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any, 600);
 
     expect(result).toBe(fakeTransactionResult);
     // Staged (#1233): execute, prove, submit and apply, never the SDK's opaque consume.
@@ -1216,12 +1227,15 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      const pending = client.consumeNoteId({
-        accountId: 'acc-id',
-        noteId: 'note-1',
-        type: 'consume',
-        delegateTransaction: true
-      } as any);
+      const pending = client.consumeNoteId(
+        {
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: true
+        } as any,
+        600
+      );
 
       await jest.advanceTimersByTimeAsync(DELEGATED_PROVE_TIMEOUT_MS);
 
@@ -1506,7 +1520,10 @@ describe('MidenClientInterface', () => {
 
       let outcome: unknown = 'pending';
       client
-        .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true } as any)
+        .consumeNoteId(
+          { accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true } as any,
+          600
+        )
         .then(
           () => {
             outcome = 'resolved';
@@ -1544,17 +1561,24 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    await client.consumeNoteId({
-      accountId: 'acc-id',
-      noteId: 'note-1',
-      noteIds: ['note-1', 'note-2', 'note-3'],
-      type: 'consume'
-    } as any);
+    await client.consumeNoteId(
+      {
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        noteIds: ['note-1', 'note-2', 'note-3'],
+        type: 'consume'
+      } as any,
+      600
+    );
 
+    const { buildConsumeTransactionRequest } = jest.requireMock('./helpers');
+    expect(buildConsumeTransactionRequest).toHaveBeenCalledWith(expect.any(Array), 600);
+    // The SDK's finished request has no expiration setter, so it is no longer built.
+    expect(inner.newConsumeTransactionRequest).not.toHaveBeenCalled();
     // Claim All batches into a single consume (one proof, one submit) rather
     // than falling back to the singular `noteId`.
-    expect(inner.newConsumeTransactionRequest).toHaveBeenCalledTimes(1);
-    expect(inner.newConsumeTransactionRequest.mock.calls[0]?.[0]).toEqual([
+    expect(buildConsumeTransactionRequest).toHaveBeenCalledTimes(1);
+    expect(buildConsumeTransactionRequest.mock.calls[0]?.[0]).toEqual([
       { note: 'note-1' },
       { note: 'note-2' },
       { note: 'note-3' }
@@ -2185,11 +2209,14 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
         // Should not throw despite the frozen array — the catch swallows it.
-        const result = await client.consumeNoteId({
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume'
-        } as any);
+        const result = await client.consumeNoteId(
+          {
+            accountId: 'acc-id',
+            noteId: 'note-1',
+            type: 'consume'
+          } as any,
+          600
+        );
         expect(result).toBe(fakeTransactionResult);
       });
     } finally {
@@ -2222,11 +2249,14 @@ describe('MidenClientInterface', () => {
       await jest.isolateModulesAsync(async () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-        consumeResult = await client.consumeNoteId({
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume'
-        } as any);
+        consumeResult = await client.consumeNoteId(
+          {
+            accountId: 'acc-id',
+            noteId: 'note-1',
+            type: 'consume'
+          } as any,
+          600
+        );
       });
 
       expect(consumeResult).toBe(fakeTransactionResult);
@@ -2272,12 +2302,15 @@ describe('MidenClientInterface', () => {
 
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-        const result = await client.consumeNoteId({
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume',
-          delegateTransaction: false
-        } as any);
+        const result = await client.consumeNoteId(
+          {
+            accountId: 'acc-id',
+            noteId: 'note-1',
+            type: 'consume',
+            delegateTransaction: false
+          } as any,
+          600
+        );
         expect(result).toBe(fakeTransactionResult);
       });
 
@@ -2317,7 +2350,7 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
         await expect(
-          client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
+          client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any, 600)
         ).rejects.toBe(consumeErr);
       });
 
@@ -2358,12 +2391,15 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      const result = await client.consumeNoteId({
-        accountId: 'acc-id',
-        noteId: 'note-1',
-        type: 'consume',
-        delegateTransaction: true
-      } as any);
+      const result = await client.consumeNoteId(
+        {
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: true
+        } as any,
+        600
+      );
 
       expect(result).toBe(fakeTransactionResult);
       expect(staged.prove).toHaveBeenCalledTimes(2); // delegate attempt + local retry
@@ -2397,12 +2433,15 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.consumeNoteId({
-          accountId: 'acc-id',
-          noteId: 'note-1',
-          type: 'consume',
-          delegateTransaction: false
-        } as any)
+        client.consumeNoteId(
+          {
+            accountId: 'acc-id',
+            noteId: 'note-1',
+            type: 'consume',
+            delegateTransaction: false
+          } as any,
+          600
+        )
       ).rejects.toThrow('prover unreachable');
 
       // Called once (no local-prover retry) and banner untouched.
@@ -2472,12 +2511,15 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await client.consumeNoteId({
-        accountId: 'acc-id',
-        noteId: 'note-1',
-        type: 'consume',
-        delegateTransaction: true
-      } as any);
+      await client.consumeNoteId(
+        {
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: true
+        } as any,
+        600
+      );
 
       expect(markConnectivityIssue).not.toHaveBeenCalled();
       expect(clearConnectivityIssue).toHaveBeenCalledWith('prover');
@@ -2495,7 +2537,7 @@ describe('MidenClientInterface', () => {
       extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
     };
     const writes: Array<[string, (client: MidenClientInterfaceType) => Promise<unknown>]> = [
-      ['consume', client => client.consumeNoteId(consumeTx as any)],
+      ['consume', client => client.consumeNoteId(consumeTx as any, 600)],
       ['swap', client => client.swapTransaction(swapTx as any, 600)]
     ];
 
@@ -2656,7 +2698,10 @@ describe('MidenClientInterface', () => {
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
-        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
+        buildConsumeTransactionRequest: jest.fn((_notes: unknown[], _expirationDelta: number) => ({
+          kind: 'consume-request'
+        }))
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue: jest.fn(),
@@ -2819,7 +2864,7 @@ describe('MidenClientInterface', () => {
       }
     );
 
-    it('consumeNoteId offscreen path: builds request from inner.getInputNote → toNote → array', async () => {
+    it('consumeNoteId offscreen path: builds the request from inner.getInputNote → toNote and the delta', async () => {
       const fakeWasm = buildWasmStub();
       const note = { kind: 'note' };
       const inputNoteRecord = { toNote: jest.fn(() => note) };
@@ -2842,23 +2887,25 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await client.consumeNoteId({
-        accountId: 'mtst1acc',
-        noteId: 'note-id-123',
-        type: 'consume'
-      } as any);
+      await client.consumeNoteId(
+        {
+          accountId: 'mtst1acc',
+          noteId: 'note-id-123',
+          type: 'consume'
+        } as any,
+        600
+      );
 
       expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
       expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
-      const [notes, account] = inner.newConsumeTransactionRequest.mock.calls[0] ?? [];
-      // Plain JS array, NOT wasm.NoteArray.
-      expect(notes).toEqual([note]);
-      expect(String(account)).toBe('sdk-mtst1acc');
-      // A fresh handle, not the one execute runs on: defensive, not required, since the
-      // pinned SDK borrows `&AccountId` (see the doc above buildSendExecuteArgs in
-      // miden-client-interface.ts). This assertion pins that independence as a
-      // deliberate invariant regardless.
-      expect(account).not.toBe(inner.executeTransaction.mock.calls[0]![0]);
+      const { buildConsumeTransactionRequest } = jest.requireMock('./helpers');
+      expect(buildConsumeTransactionRequest).toHaveBeenCalledWith([note], 600);
+      expect(inner.newConsumeTransactionRequest).not.toHaveBeenCalled();
+      // The builder's request is the one executed, on the resolved account.
+      expect(inner.executeTransaction).toHaveBeenCalledWith(
+        { tag: 'bech32', id: 'mtst1acc' },
+        buildConsumeTransactionRequest.mock.results[0]?.value
+      );
       // Then through the offscreen pipeline.
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
@@ -2887,11 +2934,14 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.consumeNoteId({
-          accountId: 'mtst1acc',
-          noteId: 'missing-note',
-          type: 'consume'
-        } as any)
+        client.consumeNoteId(
+          {
+            accountId: 'mtst1acc',
+            noteId: 'missing-note',
+            type: 'consume'
+          } as any,
+          600
+        )
       ).rejects.toThrow(/Note missing-note not found in store/);
     });
 
@@ -2922,7 +2972,7 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       const error = await settleThroughApplyRetry(() =>
-        client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'note-id-123', type: 'consume' } as any)
+        client.consumeNoteId({ accountId: 'mtst1acc', noteId: 'note-id-123', type: 'consume' } as any, 600)
       );
 
       expect(error).toBeInstanceOf(ApplyAfterSubmitError);

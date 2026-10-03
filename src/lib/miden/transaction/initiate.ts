@@ -125,7 +125,7 @@ export const initiateConsumeTransaction = async (
 
 /**
  * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
- * both the WASM client's consume request (`newConsumeTransactionRequest`) and the
+ * both the wallet's consume request (`buildConsumeTransactionRequest`) and the
  * Guardian consume proposal take many notes, so batching is one proof/submit
  * instead of N.
  *

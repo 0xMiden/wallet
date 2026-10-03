@@ -5,6 +5,7 @@ import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 import {
   accountIdStringToSdk,
   accountRefToSdk,
+  buildConsumeTransactionRequest,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   getBech32AddressFromAccountId,
@@ -49,6 +50,13 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteArray: jest.fn(function (this: any, notes: any) {
     this.notes = notes;
   }),
+  NoteAndArgs: jest.fn(function (this: any, note: any, args: any) {
+    this.note = note;
+    this.args = args;
+  }),
+  NoteAndArgsArray: jest.fn(function (this: any, items: any) {
+    this.items = items;
+  }),
   NoteType: { Private: 'Private', Public: 'Public' },
   TransactionRequestBuilder: jest.fn(function (this: any) {
     this.withOwnOutputNotes = (notes: any) => {
@@ -59,9 +67,14 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
       this.expirationDelta = delta;
       return this;
     };
+    this.withInputNotes = (pairs: any) => {
+      this.inputNotes = pairs;
+      return this;
+    };
     this.build = () => ({
       kind: 'request',
       ownOutputNotes: this.ownOutputNotes,
+      inputNotes: this.inputNotes,
       expirationDelta: this.expirationDelta
     });
   })
@@ -425,6 +438,21 @@ describe('miden sdk helpers', () => {
         180
       );
       expect(request).toMatchObject({ expirationDelta: 180 });
+    });
+  });
+
+  describe('buildConsumeTransactionRequest (#1081)', () => {
+    it('pairs every note with no argument and sets the delta', () => {
+      const request = buildConsumeTransactionRequest(['note-a', 'note-b'] as any, 600);
+      expect(request).toMatchObject({
+        expirationDelta: 600,
+        inputNotes: {
+          items: [
+            { note: 'note-a', args: null },
+            { note: 'note-b', args: null }
+          ]
+        }
+      });
     });
   });
 

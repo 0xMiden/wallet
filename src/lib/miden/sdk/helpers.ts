@@ -5,6 +5,8 @@ import {
   Felt,
   FungibleAsset,
   Note,
+  NoteAndArgs,
+  NoteAndArgsArray,
   NoteArray,
   NoteAssets,
   NoteAttachment,
@@ -280,6 +282,18 @@ export function buildSendTransactionRequest(
     builder = builder.withFeeConversionSalt(feeSalt);
   }
   return builder.build();
+}
+
+/**
+ * The consume request the wallet executes, with an expiration delta (#1081). `newConsumeTransactionRequest` returns a
+ * finished request, which has no expiration setter, so this builds the same request: the multisig client's own
+ * consume shape (input notes as `(note, null)` pairs) without a salt. Its account argument only decides whether fee
+ * conversion info is committed, and for a single-sig account miden-client commits it under its fixed default salt.
+ * `scripts/consume-request-equivalence.mjs` is the proof the two serialize identically apart from the delta.
+ */
+export function buildConsumeTransactionRequest(notes: Note[], expirationDelta: number): TransactionRequest {
+  const pairs = new NoteAndArgsArray(notes.map(note => new NoteAndArgs(note, null)));
+  return new TransactionRequestBuilder().withInputNotes(pairs).withExpirationDelta(expirationDelta).build();
 }
 
 /**

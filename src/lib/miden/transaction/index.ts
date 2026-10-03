@@ -1738,7 +1738,11 @@ const generateTransactionWithProvider = async (
   let result: TransactionResult;
   switch (transaction.type) {
     case 'consume':
-      result = await midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signCallback);
+      result = await midenClientProxy.consumeNoteId(
+        transaction as ConsumeTransaction,
+        expirationDeltaBlocks(false),
+        signCallback
+      );
       break;
     case 'send':
       // The staged send stamps `executing`/`proving`/`submitting` as it runs so the

@@ -1755,7 +1755,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = consumeTx();
-    const result = await midenClientProxy.consumeNoteId(tx as any, signCallback);
+    const result = await midenClientProxy.consumeNoteId(tx as any, 600, signCallback);
     expect(signCallback).not.toHaveBeenCalled();
 
     // The caller lock wraps the op (exactly as the old switch-under-lock did).
@@ -1766,7 +1766,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // The inline client's consumeNoteId ran on the full tx object.
-    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx);
+    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx, 600);
     expect(result).toEqual({ __inlineTxResult: true });
     // Offscreen never touched.
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -1778,6 +1778,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
     const { midenClientProxy } = await loadProxy(true);
     const result = await midenClientProxy.consumeNoteId(
       consumeTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     expect(G.__px.inlineConsumeNoteId).toHaveBeenCalled();
@@ -1798,6 +1799,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
 
     const p = midenClientProxy.consumeNoteId(
       consumeTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -1820,7 +1822,8 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
       accountId: 'mtst1qacc',
       noteId: '0xn1',
       noteIds: ['0xn1', '0xn2'],
-      delegateTransaction: false
+      delegateTransaction: false,
+      expirationDelta: 600
     });
     // criticalOp + sign callback were bracketed AROUND the op, cleaned up after.
     expect(criticalDuring).toBe(true);
@@ -1844,6 +1847,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
     const p = midenClientProxy
       .consumeNoteId(
         consumeTx() as any,
+        600,
         jest.fn(async () => new Uint8Array())
       )
       .catch((e: Error) => e);
@@ -1882,7 +1886,7 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
       return { ok: true, op_id: env.op_id, resultB64: Buffer.from([9]).toString('base64'), durationMs: 1 };
     });
 
-    const p = midenClientProxy.consumeNoteId(consumeTx() as any, opSign);
+    const p = midenClientProxy.consumeNoteId(consumeTx() as any, 600, opSign);
     await flush();
     fireReady();
     await p;
@@ -1973,7 +1977,7 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
       return { ok: false, op_id: env.op_id, error: 'sign failed in offscreen execute' };
     });
 
-    const errP = midenClientProxy.consumeNoteId(consumeTx() as any, opSign).catch((e: Error) => e);
+    const errP = midenClientProxy.consumeNoteId(consumeTx() as any, 600, opSign).catch((e: Error) => e);
     await flush();
     fireReady();
     const err = await errP;
@@ -2261,6 +2265,7 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
 
     const writeP = midenClientProxy.consumeNoteId(
       consumeTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     void writeP.catch(() => {}); // avoid an unhandled-rejection race if it ever rejects
@@ -2625,6 +2630,7 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
 
     const p = midenClientProxy.consumeNoteId(
       consumeTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -2871,6 +2877,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       invoke: p =>
         p.consumeNoteId(
           consumeTx() as any,
+          600,
           jest.fn(async () => new Uint8Array())
         )
     },

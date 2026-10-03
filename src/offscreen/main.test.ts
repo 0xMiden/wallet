@@ -1568,7 +1568,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         callReq({
           op_id: 'op2-sign',
           method: 'consumeNoteId',
-          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
         }),
         {},
         r2
@@ -1662,7 +1662,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         callReq({
           op_id: 'op2-live',
           method: 'consumeNoteId',
-          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
         }),
         {},
         r2
@@ -1733,7 +1733,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         callReq({
           op_id: 'op2-live',
           method: 'consumeNoteId',
-          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
         }),
         {},
         r2
@@ -2802,13 +2802,19 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it('dispatches consumeNoteId (whole-op write) and serializes the TransactionResult (slice 5a)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
-    const dto = { accountId: 'mtst1qacc', noteId: '0xn1', noteIds: ['0xn1', '0xn2'], delegateTransaction: false };
+    const dto = {
+      accountId: 'mtst1qacc',
+      noteId: '0xn1',
+      noteIds: ['0xn1', '0xn2'],
+      delegateTransaction: false,
+      expirationDelta: 600
+    };
     const ret = capturedListener!(callReq({ method: 'consumeNoteId', argsB64: [encodeArg(dto)] }), {}, sendResponse);
     expect(ret).toBe(true);
     await flush();
 
     // The plain consume DTO decoded across the wire and drove the offscreen client.
-    expect(G.__off.clientConsumeNoteId).toHaveBeenCalledWith(dto);
+    expect(G.__off.clientConsumeNoteId).toHaveBeenCalledWith(dto, 600);
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');
@@ -3015,27 +3021,39 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([44, 55, 66, 77]);
   });
 
-  it.each(['sendTransaction', 'swapTransaction'])(
+  it.each(['sendTransaction', 'swapTransaction', 'consumeNoteId'])(
     '%s refuses a DTO without a usable expiration delta, tagged as before submit (#1081)',
     async method => {
       await loadModule();
       const sendResponse = jest.fn();
-      const dto =
-        method === 'sendTransaction'
-          ? { accountId: 'a', secondaryAccountId: 'b', faucetId: 'f', noteType: 'public', amount: '1', extraInputs: {} }
-          : {
-              accountId: 'a',
-              faucetId: 'f',
-              amount: '1',
-              extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' }
-            };
-      capturedListener!(callReq({ method, argsB64: [encodeArg(dto)] }), {}, sendResponse);
+      const dtos: Record<string, object> = {
+        sendTransaction: {
+          accountId: 'a',
+          secondaryAccountId: 'b',
+          faucetId: 'f',
+          noteType: 'public',
+          amount: '1',
+          extraInputs: {}
+        },
+        swapTransaction: {
+          accountId: 'a',
+          faucetId: 'f',
+          amount: '1',
+          extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' }
+        },
+        consumeNoteId: { accountId: 'a', noteId: 'n', noteIds: ['n'] }
+      };
+      capturedListener!(callReq({ method, argsB64: [encodeArg(dtos[method])] }), {}, sendResponse);
       await flush();
       const resp = sendResponse.mock.calls[0][0];
       expect(resp.ok).toBe(false);
       expect(resp.error).toMatch(/expiration delta/);
-      const leaf = method === 'sendTransaction' ? G.__off.clientSendTransaction : G.__off.clientSwapTransaction;
-      expect(leaf).not.toHaveBeenCalled();
+      const leaves: Record<string, jest.Mock> = {
+        sendTransaction: G.__off.clientSendTransaction,
+        swapTransaction: G.__off.clientSwapTransaction,
+        consumeNoteId: G.__off.clientConsumeNoteId
+      };
+      expect(leaves[method]).not.toHaveBeenCalled();
     }
   );
 
@@ -3111,7 +3129,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       callReq({
         op_id: 'op-sign',
         method: 'consumeNoteId',
-        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
       }),
       {},
       sendResponse
@@ -3151,7 +3169,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     const sendResponse = jest.fn();
     capturedListener!(
-      callReq({ method: 'consumeNoteId', argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })] }),
+      callReq({
+        method: 'consumeNoteId',
+        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
+      }),
       {},
       sendResponse
     );
@@ -4379,7 +4400,7 @@ describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', (
       callReq({
         op_id: 'op-write',
         method: 'consumeNoteId',
-        argsB64: [encodeArg({ accountId: 'acc', noteId: 'n', noteIds: ['n'] })]
+        argsB64: [encodeArg({ accountId: 'acc', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
       }),
       {},
       write
@@ -4630,7 +4651,7 @@ describe('offscreen/main — WASM lock recovery hook', () => {
       callReq({
         op_id: 'op-successor',
         method: 'consumeNoteId',
-        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
       }),
       {},
       r2
@@ -4766,7 +4787,7 @@ describe('offscreen/main — WASM lock recovery hook', () => {
       callReq({
         op_id: 'op-a',
         method: 'consumeNoteId',
-        argsB64: [encodeArg({ accountId: 'acc', noteId: 'n', noteIds: ['n'] })]
+        argsB64: [encodeArg({ accountId: 'acc', noteId: 'n', noteIds: ['n'], expirationDelta: 600 })]
       }),
       {},
       a
