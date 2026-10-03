@@ -167,17 +167,27 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
-    // An unbound lookup on a Failed row could claim a sibling deposit for a bridge
-    // that never even landed, so a Failed row is looked up only once its own Miden
-    // transaction id is known - that is what binds the lookup to it.
-    if (failedUnconfirmed && !tx.transactionId) return;
-    // Bound to this row's own Miden transaction id: several rows can share one
-    // destination address, and marking them all ready off ANY claimable deposit
-    // points every one of them at the same deposit.
-    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
-    // Passed through unconditionally so a Failed row's write always carries the
-    // bound hash `updateBridgeClaimStatus` needs to promote it (#1250).
-    if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true }, deposit.tx_hash);
+    // Bound to an origin hash this row produced (#1081): its own transaction id, or else each attempt id it recorded,
+    // since a row that landed unbound has none. Several rows can share a destination, so an unbound lookup could
+    // claim a sibling deposit; with no id at all there is no lookup.
+    const originHashes =
+      tx.transactionId !== undefined
+        ? [tx.transactionId]
+        : [
+            ...new Set(
+              (tx.submitEvidence ?? []).flatMap(entry =>
+                entry.transactionId === undefined ? [] : [entry.transactionId]
+              )
+            )
+          ];
+    for (const originHash of originHashes) {
+      const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, originHash);
+      if (!deposit) continue;
+      // Passed through unconditionally so a Failed row's write carries the bound hash `updateBridgeClaimStatus` needs
+      // to promote it (#1250), and the matched attempt id becomes the row's (#1081).
+      await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true }, deposit.tx_hash, originHash);
+      return;
+    }
     return;
   }
 

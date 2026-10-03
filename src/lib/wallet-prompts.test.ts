@@ -1925,6 +1925,7 @@ describe('bridge prompts', () => {
     findClaimableDeposit.mockResolvedValue({ tx_hash: '0xAAA1' });
     const claimable = baseBridge({
       id: 'agg-ready',
+      transactionId: '0xAAA1',
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
     const alreadyReady = baseBridge({
@@ -1938,7 +1939,7 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
-    expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true }, '0xAAA1');
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true }, '0xAAA1', '0xAAA1');
   });
 
   it('marks ready only the row whose OWN bridge-out produced the claimable deposit', async () => {
@@ -1966,7 +1967,62 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(updateClaimStatus).toHaveBeenCalledTimes(1);
-    expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true }, '0xrow-a-origin');
+    expect(updateClaimStatus).toHaveBeenCalledWith(
+      'agg-a',
+      'ready',
+      { depositReady: true },
+      '0xrow-a-origin',
+      '0xrow-a-origin'
+    );
+  });
+
+  it('looks a row with no transactionId up by each of its entry ids, and binds the one that matches (#1081)', async () => {
+    findClaimableDeposit.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+      originTxHash === '0xattempt-b' ? { tx_hash: '0xattempt-b' } : null
+    );
+    bridgeRows.push(
+      baseBridge({
+        id: 'agg-unbound',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' },
+        submitEvidence: [
+          { attemptId: 'a', capturedAt: 1, source: 'stage', transactionId: '0xattempt-a' },
+          { attemptId: 'b', capturedAt: 2, source: 'error-text', transactionId: '0xattempt-b' }
+        ]
+      })
+    );
+    await reconcileBridgedSends();
+    expect(findClaimableDeposit.mock.calls.map(call => call[1])).toEqual(['0xattempt-a', '0xattempt-b']);
+    expect(updateClaimStatus).toHaveBeenCalledWith(
+      'agg-unbound',
+      'ready',
+      { depositReady: true },
+      '0xattempt-b',
+      '0xattempt-b'
+    );
+  });
+
+  it('runs no lookup for a row with neither a transactionId nor an entry id (#1081)', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'agg-none',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      })
+    );
+    await reconcileBridgedSends();
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+  });
+
+  it('an Unconfirmed row is not polled (#1081)', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'agg-unconfirmed',
+        status: ITransactionStatus.Unconfirmed,
+        transactionId: '0xid',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      })
+    );
+    await reconcileBridgedSends();
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
   });
 
   // `pollBridgedSend` queries the allocator and writes back onto the row, so a
@@ -1989,11 +2045,13 @@ describe('bridge prompts', () => {
     bridgeRows.push(
       baseBridge({
         id: 'agg-wait',
+        transactionId: '0xwait',
         extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
       })
     );
     await reconcileBridgedSends();
 
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xwait');
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
@@ -2106,7 +2164,13 @@ describe('bridge prompts', () => {
     await reconcileBridgedSends();
 
     expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xabc');
-    expect(updateClaimStatus).toHaveBeenCalledWith('agg-failed-unconfirmed', 'ready', { depositReady: true }, '0xABC');
+    expect(updateClaimStatus).toHaveBeenCalledWith(
+      'agg-failed-unconfirmed',
+      'ready',
+      { depositReady: true },
+      '0xABC',
+      '0xabc'
+    );
   });
 
   // An unbound lookup on a Failed row could claim a sibling deposit for a bridge that
@@ -2428,6 +2492,7 @@ describe('bridge prompts', () => {
     const aggCompletedFuture = baseBridge({
       id: 'agg-completed-future',
       status: ITransactionStatus.Completed,
+      transactionId: '0xcompleted-future',
       completedAt: now + 25 * 60 * 60,
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
@@ -2446,7 +2511,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggCompletedFuture, epochCompletedFuture);
     await reconcileBridgedSends();
 
-    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', undefined);
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xcompleted-future');
     expect(pollEpochIntentFill).toHaveBeenCalledWith({
       destinationAddress: '0xdest',
       intentNonce: 'n-completed-future'

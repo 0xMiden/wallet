@@ -140,7 +140,15 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     // A restored row polls nothing and claims nothing: `destination` and the
     // deposit it matches come from the dump, and `handleClaim` signs an EVM
     // transaction. Display still shows whatever the backup recorded.
-    active: isAgglayer && mayStillClaim && !restoredFromBackup && status !== 'claimed' && !!destination,
+    // Only bound to an id: an Unconfirmed row and one that landed unbound have none, and an unbound lookup could take
+    // a sibling deposit (#1081).
+    active:
+      isAgglayer &&
+      mayStillClaim &&
+      !restoredFromBackup &&
+      status !== 'claimed' &&
+      !!destination &&
+      !!entry.externalTxId,
     intervalMs: 8000,
     poll: async () => {
       const deposit = await findClaimableMidenToEvmDeposit(destination, entry.externalTxId);

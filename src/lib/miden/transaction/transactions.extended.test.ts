@@ -1529,6 +1529,20 @@ describe('updateBridgeClaimStatus', () => {
     await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
     expect(row().status).toBe(ITransactionStatus.Queued);
   });
+
+  it('binds an attempt id the deposit matched and promotes on it in the same write (#1081)', async () => {
+    pushFailedBridgedSend({ transactionId: undefined });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xattempt', '0xattempt');
+    expect(row().transactionId).toBe('0xattempt');
+    expect(row().status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('never replaces a transactionId the row already has (#1081)', async () => {
+    pushFailedBridgedSend();
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xother', '0xother');
+    expect(row().transactionId).toBe('0xabc');
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
 });
 
 describe('completeSwapTransaction', () => {

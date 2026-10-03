@@ -36,6 +36,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 const mockFindClaimable = jest.fn(async (..._a: unknown[]) => null as unknown);
+const mockTrackerActive = jest.fn((_active: boolean) => undefined);
 const mockClaimAgglayer = jest.fn(async (..._a: unknown[]) => ({ wait: async () => undefined, hash: '0xclaimhash' }));
 jest.mock('lib/agglayer', () => {
   const react = require('react');
@@ -44,6 +45,7 @@ jest.mock('lib/agglayer', () => {
     findClaimableMidenToEvmDeposit: (...a: unknown[]) => mockFindClaimable(...a),
     // Drive the poll once so tests can surface a claimable deposit.
     useBridgeTracker: ({ active, poll }: { active: boolean; poll: () => Promise<boolean> }) => {
+      mockTrackerActive(active);
       react.useEffect(() => {
         if (active) void poll();
       }, [active]);
@@ -377,7 +379,7 @@ describe('BridgeClaimSection', () => {
     it('claims the deposit when connected to the destination wallet', async () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1' });
-      renderSection({ entry: agglayer() });
+      renderSection({ entry: agglayer({ externalTxId: '0xrow-origin' }) });
       const claimBtn = await screen.findByText('t:claimAsset');
       fireEvent.click(claimBtn);
       await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalled());
@@ -387,7 +389,7 @@ describe('BridgeClaimSection', () => {
     // tell this row's own claim apart from a sibling's (#1250).
     it("passes the found deposit's tx hash as the tracker's ready write", async () => {
       mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
-      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending', externalTxId: '0xrow-origin' }) });
       await waitFor(() =>
         expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
           'tx-1',
@@ -401,7 +403,7 @@ describe('BridgeClaimSection', () => {
     it("passes the claimable deposit's tx hash on handleClaim's claiming and claimed writes", async () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1', tx_hash: '0xdeposit-hash' });
-      renderSection({ entry: agglayer() });
+      renderSection({ entry: agglayer({ externalTxId: '0xrow-origin' }) });
       fireEvent.click(await screen.findByText('t:claimAsset'));
       await waitFor(() =>
         expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'claiming', undefined, '0xdeposit-hash')
@@ -451,9 +453,23 @@ describe('BridgeClaimSection', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1' });
       mockClaimAgglayer.mockRejectedValueOnce(new Error('claim boom'));
-      renderSection({ entry: agglayer() });
+      renderSection({ entry: agglayer({ externalTxId: '0xrow-origin' }) });
       fireEvent.click(await screen.findByText('t:claimAsset'));
       expect(await screen.findByText('claim boom')).toBeInTheDocument();
+    });
+
+    it('leaves the tracker inactive for a row with no transaction id, so no unbound lookup runs (#1081)', async () => {
+      renderSection({ entry: agglayer({ status: 2, bridgeClaimStatus: 'pending' }) });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockTrackerActive).toHaveBeenCalled();
+      expect(mockTrackerActive.mock.calls.every(([active]) => active === false)).toBe(true);
+      expect(mockFindClaimable).not.toHaveBeenCalled();
+    });
+
+    it('runs the tracker for a row with its transaction id (#1081)', async () => {
+      renderSection({ entry: agglayer({ status: 2, bridgeClaimStatus: 'pending', externalTxId: '0xrow-origin' }) });
+      expect(mockTrackerActive).toHaveBeenLastCalledWith(true);
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalledWith('0xdead', '0xrow-origin'));
     });
 
     it('shows the submitted state once the deposit is claimed', () => {
@@ -568,7 +584,7 @@ describe('BridgeClaimSection', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindClaimable.mockResolvedValue({ deposit: true });
 
-      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending', externalTxId: '0xrow-origin' }) });
 
       await waitFor(() => expect(mockFindClaimable).toHaveBeenCalled());
     });

@@ -1590,7 +1590,8 @@ export const bridgedSendLandedValues = (): Partial<ITransaction> => ({
  * (`sameTxHash`), or the Epoch fill poll reports `epochStatus: 'confirmed'` - a row that is
  * Failed in the store is promoted to Completed in that same write, via `applyVerifiedLanding`
  * (#1250), so the evidence and the status can never be stored apart. A write whose merged route
- * status is itself 'failed' never promotes.
+ * status is itself 'failed' never promotes. `bindTransactionId` is the attempt id `pollBridgedSend` matched for a row
+ * with none (#1081).
  */
 export const updateBridgeClaimStatus = async (
   id: string,
@@ -1609,7 +1610,8 @@ export const updateBridgeClaimStatus = async (
       | 'epochStatus'
     >
   >,
-  boundDepositTxHash?: string
+  boundDepositTxHash?: string,
+  bindTransactionId?: string
 ) => {
   let landed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
@@ -1617,6 +1619,9 @@ export const updateBridgeClaimStatus = async (
     const merged: IBridgedSendExtraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
     tx.extraInputs = merged;
 
+    // The attempt id an Agglayer lookup matched becomes the row's, in the write that may promote it (#1081). Never
+    // over an id the row already has.
+    if (bindTransactionId !== undefined && tx.transactionId === undefined) tx.transactionId = bindTransactionId;
     const routeFailed = merged.claimStatus === 'failed' || merged.epochStatus === 'failed';
     const agglayerLanded =
       !routeFailed &&
