@@ -1,11 +1,12 @@
 import { isRecord } from 'lib/update/guards';
+import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES = ['earn', 'fastBridge', 'bridgeIn', 'bridgeOut'] as const;
 export type BridgeSwitch = (typeof BRIDGE_SWITCHES)[number];
 
-/** EVM chains the wallet ships RPC and explorer definitions for (Sepolia). */
-export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = [11155111];
+/** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
+export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(chain => chain.id);
 
 /** Earn protocols the Earn code supports. */
 export const SUPPORTED_EARN_PROTOCOLS = ['dummy-lending'] as const;

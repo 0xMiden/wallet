@@ -130,6 +130,16 @@ it('supports Sepolia and dummy lending only', () => {
   expect(SUPPORTED_EARN_PROTOCOLS).toEqual(['dummy-lending']);
 });
 
+it('takes the supported chains from the wallet chain registry', () => {
+  let schema!: typeof import('./schema');
+  jest.isolateModules(() => {
+    jest.doMock('lib/walletconnect/config', () => ({ SUPPORTED_CHAINS: [{ id: 11155111 }, { id: 84532 }] }));
+    schema = require('./schema');
+  });
+  const parsed = schema.parseBridgeConfig(withSection('evm', { chainId: 84532 }), 'testnet');
+  expect(parsed?.evm.chainId).toBe(84532);
+});
+
 it.each([
   ['a string', 'testnet'],
   ['null', null],
