@@ -9,7 +9,7 @@ import {
   ITransactionStatus,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
-import { causeChain, isKilledPipeline } from '../sdk/sdk-error-code';
+import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded } from '../sdk/sdk-error-code';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -29,6 +29,10 @@ export const REMOTE_PROVER_TIMEOUT_ERROR =
   'The proving service timed out. The transaction may not have completed — check your balance before trying again.';
 
 export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try again.';
+
+// A write whose submit crossing could not be recorded stops before its submit (#1081), so nothing reached the network.
+export const SUBMIT_CROSSING_UNRECORDED_ERROR =
+  'The wallet could not record this transaction before sending it, so nothing was sent and no funds moved.';
 
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
   'Proving failed because the prover does not recognize part of this transaction — the app and its prover are out of sync. Update to the latest version; retrying this version will not help.';
@@ -531,6 +535,10 @@ function classifyTransactionError(
   }
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
+  }
+  // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
+  if (isSubmitCrossingUnrecorded(error)) {
+    return SUBMIT_CROSSING_UNRECORDED_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote

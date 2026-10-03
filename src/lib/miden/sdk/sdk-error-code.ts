@@ -312,6 +312,11 @@ export class SubmitCrossingUnrecordedError extends Error {
   }
 }
 
+/** A failed crossing write anywhere in `err`'s cause chain: never a prover failure, however a caller wrapped it. */
+export function isSubmitCrossingUnrecorded(err: unknown): boolean {
+  return someInCauseChain(err, link => link instanceof SubmitCrossingUnrecordedError);
+}
+
 /**
  * What a landed write's failure knows about its transaction (#1233): the executed transaction's id, how
  * many private user output notes it produced and its final account commitment, each only when it could

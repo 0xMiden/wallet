@@ -164,6 +164,7 @@ import {
   isKilledPipeline,
   isPoisonedPipeline,
   isStaleInitialCommitmentError,
+  isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
   someInCauseChain,
   SubmitCrossingUnrecordedError
@@ -1560,7 +1561,7 @@ const generateTransactionWithProvider = async (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
         !abandonedWrite &&
-        !(error instanceof SubmitCrossingUnrecordedError) &&
+        !isSubmitCrossingUnrecorded(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);

@@ -46,6 +46,7 @@ import {
   ROTATION_FUNDING_NON_NATIVE_ERROR,
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
+  SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
@@ -4142,6 +4143,10 @@ describe('generateTransaction — Guardian routing', () => {
     );
     expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
     expect(getConnectivityState().prover.active).toBe(false);
+    expect(txStore.find(r => r.id === txId)).toMatchObject({
+      status: ITransactionStatus.Failed,
+      error: SUBMIT_CROSSING_UNRECORDED_ERROR
+    });
     errorSpy.mockRestore();
     warnSpy.mockRestore();
   });

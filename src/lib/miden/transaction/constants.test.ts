@@ -1,5 +1,6 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
+import { SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
@@ -17,6 +18,7 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   RotationGateConsumeRefusal,
+  SUBMIT_CROSSING_UNRECORDED_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -131,6 +133,18 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(wrapped, 'syncing', false, true)).toBe(
       TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
     );
+  });
+
+  it('names a failed crossing write as nothing sent, never as a prover failure, at any depth (#1081)', () => {
+    const crossing = new SubmitCrossingUnrecordedError('tx-1', new Error('QuotaExceededError'));
+    const wrapped = new Error('the send failed', { cause: crossing });
+    for (const error of [crossing, wrapped]) {
+      for (const delegateTransaction of [true, false]) {
+        expect(resolveTransactionErrorMessage(error, 'proving', delegateTransaction)).toBe(
+          SUBMIT_CROSSING_UNRECORDED_ERROR
+        );
+      }
+    }
   });
 
   it('still maps a generic delegated proving failure to the remote-prover message', () => {

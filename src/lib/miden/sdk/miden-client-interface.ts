@@ -78,7 +78,7 @@ import {
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { isApplyAfterSubmitError, markErrorBeforeSubmit, SubmitCrossingUnrecordedError } from './sdk-error-code';
+import { isApplyAfterSubmitError, isSubmitCrossingUnrecorded, markErrorBeforeSubmit } from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
 import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
@@ -2348,7 +2348,7 @@ export async function proveWithFallback<T>(
     return result;
   } catch (err) {
     // A failed crossing write stopped the attempt before its submit, and no prover failed (#1081).
-    if (err instanceof SubmitCrossingUnrecordedError) throw err;
+    if (isSubmitCrossingUnrecorded(err)) throw submitReached ? err : markErrorBeforeSubmit(err);
     // `submitReached` / `isApplyAfterSubmitError`: the attempt got far enough that
     // re-running it could broadcast the transaction a second time. Propagate the
     // ORIGINAL error untouched so `generateTransactionsLoop`'s
@@ -2403,6 +2403,10 @@ export async function proveWithFallback<T>(
         reportProve({ startedAt, step: 'prove_fallback' });
         return result;
       } catch (fallbackErr) {
+        // The fallback proved and then stopped before its submit, so it is no failed prove (#1081).
+        if (isSubmitCrossingUnrecorded(fallbackErr)) {
+          throw submitReached ? fallbackErr : markErrorBeforeSubmit(fallbackErr);
+        }
         // Both remote and local proving failed — a 20s+ that ends in failure is
         // exactly the worst #466 case, so record it before the error propagates.
         telemetryAttempt.record({

@@ -907,17 +907,8 @@ describe('MidenClientInterface', () => {
     expect(proveCalls).toBe(2);
   });
 
-  it('does not re-run a delegated send whose submit crossing could not be recorded (#1081)', async () => {
-    const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
-    const fakeMidenClient = buildFakeMidenClient({
-      transactions: {
-        executeRequest: jest.fn(async () => ({
-          id: 'tx-id',
-          result: fakeTransactionResult,
-          prove: jest.fn(async () => ({ submit }))
-        }))
-      }
-    });
+  // The SDK and id helpers a staged send reaches, with the prove telemetry recorded rather than reported.
+  const mockSendSdk = () => {
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
@@ -938,12 +929,27 @@ describe('MidenClientInterface', () => {
       markConnectivityIssue: jest.fn(),
       clearConnectivityIssue: jest.fn()
     }));
+    jest.doMock('lib/telemetry/report-operation', () => ({
+      ...jest.requireActual('lib/telemetry/report-operation'),
+      reportProve: jest.fn()
+    }));
+  };
 
+  // A delegated send whose 'submitting' stamp throws the crossing error, itself or wrapped as a cause.
+  const sendWithFailingCrossing = async (
+    wrapped: boolean,
+    prove: jest.Mock
+  ): Promise<{ thrown: Error; rejection: unknown; executeRequest: jest.Mock }> => {
+    const executeRequest = jest.fn(async () => ({ id: 'tx-id', result: fakeTransactionResult, prove }));
+    mockSendSdk();
     const { MidenClientInterface } = await import('./miden-client-interface');
     const { SubmitCrossingUnrecordedError } = await import('./sdk-error-code');
-    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-    const crossingFailed = new SubmitCrossingUnrecordedError('row-1', new Error('QuotaExceededError'));
-
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest } }) as any,
+      'testnet'
+    );
+    const crossing = new SubmitCrossingUnrecordedError('row-1', new Error('QuotaExceededError'));
+    const thrown = wrapped ? new Error('the stamp failed', { cause: crossing }) : crossing;
     const rejection = await client
       .sendTransaction(
         {
@@ -956,15 +962,50 @@ describe('MidenClientInterface', () => {
           delegateTransaction: true
         } as any,
         async stage => {
-          if (stage === 'submitting') throw crossingFailed;
+          if (stage === 'submitting') throw thrown;
         }
       )
       .catch((error: unknown) => error);
+    return { thrown, rejection, executeRequest };
+  };
 
-    expect(rejection).toBe(crossingFailed);
-    expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(1);
-    expect(submit).not.toHaveBeenCalled();
-  });
+  it.each([false, true])(
+    'does not re-run a delegated send whose submit crossing could not be recorded, wrapped: %s (#1081)',
+    async wrapped => {
+      const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+      const prove = jest.fn(async () => ({ submit }));
+      const { thrown, rejection, executeRequest } = await sendWithFailingCrossing(wrapped, prove);
+      const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+
+      expect(rejection).toBe(thrown);
+      expect(hasErrorBeforeSubmit(rejection)).toBe(true);
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(submit).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([false, true])(
+    'a local fallback whose submit crossing could not be recorded is no failed prove_fallback, wrapped: %s (#1081)',
+    async wrapped => {
+      const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+      // The delegated attempt fails at its remote prove, before any stamp; the local fallback proves.
+      const prove = jest.fn(async (options?: { prover?: unknown }) => {
+        if (!options?.prover) throw new Error('remote prover deadline exceeded');
+        return { submit };
+      });
+      const { thrown, rejection } = await sendWithFailingCrossing(wrapped, prove);
+      const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+      const { reportProve } = await import('lib/telemetry/report-operation');
+
+      expect(rejection).toBe(thrown);
+      expect(hasErrorBeforeSubmit(rejection)).toBe(true);
+      expect(prove).toHaveBeenCalledTimes(2);
+      expect(submit).not.toHaveBeenCalled();
+      expect(jest.mocked(reportProve)).not.toHaveBeenCalledWith(
+        expect.objectContaining({ step: 'prove_fallback', error: expect.anything() })
+      );
+    }
+  );
 
   // Regression (funds safety): `proveWithFallback`'s callback is not a prove step
   // — for every caller it also submits and applies. Retrying it wholesale after a
