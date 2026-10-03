@@ -288,6 +288,8 @@ export interface BridgedSendRow {
   displayMessage?: string;
   transactionId?: string;
   outputNoteIds?: string[];
+  /** The request the row was queued with, as plain numbers: `page.evaluate` hands back JSON-safe values only. */
+  requestBytes?: number[];
   extraInputs?: {
     intentNonce?: string;
     outputAmount?: string;
@@ -390,6 +392,7 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
         error?: string;
         rawError?: string;
         outputNoteIds?: string[];
+        requestBytes?: Uint8Array;
         extraInputs?: {
           intentNonce?: string;
           outputAmount?: string;
@@ -412,6 +415,7 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
           error: t.error,
           rawError: t.rawError,
           outputNoteIds: t.outputNoteIds,
+          requestBytes: t.requestBytes instanceof Uint8Array ? Array.from(t.requestBytes) : undefined,
           extraInputs: t.extraInputs
         }));
     } finally {
