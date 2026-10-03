@@ -2,18 +2,12 @@ export const BRIDGE_ASSET_ABI = [
   // Human readable abi
   'function bridgeAsset(uint32 destinationNetwork,address destinationAddress,uint256 amount,address token,bool forceUpdateGlobalExitRoot,bytes calldata permitData)'
 ];
-// AggLayer rollupID of Miden Testnet (rollup 86; l2ChainID 402699011). This is
-// the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id.
-export const MIDEN_CHAIN_ID = 86;
 /**
  * Source symbol of the only asset the AggLayer delivery sender delivers. The sender
  * is the bridged-ETH faucet itself, so its notes can settle only a native ETH
  * deposit tracker, never an ERC-20 one with the same base-unit amount.
  */
 export const AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL = 'ETH';
-export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
-  ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
-]);
 
 export const AGGLAYER_BRIDGE_ABI = [
   {

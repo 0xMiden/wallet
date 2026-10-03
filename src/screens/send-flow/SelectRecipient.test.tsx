@@ -4,10 +4,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
-jest.mock('lib/epoch', () => ({
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC',
-  EPOCH_DESTINATION_CHAIN_ID: 11155111
-}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));

@@ -34,12 +34,6 @@ export { EPOCH_POSITIONS_URL } from './config';
 export { carryForward, fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
 export type { EarnPosition, EarnPositionsResult, EarnVaultInfo, FetchEarnPositionsArgs } from './positions';
 export {
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-  EPOCH_DESTINATION_CHAIN_ID
-} from './bridgeable-token';
-export {
   buildEpochTaskDataParams,
   buildEVMToMidenTaskDataParams,
   buildCrossChainIntent,
