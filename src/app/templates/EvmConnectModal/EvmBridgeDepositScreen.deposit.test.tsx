@@ -562,6 +562,34 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
   });
 
+  // The ETH balance names no config value, so neither a loading config nor a moved token touches it.
+  const ethReads = () =>
+    jest
+      .mocked(global.fetch)
+      .mock.calls.filter(([, init]) => JSON.parse(String((init as RequestInit).body)).method === 'eth_getBalance')
+      .length;
+
+  it('reads the ETH balance while the config loads', async () => {
+    mockSnapshot = { status: 'loading', config: null, lastFetch: null };
+    renderScreen();
+    await settle();
+
+    expect(ethReads()).toBe(1);
+  });
+
+  it('does not read the ETH balance again when the config moves the USDC token', async () => {
+    renderScreen();
+    await settle();
+    expect(ethReads()).toBe(1);
+
+    const config = READY_SNAPSHOT.config!;
+    const moved = { ...config, epoch: { ...config.epoch, evmUsdc: '0x00000000000000000000000000000000000000c1' } };
+    act(() => publishSnapshot({ ...READY_SNAPSHOT, config: moved }));
+    await settle();
+
+    expect(ethReads()).toBe(1);
+  });
+
   it.each<[string, BridgeFeature, () => Promise<void>]>([
     ['Fast', 'fastBridgeIn', reachFastReview],
     ['Slow', 'bridgeIn', reachReview]
