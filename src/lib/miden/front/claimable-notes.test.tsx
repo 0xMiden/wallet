@@ -298,7 +298,7 @@ describe('useClaimableNotes (extension mode)', () => {
 
   it('un-gates a note once no consume row is in flight for it', async () => {
     // A row leaving Queued/GeneratingTransaction is reported by omission from
-    // `getNoteHoldingTransactions` -- and that includes a consume that FAILED. The broadcast
+    // `getNoteHoldingTransactions` -- and that includes a consume that FAILED and holds nothing. The broadcast
     // gate this replaced had no path back from a failure: the note stays consumable, so the
     // note-gone clear never fired and the Claim button did not return.
     _g.__cnTest.walletState.extensionClaimableNotes = [

@@ -659,6 +659,16 @@ describe('held claims (#1081)', () => {
     expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-held', held: true });
   });
 
+  it('a claim the user just accepted shows as held once its row holds, so its card offers Retry', async () => {
+    mockQueue.mockResolvedValue('tx-held');
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-held', held: true });
+  });
+
   it('Retry on a held item requeues that row in place and starts processing, without a second claim', async () => {
     mockRequeue.mockResolvedValue(undefined);
     mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
@@ -683,6 +693,53 @@ describe('held claims (#1081)', () => {
       await result.current.retryHeld(result.current.items[0]!);
     });
     expect(result.current.items[0]?.retryError).toMatch(/still holding this transaction/);
+  });
+
+  it('a second Retry while the first runs does nothing, so no refusal is left behind', async () => {
+    let finishFirst: () => void = () => {};
+    mockRequeue
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            finishFirst = resolve;
+          })
+      )
+      .mockRejectedValueOnce(new Error('Transaction tx-held (consume) is not retryable'));
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    const item = result.current.items[0]!;
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.retryHeld(item);
+      second = result.current.retryHeld(item);
+    });
+    await act(async () => {
+      finishFirst();
+      await Promise.all([first, second]);
+    });
+    expect(mockRequeue).toHaveBeenCalledTimes(1);
+    // The row runs and is held again: the later hold opens with no refusal on it.
+    settle([{ id: 'tx-held', status: 1 }]);
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ held: true });
+    expect(result.current.items[0]?.retryError).toBeUndefined();
+  });
+
+  it('forgets a refusal once the claim moves on, so a later hold starts clean', async () => {
+    mockRequeue.mockRejectedValue(new Error('The Guardian is still holding this transaction.'));
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    await act(async () => {
+      await result.current.retryHeld(result.current.items[0]!);
+    });
+    expect(result.current.items[0]?.retryError).toMatch(/still holding this transaction/);
+    settle([{ id: 'tx-held', status: 0 }]);
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ held: true });
+    expect(result.current.items[0]?.retryError).toBeUndefined();
   });
 
   it('a row that holds nothing settles the attempt to failed', async () => {

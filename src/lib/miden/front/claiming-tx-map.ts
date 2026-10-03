@@ -16,7 +16,7 @@ import type { ITransaction } from 'lib/miden/db/types';
  * The value is the claiming row's id, not just membership, so the UI can send the
  * user to that transaction's progress screen instead of showing a dead label.
  *
- * Pass rows already narrowed to the account and to uncompleted statuses
+ * Pass rows already narrowed to the account and to claims holding their notes
  * (`getNoteHoldingTransactions`); this only filters them down to consumes.
  */
 export function claimingTxIdByNoteId(uncompletedTxs: readonly ITransaction[]): Map<string, string> {

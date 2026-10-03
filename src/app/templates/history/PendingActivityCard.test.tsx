@@ -212,9 +212,10 @@ describe('PendingActivityCard', () => {
         retryError: 'The Guardian is still holding this transaction.'
       };
       render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
-      expect(screen.getByTestId('pending-activity-hint')).toHaveTextContent(
-        'The Guardian is still holding this transaction.'
-      );
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('The Guardian is still holding this transaction.');
+      expect(hint).toHaveAttribute('data-tone', 'negative');
+      expect(hint).toHaveAttribute('role', 'alert');
     });
   });
 

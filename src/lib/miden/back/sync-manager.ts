@@ -587,7 +587,7 @@ async function runSync(force: boolean): Promise<void> {
         ) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
-            // Notes already covered by an uncompleted consume row are excluded BEFORE
+            // Notes already held by a consume row (live, or awaiting its verdict) are excluded BEFORE
             // the value check, because the enqueue below drops exactly those at its
             // dedup gate -- so counting them measured a set larger than the one that
             // gets claimed. Chain-sync lag keeps a consumed note visible for a lap or

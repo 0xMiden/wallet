@@ -27,14 +27,14 @@ type Attempts = ReadonlyMap<string, PendingActivityItem>;
 // Lives outside the views: switching List and Groups remounts them, and a claim still being queued in one
 // must keep the other from queueing the same note. One slot per account, RPC endpoint and network, the key
 // AllHistory remounts the views on.
-const slots = new Map<string, { attempts: Attempts; busy: Set<string> }>();
+const slots = new Map<string, { attempts: Attempts; busy: Set<string>; retrying: Set<string> }>();
 const listeners = new Set<() => void>();
 const noAttempts: Attempts = new Map();
 
 function slotOf(key: string) {
   let slot = slots.get(key);
   if (!slot) {
-    slot = { attempts: noAttempts, busy: new Set() };
+    slot = { attempts: noAttempts, busy: new Set(), retrying: new Set() };
     slots.set(key, slot);
   }
   return slot;
@@ -74,6 +74,9 @@ export function useActivityClaims() {
   // Notes whose claim is being queued right now. Once queued, the attempt's
   // `claiming` status is what keeps the note from being accepted again.
   const busy = slotOf(key).busy;
+  // Held rows whose Retry is running. The card keeps offering Retry until the live query sees the row move, so a
+  // second tap in that window would requeue a row the first one already requeued, and store its refusal.
+  const retrying = slotOf(key).retrying;
 
   // Rows of every claiming item: session attempts and the claiming map's held rows alike (#1081).
   const watchedTxIds = [
@@ -104,6 +107,14 @@ export function useActivityClaims() {
         }
         // Every emission lists every watched row; an unchanged set keeps its identity so the items do not rebuild.
         setHeldTxIds(previous => (sameIds(previous, held) ? previous : held));
+        // A refusal describes the hold it met; once the row moves on it must not return with a later hold.
+        setRetryErrors(previous => {
+          const moved = rows.filter(tx => !held.has(tx.id) && previous.has(tx.id));
+          if (moved.length === 0) return previous;
+          const next = new Map(previous);
+          for (const tx of moved) next.delete(tx.id);
+          return next;
+        });
         updateAttempts(key, previous => {
           let next: Map<string, PendingActivityItem> | undefined;
           for (const [noteId, item] of previous) {
@@ -255,7 +266,8 @@ export function useActivityClaims() {
   // notes, so this is its only Retry (#1081). No history entry, no navigation, so this starts processing itself.
   const retryHeld = async (item: PendingActivityItem) => {
     const { txId } = item;
-    if (txId === undefined || item.held !== true) return;
+    if (txId === undefined || item.held !== true || retrying.has(txId)) return;
+    retrying.add(txId);
     setRetryErrors(previous => {
       const next = new Map(previous);
       next.delete(txId);
@@ -266,6 +278,8 @@ export function useActivityClaims() {
     } catch (error) {
       setRetryErrors(previous => new Map(previous).set(txId, error instanceof Error ? error.message : String(error)));
       return;
+    } finally {
+      retrying.delete(txId);
     }
     try {
       if (isExtension()) requestSWTransactionProcessing();

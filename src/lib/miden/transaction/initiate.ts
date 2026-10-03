@@ -280,7 +280,7 @@ const queueConsumeRows = async (
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
       // index for legacy/single rows, multi-entry `noteIds` for batch rows),
-      // then partition. We need both non-Failed (dedup) and every lifetime Failed
+      // then partition. We need both the blocking rows (dedup) and every lifetime Failed
       // (exponential-backoff gate) inside the same rw transaction so the
       // check-and-add stays atomic.
       const byScalar = await Repo.transactions.where('noteId').equals(note.id).toArray();
@@ -324,7 +324,7 @@ const queueConsumeRows = async (
         continue;
       }
 
-      // Bounded-retry gate: only Failed rows exist for this note+account.
+      // Bounded-retry gate: no row blocks this note+account, only Failed ones and claims that hold nothing remain.
       // Skipped entirely for explicit user retries (`manualRetry`) — a deliberate
       // tap must always queue a fresh attempt rather than be throttled by the
       // auto-consume backoff.
