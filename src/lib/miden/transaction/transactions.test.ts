@@ -440,7 +440,11 @@ describe('transactions utilities', () => {
       );
     });
 
-    it('refuses to overwrite a row that went terminal between the read and the write', async () => {
+    it.each<[string, Record<string, unknown>]>([
+      ['Failed', { status: ITransactionStatus.Failed, error: 'Transaction expired', displayIcon: 'FAILED' }],
+      // Its pipeline has stopped and only the reconciler's writers move it (#1081).
+      ['Unconfirmed', { status: ITransactionStatus.Unconfirmed, stage: 'sending' }]
+    ])('refuses to overwrite a row that went %s between the read and the write', async (_label, landed) => {
       // The read above and the write below are separate Dexie transactions, and
       // the terminal writer is no longer always inside the loop lock: the requeue
       // wake's ceiling can fail a stale row from outside it. Lose that race
@@ -453,9 +457,7 @@ describe('transactions utilities', () => {
       let callbackResult: unknown;
       mockTransactionsWhere.mockReturnValueOnce({
         modify: jest.fn(async (cb: (t: Record<string, unknown>) => unknown) => {
-          row.status = ITransactionStatus.Failed;
-          row.error = 'Transaction expired';
-          row.displayIcon = 'FAILED';
+          Object.assign(row, landed);
           callbackResult = cb(row);
         })
       });
@@ -463,8 +465,7 @@ describe('transactions utilities', () => {
       await expect(updateTransactionStatus('tx-1', ITransactionStatus.Completed, {})).rejects.toThrow(
         'Transaction already in a finalized state'
       );
-      expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.displayIcon).toBe('FAILED');
+      expect(row).toEqual({ id: 'tx-1', ...landed });
       // `false`, not a bare `return`: Dexie only skips the put on that exact
       // value, so a bare return would re-put the clone and fire a `liveQuery`
       // event for a write that changed nothing. Invisible in the field
