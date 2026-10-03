@@ -131,6 +131,32 @@ it('renders a trailing value, a custom trailing control and a check', () => {
   expect(screen.getByTestId('unchecked-row')).toHaveAttribute('aria-pressed', 'false');
 });
 
+it('reports `pressed` and leaves the visible state to its trailing element', () => {
+  render(
+    <>
+      <ListRow
+        title="Allow no guardian"
+        pressed
+        onClick={jest.fn()}
+        trailing={<span data-testid="indicator" />}
+        data-testid="pressed-row"
+      />
+      <ListRow
+        title="Nominal price"
+        pressed={false}
+        onClick={jest.fn()}
+        trailing={<span />}
+        data-testid="unpressed-row"
+      />
+    </>
+  );
+
+  expect(screen.getByTestId('indicator')).toBeInTheDocument();
+  expect(screen.getByTestId('pressed-row')).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByTestId('pressed-row').querySelector('[data-slot="check"]')).toBeNull();
+  expect(screen.getByTestId('unpressed-row')).toHaveAttribute('aria-pressed', 'false');
+});
+
 it('presses to the pressed fill when tappable, and not when static', () => {
   render(
     <>

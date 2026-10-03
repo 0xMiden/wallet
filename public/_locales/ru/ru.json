@@ -1104,6 +1104,7 @@
   "devEndpointExplorer": "URL-адрес в «Проводнике»",
   "devEndpointGuardian": "Пользовательский URL-адрес guardian",
   "devAllowNoGuardian": "Разрешить опцию «Нет опекуна» при регистрации",
+  "devNominalUnquotedPrice": "Стоимость токенов без кавычек — 1 доллар (только в тестовых сетях)",
   "devEndpointChecking": "Проверка…",
   "devEndpointReachable": "Хост доступен",
   "devEndpointNoResponse": "Ответа нет",

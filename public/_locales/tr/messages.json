@@ -4832,6 +4832,10 @@
     "message": "İlk katılımda 'Veli yok' seçeneğine izin ver",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Tırnak işareti kullanılmayan tokenlerin değerini 1 $ olarak belirleyin (sadece test ağları için)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Kontrol ediliyor…",
     "englishSource": "Checking…"

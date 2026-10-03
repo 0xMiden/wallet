@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import { KNOWN_SYMBOLS } from './constant';
+import { hasUnquotedDefaultPrice } from './unquoted-default';
 
 const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
 
@@ -70,39 +71,79 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
   }
 }
 
-/**
- * Whether the feed has delivered any quote yet. An empty map is prices still loading, which a
- * figure shows as its placeholder; a loaded map without a symbol is a token with no price.
- */
-export function pricesLoaded(prices: TokenPrices): boolean {
-  return Object.keys(prices).length > 0;
+/** Whether the feed lists a price symbol: an own `KNOWN_SYMBOLS` key. */
+export function isListedSymbol(symbol: string | undefined): boolean {
+  // Indexed, not `in`, so an inherited member such as `toString` does not read as listed.
+  return symbol !== undefined && typeof KNOWN_SYMBOLS[symbol] === 'string';
 }
 
 /**
- * The feed's quote for a price symbol, or none: an unquoted token has no fiat value, and a zero
- * price is not a quote. A held token is priced through `tokenQuote` (lib/miden/swap/tokens),
- * which resolves its price symbol first (IETH at ETH); call this directly only with a symbol
- * already resolved, as the sparkline and chart do.
+ * Whether a figure built from these price symbols can be shown yet. An empty map is prices still
+ * loading, which a figure shows as its placeholder, and a loaded map without a symbol is a token
+ * with no price. With the nominal rate on (`hasUnquotedDefaultPrice`) a symbol the feed does not
+ * list is priced from the start, so a figure whose symbols are all unlisted never waits on the
+ * feed: a test-network wallet that holds only the native token would otherwise show its
+ * placeholder for as long as the feed is unreachable. A listed symbol (`isListedSymbol`) never
+ * takes that rate, so a figure that needs one still waits for the feed's first quote.
+ */
+export function pricesLoaded(prices: TokenPrices, priceSymbols: Iterable<string | undefined>): boolean {
+  if (Object.keys(prices).length > 0) return true;
+  if (!hasUnquotedDefaultPrice()) return false;
+  for (const symbol of priceSymbols) {
+    if (isListedSymbol(symbol)) return false;
+  }
+  return true;
+}
+
+/**
+ * The quote of a token the feed does not list where `hasUnquotedDefaultPrice` says so (the
+ * Developer Settings switch, off mainnet): $1 per whole unit, with no movement.
+ */
+const TEST_NETWORK_UNQUOTED_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
+
+/**
+ * Whether a quote is the nominal $1 that `quotedPrice` gives an unquoted token, not a feed quote.
+ * The nominal rate is a display figure, so a computation that weighs a token's value against a
+ * real-dollar amount (the Fast route's fee) treats it as no price. Identity rather than shape,
+ * since a feed quote of a stablecoin at par has the same fields.
+ */
+export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
+  return quote === TEST_NETWORK_UNQUOTED_PRICE;
+}
+
+/**
+ * The feed's quote for a price symbol, or none; a zero price is not a quote. An unquoted token (a
+ * symbol the feed never lists, not a `KNOWN_SYMBOLS` key, or no price symbol at all) has no fiat
+ * value unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is quoted at $1. A
+ * listed symbol never takes that rate: while its quote is missing (the feed loading or
+ * unreachable) or zero it has none whatever the switch, since $1 would price a real asset at a
+ * dollar. A held token is priced through `tokenQuote` (lib/miden/swap/tokens), which resolves its
+ * price symbol first (IETH at ETH); call this directly only with a symbol already resolved, as the
+ * sparkline and chart do.
  */
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
-  if (symbol === undefined) return undefined;
-  const quote = prices[symbol];
-  return quote && quote.price > 0 ? quote : undefined;
+  const quote = symbol === undefined ? undefined : prices[symbol];
+  if (quote && quote.price > 0) return quote;
+  return !isListedSymbol(symbol) && hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;
 }
 
 /**
- * The feed's price for a symbol, or 0 when the feed does not list it, never a $1 default: the
- * token pickers (`listedFiatValue`) read 0 as no price, so an unlisted token shows no fiat there.
+ * The price `quotedPrice` gives a symbol, or 0 for none, which the token pickers
+ * (`listedFiatValue`) read as no price. An unquoted token, as `quotedPrice` defines it, gets 0 and
+ * so shows no fiat there, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is
+ * priced at $1 like every other fiat figure.
  */
 export function listedPrice(prices: TokenPrices, symbol: string | undefined): number {
   return quotedPrice(prices, symbol)?.price ?? 0;
 }
 
 /**
- * The fiat value for a token picker's row, or none: only when the feed lists the symbol, the
- * balance's scale is known and there is a balance to value. Never a $1 default, which would turn
- * every unlisted token into a dollar figure equal to its token count. A number,
- * so the row can count it (`AnimatedNumber`) with a formatter bound to it.
+ * The fiat value for a token picker's row, or none: only when the symbol has a price
+ * (`listedPrice`), the balance's scale is known and there is a balance to value. An unquoted
+ * token, as `quotedPrice` defines it (an absent symbol included), gets no figure rather than one
+ * equal to its token count, unless the nominal rate is on (`hasUnquotedDefaultPrice`), when it is
+ * valued at $1 like every other fiat figure. A number, so the row can count it (`AnimatedNumber`)
+ * with a formatter bound to it.
  */
 export function listedFiatValue(
   prices: TokenPrices,

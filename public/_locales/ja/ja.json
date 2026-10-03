@@ -1104,6 +1104,7 @@
   "devEndpointExplorer": "エクスプローラーのURL",
   "devEndpointGuardian": "guardianのカスタムURL",
   "devAllowNoGuardian": "オンボーディングで「保護者なし」オプションを許可する",
+  "devNominalUnquotedPrice": "引用符で囲まれていないトークンの価値を$1とみなす（テストネットワークのみ）",
   "devEndpointChecking": "確認中…",
   "devEndpointReachable": "ホストに接続可能",
   "devEndpointNoResponse": "応答なし",

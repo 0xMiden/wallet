@@ -4832,6 +4832,10 @@
     "message": "온보딩 시 '보호자 없음' 옵션 허용",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "따옴표로 묶이지 않은 토큰의 가치를 $1로 설정(테스트 네트워크에만 해당)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "확인 중…",
     "englishSource": "Checking…"

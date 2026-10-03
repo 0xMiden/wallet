@@ -4832,6 +4832,10 @@
     "message": "Дозволити опцію «Без опікуна» під час реєстрації",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Вартість токенів без лапок — 1 долар (лише для тестових мереж)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Перевірка…",
     "englishSource": "Checking…"

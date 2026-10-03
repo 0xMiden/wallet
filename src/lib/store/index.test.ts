@@ -1,6 +1,10 @@
 import '../../../test/jest-mocks';
 
+import axios from 'axios';
+
 import { MidenMessageType } from 'lib/miden/types';
+import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
+import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -1354,6 +1358,42 @@ describe('useWalletStore', () => {
       useWalletStore.setState({ fiatRatesLoading: true, fiatRates: { usd: 99 } });
       await useWalletStore.getState().fetchFiatRates();
       expect(useWalletStore.getState().fiatRates?.usd).toBe(99);
+    });
+  });
+
+  // Price helpers read the switch outside React, so a memo keyed on tokenPrices recomputes only when
+  // the switch hands it a new object.
+  describe('nominal unquoted price switch', () => {
+    const prices = { ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } };
+
+    beforeEach(() => {
+      useWalletStore.getState().setTokenPrices(prices);
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(NOMINAL_UNQUOTED_PRICE_STORAGE_KEY);
+    });
+
+    it('republishes tokenPrices as a new object with the same entries when the switch is toggled', () => {
+      setNominalUnquotedPriceSetting(true);
+      expect(useWalletStore.getState().tokenPrices).not.toBe(prices);
+      expect(useWalletStore.getState().tokenPrices).toEqual(prices);
+    });
+
+    it('republishes tokenPrices when another window toggles the switch, and fetches no prices', () => {
+      const priceFetch = jest.spyOn(axios, 'get');
+      localStorage.setItem(NOMINAL_UNQUOTED_PRICE_STORAGE_KEY, 'on');
+      window.dispatchEvent(new StorageEvent('storage', { key: NOMINAL_UNQUOTED_PRICE_STORAGE_KEY, newValue: 'on' }));
+      expect(useWalletStore.getState().tokenPrices).not.toBe(prices);
+      expect(useWalletStore.getState().tokenPrices).toEqual(prices);
+      expect(priceFetch).not.toHaveBeenCalled();
+      expect(mockRequest).not.toHaveBeenCalled();
+      priceFetch.mockRestore();
+    });
+
+    it('keeps tokenPrices identity on a storage event for another key', () => {
+      window.dispatchEvent(new StorageEvent('storage', { key: CARD_COLOR_STORAGE_KEY, newValue: 'blue' }));
+      expect(useWalletStore.getState().tokenPrices).toBe(prices);
     });
   });
 

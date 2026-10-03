@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
@@ -72,6 +73,10 @@ const scanQRCodeMock = jest.fn();
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
+// The token prices under test follow the default rule, no price without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal fee case flips it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
 const telemetryHandles: TelemetryHandle[] = [];
@@ -1636,10 +1641,10 @@ describe('send telemetry', () => {
 // Fast-route fee: only a priced token of known scale has a dollar input.
 // ---------------------------------------------------------------------------
 describe('fast-route fee', () => {
-  const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1') => {
-    setSendDraft({ amount: '5', recipientAddress: '0xrecip', tokenId });
+  const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1', { amount = '5', quote = '4' } = {}) => {
+    setSendDraft({ amount, recipientAddress: '0xrecip', tokenId });
     mockCardStack = [{ name: SendFlowStep.Route }];
-    mockEpochAmount = '4';
+    mockEpochAmount = quote;
     useAllBalancesMock.mockReturnValue({ data: [{ tokenId, metadata, balance: 42, fiatPrice: 0 }] });
     renderFlow();
     return screen.getByTestId('route-fee');
@@ -1657,5 +1662,26 @@ describe('fast-route fee', () => {
     expect(renderRouteStep({ symbol: 'TKN', decimals: 2, scaleIsUnknown: true }, MIDEN_USDC_FAUCET)).toHaveTextContent(
       /^undefined$/
     );
+  });
+
+  // The nominal $1 is a display figure, so 1000 tokens at it are not $1000 the user sends.
+  it('is absent for a token valued only at the nominal $1, not the $995 it would invent', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      expect(
+        renderRouteStep({ symbol: 'IMIDEN', decimals: 2 }, 'T1', { amount: '1000', quote: '5' })
+      ).toHaveTextContent(/^undefined$/);
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
+  });
+
+  it('keeps the fee of a token the feed prices while the nominal rate is on', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^11$/);
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
   });
 });

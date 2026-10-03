@@ -376,9 +376,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
   // WHY a quote is missing instead of on the "$" the fee happens to render.
-  // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced
-  // or unscaled one, no amount, or no quote - and all paint the same empty-value placeholder, so a test gated on
-  // the rendered text cannot tell a quote-service outage from a token that never
+  // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced, unscaled or
+  // nominally priced one, no amount, or no quote - and all paint the same empty-value placeholder,
+  // so a test gated on the rendered text cannot tell a quote-service outage from a token that never
   // loaded. `useEpochQuote` already captures the failure reason and nothing reads
   // it. Mirrors the __TEST_STORE__ / __TEST_SET_SHARE_PRIVATELY__ gate; zero
   // production impact.
@@ -399,8 +399,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
-    // Unpriced (0) or unscaled, the input has no dollar value, and a fee from it is invented.
-    if (!token || !token.scaleIsKnown || !(token.fiatPrice > 0) || !amount || epochQuote.amount == null) {
+    // Unpriced (0), unscaled or at the nominal $1 (a display figure, not a quote), the input has no
+    // dollar value, and a fee from it is invented.
+    if (
+      !token ||
+      !token.scaleIsKnown ||
+      !(token.fiatPrice > 0) ||
+      token.fiatPriceIsNominal ||
+      !amount ||
+      epochQuote.amount == null
+    ) {
       return undefined;
     }
     const input = parseFloat(amount) * token.fiatPrice;
