@@ -115,8 +115,9 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     expect(row!.extraInputs?.agglayerExitTxHash, 'the exit hash binding the row to its deposit').toMatch(
       /^0x[0-9a-f]{64}$/
     );
-    // The browser binding computed that hash. The vectors pin the formula on the napi addon only, so a browser-side
-    // divergence (FeltArray handling, felt order) would store a well-formed hash no deposit ever matches.
+    // The browser binding computed that hash. The vectors pin the formula on the napi addon only, over 0.16's words
+    // (0.17 changed the vault key's encoding; agreement with a 0.17 bridge is checked at the first 0.17 deposit), so a
+    // browser-side divergence (FeltArray handling, felt order) would store a well-formed hash no deposit ever matches.
     expect(row!.requestBytes, 'the request bytes the row was queued with').toBeDefined();
     expect(row!.extraInputs?.agglayerExitTxHash, 'the browser exit hash equals the napi SDK one').toBe(
       napiExitTxHashFromRequestBytes(Uint8Array.from(row!.requestBytes ?? []))
