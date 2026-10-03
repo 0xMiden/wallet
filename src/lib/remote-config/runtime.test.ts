@@ -447,6 +447,30 @@ describe('networks', () => {
     expect(mockDerivedRpc).toHaveBeenCalledWith('https://rpc.testnet.example');
     expect(mockStorage.get(CACHE)).toEqual({ config: config(2), fetchedAt: NOW });
   });
+
+  it('after a switch back, derives a document a dropped refresh stored, though the next fetch fails', async () => {
+    seed(1);
+    await initBridgeConfig();
+    const fetched = gate();
+    mockFetch.mockImplementationOnce(async network => {
+      await fetched.opened;
+      return storeEntry(network, 2);
+    });
+    const dropped = _refreshBridgeConfigForTest();
+    await flush();
+    mockNetwork = 'devnet';
+    failFetch();
+    fetched.release();
+    await dropped;
+    mockNetwork = 'testnet';
+    await _refreshBridgeConfigForTest();
+    expect(getBridgeConfigSnapshot().config?.version).toBe(2);
+    expect(getBridgeConfigSnapshot()).toMatchObject({
+      config: config(2),
+      derived: derivedFor(config(2), NOW),
+      lastFetch: { ok: false, error: 'HTTP 503' }
+    });
+  });
 });
 
 describe('commits from another realm', () => {

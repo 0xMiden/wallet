@@ -270,11 +270,16 @@ async function refresh(state: NetworkState): Promise<void> {
     console.warn(`[remote-config] refresh failed for ${state.network}:`, error);
     lastFetch = { at: Date.now(), ok: false, error: errorMessage(error) };
   }
-  // The checks re-run whether or not the fetch landed, against the newest document this realm knows of.
-  const target = newer(fetched, state.stored);
+  // The checks re-run whether or not the fetch landed, against the newest document this network has accepted. Without a
+  // fetch that is storage's as well as memory's: a refresh dropped across a switch, or another realm, may have stored
+  // one memory never took.
+  const target = fetched
+    ? newer(fetched, state.stored)
+    : newer(await readStoredBridgeConfig(state.network), state.stored);
   const result = target ? await derive(target.config, midenRpcUrl) : null;
   // Across a switch the captured RPC need not be this network's, so the derivation is dropped, not trusted. The
-  // fetched document stays stored; this network's next check derives it again.
+  // fetched document stays stored, and this network's next check derives it: from its own fetch, or read from storage
+  // when that fetch fails.
   if (getEffectiveNetworkName() !== state.network) return;
   // A newer document adopted from another realm while this ran stays; the run still counts as a check.
   const superseded = state.stored !== null && target !== null && state.stored.config.version > target.config.version;
