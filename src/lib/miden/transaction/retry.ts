@@ -1,14 +1,24 @@
 import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
+import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
-import { TRANSACTION_RETRY_UNSAFE_ERROR, isSubmitOutcomeUnknown } from './constants';
-import { applyLandedDisplayMessage, completeVerifiedLandedTransaction, landedValueRowFields } from './helper';
+import {
+  guardianHoldRetryMessage,
+  TRANSACTION_BEING_CHECKED_RETRY_ERROR,
+  TRANSACTION_LANDING_PENDING_RETRY_ERROR,
+  TRANSACTION_RETRY_UNSAFE_ERROR,
+  isSubmitOutcomeUnknown
+} from './constants';
+import { completeVerifiedLandedTransaction, verifiedLandingRowFields } from './helper';
+import { latestEndMayStillRun } from './reconcile-judge';
+import { checkEvidenceForRetry } from './reconcile-unconfirmed';
+import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil, nowSeconds } from './verdict-rules';
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
+  ICON_BY_TYPE,
   ITransaction,
-  ITransactionIcon,
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
@@ -81,15 +91,6 @@ export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>)
   return extra?.provider;
 };
 
-/** Pre-failure display icon per type (mirrors the Transaction subclass constructors). */
-const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
-  send: 'SEND',
-  consume: 'RECEIVE',
-  swap: 'SWAP',
-  'bridged-send': 'SEND',
-  execute: 'DEFAULT'
-};
-
 /**
  * Whether a Failed row can be retried by re-queueing it through the loop.
  *
@@ -114,6 +115,8 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
  * makes people re-send by hand - the double payment the guard exists to prevent.
  * An imported row has no such exit to offer, because there is no user intent
  * behind it to confirm; hence the hard exclusion above.
+ *
+ * Unconfirmed too: Retry is the exit while no verdict exists (#1081).
  */
 export const isRequeueableTransaction = (tx: {
   status?: ITransactionStatus;
@@ -121,7 +124,7 @@ export const isRequeueableTransaction = (tx: {
   bridgeProvider?: IBridgeProvider;
   restoredFromBackup?: boolean;
 }): boolean => {
-  if (tx.status !== ITransactionStatus.Failed) return false;
+  if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
   if (tx.restoredFromBackup) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && tx.bridgeProvider === NON_REQUEUEABLE_BRIDGE_PROVIDER) return false;
@@ -172,31 +175,32 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * real double-send of the user's funds. Guardian sends/swaps are `send`/`swap`
  * rows too, and each retry builds a fresh proposal, so they are covered here.
  *
- * `bridged-send` (Agglayer) and `execute` are excluded: both replay the
- * `requestBytes` persisted on the row, so a duplicate submit re-creates the
- * IDENTICAL note and the node rejects it rather than moving funds twice.
+ * `bridged-send` (Agglayer) is excluded: it replays the `requestBytes` persisted
+ * on the row, whose output notes are fixed and which runs no custom script, so a
+ * duplicate submit re-creates the IDENTICAL note and the node rejects it. An
+ * `execute` is excluded from the rebuild but not from the doubt: `newTransaction`
+ * re-executes its request against the account's current state, so a script that
+ * reads the vault can pay a different amount, and an execute that may have
+ * submitted meets the acknowledgeable refusal on its own rule
+ * (`executeMayHaveSubmitted`, #1081).
  * (`consume` is excluded for the same reason its Retry needs no node check - its
  * input note's nullifier makes a duplicate unusable.)
  *
  * Why these need a guard beyond `verifySendLanded`: that check is keyed on
- * `ITransaction.transactionId`, whose writers are the completion handlers in
- * `complete.ts` - the SUCCESS path - `updateBridgedReceivePhase`, and the landed
- * arms, which record the id a failed apply after submit carried (#1233). A row
- * that failed before any of them ran therefore reaches Retry with
- * `transactionId === undefined`, where
- * `verifySendLanded` short-circuits to `'unknown'` and the resubmit would proceed
- * unguarded. Stamping the id pre-submit is not available today: under
- * `MIDEN_USE_OFFSCREEN_CLIENT` the write runs in the offscreen realm, whose DTOs
- * deliberately do not carry the row id (the op_id is the whole correspondence),
- * so there is nothing there to stamp it onto. So the guard falls back to the one
- * durable in-realm fact that IS on the row - did it ever leave the queue - and
- * refuses the replay whenever the answer is yes (`isSubmitOutcomeUnknown`).
+ * `ITransaction.transactionId`, which is written only once a row landed. A row
+ * that failed before that reaches Retry with `transactionId === undefined`, where
+ * `verifySendLanded` short-circuits to `'unknown'`. The id the attempt submitted is
+ * recorded at the stamped crossing instead, on the attempt's evidence entry, and
+ * Retry's tap-time check judges it against the node (#1081). An attempt that check
+ * cannot prove falls back to the one durable fact that IS on the row - did it ever
+ * leave the queue - and the replay is refused whenever the answer is yes
+ * (`isSubmitOutcomeUnknown`).
  *
  * That is deliberately conservative: it also refuses a send that failed provably
  * pre-submit (say, insufficient funds during execute), because nothing durable
  * distinguishes that from a submit whose reply was lost. Which is why the refusal
  * is acknowledgeable rather than final - the user can tell the two apart from
- * their own balance, so see `RetryOptions.acknowledgeUnverifiedSend`.
+ * their own balance, so see `RetryOptions.acknowledged`.
  */
 const REBUILT_REQUEST_TYPES: ITransactionType[] = ['send', 'swap'];
 
@@ -210,11 +214,10 @@ const REBUILT_REQUEST_TYPES: ITransactionType[] = ['send', 'swap'];
  *
  * Deliberately excludes 'sending', which is NOT pre-submit despite sitting
  * before the submit stamps in the stage list. It is stamped at pickup
- * (`generateTransaction`) and again just before the guardian leaf runs, and only
- * the INLINE leaf then narrows it: `runGuardianPipeline` stamps
- * 'executing'/'proving'/'submitting' as it goes, but `dispatchGuardianPipeline`
- * takes no stage callback at all, so the offscreen leaf runs
- * execute → prove → submit → apply with the row frozen at 'sending'. Offscreen
+ * (`generateTransaction`) and again just before the guardian leaf runs. The
+ * inline leaf narrows it as it goes; the offscreen leaf takes `stageStampFor` too,
+ * but its stamps are replayed late and are unreliable (`reliable: false`, #1081),
+ * so a realm torn down mid-op can leave the row at 'sending' after a submit. Offscreen
  * routing is the DEFAULT (`MIDEN_USE_OFFSCREEN_CLIENT` defaults to 'true') and
  * `send` is offscreen-routable, so on the shipping path a submit that landed
  * before the realm was torn down leaves exactly this stage. The sibling requeue
@@ -260,30 +263,55 @@ const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionSt
   'proving'
 ]);
 
+/** How long Retry waits for a reconciler pass that holds the row's verdict lock (#1081). */
+export const RETRY_VERDICT_WAIT_MS = 10_000;
+
 /**
- * Retry a Failed transaction by resetting its row to `Queued` so the FIFO
- * processing loop picks it up again. The row keeps its id (and, for swaps, its
- * persisted `requestBytes` - the retry reuses the exact same request, which the
- * PSWAP flow requires; a `send`'s bytes are dropped only while no attempt on the
- * row could have submitted, see below). `initiatedAt` is refreshed so the
- * stale-queued TTL doesn't cancel
- * the retry on sight, and `nextEligibleAt` is cleared so a stale
- * requeue-backoff can't delay the user's explicit retry.
+ * Retry's refusals (#1081), English rendered verbatim, passed as the error's message so the class and the "Retry
+ * anyway" gate that reads it stay. The acknowledgeable copy follows whether the reconciler still judges the row; the
+ * liveness copy for a proven row says the attempt is proven dead, so it never contradicts "It is safe to retry".
  */
+export const RETRY_REFUSAL_COPY = {
+  sendStopped:
+    'This send may already have reached the network, and there is no way to confirm it. Retrying could send it twice. Check your balance first - if it did not go through, you can retry anyway.',
+  sendChecking:
+    'The wallet is still checking whether this went through. Retrying now could send it twice. Check your balance: if it did not go through, you can retry anyway.',
+  swapChecking:
+    'The wallet is still checking whether this swap went through. Retrying now could place it twice. Check your balance: if it did not go through, you can retry anyway.',
+  swapStopped:
+    'This swap may already have reached the network, and there is no way to confirm it. Retrying could place it twice. Check your balance first: if it did not go through, you can retry anyway.',
+  executeChecking:
+    'The wallet is still checking whether this went through. Retrying would run it again, and the result can differ. If you know it did not go through, you can retry anyway.',
+  executeStopped:
+    'This transaction may already have reached the network, and there is no way to confirm it. Retrying would run it again, and the result can differ. Check with the app that requested it: if it did not go through, you can retry anyway.',
+  sendLive:
+    'This send may still be finishing in the background, so retrying now could send it twice. Wait a few minutes, check your balance, and retry then.',
+  swapLive:
+    'This swap may still be finishing in the background, so retrying now could place it twice. Wait a few minutes, check your balance, and retry then.',
+  executeLive:
+    'This transaction may still be finishing in the background, so retrying now could run it twice. Wait a few minutes and retry then.',
+  sendLiveProven:
+    'The network confirmed this send never went through, but a cancelled run of it may still be finishing in the background, so retrying now could send it twice. Wait a few minutes and retry then.',
+  swapLiveProven:
+    'The network confirmed this swap never went through, but a cancelled run of it may still be finishing in the background, so retrying now could place it twice. Wait a few minutes and retry then.',
+  executeLiveProven:
+    'The network confirmed this transaction never went through, but a cancelled run of it may still be finishing in the background, so retrying now could run it twice. Wait a few minutes and retry then.'
+};
+
 /**
- * Thrown when a send cannot be retried safely and the wallet has no way to find
- * out whether it landed. Its own class, rather than a bare `Error`, so the UI can
- * tell this apart from an ordinary retry failure and offer the one thing that can
- * actually resolve it - see `RetryOptions.acknowledgeUnverifiedSend`.
+ * Thrown when Retry cannot rule out that the row already went through, or that a cancelled run of it is still
+ * finishing. Its own class so the UI can offer the one thing that resolves the first kind: the user's word, given for
+ * the attempt the refusal names (`acknowledgeableAttemptId`, #1081). The liveness refusal carries no attempt id, and
+ * no surface offers "Retry anyway" for it.
  */
 export class UnverifiableSendRetryError extends Error {
-  constructor(message?: string) {
-    super(
-      message ??
-        'This send may already have reached the network, and there is no way to confirm it. ' +
-          'Retrying could send it twice. Check your balance first - if it did not go through, you can retry anyway.'
-    );
+  /** The attempt an acknowledgeable refusal is about: the row's `attemptId`, or null for a row that has none. */
+  readonly acknowledgeableAttemptId?: string | null;
+
+  constructor(message: string = RETRY_REFUSAL_COPY.sendStopped, acknowledgeableAttemptId?: string | null) {
+    super(message);
     this.name = 'UnverifiableSendRetryError';
+    if (acknowledgeableAttemptId !== undefined) this.acknowledgeableAttemptId = acknowledgeableAttemptId;
   }
 }
 
@@ -294,33 +322,88 @@ export class UnverifiableSendRetryError extends Error {
 export const isUnverifiableSendRetryError = (error: unknown): boolean =>
   error instanceof Error && error.name === 'UnverifiableSendRetryError';
 
+/** The acknowledgement a rendered refusal offers, kept exactly as rendered; null when it offers none (#1081). */
+export const acknowledgementOf = (error: unknown): { attemptId: string | null } | null => {
+  if (!isUnverifiableSendRetryError(error) || typeof error !== 'object' || error === null) return null;
+  if (!('acknowledgeableAttemptId' in error)) return null;
+  const attemptId = error.acknowledgeableAttemptId;
+  return typeof attemptId === 'string' || attemptId === null ? { attemptId } : null;
+};
+
 export interface RetryOptions {
   /**
-   * Proceed even though a submit cannot be ruled out, because the USER has
-   * confirmed it did not happen.
-   *
-   * The refusal exists because the wallet cannot distinguish "failed before
-   * submitting" from "submitted and then lost the answer" on a plain send. The
-   * user can: the funds either left their balance or they did not. Without this
-   * the guard has no exit at all - nothing clears `mayHaveSubmitted`, and the
-   * Retry button stays on screen throwing the same error forever, which is the
-   * kind of dead end people work around by sending again by hand, i.e. the exact
-   * double payment the guard is for.
-   *
-   * Taking it as a signal that the premise is FALSE, so both markers are cleared
-   * rather than merely bypassed: a later failure on this row must be judged on its
-   * own evidence, not on a crossing the user has just ruled out.
+   * The user confirmed that the attempt the refusal named did not go through (#1081): the `acknowledgeableAttemptId`
+   * that refusal carried, `null` included. The lock cannot cover an acknowledgement, which is given before the call
+   * starts, so Retry honours it only while it still names the row's attempt; one given before another surface's
+   * Retry ran a newer attempt counts as absent. Taken as the premise being false, so both crossing markers are
+   * cleared in the requeue write rather than stepped over.
    */
-  acknowledgeUnverifiedSend?: boolean;
+  acknowledged?: { attemptId: string | null };
 }
 
-export const requeueFailedTransaction = async (txId: string, options: RetryOptions = {}): Promise<void> => {
-  const tx = await Repo.transactions.where({ id: txId }).first();
-  if (!tx) throw new Error(`Transaction ${txId} not found`);
-  // Pass the WHOLE row, not just its type: the gate reads the bridge provider off
-  // `extraInputs` to tell the replayable Agglayer route from the Epoch one.
+const acknowledgeableCopy = (tx: ITransaction, nowSec: number): string => {
+  const checking = awaitingVerdict(tx, nowSec);
+  if (tx.type === 'swap') return checking ? RETRY_REFUSAL_COPY.swapChecking : RETRY_REFUSAL_COPY.swapStopped;
+  if (tx.type === 'execute') return checking ? RETRY_REFUSAL_COPY.executeChecking : RETRY_REFUSAL_COPY.executeStopped;
+  return checking ? RETRY_REFUSAL_COPY.sendChecking : RETRY_REFUSAL_COPY.sendStopped;
+};
+
+const livenessCopy = (type: ITransactionType, proven: boolean): string => {
+  if (type === 'swap') return proven ? RETRY_REFUSAL_COPY.swapLiveProven : RETRY_REFUSAL_COPY.swapLive;
+  if (type === 'execute') return proven ? RETRY_REFUSAL_COPY.executeLiveProven : RETRY_REFUSAL_COPY.executeLive;
+  return proven ? RETRY_REFUSAL_COPY.sendLiveProven : RETRY_REFUSAL_COPY.sendLive;
+};
+
+/** Every attempt replays the same inputs, so a replay after any landing fails on the spent input. */
+const listsNullifier = (tx: ITransaction): boolean =>
+  (tx.submitEvidence ?? []).some(entry => (entry.nullifiers?.length ?? 0) > 0);
+
+/**
+ * An execute that may have submitted (#1081): Unconfirmed, holding an entry not ruled out, or, for a row from before
+ * this change (no attempt id), the send rule's own test. A run that may have crossed always leaves an entry, so a run
+ * with an id and no entry provably ended before its submit. A replay of `requestBytes` re-executes against the
+ * account's current state, so a script that reads the vault can pay a different amount: an execute is not exempt.
+ */
+const executeMayHaveSubmitted = (tx: ITransaction): boolean =>
+  tx.status === ITransactionStatus.Unconfirmed ||
+  (tx.submitEvidence ?? []).some(isUnresolvedEntry) ||
+  (tx.attemptId === undefined &&
+    (tx.mayHaveSubmitted === true || pipelineMayStillBeRunning(tx.cancelledInFlightAt) || isSubmitOutcomeUnknown(tx)));
+
+interface RequeuePlan {
+  failedStage: ITransactionStage | undefined;
+  clearFlags: boolean;
+  proven: boolean;
+  /** The entries' evidence as Retry judged and wrote them, never re-read. */
+  baseline: string;
+}
+
+/** Steps 1 to 5: refuse, complete, or say how to requeue. Undefined when the row was completed instead. */
+const planRequeue = async (
+  tx: ITransaction,
+  acknowledged: RetryOptions['acknowledged']
+): Promise<RequeuePlan | undefined> => {
+  // Pass the WHOLE row: the gate reads the bridge provider off `extraInputs`.
   if (!isRequeueableTransaction({ ...tx, bridgeProvider: bridgeProviderOf(tx) })) {
-    throw new Error(`Transaction ${txId} (${tx.type}) is not retryable`);
+    throw new Error(`Transaction ${tx.id} (${tx.type}) is not retryable`);
+  }
+  const nowSec = nowSeconds();
+  // The next proposal would meet the kept candidate: the 409 arm for most types, an outright failure for a
+  // bridged-send. Proven or not, and acknowledged or not, the row waits for the Guardian's own discard.
+  const holdUntil = keptCandidateHoldUntil(tx, nowSec);
+  if (holdUntil !== undefined) throw new Error(guardianHoldRetryMessage(holdUntil));
+  let proven = tx.neverCommittedAt !== undefined;
+  let baseline = evidenceKey(tx.submitEvidence);
+  let checked = false;
+  if (!proven && awaitingVerdict(tx, nowSec)) {
+    const check = await checkEvidenceForRetry(tx);
+    checked = true;
+    if (check.kind === 'landed') return undefined;
+    // The row may already have landed, and a candidate note can still prove to be a sibling's: it must not reach the
+    // acknowledgeable refusal below, where a plain send could pay twice.
+    if (check.kind === 'landing-pending') throw new Error(TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    proven = check.kind === 'proven';
+    baseline = check.baseline;
   }
 
   // Idempotency guard (resilience gap 2): a send/swap can be marked Failed by an
@@ -330,25 +413,17 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
   // provably on chain (committed) or in the mempool (pending), complete the row
   // instead of resubmitting. An indeterminate result keeps the resubmit path (no
   // captured id / no record → we couldn't confirm it landed).
-  if (NODE_VERIFIED_RETRY_TYPES.includes(tx.type)) {
+  if (!proven && NODE_VERIFIED_RETRY_TYPES.includes(tx.type)) {
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
-      // relays a private send's note, and with no delivery recorded that relay never ran. A
-      // recorded 'pending', 'relayed' or 'confirmed' is the relay's own outcome and is kept
-      // under the clean label; a recorded 'undelivered' is derived again. Judged on the row
-      // the write finds, since the sweep or a cancelled pipeline can record an outcome during
-      // the node check above.
+      // relays a private send's note, and with no delivery recorded that relay never ran.
       const completedAt = Math.floor(Date.now() / 1000);
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
-      await completeVerifiedLandedTransaction(txId, fresh =>
-        fresh.noteDelivery === undefined || fresh.noteDelivery === 'undelivered'
-          ? { ...landedValueRowFields(fresh), completedAt }
-          : { displayMessage: applyLandedDisplayMessage(fresh), completedAt }
-      );
-      return;
+      await completeVerifiedLandedTransaction(tx.id, fresh => ({ ...verifiedLandingRowFields(fresh), completedAt }));
+      return undefined;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
     // not confirm", NOT "it did not land" - and for a rebuilt-request type a
@@ -361,81 +436,68 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     }
   }
 
-  // Last line: refuse rather than gamble.
-  //
-  // Everything above and below assumes ONE of two things makes a retry safe -
-  // either the node can say the original landed, or the cached request pins the
-  // note id so the chain rejects the duplicate. A plain (non-guardian) `send`
-  // can end up with neither. It never caches a request (the guardian recallable
-  // path is the only producer of a send's bytes), and a row failed from outside
-  // its pipeline never captures a `transactionId`, because the completion write
-  // that would stamp it is refused on a row that is already terminal. If a
-  // submit is nonetheless plausible for such a row, requeueing rebuilds the
-  // request with a fresh note serial and the chain has no reason to reject
-  // it - the recipient is paid twice, silently.
-  //
-  // Two readings say a submit cannot be ruled out, and this fires on either.
-  // A RECORDED crossing is the precise one: `mayHaveSubmitted`, stamped by the
-  // leaves at the submit boundary, or a Cancel that raced a live pipeline
-  // (`cancelledInFlightAt`). But a plain send does not always leave one - its
-  // pipeline stamps 'sending' at pickup and may never narrow - so the coarse
-  // reading backs it up: the row demonstrably left the queue at all
-  // (`isSubmitOutcomeUnknown`). Only for types whose request is rebuilt per
-  // attempt and that hold no bytes to pin the note id, which is what makes a
-  // second submit a genuinely new payment rather than one the chain rejects.
-  //
-  // The coarse reading also catches sends that failed provably pre-submit,
-  // including the vault-slot rejection this release fixes. That is why the
-  // refusal is acknowledgeable rather than final: the wallet cannot tell "failed
-  // before submitting" from "submitted and lost the answer", but the user can -
-  // the funds either left their balance or they did not. A refusal with no exit
-  // is what makes people re-send by hand, i.e. the double payment this prevents.
-  const pipelineStillLive = pipelineMayStillBeRunning(tx.cancelledInFlightAt);
-  if (
-    REBUILT_REQUEST_TYPES.includes(tx.type) &&
-    tx.requestBytes === undefined &&
-    tx.transactionId === undefined &&
-    (tx.mayHaveSubmitted === true || pipelineStillLive || isSubmitOutcomeUnknown(tx))
-  ) {
-    // An acknowledgement can rule out the PAST - the user checked their balance
-    // - but not the FUTURE: while the liveness window is open, an ABANDONED
-    // pipeline (a lock-recovery eviction, issue #775) may still submit after
-    // they answer, so their truthful "it never arrived" goes stale. Refuse
-    // absolutely until the window lapses; the acknowledgement exit below then
-    // applies as before.
-    if (pipelineStillLive) {
-      throw new UnverifiableSendRetryError(
-        'This send may still be finishing in the background, so retrying now could send it twice. ' +
-          'Wait a few minutes, check your balance, and retry then.'
-      );
+  // A send or swap that caches no bytes rebuilds its request with a fresh note serial, so the chain has no reason to
+  // reject a second submit. It is refused while a submit cannot be ruled out: a recorded crossing (`mayHaveSubmitted`,
+  // a live cancel) or the coarse reading that the row left the queue at all. The coarse one also catches failures that
+  // were provably pre-submit, which is why the refusal is acknowledgeable: the user can tell the two apart from their
+  // balance, and a refusal with no exit is what makes people re-send by hand.
+  const live =
+    pipelineMayStillBeRunning(tx.cancelledInFlightAt) ||
+    ((tx.type === 'execute' || tx.type === 'swap') && latestEndMayStillRun(tx));
+  const rebuiltWithoutBytes =
+    REBUILT_REQUEST_TYPES.includes(tx.type) && tx.requestBytes === undefined && tx.transactionId === undefined;
+  const sendOrSwapInDoubt =
+    rebuiltWithoutBytes && (proven || tx.mayHaveSubmitted === true || live || isSubmitOutcomeUnknown(tx));
+  const executeInDoubt = tx.type === 'execute' && !listsNullifier(tx) && (proven || executeMayHaveSubmitted(tx));
+
+  // An acknowledgement can rule out the past, not the future: while a cancelled or abandoned run may still submit,
+  // even a proven row waits. An Agglayer bridge never meets this: its bytes rebuild the identical note.
+  if ((sendOrSwapInDoubt || executeInDoubt) && live) {
+    throw new UnverifiableSendRetryError(livenessCopy(tx.type, proven));
+  }
+  let clearFlags = proven;
+  if (!proven && (sendOrSwapInDoubt || executeInDoubt)) {
+    const attemptId = tx.attemptId ?? null;
+    if (acknowledged === undefined || acknowledged.attemptId !== attemptId) {
+      // The copy only: the check may have just ended the reconciler's interest (an 'unresolvable' verdict), and the
+      // refusal must not say the wallet is still checking a row whose hint says it is not.
+      const asLeft = checked ? ((await Repo.transactions.where({ id: tx.id }).first()) ?? tx) : tx;
+      throw new UnverifiableSendRetryError(acknowledgeableCopy(asLeft, nowSeconds()), attemptId);
     }
-    if (!options.acknowledgeUnverifiedSend) {
-      throw new UnverifiableSendRetryError();
+    clearFlags = true;
+  }
+  // Read off the pre-reset row: the requeue write clears `stage`.
+  return { failedStage: tx.stage, clearFlags, proven, baseline };
+};
+
+type RequeueWrite = 'written' | 'declined' | 'evidence-changed';
+
+/**
+ * Step 6, one Dexie write that also takes the flag clear (once a separate write). Today's guard, widened to
+ * Unconfirmed, plus the entries' evidence against what Retry judged and wrote: pipeline stamps stay outside the lock,
+ * so a stamp that lands after the judging read counts as a change.
+ */
+const writeRequeue = async (txId: string, plan: RequeuePlan): Promise<RequeueWrite> => {
+  let result: RequeueWrite = 'declined';
+  await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
+    // Re-checked against what the plan was made from: a write outside the verdict lock (a completion, a pipeline's
+    // stamp) can move the row after Retry read it. `false`, so Dexie skips the put rather than re-writing the
+    // unchanged clone.
+    if (
+      (dbTx.status !== ITransactionStatus.Failed && dbTx.status !== ITransactionStatus.Unconfirmed) ||
+      dbTx.stage !== plan.failedStage
+    ) {
+      return false;
     }
-    // The user has ruled the crossing out, so retract it rather than stepping
-    // over it - see `RetryOptions.acknowledgeUnverifiedSend`. Before the requeue
-    // below, since that reads both fields to decide what to keep.
-    await Repo.transactions.where({ id: txId }).modify(dbTx => {
+    if (evidenceKey(dbTx.submitEvidence) !== plan.baseline) {
+      result = 'evidence-changed';
+      return false;
+    }
+    // Cleared first, so the send branch below reads them as it always has.
+    if (plan.clearFlags) {
       dbTx.mayHaveSubmitted = undefined;
       dbTx.cancelledInFlightAt = undefined;
-    });
-  }
-
-  // Read off the pre-reset row: the modify callback below clears `stage` as part
-  // of returning the row to Queued, so it cannot be consulted from in there.
-  const failedStage = tx.stage;
-  const failedPreSubmit = failedStage !== undefined && PRE_SUBMIT_STAGES.has(failedStage);
-
-  await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
-    // `verifySendLanded` above makes a network round trip, so the row read at the
-    // top of this function can be arbitrarily stale by now. Re-check what the
-    // decision below was made from: if a concurrent retry already requeued this
-    // row and the loop advanced the new attempt, writing here would reset a
-    // live transaction to Queued and - worse - clear the NEW attempt's
-    // `requestBytes` on the strength of the OLD attempt's stage, dropping the
-    // double-send guard for a submit that may since have landed.
-    // `false`, so Dexie skips the put rather than re-writing the unchanged clone.
-    if (dbTx.status !== ITransactionStatus.Failed || dbTx.stage !== failedStage) return false;
+    }
     dbTx.status = ITransactionStatus.Queued;
     dbTx.initiatedAt = Math.floor(Date.now() / 1000);
     // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
@@ -445,6 +507,7 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     // order the tie-break exists to impose.
     dbTx.queuedSeq = nextQueuedSeq();
     dbTx.processingStartedAt = undefined;
+    dbTx.attemptId = undefined;
     dbTx.completedAt = undefined;
     dbTx.stage = undefined;
     // Clear the stage stamps with the stage. `setTransactionStage` is
@@ -468,7 +531,11 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     dbTx.error = undefined;
     dbTx.rawError = undefined;
     dbTx.displayMessage = undefined;
-    dbTx.displayIcon = ICON_BY_TYPE[dbTx.type] ?? 'DEFAULT';
+    dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
+    // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
+    dbTx.neverCommittedAt = undefined;
+    // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.
+    const failedPreSubmit = plan.proven || (plan.failedStage !== undefined && PRE_SUBMIT_STAGES.has(plan.failedStage));
     // A `send` row's cached bytes only exist for a GUARDIAN recallable send
     // (`ensureGuardianRecallableSendRequestBytes`) - the non-guardian path
     // rebuilds its request on every call and never reads `requestBytes`. Those
@@ -527,8 +594,38 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
         dbTx.mayHaveSubmitted = true;
       }
     }
+    result = 'written';
     return undefined;
   });
+  return result;
+};
+
+/** Steps 1 to 6 under the row's verdict lock, judged at most twice. */
+const retryUnderVerdictLock = async (txId: string, options: RetryOptions): Promise<void> => {
+  let acknowledged = options.acknowledged;
+  for (let judging = 0; judging < 2; judging += 1) {
+    const tx = await Repo.transactions.where({ id: txId }).first();
+    if (!tx) throw new Error(`Transaction ${txId} not found`);
+    const plan = await planRequeue(tx, acknowledged);
+    if (plan === undefined) return;
+    if ((await writeRequeue(txId, plan)) !== 'evidence-changed') return;
+    // The evidence the user answered for has changed: judge the fresh row once more, without their word.
+    acknowledged = undefined;
+  }
+  throw new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR);
+};
+
+/**
+ * Retry a Failed or Unconfirmed row by resetting it to Queued (#1081). The whole call runs under the row's verdict
+ * lock, so no reconciler pass judges or writes the row between Retry's read and its write, and a second Retry runs
+ * after the first and reads its result. It waits at most `RETRY_VERDICT_WAIT_MS` for a pass. It never abandons a
+ * Guardian candidate: it runs in the UI realm, which on the extension holds no Guardian service.
+ */
+export const requeueFailedTransaction = async (txId: string, options: RetryOptions = {}): Promise<void> => {
+  const turn = await inVerdictTurn(txId, () => retryUnderVerdictLock(txId, options), {
+    waitMs: RETRY_VERDICT_WAIT_MS
+  });
+  if (!turn.ran) throw new Error(TRANSACTION_BEING_CHECKED_RETRY_ERROR);
 };
 
 // NOTE: a failed `consume` of a bridged-in (EVM → Miden) note IS retryable via

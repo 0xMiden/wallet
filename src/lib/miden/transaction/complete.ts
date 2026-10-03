@@ -1583,15 +1583,21 @@ export const bridgedSendLandedValues = (): Partial<ITransaction> => ({
  * long after the Miden-side send has reached `Completed`, so this mutates
  * `extraInputs` directly rather than through `updateTransactionStatus` (which
  * would reject a Completed row as "already finalized"). Used by the
- * activity-detail claim flow.
+ * activity-detail claim flow and the background bridge poll.
  *
- * `boundDepositTxHash` is the Agglayer deposit's own `tx_hash`, passed by a caller that just
- * looked one up bound to THIS row's `transactionId` (`findClaimableMidenToEvmDeposit`). When the
- * merged write proves this row's own Miden transaction landed - that hash matches
- * (`sameTxHash`), or the Epoch fill poll reports `epochStatus: 'confirmed'` - a row that is
- * Failed in the store is promoted to Completed in that same write, via `applyVerifiedLanding`
- * (#1250), so the evidence and the status can never be stored apart. A write whose merged route
- * status is itself 'failed' never promotes.
+ * `boundDepositTxHash` is the bound deposit's `tx_hash`, passed by a caller that found the deposit
+ * by THIS row's exit hash (`findAgglayerExitDeposit`). A deposit carrying the row's own
+ * `agglayerExitTxHash` proves the bridge consumed this row's own note, so the row landed. When the
+ * merged write proves that - the hashes match (`sameTxHash`), or the Epoch fill poll reports
+ * `epochStatus: 'confirmed'` - a row that is Failed or Unconfirmed in the store is promoted to
+ * Completed in that same write, via `applyVerifiedLanding` (#1250, #1081), so the evidence and the
+ * status can never be stored apart. A write whose merged route status is itself 'failed' never
+ * promotes.
+ *
+ * An Agglayer claim status only moves forward: `claimed` is final, and `ready` applies only over
+ * `pending`. The claim flow and the background poll each write from a snapshot of the row, so
+ * without this a stale `ready` could undo `claiming`, and a late `failed` could undo a claim the
+ * bridge's auto-claimer already made (#1325).
  */
 export const updateBridgeClaimStatus = async (
   id: string,
@@ -1601,6 +1607,7 @@ export const updateBridgeClaimStatus = async (
       IBridgedSendExtraInputs,
       | 'depositReady'
       | 'claimTxHash'
+      | 'agglayerDepositCnt'
       | 'evmTxHash'
       | 'intentNonce'
       | 'outputAmount'
@@ -1615,6 +1622,10 @@ export const updateBridgeClaimStatus = async (
   let landed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
+    if (ei.provider === 'agglayer') {
+      if (ei.claimStatus === 'claimed' && claimStatus !== 'claimed') return;
+      if (claimStatus === 'ready' && ei.claimStatus !== undefined && ei.claimStatus !== 'pending') return;
+    }
     const merged: IBridgedSendExtraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
     tx.extraInputs = merged;
 
@@ -1623,10 +1634,11 @@ export const updateBridgeClaimStatus = async (
       !routeFailed &&
       (claimStatus === 'ready' || claimStatus === 'claiming' || claimStatus === 'claimed') &&
       boundDepositTxHash !== undefined &&
-      tx.transactionId !== undefined &&
-      sameTxHash(boundDepositTxHash, tx.transactionId);
+      merged.agglayerExitTxHash !== undefined &&
+      sameTxHash(boundDepositTxHash, merged.agglayerExitTxHash);
     const epochLanded = !routeFailed && merged.epochStatus === 'confirmed';
-    if (tx.status === ITransactionStatus.Failed && (agglayerLanded || epochLanded)) {
+    const landingUnknown = tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed;
+    if (landingUnknown && (agglayerLanded || epochLanded)) {
       applyVerifiedLanding(tx, bridgedSendLandedValues());
       landed = tx;
     }
@@ -1635,6 +1647,46 @@ export const updateBridgeClaimStatus = async (
   if (landed !== undefined) {
     reportVerifiedLanding(landed);
   }
+};
+
+/**
+ * Pin the Agglayer exit deposit the indexer reported for this row before it was ready, so the next
+ * lookup is one GET. It writes only the pin, never `claimStatus`, so it cannot race a claim write.
+ */
+export const pinAgglayerDeposit = async (id: string, depositCnt: number) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs = tx.extraInputs;
+    tx.extraInputs = { ...ei, agglayerDepositCnt: depositCnt };
+  });
+};
+
+/**
+ * Record the exit hash back-filled for an Agglayer row built before the hash was stored at build
+ * time, or mark the row unavailable when none of its bytes held its note (`undefined`). The first
+ * answer stands: every surface that back-fills a row decodes the same bytes, so a later write has
+ * nothing to add.
+ */
+export const recordAgglayerExitTxHash = async (id: string, exitTxHash: string | undefined) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    if (ei === undefined || ei.agglayerExitTxHash !== undefined || ei.agglayerExitTxHashUnavailable) return;
+    tx.extraInputs =
+      exitTxHash === undefined
+        ? { ...ei, agglayerExitTxHashUnavailable: true }
+        : { ...ei, agglayerExitTxHash: exitTxHash };
+  });
+};
+
+/**
+ * Retire an Agglayer row whose exit a search of its address's whole history missed (`agglayerExitUnfiled`). Only an
+ * unpinned row: a pin means the indexer filed its exit. The first mark stands.
+ */
+export const markAgglayerExitUnfiled = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    if (ei?.provider !== 'agglayer' || ei.agglayerDepositCnt !== undefined || ei.agglayerExitUnfiled) return;
+    tx.extraInputs = { ...ei, agglayerExitUnfiled: true };
+  });
 };
 
 /**

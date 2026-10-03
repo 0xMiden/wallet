@@ -6,6 +6,7 @@ import {
   type TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
+import { v4 as uuid } from 'uuid';
 
 import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
@@ -58,6 +59,7 @@ import {
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
   markStartedInThisRealm,
+  markTransactionUnconfirmed,
   MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
@@ -83,18 +85,26 @@ import {
 } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
+  type AttemptContext,
   claimBridgeSubmit,
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   landedTransactionIdFields,
   landedValueRowFields,
   type LandedWithoutResult,
+  markAttemptPreSubmitEnd,
   markMayHaveSubmitted,
+  pinGuardianCrossing,
   recordBridgeNoteLanded,
+  recordKeptCandidate,
+  recordLeafEnd,
+  recordSubmitCrossing,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
+import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
+import { canAwaitVerdict } from './verdict-rules';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
@@ -105,6 +115,7 @@ import {
   BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
+  hasLeftQueue,
   IBridgeProvider,
   IRequeueStreak,
   IRequeueStreakArm,
@@ -114,13 +125,14 @@ import {
   ITransactionType,
   ReplaceHotKeyTransaction,
   SendTransaction,
+  StageDetail,
   STRUCTURAL_GUARDIAN_TYPES,
   SwapTransaction,
   SwitchGuardianTransaction,
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { isPrivateNoteType } from '../helpers';
+import { GUARDIAN_EXPIRATION_DELTA_BLOCKS, isPrivateNoteType } from '../helpers';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
   accountIdStringToSdk,
@@ -146,13 +158,18 @@ import {
   errorMessageParts,
   extractLanded,
   extractSdkErrorCode,
+  hasErrorBeforeSubmit,
   isApplyAfterSubmitError,
+  isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
   isPoisonedPipeline,
   isStaleInitialCommitmentError,
+  isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
-  someInCauseChain
+  someInCauseChain,
+  SubmitCrossingUnrecordedError
 } from '../sdk/sdk-error-code';
+import { readSubmitEvidence } from '../sdk/submit-evidence';
 import { isSyncWatchdogEviction, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
@@ -162,6 +179,7 @@ export * from './get';
 export * from './helper';
 export * from './initiate';
 export * from './retry';
+export * from './verdict-rules';
 
 // Transaction types whose proposal creator is side-effect-free and idempotent on
 // a pending-delta 409, so returning the tx to the queue for a later cycle is safe.
@@ -449,8 +467,24 @@ const isGuardianBackpressure = (error: unknown): boolean =>
   isGuardianPendingConflict(error) || error instanceof GuardianBackpressureError;
 
 /**
+ * The attempt a dispatch belongs to (#1081), built from the pick-time row: an offscreen execute's stamp can land after
+ * its completion rewrote the stored type to a send, so the origin travels with the stamp. A row without an attempt id
+ * here never went through pickup; failing before the leaf runs is the safe end.
+ */
+const attemptContextOf = (transaction: ITransaction, guardianProposalNonce?: number): AttemptContext => {
+  if (transaction.attemptId === undefined) {
+    throw new Error(`Transaction ${transaction.id} reached its write leaf without an attempt id`);
+  }
+  return {
+    attemptId: transaction.attemptId,
+    fromExecute: transaction.type === 'execute',
+    ...(guardianProposalNonce === undefined ? {} : { guardianProposalNonce })
+  };
+};
+
+/**
  * Build the row-bound per-step stage stamp handed to a write pipeline (PR #524):
- * `stage => setTransactionStage(txId, stage)`, made UNFAILABLE.
+ * `stage => setTransactionStage(txId, stage)`, unfailable except for one write.
  *
  * A stage stamp is telemetry for the generating-transaction screen's per-step
  * durations — never transaction state — so it must not be able to fail a
@@ -464,27 +498,38 @@ const isGuardianBackpressure = (error: unknown): boolean =>
  * the guard belongs HERE, at the single place the callback is produced, rather than
  * at each consumer: every path then inherits it once, and the invariant no longer
  * depends on which realm the leaf happened to run in.
+ *
+ * The exception is a reliable 'submitting' stamp's crossing write (#1081): it is the
+ * submit's precondition, so its failure stops the leaf before the submit rather than
+ * letting a write reach the network unrecorded.
  */
 const stageStampFor =
-  (txId: string): ((stage: ITransactionStage, opts?: { readonly reliable?: boolean }) => Promise<void>) =>
-  async (stage, opts) => {
+  (
+    txId: string,
+    attempt: AttemptContext | undefined
+  ): ((stage: ITransactionStage, detail?: StageDetail) => Promise<void>) =>
+  async (stage, detail) => {
+    // 'submitting' is stamped immediately before the submit call, so it is the exact crossing the double-send guard
+    // needs, recorded even for an unreliable stamp and even once the row is terminal: a concurrent cancel makes the
+    // row terminal without stopping the pipeline. The crossing is recorded per attempt with the evidence the leaf
+    // read (#1081). Without an attempt (see the Guardian leaf) only the flag can be recorded.
+    if (stage === 'submitting') {
+      try {
+        await (attempt === undefined
+          ? markMayHaveSubmitted(txId)
+          : recordSubmitCrossing(txId, detail?.evidence, attempt));
+      } catch (err) {
+        // A reliable stamp is written in this realm before its submit call, so failing it keeps the write off the
+        // network. A replayed one arrives after the fact and can only under-report, which the attempt's catch backs up.
+        if (detail?.reliable !== false) throw new SubmitCrossingUnrecordedError(txId, err);
+        console.warn(`Stage stamp '${stage}' for transaction ${txId} failed; ignoring`, err);
+        return;
+      }
+    }
     try {
-      // 'submitting' is stamped immediately before the submit call, so it is the
-      // exact crossing the double-send guard needs — and it has to be recorded
-      // even for an unreliable stamp, and even once the row is terminal. A
-      // concurrent cancel makes the row terminal without stopping the pipeline,
-      // and `setTransactionStage` drops writes on terminal rows, so the stage
-      // would stay frozen where the cancel caught it and Retry would read a
-      // landed send as never-broadcast. `markMayHaveSubmitted` is guard-free for
-      // that reason. Unlike `stage`, a dropped stamp here can only under-report,
-      // which the coarser `isSubmitOutcomeUnknown` reading still catches.
-      if (stage === 'submitting') await markMayHaveSubmitted(txId);
-      // An UNRELIABLE stamp (replayed from the offscreen realm — see StageCallback in
-      // back/miden-client-proxy.ts) records the boundary for the progress screen but
-      // must not author `stage`: the requeue gates below read that field to conclude a
-      // failed guardian tx never reached the chain, and a dropped or reordered
-      // cross-realm stamp would make that conclusion wrong.
-      await setTransactionStage(txId, stage, { timingOnly: opts?.reliable === false });
+      // An UNRELIABLE stamp (replayed from the offscreen realm) records the boundary for the progress screen but must
+      // not author `stage`: the requeue gates read that field to conclude a failed guardian tx never reached the chain.
+      await setTransactionStage(txId, stage, { timingOnly: detail?.reliable === false });
     } catch (err) {
       console.warn(`Stage stamp '${stage}' for transaction ${txId} failed; ignoring`, err);
     }
@@ -756,11 +801,7 @@ function scheduleRequeueWake(
         scheduleRequeueWake(txId, REQUEUE_WAKE_REARM_MS, signCallback, guardianProvider, chainStartedAt);
         return;
       }
-      if (
-        row === undefined ||
-        row.status === ITransactionStatus.Completed ||
-        row.status === ITransactionStatus.Failed
-      ) {
+      if (row === undefined || hasLeftQueue(row)) {
         return;
       }
       if (row.status !== ITransactionStatus.Queued) {
@@ -897,6 +938,7 @@ async function requeueTransactionForRetry(
   const nextEligibleAt = Math.floor(Date.now() / 1000) + cooldownSec;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
+    attemptId: undefined,
     stage,
     // Reset the per-stage timing stamps: the row re-enters at `stage`, and the
     // stamps are first-entry-wins, so a stale original would make that step span
@@ -1304,12 +1346,15 @@ const generateTransactionWithProvider = async (
   await syncUnderBoundedLock();
 
   // Mark transaction as in progress
+  // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
+  transaction.attemptId = uuid();
   markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending',
     // Running again, so the transaction screen stops saying the Guardian is busy (#312).
-    guardianBusy: undefined
+    guardianBusy: undefined,
+    attemptId: transaction.attemptId
   });
 
   // Route Guardian accounts through Guardian service
@@ -1472,7 +1517,9 @@ const generateTransactionWithProvider = async (
       // can carry a guardian pipeline today is produced next to a realm teardown, so
       // the pipeline really is dead and the requeue would be legitimate - this is the
       // invariant made local rather than inherited from that adjacency.)
-      const abandonedWrite = isKilledPipeline(error);
+      // The indefinite outcome counts too: it proves the submit call was reached, whatever stage the row still reads
+      // (a failed 'submitting' stamp leaves 'proving'), which breaks every arm's pre-submit premise (#1081).
+      const abandonedWrite = isKilledPipeline(error) || isIndefiniteSubmitOutcomeError(error);
       // Both proposal stages are pre-submit; the 429 and unreachable arms below gate on this (see the 429 arm).
       const failedAtProposal = currentRow?.stage === 'creating-proposal' || currentRow?.stage === 'signing-proposal';
       if (!abandonedWrite && REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type) && isGuardianBackpressure(error)) {
@@ -1509,10 +1556,12 @@ const generateTransactionWithProvider = async (
       // sits squarely inside the window an eviction lands in, and requeueing
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
+      // A crossing write that failed also leaves 'proving', but it is no prover failure (#1081).
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
         !abandonedWrite &&
+        !isSubmitCrossingUnrecorded(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
@@ -1736,10 +1785,20 @@ const generateTransactionWithProvider = async (
   // bridged-send Completed, sync reconciles).
   let result: TransactionResult;
   switch (transaction.type) {
-    case 'consume':
-      result = await midenClientProxy.consumeNoteId(transaction as ConsumeTransaction, signCallback);
+    case 'consume': {
+      // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
+      // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
+      const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.consumeNoteId(
+          transaction as ConsumeTransaction,
+          signCallback,
+          attempt && stageStampFor(transaction.id, attempt)
+        )
+      );
       break;
-    case 'send':
+    }
+    case 'send': {
       // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
       // generating-transaction screen can time the proof + submit steps (#524).
       // Those stamps are keyed by the ROW id, which the offscreen write DTO
@@ -1750,15 +1809,27 @@ const generateTransactionWithProvider = async (
       // matters because the SW build (`vite.background.config.ts`) is the ONE build
       // that defaults the flag ON — a stage callback that rode the inline leaf only
       // would silently lose the timings on Chrome, the primary platform.
-      result = await midenClientProxy.sendTransaction(
-        transaction as SendTransaction,
-        signCallback,
-        stageStampFor(transaction.id)
+      const attempt = attemptContextOf(transaction);
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.sendTransaction(
+          transaction as SendTransaction,
+          signCallback,
+          stageStampFor(transaction.id, attempt)
+        )
       );
       break;
-    case 'swap':
-      result = await midenClientProxy.swapTransaction(transaction as SwapTransaction, signCallback);
+    }
+    case 'swap': {
+      const attempt = attemptContextOf(transaction);
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.swapTransaction(
+          transaction as SwapTransaction,
+          signCallback,
+          stageStampFor(transaction.id, attempt)
+        )
+      );
       break;
+    }
     case 'bridged-send':
     case 'earn-deposit':
       // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
@@ -1785,11 +1856,17 @@ const generateTransactionWithProvider = async (
         // colliding when an auth arg is already present, and the commitment built here is the
         // same shape it would have built. Persisted because the commitment carries a fresh salt;
         // the annotation is idempotent.
-        result = await midenClientProxy.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes,
-          transaction.delegateTransaction,
-          signCallback
+        // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
+        const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+        const requestBytes = transaction.requestBytes;
+        result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          midenClientProxy.newTransaction(
+            transaction.accountId,
+            requestBytes,
+            transaction.delegateTransaction,
+            signCallback,
+            attempt && stageStampFor(transaction.id, attempt)
+          )
         );
       } else {
         result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
@@ -1808,11 +1885,15 @@ const generateTransactionWithProvider = async (
           t.requestBytes = executeBytes;
         });
       }
-      result = await midenClientProxy.newTransaction(
-        transaction.accountId,
-        executeBytes,
-        transaction.delegateTransaction,
-        signCallback
+      const attempt = attemptContextOf(transaction);
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.newTransaction(
+          transaction.accountId,
+          executeBytes,
+          transaction.delegateTransaction,
+          signCallback,
+          stageStampFor(transaction.id, attempt)
+        )
       );
       break;
     }
@@ -1948,6 +2029,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
   amount: bigint,
   noteType: NoteType,
   recallBlocks: number,
+  expirationDelta: number,
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) {
@@ -2040,6 +2122,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       faucetId,
       amount,
       noteType,
+      expirationDelta,
       syncHeight + recallBlocks,
       feeSalt
     );
@@ -2105,7 +2188,7 @@ const runGuardianPipeline = async (
   accountId: string,
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
-  setStage: (stage: ITransactionStage) => Promise<void>,
+  setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
   chainAnchorB64?: string
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
@@ -2249,7 +2332,9 @@ const runGuardianPipeline = async (
     //
     // Still pre-submit as to the BROADCAST — that is the next line — so throwing
     // here cannot orphan a transaction the network has seen.
-    await setStage('submitting');
+    await setStage('submitting', {
+      evidence: readSubmitEvidence(executedTx.result, provenTx.proof, () => getCurrentWasmLockHold() === hold)
+    });
     assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     // A rejected submit stays as it is: the node may not have the write. Once submit resolved it
@@ -2275,6 +2360,38 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' &&
   isOffscreenAvailable() &&
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
+
+// Where the proxy runs a non-Guardian write: read per call, like the Guardian route above, so tests can toggle it.
+const writeLeafRunsOffscreen = (): boolean =>
+  process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' && isOffscreenAvailable();
+
+/**
+ * Run one attempt's write leaf (#1081). An offscreen leaf tags every error it raises before its submit call, so an
+ * untagged failure (a result that failed to decode after the dispatch resolved, a serialize after the submit) may
+ * have crossed and gets an evidence-less 'end' entry. An in-realm leaf writes its stamp before it submits, so its
+ * stamp-free failure provably did not cross. A kill and the indefinite outcome are recorded by their own routes.
+ */
+const runWriteLeaf = async <T>(
+  txId: string,
+  attempt: AttemptContext | undefined,
+  offscreen: boolean,
+  leaf: () => Promise<T>
+): Promise<T> => {
+  try {
+    return await leaf();
+  } catch (error) {
+    if (
+      attempt !== undefined &&
+      offscreen &&
+      !isKilledPipeline(error) &&
+      !isIndefiniteSubmitOutcomeError(error) &&
+      !hasErrorBeforeSubmit(error)
+    ) {
+      await recordLeafEnd(txId, attempt);
+    }
+    throw error;
+  }
+};
 
 /**
  * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
@@ -2598,22 +2715,27 @@ const generateDirectSwitchGuardianTransaction = async (
   // pinned to the reference block the hot/cold signatures authorized
   // (protocol 0.16).
   await setTransactionStage(transaction.id, 'sending');
+  const attempt = attemptContextOf(transaction);
   let result: TransactionResult;
   if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
-    result = await dispatchGuardianPipeline(
-      transaction.accountId,
-      tr.serialize(),
-      transaction.delegateTransaction,
-      signCallback,
-      stageStampFor(transaction.id),
-      chainAnchorB64
+    // Serialized outside the leaf: a request that cannot serialize never crossed, so it leaves no entry.
+    const requestBytes = tr.serialize();
+    result = await runWriteLeaf(transaction.id, attempt, true, () =>
+      dispatchGuardianPipeline(
+        transaction.accountId,
+        requestBytes,
+        transaction.delegateTransaction,
+        signCallback,
+        stageStampFor(transaction.id, attempt),
+        chainAnchorB64
+      )
     );
   } else {
     result = await runGuardianPipeline(
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id),
+      stageStampFor(transaction.id, attempt),
       chainAnchorB64
     );
   }
@@ -2743,6 +2865,13 @@ const ABANDON_RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TI
 type ProposalStamps = Pick<GuardianCandidate, 'proposedAt' | 'proposedAtMono'>;
 
 /**
+ * A candidate's age (#1317): the larger of its two clocks' elapsed times since the proposal, so neither a wall clock
+ * set back (the monotonic one keeps counting) nor device sleep (the wall clock keeps counting) can shrink it.
+ */
+const proposalAgeMs = (stamps: ProposalStamps): number =>
+  Math.max(Date.now() - stamps.proposedAt, monotonicNowMs() - stamps.proposedAtMono);
+
+/**
  * Retry, before the account's next proposal, the abandon a failed Guardian write could not get through (#1317): until
  * the Guardian takes it, that write's candidate holds the account for the Guardian's whole hold, about ten minutes.
  * Taken, the record turns plain, so the settlement gate (or a structural write's 409 retry) waits out the Guardian's
@@ -2770,7 +2899,7 @@ const releaseUnabandonedCandidate = async (transaction: ITransaction, service: M
     proposedAt: prior.proposedAt,
     proposedAtMono: prior.proposedAtMono
   };
-  const age = Math.max(Date.now() - prior.proposedAt, monotonicNowMs() - prior.proposedAtMono);
+  const age = proposalAgeMs(prior);
   if (age >= ABANDON_RETRY_WINDOW_MS) {
     recordGuardianCandidate(accountId, plain);
     return;
@@ -2811,20 +2940,24 @@ const assertPriorCandidateSettled = async (transaction: ITransaction, service: M
 };
 
 /**
- * Remember the candidate a Guardian write whose submit resolved left on its Guardian, for the next proposal's
- * settlement gate (#312). Every Guardian write records, structural ones included, so a send after a rotation waits
- * for the rotation's delta too. `proposalStamps` are the caller's, taken before its proposal (#1317).
+ * Remember the candidate a Guardian write left on its Guardian, for the next proposal's settlement gate (#312): one
+ * whose submit resolved, or one the leaf kept for the node's verdict, whose release reads these stamps (#1081). Every
+ * Guardian write whose submit resolved records, structural ones included, so a send after a rotation waits for the
+ * rotation's delta too. `proposalStamps` are the caller's, taken before its proposal (#1317). Only the keep passes
+ * `attemptId`, the keeping attempt's, which the release must find on the record before it abandons that nonce.
  */
 const recordLeftCandidate = (
   transaction: ITransaction,
   service: MultisigService,
   proposal: Proposal,
-  proposalStamps: ProposalStamps
+  proposalStamps: ProposalStamps,
+  attemptId?: string
 ): void =>
   recordGuardianCandidate(canonicalWalletAccountId(transaction.accountId), {
     endpoint: service.guardianEndpoint,
     nonce: proposal.nonce,
-    ...proposalStamps
+    ...proposalStamps,
+    ...(attemptId === undefined ? {} : { attemptId })
   });
 
 /**
@@ -2854,6 +2987,85 @@ const flagCandidateForAbandon = (accountId: string, nonce: number): void => {
   const key = canonicalWalletAccountId(accountId);
   const recorded = getGuardianCandidate(key);
   if (recorded?.nonce === nonce) recordGuardianCandidate(key, { ...recorded, abandon: true });
+};
+
+/**
+ * The reconciler's release of a candidate the Guardian leaf kept for the node's verdict (#1081): a cold service, which
+ * needs no hot key, built under the outgoing-guardian deadline as `requireLandedCommit` builds its abandon, then the
+ * abandon under the same deadline. The poll reads the same service, so it asks the Guardian that took the abandon, and
+ * cuts each read off at the caller's time left or the outgoing deadline, whichever comes first.
+ *
+ * It only reads the record and never writes it, so not `abandonDiscardedCandidate`, whose failure flags the record at
+ * the nonce. While the release checks and sends, the kept candidate still holds its nonce at the Guardian, so no write
+ * can have taken it; the hazard is a write after the abandon. This runs from the sync lap, outside the account's
+ * Guardian lock, and when the Guardian took the abandon but the answer was lost or cut off, a write that skips the
+ * settlement gate (a structural type, a bridged send) can propose at the freed nonce while the old record stands and
+ * end without recording its own (a poison eviction, #1317's mark gate after a crossing). Any mark, even on the very
+ * record this release checked, would then have #1317's retry abandon that write's live candidate. So a failed abandon
+ * returns no poll and leaves the record and the entry's `candidateKept` as they were: the record's settlement gate and
+ * Retry's hold wait out the Guardian's own discard, which the abandon window already bounds.
+ *
+ * An abandon is keyed only by nonce, so it is sent only while this realm's record is still the one the entry's
+ * attempt kept, at that nonce, and younger than ABANDON_RETRY_WINDOW_MS: past that the Guardian has released it, or
+ * will before the abandon arrives, and a later write may hold the nonce. The record's identity, not its time, tells it
+ * from a later write's at the same nonce: an attempt can outlive the Guardian's own discard while it proves and be kept
+ * after the nonce was freed, and the next write can propose that nonce within the same second. With no such record
+ * (another realm, a restart, another write's record) nothing is sent, and Retry's hold, counted from `capturedAt`,
+ * outlasts the Guardian's own discard.
+ */
+export const guardianCandidateRelease = (guardianProvider: GuardianAccountProvider): CandidateRelease => {
+  const releasable = (accountId: string, nonce: number, attemptId: string): GuardianCandidate | undefined => {
+    const record = getGuardianCandidate(canonicalWalletAccountId(accountId));
+    if (record?.nonce !== nonce || record.attemptId !== attemptId) return undefined;
+    return proposalAgeMs(record) < ABANDON_RETRY_WINDOW_MS ? record : undefined;
+  };
+  return {
+    abandon: async (accountId, nonce, attemptId) => {
+      if (releasable(accountId, nonce, attemptId) === undefined) {
+        console.warn(`[Guardian] not releasing kept candidate ${nonce}: no record of its keep inside its window`);
+        return undefined;
+      }
+      let service: MultisigService;
+      try {
+        service = await withOutgoingGuardianDeadline(
+          () => buildColdServiceForAccount(accountId, guardianProvider),
+          'loading the cold service to release a kept candidate'
+        );
+      } catch (buildError) {
+        console.warn(
+          `[Guardian] could not build the cold service to release the kept candidate at nonce ${nonce}:`,
+          buildError
+        );
+        return undefined;
+      }
+      // Checked again as the abandon leaves: the build can take the whole outgoing deadline, and a switch since the
+      // keep leaves the candidate on another Guardian than the one this service reaches.
+      const record = releasable(accountId, nonce, attemptId);
+      if (record === undefined || !sameGuardianEndpoint(record.endpoint, service.guardianEndpoint)) return undefined;
+      try {
+        await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(nonce),
+          'abandoning a kept candidate on its guardian'
+        );
+      } catch (abandonError) {
+        // No mark, not even on this record: the Guardian may have taken the abandon, and a write may since have
+        // proposed at the freed nonce without recording it, whose live candidate #1317's retry would then abandon.
+        console.warn(
+          `[Guardian] could not abandon the kept candidate at nonce ${nonce}; leaving it to its Guardian's discard:`,
+          abandonError
+        );
+        return undefined;
+      }
+      return {
+        status: timeoutMs =>
+          withTimeout(
+            service.abandonStatus(nonce),
+            Math.min(timeoutMs, OUTGOING_GUARDIAN_DEADLINE_MS),
+            'reading the release of a kept candidate'
+          )
+      };
+    }
+  };
 };
 
 /**
@@ -2941,7 +3153,8 @@ const generateGuardianTransaction = async (
           // InvalidParams before the user is prompted, and the wallet's own
           // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
-          recallBlocks
+          recallBlocks,
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS
         );
         proposalResult = await service.createCustomProposal(requestBytes, 'recallable_send');
       } else {
@@ -3137,6 +3350,7 @@ const generateGuardianTransaction = async (
           BigInt(bridgeTx.amount),
           NoteType.Public,
           recallBlocks,
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS,
           // Allocator-validated collateral: measure the reclaim height against a
           // fresh chain head.
           { freshSync: true }
@@ -3246,6 +3460,7 @@ const generateGuardianTransaction = async (
             tr,
             swapTx.faucetId,
             BigInt(swapTx.amount),
+            GUARDIAN_EXPIRATION_DELTA_BLOCKS,
             swapFeeSalt
           ).serialize();
         });
@@ -3424,21 +3639,28 @@ const generateGuardianTransaction = async (
   // message — so classifying the error alone would let a rotation that is
   // already in the mempool trigger a SECOND, unilateral `update_guardian`.
   let guardianCoSignReturned = false;
-  // Did THIS attempt's inline leaf report 'submitting'? Set by the stamp only `runGuardianPipeline` is handed, before it
-  // is forwarded. That leaf awaits the stamp in this realm before its submit call, so a failure past the submit always
-  // finds this set, and a failed abandon below is marked for retry only after a failure that provably preceded the
-  // submit (#1317). The offscreen leaf's stamps are fire-and-forget OFFSCREEN_STAGE_EVENTs, droppable and able to arrive
-  // after its reply, so their absence proves nothing: an attempt dispatched offscreen never marks. A failure before that
-  // dispatch (the co-sign, the bridge claim, the stage writes) never left this realm, so it is pre-submit on either
-  // route. Not the row's `mayHaveSubmitted`: sticky across attempts and stamped before dispatch on every row carrying
-  // request bytes, it would stop the retry for every recallable send, swap, Earn deposit and custom execute.
+  // Did THIS attempt's inline leaf report 'submitting'? Set by the stamp only `runGuardianPipeline` is handed, once it
+  // resolves: a failed crossing write stops that leaf before its submit. The leaf awaits the stamp in this realm before
+  // its submit call, so a failure past the submit always finds this set, and a failed abandon below is marked for retry
+  // only after a failure that provably preceded the submit (#1317). The offscreen leaf's stamps are fire-and-forget
+  // OFFSCREEN_STAGE_EVENTs, droppable and able to arrive after its reply, so their absence proves nothing: an attempt
+  // dispatched offscreen never marks. A failure before that dispatch (the co-sign, the bridge claim, the stage writes)
+  // never left this realm, so it is pre-submit on either route. Not the row's `mayHaveSubmitted`: sticky across
+  // attempts and stamped before dispatch on every row carrying request bytes, it would stop the retry for every
+  // recallable send, swap, Earn deposit and custom execute.
   const offscreenLeaf = shouldRouteGuardianLeafOffscreen(transaction.type);
   let offscreenDispatched = false;
   let submitCrossed = false;
-  const stampStage = stageStampFor(transaction.id);
-  const stampAttemptStage = (stage: ITransactionStage, opts?: { readonly reliable?: boolean }): Promise<void> => {
+  // Outside the try, so `attemptContextOf` must not throw here: a throw would skip the catch's abandon of the pushed
+  // proposal. Guarded only for that reason: a row without an attempt id (none reaches here through pickup) fails at
+  // the leaf's own `attemptContextOf` inside the try, where the abandon runs.
+  const stampStage = stageStampFor(
+    transaction.id,
+    transaction.attemptId === undefined ? undefined : attemptContextOf(transaction, proposalResult.nonce)
+  );
+  const stampAttemptStage = async (stage: ITransactionStage, detail?: StageDetail): Promise<void> => {
+    await stampStage(stage, detail);
     if (stage === 'submitting') submitCrossed = true;
-    return stampStage(stage, opts);
   };
   try {
     // The LAST outgoing-guardian round trip. The three calls above it carry the
@@ -3500,6 +3722,7 @@ const generateGuardianTransaction = async (
 
     await requireBridgeSubmitClaim(transaction);
     await setTransactionStage(transaction.id, 'sending');
+    const attempt = attemptContextOf(transaction, proposalResult.nonce);
     if (offscreenLeaf) {
       // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-
       // signed request crosses as bytes: its extended advice map — where the hot
@@ -3510,8 +3733,10 @@ const generateGuardianTransaction = async (
       // in the offscreen doc as ONE killable op; the executeRequest keystore sign
       // reaches the SW-resident vault via the EXISTING OFFSCREEN_SIGN_REQUEST
       // reverse channel (no new IPC). On a deadline/close kill the offscreen op
-      // rejects with a retryable OperationAbortedError and the SW catch below
-      // still runs `abandonCandidate`, byte-identical to the inline path.
+      // rejects with a retryable OperationAbortedError, and the SW catch below
+      // treats it as the inline path treats a kill: a row that can await a verdict
+      // keeps its candidate for the node's verdict (#1081), and only a row that
+      // cannot await one runs `abandonCandidate`.
       //
       // The per-step stage stamps (PR #524) cross too: the offscreen leaf stamps the
       // SAME three boundaries `runGuardianPipeline` does (executing / proving /
@@ -3537,11 +3762,11 @@ const generateGuardianTransaction = async (
       // brick every non-recallable guardian send on its FIRST failure, the
       // vault-slot rejection included. A guardian send with no recall window
       // takes `createSendProposal` and caches nothing, so it is left alone.
-      if (transaction.requestBytes !== undefined) {
-        await markMayHaveSubmitted(transaction.id);
-      }
-      // Serialized before the flag is set: a request that cannot serialize never reached the leaf.
+      // Serialized before the pin and the flag: a request that cannot serialize never reached the leaf.
       const requestBytes = tr.serialize();
+      if (transaction.requestBytes !== undefined) {
+        await pinGuardianCrossing(transaction.id, attempt);
+      }
       offscreenDispatched = true;
       // The proposal's ChainAnchor rides along (protocol 0.16): the signed
       // summary binds the reference block it was built at, so the leaf's
@@ -3549,13 +3774,15 @@ const generateGuardianTransaction = async (
       // has usually advanced past it during the guardian HTTP roundtrips, and an
       // unanchored execute derives a different summary the collected signatures
       // no longer authorize ("transaction is unauthorized").
-      result = await dispatchGuardianPipeline(
-        transaction.accountId,
-        requestBytes,
-        transaction.delegateTransaction,
-        signCallback,
-        stampStage,
-        chainAnchorB64
+      result = await runWriteLeaf(transaction.id, attempt, true, () =>
+        dispatchGuardianPipeline(
+          transaction.accountId,
+          requestBytes,
+          transaction.delegateTransaction,
+          signCallback,
+          stampStage,
+          chainAnchorB64
+        )
       );
     } else {
       result = await runGuardianPipeline(
@@ -3581,6 +3808,33 @@ const generateGuardianTransaction = async (
       }`,
       { error }
     );
+    // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
+    // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
+    if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
+      await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
+    }
+    // Kept for the node's verdict on a row that can await one (#1081): after a kill, whose pipeline may still submit,
+    // or once this attempt may have crossed its submit, abandoning would retract a co-signature the chain may be about
+    // to consume. The crossing is this attempt's own, as for the mark below: the inline leaf awaits its 'submitting'
+    // stamp before it submits, and the offscreen leaf tags every error it raises before its submit call. Never the
+    // row's `mayHaveSubmitted`, which an earlier attempt or the pre-dispatch pin may have raised: it would keep a
+    // candidate that can never land, and the entry recorded for it would keep the row from ever being proven safe. A
+    // refusal after the crossing is kept too, since no classifier tells it from a lost response; a resolved submit is
+    // the landed path's.
+    const keptForVerdict =
+      canAwaitVerdict(transaction) &&
+      !isApplyAfterSubmitError(error) &&
+      (isKilledPipeline(error) || submitCrossed || (offscreenDispatched && !hasErrorBeforeSubmit(error)));
+    if (keptForVerdict) {
+      // Recorded plain with its proposal's stamps and this attempt's id: the next proposal's settlement gate waits on
+      // it, and the release dates it and abandons its nonce only while the record is still this attempt's
+      // (`guardianCandidateRelease`).
+      recordLeftCandidate(transaction, service, proposalResult, proposalStamps, transaction.attemptId);
+      if (transaction.attemptId !== undefined) {
+        const source = isKilledPipeline(error) ? 'kill' : isIndefiniteSubmitOutcomeError(error) ? 'error-text' : 'end';
+        await recordKeptCandidate(transaction.id, attemptContextOf(transaction, proposalResult.nonce), source);
+      }
+    }
     if (isPoisonedPipeline(error)) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the
@@ -3591,9 +3845,11 @@ const generateGuardianTransaction = async (
     // The landed shape proves the submit resolved (#1233): the node has the write, so this
     // candidate WILL land. Abandoning it anyway asks the guardian to discard a delta the chain is
     // about to consume; on slow inclusion the guardian finalizes that, drops the landed delta and
-    // releases the account onto stale state for up to a minute. Only a failure that cannot show
-    // the submit resolved (a kill, a pre-submit error, a canonicalization refusal) abandons: both
-    // leaves wrap every post-submit failure as the apply-after-submit error.
+    // releases the account onto stale state for up to a minute. A failure that cannot show the
+    // submit resolved abandons unless the candidate was kept above: after a poison kill on any
+    // row, and on a row that awaits a verdict after any kill or once the attempt may have crossed
+    // its submit (#1081). Both leaves wrap every post-submit failure as the apply-after-submit
+    // error.
     const submitResolved = isApplyAfterSubmitError(error);
     // The node has the write, so its candidate is on the Guardian now: the next proposal's gate asks about it (#312).
     if (submitResolved) recordLeftCandidate(transaction, service, proposalResult, proposalStamps);
@@ -3620,7 +3876,7 @@ const generateGuardianTransaction = async (
     ) {
       transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
     }
-    if (!submitResolved) {
+    if (!submitResolved && !keptForVerdict) {
       try {
         // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
         // This call reaches the same operator, over the same transport, that the
@@ -3932,7 +4188,9 @@ export const generateTransactionsLoop = async (
     // offscreen deadline arrives as `OperationAbortedError` from the identical
     // point and is equally still running (`cancel.ts` treats the two as one class).
     // Either one counts at any depth of the cause chain (#1313).
-    const abandoned = isKilledPipeline(e);
+    // The indefinite outcome proves the submit call was reached, which breaks both
+    // arms' strictly-pre-submit premise (#1081).
+    const abandoned = isKilledPipeline(e) || isIndefiniteSubmitOutcomeError(e);
 
     // The initial sync is the only pipeline step that runs while the committed
     // row is still Queued at `syncing`. An ordinary failure at that boundary is
@@ -4014,7 +4272,7 @@ export const generateTransactionsLoop = async (
           `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
         await recordBridgeNoteLanded(tx.id);
-        if (tx.status !== ITransactionStatus.Failed) {
+        if (!hasLeftQueue(tx)) {
           await recordLandedTransactionId(tx.id, e);
           await cancelTransactionAfterPipelineStopped(tx, e);
         }
@@ -4022,12 +4280,12 @@ export const generateTransactionsLoop = async (
       }
 
       logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
-      // Failed is excluded alongside Completed because `updateTransactionStatus`
-      // throws on EITHER, and this sits in the loop's own catch: a row a
+      // Failed and Unconfirmed are excluded alongside Completed because `updateTransactionStatus`
+      // throws on all three, and this sits in the loop's own catch: a row a
       // concurrent writer failed in the meantime would turn a handled
       // apply-after-submit into a throw out of the catch block. Nothing is lost
       // by skipping — the row already has a terminal state.
-      if (tx && tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
+      if (tx && !hasLeftQueue(tx)) {
         // Guardian ops never reach here: they route through the guardian branch of
         // `generateTransaction`, whose own catch handles apply-after-submit: Failed for the
         // result-awaiting ops (earn-deposit, Epoch bridged-send), Completed for the other
@@ -4071,7 +4329,13 @@ export const generateTransactionsLoop = async (
 
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
-    if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
+    if (tx && !hasLeftQueue(tx)) {
+      await cancelTransactionAfterPipelineStopped(tx, e);
+    } else if (tx?.status === ITransactionStatus.Failed && isIndefiniteSubmitOutcomeError(e) && canAwaitVerdict(tx)) {
+      // A row a user cancel already failed still takes the Unconfirmed write's terminal-row branch, as the Guardian
+      // catch's does: the pipeline has stopped, so the cancel's in-flight window ends and the attempt gains its entry.
+      await markTransactionUnconfirmed(tx, e);
+    }
     return false;
   }
 

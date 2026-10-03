@@ -7,7 +7,7 @@ import {
   getCompletedTransactions,
   getUncompletedTransactions,
   isCancellableTransaction,
-  isUnconfirmedFailure,
+  isOutcomeUnconfirmed,
   isUserCancelledTransaction,
   supersededFailedConsumeIds,
   suppressedLinkedConsumeIds,
@@ -471,7 +471,7 @@ async function fetchTransactionsAsHistoryEntries(
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
-    const isUnconfirmed = isUnconfirmedFailure(tx);
+    const isUnconfirmed = isOutcomeUnconfirmed(tx);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed

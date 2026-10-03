@@ -16,10 +16,11 @@ import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
+import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
 import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
-import { isUnconfirmedFailure, isUserCancelledTransaction } from 'lib/miden/activity';
+import { isOutcomeUnconfirmed, isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
 import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
@@ -413,7 +414,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
-          isUnconfirmed: isUnconfirmedFailure(tx),
+          isUnconfirmed: isOutcomeUnconfirmed(tx),
+          notConfirmedHint: notConfirmedHintKey(tx),
           noteDelivery: tx.noteDelivery,
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
@@ -428,6 +430,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeReclaimNoteId: bridge?.reclaimNoteId,
           bridgeSubmitClaimed: bridge?.submitClaimed,
+          bridgeAgglayerExitTxHash: bridge?.agglayerExitTxHash,
+          bridgeAgglayerDepositCnt: bridge?.agglayerDepositCnt,
+          bridgeAgglayerExitUnfindable: bridge !== undefined && isAgglayerExitUnfindable(bridge),
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
@@ -489,7 +494,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // strings. Shared with `SwapDetail`, which renders the swap branch of this same
   // page - see `useTransactionActions`.
   const actions = useTransactionActions(transactionId, entry, transaction);
-  const { canCancel, canRetry, earnRetryKind } = actions;
+  const { canCancel, canRetry, earnRetryKind, acknowledgement } = actions;
 
   // Swap lineage polling lives at the app root. This screen consumes the latest
   // store value and asks a parked order to refresh when opened.
@@ -1043,7 +1048,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             )}
 
             {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
-            {(entry.status === ITransactionStatus.Failed || (isBridgeIn && entry.bridgeInPhase === 'failed')) &&
+            {(entry.status === ITransactionStatus.Failed ||
+              entry.status === ITransactionStatus.Unconfirmed ||
+              (isBridgeIn && entry.bridgeInPhase === 'failed')) &&
               entry.errorMessage && (
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
@@ -1053,6 +1060,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       rawErrorMessage={entry.rawErrorMessage}
                       isCancelled={entry.isCancelled}
                       isUnconfirmed={entry.isUnconfirmed}
+                      hintKey={entry.notConfirmedHint}
                     />
                   </div>
                 </div>
@@ -1177,19 +1185,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
               isLoading={actions.isRetrying}
               disabled={actions.isRetrying}
-              onClick={() => actions.onRetry(false)}
+              onClick={() => actions.onRetry()}
               className="max-w-none"
             />
             {/* Only after the refusal above has been shown, so the warning is
                 always read first. */}
-            {actions.needsSendAcknowledgement && (
+            {acknowledgement !== null && (
               <Button
                 data-testid="history-retry-anyway-button"
                 variant={ButtonVariant.Secondary}
                 title={t('retryAnyway')}
                 isLoading={actions.isRetrying}
                 disabled={actions.isRetrying}
-                onClick={() => actions.onRetry(true)}
+                onClick={() => actions.onRetry(acknowledgement)}
                 className="mt-2 max-w-none"
               />
             )}

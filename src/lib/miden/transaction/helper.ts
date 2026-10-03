@@ -8,14 +8,19 @@ import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
+import { latestEntry, upsertEvidenceEntry } from './verdict-rules';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { compareAccountIds } from '../activity/utils';
 import {
+  hasLeftQueue,
   IBridgedSendExtraInputs,
+  ICON_BY_TYPE,
   INoteDeliveryState,
   ITransaction,
+  ITransactionIcon,
   ITransactionStage,
   ITransactionStatus,
+  SubmitEvidenceFields,
   TransactionOutput
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
@@ -159,6 +164,8 @@ export function isLockedError(err: unknown): boolean {
  * Update the status of the transaction
  * @param id The id of the transaction to update
  * @throws if the transaction has been cancelled
+ *
+ * An Unconfirmed row is refused too: its pipeline has stopped, and only the reconciler's writers move it (#1081).
  */
 export const updateTransactionStatus = async <K extends keyof ITransaction>(
   id: string,
@@ -167,7 +174,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
 ) => {
   const tx = await Repo.transactions.where({ id }).first();
   if (!tx) throw new Error('No transaction found to update');
-  if (tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Completed) {
+  if (hasLeftQueue(tx)) {
     throw new Error('Transaction already in a finalized state');
   }
 
@@ -180,14 +187,22 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   // icon and an expiry message, on a send that actually went through.
   let finalized = false;
   await Repo.transactions.where({ id: id }).modify(t => {
-    if (t.status === ITransactionStatus.Failed || t.status === ITransactionStatus.Completed) {
+    if (hasLeftQueue(t)) {
       finalized = true;
       return false;
     }
     // Snapshot the stamps accumulated DURING the run, before the assign below
     // can overwrite them with a stale forwarded copy (see the Completed branch).
     const runStageTimestamps = t.stageTimestamps;
+    // A completion hands over the whole pick-time row, which predates every crossing and verdict written during the
+    // run; only their own writers change these (#1081).
+    const storedEvidence = t.submitEvidence;
+    const storedNeverCommittedAt = t.neverCommittedAt;
     Object.assign(t, otherValues);
+    if (storedEvidence === undefined) delete t.submitEvidence;
+    else t.submitEvidence = storedEvidence;
+    if (storedNeverCommittedAt === undefined) delete t.neverCommittedAt;
+    else t.neverCommittedAt = storedNeverCommittedAt;
     t.status = status;
     // Stamp the terminal stage on success. `setTransactionStage` refuses writes
     // once a row is terminal, so the trailing setTransactionStage(id,'complete')
@@ -306,7 +321,7 @@ export const setTransactionStage = async (
     // terminal row would be re-put unchanged and fire a `liveQuery` event for
     // it. This writer runs at every stage boundary and `useTransactionRow`
     // observes the table, so that is the noisiest place to get it wrong.
-    if (tx.status === ITransactionStatus.Completed || tx.status === ITransactionStatus.Failed) return false;
+    if (hasLeftQueue(tx)) return false;
     // `tx.stage` is CONTROL state, `tx.stageTimestamps` is TELEMETRY, and the two
     // are written together only when the writer is reliable and in-order.
     //
@@ -509,6 +524,22 @@ export const landedValueRowFields = (
 };
 
 /**
+ * The Completed fields for a row proven landed from node evidence alone, by Retry or the unconfirmed reconciler
+ * (#1233, #1081). A recorded 'pending', 'relayed' or 'confirmed' is the relay's own outcome (a cancelled pipeline runs
+ * on and relays) and is kept under the clean label; with none recorded, or an 'undelivered' one, it is derived again.
+ * Pass the row as the write finds it: the sweep or a cancelled pipeline can record an outcome during the node check.
+ */
+export const verifiedLandingRowFields = (
+  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>
+): { displayMessage: string; displayIcon: ITransactionIcon; noteDelivery?: 'undelivered' } => ({
+  // A Failed row carries the failed icon, which Activity draws for any status.
+  displayIcon: ICON_BY_TYPE[tx.type],
+  ...(tx.noteDelivery === undefined || tx.noteDelivery === 'undelivered'
+    ? landedValueRowFields(tx)
+    : { displayMessage: applyLandedDisplayMessage(tx) })
+});
+
+/**
  * Reconcile a Failed row that the node says actually LANDED.
  *
  * Separate from {@link updateTransactionStatus} because that function's terminal
@@ -557,9 +588,10 @@ export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITra
   tx.status = ITransactionStatus.Completed;
   tx.stage = 'complete';
   // The failure is no longer the row's story; leaving it behind renders a
-  // completed transaction with an error on it.
+  // completed transaction with an error on it, or with the failed icon.
   tx.error = undefined;
   tx.rawError = undefined;
+  if (tx.displayIcon === 'FAILED') tx.displayIcon = ICON_BY_TYPE[tx.type];
 };
 
 /**
@@ -609,6 +641,186 @@ export const reportVerifiedLanding = (tx: ITransaction): void => {
 export const markMayHaveSubmitted = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.mayHaveSubmitted = true;
+  });
+};
+
+/**
+ * The attempt a pipeline run is, frozen when it starts (#1081): its id, whether the row was an execute, and a
+ * Guardian proposal's nonce. Writers that run on the pipeline's own call stack take it; the others read the row.
+ */
+export interface AttemptContext {
+  readonly attemptId: string;
+  readonly fromExecute: boolean;
+  readonly guardianProposalNonce?: number;
+}
+
+/**
+ * Record that `attempt` crossed its submit, with whatever evidence its leaf read (#1081). Guard-free like
+ * `markMayHaveSubmitted`, which it replaces at the stamp: a cancel makes the row terminal without stopping the
+ * pipeline. An unreliable stamp's evidence is recorded too, because an entry can only hold a row back from "safe".
+ */
+export const recordSubmitCrossing = async (
+  id: string,
+  evidence: SubmitEvidenceFields | undefined,
+  attempt: AttemptContext
+): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.mayHaveSubmitted = true;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attempt.attemptId,
+      {
+        source: 'stage',
+        evidence,
+        guardianProposalNonce: attempt.guardianProposalNonce,
+        fromExecute: attempt.fromExecute
+      },
+      nowSec
+    );
+  });
+};
+
+/**
+ * The Guardian leaf's pre-dispatch pin, per attempt (#1081). A realm killed between submit and the replayed stamp
+ * leaves the row looking never-broadcast, so the crossing is pinned before dispatch. `raisedFlag` records that this
+ * pin, not an earlier crossing, set `mayHaveSubmitted`, which is what lets the leaf retire it.
+ */
+export const pinGuardianCrossing = async (id: string, attempt: AttemptContext): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    const raised = tx.mayHaveSubmitted !== true;
+    tx.mayHaveSubmitted = true;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attempt.attemptId,
+      {
+        source: 'pin',
+        guardianProposalNonce: attempt.guardianProposalNonce,
+        fromExecute: attempt.fromExecute,
+        ...(raised ? { raisedFlag: true } : {})
+      },
+      nowSec
+    );
+  });
+};
+
+/**
+ * The Guardian leaf kept this attempt's candidate instead of abandoning it (#1081), on a row that awaits a verdict:
+ * after a kill, whose pipeline may still land it, or after a failure that may have followed the attempt's submit
+ * crossing. Retry's hold reads it and the reconciler releases it. The leaf's catch holds the proposal nonce the kill
+ * route lacks, so it records both; `source` names the end only when this creates the entry. Never throws: the catch's
+ * own error is the one the row must record, and a lost mark only shortens the hold to the Guardian's pending-delta
+ * conflict.
+ */
+export const recordKeptCandidate = async (
+  id: string,
+  attempt: AttemptContext,
+  source: 'kill' | 'error-text' | 'end'
+): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attempt.attemptId,
+        {
+          source,
+          candidateKept: true,
+          guardianProposalNonce: attempt.guardianProposalNonce,
+          fromExecute: attempt.fromExecute
+        },
+        nowSec
+      );
+    });
+  } catch (error) {
+    console.warn(
+      `[submit-evidence] could not record the kept candidate of attempt ${attempt.attemptId} on ${id}`,
+      error
+    );
+  }
+};
+
+/**
+ * The attempt's leaf proved it ended before its submit call (#1081): its entry is ruled out everywhere, and the
+ * `mayHaveSubmitted` its pin raised is cleared, never one an earlier crossing raised. Never throws: it runs in the
+ * leaf's catch, whose own error is the one the row must record.
+ */
+export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
+      if (entry === undefined) return false;
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attemptId,
+        { source: entry.source, preSubmitEnd: true },
+        nowSec
+      );
+      if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
+      return undefined;
+    });
+  } catch (error) {
+    console.warn(`[submit-evidence] could not retire the pin of attempt ${attemptId} on ${id}`, error);
+  }
+};
+
+/**
+ * An offscreen leaf failed without proving it came before its submit (#1081), so the attempt gets an evidence-less
+ * entry: a run that submitted and then lost both its stamp and its result's decode is never invisible to the safe
+ * rule. Never throws, for the same reason as `markAttemptPreSubmitEnd`.
+ */
+export const recordLeafEnd = async (id: string, attempt: AttemptContext): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attempt.attemptId,
+        { source: 'end', fromExecute: attempt.fromExecute, guardianProposalNonce: attempt.guardianProposalNonce },
+        nowSec
+      );
+    });
+  } catch (error) {
+    console.warn(`[submit-evidence] could not record the end of attempt ${attempt.attemptId} on ${id}`, error);
+  }
+};
+
+/**
+ * The kill route's record (#1081): an eviction or an offscreen deadline kill abandoned this attempt, which may still
+ * be running and submit. It finds the attempt's pin or stamp entry, or creates one, and marks the end; the first end
+ * wins. Guard-free, because the cancel that follows makes the row terminal.
+ */
+export const recordKillEnd = async (id: string, attemptId: string | undefined): Promise<void> => {
+  if (attemptId === undefined) return;
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attemptId,
+      { source: 'kill', endedBy: 'kill', fromExecute: tx.type === 'execute' },
+      nowSec
+    );
+  });
+};
+
+/**
+ * A writer is ending this row from outside its pipeline (#1081): a user cancel, the stuck reaper, the cold-start
+ * sweep, the force-cancel, the stuck-consume verifier. Only a GeneratingTransaction row has a pipeline that can
+ * outlive the end. `mayHaveSubmitted` stays unset: setting it would pin a Guardian send's bytes for good.
+ */
+export const recordOutOfBandEnd = async (id: string): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.GeneratingTransaction || tx.attemptId === undefined) return false;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      tx.attemptId,
+      { source: 'out-of-band', endedBy: 'out-of-band', fromExecute: tx.type === 'execute' },
+      nowSec
+    );
+    return undefined;
   });
 };
 
@@ -699,13 +911,13 @@ export const markCancelledInFlight = async (id: string) => {
  * possible. Called from the pipeline's own catch, and what lets a genuine execute
  * or prove failure rebuild its request rather than replaying a bad one.
  *
- * On the guardian paths a submit that HAD happened is recorded on
- * `mayHaveSubmitted` by the leaf before it submitted, so the guard holds on that
- * instead and clearing this loses nothing. A plain send stamps nothing, so
- * clearing genuinely returns it to "no evidence either way" — correct for the
+ * A submit that HAD happened is on the attempt's evidence entry (#1081): an
+ * in-realm leaf writes its 'submitting' stamp before it submits, and an offscreen
+ * failure that cannot prove it came before its submit gets an evidence-less 'end'
+ * entry (`runWriteLeaf`). So clearing this loses nothing, and a run that failed
+ * before its submit returns to "no evidence either way", which is correct for the
  * failures that reach here (the pipeline stopped, and the aborted-op case is
- * routed to the flag instead), but not a claim that a crossing was recorded
- * elsewhere. See `cancelTransactionAfterPipelineStopped`.
+ * routed to the flag instead). See `cancelTransactionAfterPipelineStopped`.
  */
 export const clearCancelledInFlight = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {
@@ -760,13 +972,28 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 
 const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
 
+/** What a waiter hears when its row is still waiting for the node's verdict (#1081): submitted, never "failed". */
+const notYetConfirmedMessage = (row: Pick<ITransaction, 'submitEvidence'> | undefined): string => {
+  const transactionId = row === undefined ? undefined : latestEntry(row)?.transactionId;
+  return transactionId === undefined
+    ? 'Transaction was submitted, but the network has not confirmed it yet'
+    : `Transaction ${transactionId} was submitted, but the network has not confirmed it yet`;
+};
+
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {
     let subscription: { unsubscribe: () => void } | null = null;
+    let lastSeen: ITransaction | undefined;
 
     const timeoutId = setTimeout(() => {
       subscription?.unsubscribe();
-      resolve({ errorMessage: 'Transaction timed out' });
+      // A dApp or the B2AGG flow must not read "failed" and ask for a second signature for a row that may still land.
+      resolve({
+        errorMessage:
+          lastSeen?.status === ITransactionStatus.Unconfirmed
+            ? notYetConfirmedMessage(lastSeen)
+            : 'Transaction timed out'
+      });
     }, WAIT_FOR_TX_TIMEOUT);
 
     const cleanup = () => {
@@ -782,6 +1009,7 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           resolve({ errorMessage: 'Transaction not found' });
           return;
         }
+        lastSeen = tx;
 
         if (tx.status === ITransactionStatus.Completed) {
           cleanup();

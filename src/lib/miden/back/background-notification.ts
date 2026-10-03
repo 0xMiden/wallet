@@ -76,8 +76,8 @@ export function notifyBackgroundTransactionFailed(): void {
 
 /**
  * The same notice for a failed row whose outcome is unknown (`isUnconfirmedFailure`): the
- * transaction may still land, so the copy asks the user to check before sending again rather
- * than calling it failed. Gated and best-effort exactly like
+ * transaction may still land, so the copy asks the user to check before trying again, whatever the
+ * transaction's type (#1081), rather than calling it failed. Gated and best-effort exactly like
  * {@link notifyBackgroundTransactionFailed}.
  */
 export function notifyBackgroundTransactionNotConfirmed(): void {
@@ -87,7 +87,7 @@ export function notifyBackgroundTransactionNotConfirmed(): void {
     const title = getMessage('transactionNotConfirmedNotificationTitle') || 'Transaction not confirmed';
     const body =
       getMessage('transactionNotConfirmedNotificationBody') ||
-      'The wallet could not confirm whether a transaction went through. Open the wallet before you send it again.';
+      'The wallet could not confirm whether a transaction went through. Open the wallet before you try again.';
     showBackgroundNotification(title, body, 'miden-transaction-not-confirmed');
   } catch (err) {
     console.warn('[background-notification] failed to notify an unconfirmed transaction:', err);

@@ -236,6 +236,87 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
   );
 }
 
+const INDEFINITE_OUTCOME = /came back without a definite outcome/i;
+const INDEFINITE_TRANSACTION_ID = /submission of transaction (0x[0-9a-f]{64})/i;
+
+/**
+ * The SDK's indefinite submit outcome (#1081): "submission of transaction <id> came back without a definite outcome,
+ * so the node may or may not have accepted it; nothing was recorded locally". The text is compiled into the SDK wasm
+ * with no code. A kill anywhere in the cause chain is never this outcome: the killed pipeline may still be running,
+ * and the kill route owns that row.
+ */
+export function isIndefiniteSubmitOutcomeError(err: unknown): boolean {
+  if (isKilledPipeline(err)) return false;
+  return errorMessageParts(err).some(part => INDEFINITE_OUTCOME.test(part));
+}
+
+/**
+ * The id the indefinite outcome names, from the same message part as its phrase, so a wrapper naming another
+ * transaction cannot supply it. Lower-cased, the form every node read returns.
+ */
+export function indefiniteSubmitTransactionId(err: unknown): string | undefined {
+  if (isKilledPipeline(err)) return undefined;
+  for (const part of errorMessageParts(err)) {
+    if (!INDEFINITE_OUTCOME.test(part)) continue;
+    const id = INDEFINITE_TRANSACTION_ID.exec(part)?.[1];
+    if (id !== undefined) return id.toLowerCase();
+  }
+  return undefined;
+}
+
+/**
+ * Tag `err` as raised before its write's submit call (#1081): the only proof that an attempt never crossed, which
+ * lets a Guardian pin retire and keeps an offscreen failure from leaving an evidence-less entry. Kills, the
+ * apply-after-submit shape and the indefinite outcome are at or after the submit, so they are never tagged. A value
+ * that cannot take the property (a frozen error) stays untagged, which only costs an extra entry.
+ */
+export function markErrorBeforeSubmit(err: unknown): unknown {
+  if (isKilledPipeline(err) || isApplyAfterSubmitError(err) || isIndefiniteSubmitOutcomeError(err)) return err;
+  if (typeof err !== 'object' || err === null) {
+    return Object.assign(new Error(String(err), { cause: err }), { errorBeforeSubmit: true });
+  }
+  try {
+    Object.assign(err, { errorBeforeSubmit: true });
+  } catch {
+    // Frozen or a hostile proxy: no tag.
+  }
+  return err;
+}
+
+/**
+ * Whether the thrown value itself carries the tag. Never the cause chain: a wrapper can report a failure that
+ * happened after the submit its cause preceded.
+ */
+export function hasErrorBeforeSubmit(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  try {
+    return 'errorBeforeSubmit' in err && err.errorBeforeSubmit === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A reliable 'submitting' stamp whose crossing write failed (#1081). The stamp is the submit's precondition, so the
+ * leaf stopped before its submit. Not a prover failure either: nothing re-proves it, marks the prover down or takes
+ * the prover-outage requeue for it.
+ */
+export class SubmitCrossingUnrecordedError extends Error {
+  readonly errorBeforeSubmit = true;
+
+  constructor(transactionId: string, cause: unknown) {
+    super(`Transaction ${transactionId} could not record its submit crossing, so it stopped before its submit`, {
+      cause
+    });
+    this.name = 'SubmitCrossingUnrecordedError';
+  }
+}
+
+/** A failed crossing write anywhere in `err`'s cause chain: never a prover failure, however a caller wrapped it. */
+export function isSubmitCrossingUnrecorded(err: unknown): boolean {
+  return someInCauseChain(err, link => link instanceof SubmitCrossingUnrecordedError);
+}
+
 /**
  * What a landed write's failure knows about its transaction (#1233): the executed transaction's id, how
  * many private user output notes it produced and its final account commitment, each only when it could

@@ -61,6 +61,7 @@
 
 ### Fixes
 
+- [FIX][all] A transaction whose submit came back without a definite outcome is no longer left Failed: it shows as Not confirmed until the network decides, then completes on its own if it landed or is marked safe to retry once the network proves it never will, and Retry checks the network first (#1081).
 - [FIX][all] When a Guardian transaction fails and the Guardian cannot be reached to release it, the account's next send, claim, swap or other Guardian transaction asks the Guardian to release it first, so it waits under a minute instead of about ten minutes for the Guardian's hold to expire (#1317).
 - [FIX][mobile] The 2-minute delegated-prove deadline and the 5-minute WASM lock watchdog count only time the app could run, and a remote prove that a background stretch cut off is sent to the remote prover again instead of being proved on the device (#473).
 - [FIX][mobile] A wallet that unlocks with biometrics asks for Face ID or fingerprint to confirm each send, swap, earn deposit and dApp transaction, and the Guardian rotation review labels its hot key by how it is actually protected (#1308)
@@ -137,6 +138,7 @@
 - [FIX][all] A link that opens the hidden Activity tab with a new filter shows the list already in place, with no rows sliding (#1198).
 - [FIX][mobile] Biometric setup says why biometrics can't be used and what to do: with no fingerprint or face enrolled it says so (in an Android work profile, Fingerprint or Face Unlock for work) and on Android offers Open Settings, then checks again when you come back; Android setup offers biometrics only when a strong (class 3) biometric is enrolled, as the vault key needs; and Unlock's biometric icon matches an Android device's fingerprint or face sensor, and the Rotate Guardian review's hot-key row names it Face unlock on Android, Face ID on iOS; a device with only a weaker biometric enrolled is now told to set up a stronger one instead of a generic enrollment message (in a work profile, for work), with Open Settings offered there too, and on iOS, a Face ID the user turned off for the app now says so instead of a generic hardware-unavailable message (#465).
 - [FIX][all] A Slow (Agglayer) ETH bridge-in from Sepolia matches its tracking row by the amount the bridge actually delivers (the deposit in wei scaled down by 10^10), so the deposit reaches Received and its note is labelled Bridged from EVM (#1326).
+- [FIX][all] A Slow (Agglayer) bridge to Sepolia turns Claimed once its deposit is claimed, by you or the bridge's auto-claimer, and Home's bridge prompt clears; a bridge stuck since 8 September 2026 settles after the update, and an older one the bridge service no longer lists stops showing the prompt (#1325).
 
 ## 1.16.2 (2026-09-24)
 

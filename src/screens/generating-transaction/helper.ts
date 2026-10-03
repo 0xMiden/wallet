@@ -91,7 +91,7 @@ export const isUnconfirmedGuardianSwitch = (tx: ITransaction | undefined): boole
   tx?.type === 'switch-guardian' && tx.extraInputs?.commitUnconfirmed === true;
 
 /**
- * `unconfirmed` marks a failure whose outcome is unknown (`isUnconfirmedFailure`): the step it
+ * `unconfirmed` marks a row whose outcome is unknown (`isOutcomeUnconfirmed`): the step it
  * froze on may still finish, so it reads pending rather than failed.
  */
 export const getTransactionStepState = (

@@ -21,6 +21,7 @@ import {
   IBridgedSendNoteParams,
   IBridgeProvider,
   IConsumedAssetTotal,
+  isLiveTransaction,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -37,6 +38,7 @@ import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
+import { holdsNotes } from './verdict-rules';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -125,7 +127,7 @@ export const initiateConsumeTransaction = async (
 
 /**
  * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
- * both the WASM client's consume request (`newConsumeTransactionRequest`) and the
+ * both the wallet's consume request (`buildConsumeTransactionRequest`) and the
  * Guardian consume proposal take many notes, so batching is one proof/submit
  * instead of N.
  *
@@ -273,11 +275,12 @@ const queueConsumeRows = async (
     // Notes that have already lost a shared batch row and so must not join another.
     const isolate: ConsumableNote[] = [];
     let blockingId: string | null = null;
+    const nowSec = Math.floor(Date.now() / 1000);
 
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
       // index for legacy/single rows, multi-entry `noteIds` for batch rows),
-      // then partition. We need both non-Failed (dedup) and every lifetime Failed
+      // then partition. We need both the blocking rows (dedup) and every lifetime Failed
       // (exponential-backoff gate) inside the same rw transaction so the
       // check-and-add stays atomic.
       const byScalar = await Repo.transactions.where('noteId').equals(note.id).toArray();
@@ -292,8 +295,12 @@ const queueConsumeRows = async (
         tx => tx.type === 'consume' && !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
       );
 
-      // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.
-      const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
+      // A live or completed claim wins, and so does one that holds its notes while the reconciler still judges it
+      // (#1081): a second consume would compete for the nullifier the reconciler reads. One that holds nothing does
+      // not block, since only a verdict would ever release it.
+      const liveOrCompleted = sameAccount.find(
+        tx => isLiveTransaction(tx) || tx.status === ITransactionStatus.Completed || holdsNotes(tx, nowSec)
+      );
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
         // An explicit user retry must take effect NOW, even when the blocking row
@@ -317,12 +324,11 @@ const queueConsumeRows = async (
         continue;
       }
 
-      // Bounded-retry gate: only Failed rows exist for this note+account.
+      // Bounded-retry gate: no row blocks this note+account, only Failed ones and claims that hold nothing remain.
       // Skipped entirely for explicit user retries (`manualRetry`) — a deliberate
       // tap must always queue a fresh attempt rather than be throttled by the
       // auto-consume backoff.
       if (!manualRetry) {
-        const nowSec = Math.floor(Date.now() / 1000);
         const failures = sameAccount
           .filter(tx => tx.status === ITransactionStatus.Failed && (!rotationFunding || tx.rotationFunding === true))
           .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
@@ -571,7 +577,8 @@ export const initiateBridgedSendTransaction = async (
   requestBytes?: Uint8Array,
   delegateTransaction?: boolean,
   sendParams?: IBridgedSendNoteParams,
-  spendingLimitAuthorization?: SpendingLimitAuthorization
+  spendingLimitAuthorization?: SpendingLimitAuthorization,
+  agglayerExitTxHash?: string
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -582,7 +589,8 @@ export const initiateBridgedSendTransaction = async (
     faucetId,
     requestBytes,
     delegateTransaction,
-    sendParams
+    sendParams,
+    agglayerExitTxHash
   );
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 

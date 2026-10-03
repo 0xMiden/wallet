@@ -1766,7 +1766,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // The inline client's consumeNoteId ran on the full tx object.
-    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx);
+    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx, undefined);
     expect(result).toEqual({ __inlineTxResult: true });
     // Offscreen never touched.
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -2539,6 +2539,76 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
     expect(G.__px.getMidenClient).not.toHaveBeenCalled();
   });
 
+  it('flag ON → the stage event forwards the evidence it carried, marked unreliable (#1081)', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent } = await loadProxy(true);
+    const onStage = jest.fn(async () => {});
+    const evidence = { transactionId: `0x${'a'.repeat(64)}`, refBlock: 7 };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      handleOffscreenStageEvent(env.op_id, 'submitting', evidence);
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1, 2, 3]).toString('base64'), durationMs: 4 };
+    });
+    const p = midenClientProxy.consumeNoteId(
+      consumeTx() as any,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await p;
+    await flush();
+    expect(onStage).toHaveBeenCalledWith('submitting', { reliable: false, evidence });
+  });
+
+  it('flag OFF → consume, swap and newTransaction hand the stage callback straight to the inline leaf (#1081)', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const onStage = jest.fn(async () => {});
+    const signCallback = jest.fn(async () => new Uint8Array([1]));
+    const consume = consumeTx();
+    const swap = swapTx();
+    const requestBytes = new Uint8Array([1]);
+
+    await midenClientProxy.consumeNoteId(consume as any, signCallback, onStage);
+    await midenClientProxy.swapTransaction(swap as any, signCallback, onStage);
+    await midenClientProxy.newTransaction('mtst1qacc', requestBytes, true, signCallback, onStage);
+
+    expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(consume, onStage);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(swap, onStage);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', requestBytes, true, onStage);
+  });
+
+  it('flag ON → swap and newTransaction register the stage callback for their op (#1081)', async () => {
+    const { midenClientProxy, handleOffscreenStageEvent } = await loadProxy(true);
+    const onStage = jest.fn(async () => {});
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      handleOffscreenStageEvent(env.op_id, 'submitting', { refBlock: 3 });
+      return { ok: true, op_id: env.op_id, resultB64: Buffer.from([1]).toString('base64'), durationMs: 1 };
+    });
+
+    const swap = midenClientProxy.swapTransaction(
+      swapTx() as any,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await swap;
+    const execute = midenClientProxy.newTransaction(
+      'mtst1qacc',
+      new Uint8Array([1]),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      onStage
+    );
+    await flush();
+    fireReady();
+    await execute;
+    await flush();
+
+    expect(onStage).toHaveBeenCalledTimes(2);
+    expect(onStage).toHaveBeenNthCalledWith(1, 'submitting', { reliable: false, evidence: { refBlock: 3 } });
+    expect(onStage).toHaveBeenNthCalledWith(2, 'submitting', { reliable: false, evidence: { refBlock: 3 } });
+  });
+
   it('a stage event for an unknown op_id is ignored silently (never throws)', async () => {
     const { handleOffscreenStageEvent, __test } = await loadProxy(true);
     // Never dispatched, so nothing is registered under this id.
@@ -2605,7 +2675,7 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
     warnSpy.mockRestore();
   });
 
-  it('a write with NO stage callback registers nothing (consume/swap/newTransaction are unstaged)', async () => {
+  it('a write with NO stage callback registers nothing', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     let stageSizeDuring: number | undefined;
     let signSizeDuring: number | undefined;
@@ -2643,7 +2713,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     // options: no per-write signer anywhere, the realm's installed one signs (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, undefined);
     expect(result).toEqual({ __inlineSwapResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2737,7 +2807,7 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', 
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // Positional passthrough — accountId, requestBytes, delegateTransaction — verbatim.
-    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false, undefined);
     expect(result).toEqual({ __inlineNewResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2752,7 +2822,7 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', 
       undefined,
       jest.fn(async () => new Uint8Array())
     );
-    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, undefined);
+    expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, undefined, undefined);
     expect(result).toEqual({ __inlineNewResult: true });
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -3408,5 +3478,85 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
     expect(__test.inFlightSize()).toBe(1);
     expect(__test.inFlightOpIds()).toEqual([op_id]);
+  });
+});
+
+describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
+  it('rebuilds a tagged reply as a tagged error, and an untagged one untagged', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'pre',
+      errorBeforeSubmit: true
+    }));
+    const tagged = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    expect(hasErrorBeforeSubmit(await tagged)).toBe(true);
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'post'
+    }));
+    const untagged = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    expect(hasErrorBeforeSubmit(await untagged)).toBe(false);
+  });
+
+  it('never tags a rebuilt eviction', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'evicted',
+      errorName: 'WasmClientPoisonedError',
+      errorBeforeSubmit: true
+    }));
+    const poisoned = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    expect(hasErrorBeforeSubmit(await poisoned)).toBe(false);
+  });
+
+  it('a document that cannot be opened fails tagged and registers nothing', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.offscreen.createDocument.mockRejectedValueOnce(new Error('cannot create the document'));
+    const failed = await __test.dispatchCritical('sendTransaction', [{}], 20).promise.catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(failed)).toBe(true);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('an argument that cannot be encoded fails tagged, registers nothing, and kills no concurrent write', async () => {
+    jest.useFakeTimers();
+    try {
+      const { __test } = await loadProxy(true);
+      const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+      fakeChrome.runtime.sendMessage.mockImplementation(() => new Promise(() => {}));
+      // No deadline, so no timer of its own: only a stale op's backstop could settle it.
+      const live = __test.dispatchCritical('sendTransaction', [{}], null);
+      let liveSettled = false;
+      live.promise.then(
+        () => (liveSettled = true),
+        () => (liveSettled = true)
+      );
+      // The first dispatch opens the document and waits for its ready signal.
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      const failed = await __test
+        .dispatchCritical('sendTransaction', [{ amount: 1n }], 20)
+        .promise.catch((e: unknown) => e);
+      expect(hasErrorBeforeSubmit(failed)).toBe(true);
+      expect(__test.inFlightOpIds()).toEqual([live.op_id]);
+      await jest.advanceTimersByTimeAsync(__test.criticalDispatchBackstopMs() + 1);
+      expect(liveSettled).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

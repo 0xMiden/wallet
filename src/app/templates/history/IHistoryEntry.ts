@@ -10,6 +10,7 @@ import {
   ITransactionType,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
@@ -49,8 +50,10 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
-  /** A failed row whose outcome is unknown rather than confirmed-failed (`isUnconfirmedFailure`). */
+  /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
   isUnconfirmed?: boolean;
+  /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
+  notConfirmedHint?: NotConfirmedHintKey;
   /**
    * `tx.noteDelivery` — whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
@@ -141,6 +144,15 @@ export interface IHistoryEntry {
    * no committed id was recorded.
    */
   bridgeSubmitClaimed?: boolean;
+  /** agglayer: the indexer `tx_hash` of this row's exit, which binds every deposit lookup to this row. */
+  bridgeAgglayerExitTxHash?: string;
+  /** agglayer: `deposit_cnt` of this row's exit deposit, once the indexer has reported it. */
+  bridgeAgglayerDepositCnt?: number;
+  /**
+   * agglayer: the row's stored marks say no lookup can find its exit (`isAgglayerExitUnfindable`), so it is treated
+   * as unbound.
+   */
+  bridgeAgglayerExitUnfindable?: boolean;
   /**
    * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
    * detail view can withhold affordances that turn a row back into work —

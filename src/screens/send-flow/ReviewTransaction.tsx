@@ -367,6 +367,7 @@ export const ReviewTransaction: React.FC = () => {
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
             destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
+            guardianProvider: zustandProvider,
             spendingLimitAuthorization: authorization
           });
           if (isExtension()) requestSWTransactionProcessing();

@@ -249,6 +249,7 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   createTransactionProposalRequest: jest.fn(async () => 'tx-req'),
   signProposal: jest.fn(async () => ({ signatures: [] })),
   abandonCandidate: jest.fn(async () => ({ state: 'pending' })),
+  abandonStatus: jest.fn(async () => 'waiting'),
   executeProposal: jest.fn(async () => {}),
   syncState: jest.fn(async () => {}),
   // Local IS the on-chain state unless a test says otherwise: the re-register's guard (#1233).
@@ -463,6 +464,15 @@ describe('MultisigService', () => {
       await service.abandonCandidate(7);
 
       expect(multisig.abandonCandidate).toHaveBeenCalledWith(7);
+    });
+
+    it('abandonStatus forwards the candidate nonce to the Guardian SDK (#1081)', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.abandonStatus(7)).resolves.toBe('waiting');
+
+      expect(multisig.abandonStatus).toHaveBeenCalledWith(7);
     });
 
     it('getConsumableNotes forwards to the wrapped Multisig', async () => {

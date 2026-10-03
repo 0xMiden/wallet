@@ -623,8 +623,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "A carteira não conseguiu confirmar se essa transação foi processada. Ela ainda pode chegar, portanto, verifique seu saldo após a sincronização da carteira antes de enviá-la novamente.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "A carteira não conseguiu confirmar se a operação foi concluída. Ela ainda pode ser concluída; portanto, verifique a carteira após a sincronização antes de tentar novamente.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "A carteira não conseguiu determinar se a operação foi concluída e não está verificando isso. Verifique a carteira antes de tentar novamente.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "Isso foi restaurado a partir de um backup, portanto a carteira não pode verificar se a operação foi bem-sucedida nem repeti-la. Verifique a carteira antes de repetir a operação.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Mostrar o erro completo",
@@ -4073,8 +4081,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "A carteira não conseguiu confirmar se uma transação foi concluída. Abra a carteira antes de enviá-la novamente.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "A carteira não conseguiu confirmar se uma transação foi concluída. Abra a carteira antes de tentar novamente.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Toque aqui para aceitar",
