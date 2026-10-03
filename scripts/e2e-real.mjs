@@ -160,7 +160,7 @@ function parseArgs(argv) {
     '--min-eth': 'minEth',
     '--grep': 'grep'
   };
-  // A flag never takes another option as its value: `--epoch-positions-url
+  // A flag never takes another option as its value: `--sepolia-rpc
   // $UNSET --preflight-only` would otherwise store the option as the URL and
   // build and run a suite the operator asked only to preflight. A Set, so an
   // inherited name such as `constructor` stays a valid value.
