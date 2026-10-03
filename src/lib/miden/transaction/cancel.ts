@@ -251,8 +251,9 @@ export const cancelTransaction = async (
 /**
  * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
  * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
- * `cancelTransaction` describes); a row already terminal keeps its state and only gains the attempt's entry. Raises
- * the not-confirmed notice and an `errored` report, as the Failed write does for an unconfirmed row today.
+ * `cancelTransaction` describes); a row already terminal keeps its state and only gains the attempt's entry. The
+ * cancel-in-flight window ends on every path. Raises the not-confirmed notice and an `errored` report, as the Failed
+ * write does for an unconfirmed row today.
  */
 export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
   const existing = await Repo.transactions.where({ id: tx.id }).first();
@@ -262,6 +263,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
   let entered = false;
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const attemptId = row.attemptId ?? tx.attemptId;
+    const windowOpen = row.cancelledInFlightAt !== undefined;
     if (attemptId !== undefined) {
       row.submitEvidence = upsertEvidenceEntry(
         row.submitEvidence,
@@ -274,13 +276,17 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
         nowSec
       );
     }
-    if (row.status !== ITransactionStatus.GeneratingTransaction) return attemptId === undefined ? false : undefined;
+    // Every caller is the pipeline's own catch, so the pipeline has stopped even on a row a cancel already failed: a
+    // window left open would refuse its Retry as possibly still running.
+    row.cancelledInFlightAt = undefined;
+    if (row.status !== ITransactionStatus.GeneratingTransaction) {
+      return attemptId === undefined && !windowOpen ? false : undefined;
+    }
     row.status = ITransactionStatus.Unconfirmed;
     row.completedAt = nowSec;
     row.mayHaveSubmitted = true;
     row.error = displayError;
     if (displayError !== rawError) row.rawError = rawError;
-    row.cancelledInFlightAt = undefined;
     entered = true;
     return undefined;
   });

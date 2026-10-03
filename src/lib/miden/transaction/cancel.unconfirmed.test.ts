@@ -73,7 +73,8 @@ describe('entering Unconfirmed (#1081)', () => {
     ['an earn deposit', { type: 'earn-deposit' }],
     ['an Epoch bridge', { type: 'bridged-send', extraInputs: { provider: 'epoch' } }],
     ['a rotation-funding claim', { type: 'consume', rotationFunding: true }],
-    ['a structural Guardian op', { type: 'switch-guardian' }]
+    ['a structural Guardian op', { type: 'switch-guardian' }],
+    ['a restored row', { restoredFromBackup: true }]
   ])('%s takes today`s Failed tail', async (_label, overrides) => {
     await Repo.transactions.put(generating(overrides));
     await cancelTransactionAfterPipelineStopped(generating(overrides), indefinite());
@@ -89,7 +90,18 @@ describe('entering Unconfirmed (#1081)', () => {
     expect(row?.status).toBe(ITransactionStatus.Failed);
     expect(row?.error).toBe('Transaction was cancelled by user');
     expect(row?.submitEvidence).toEqual([expect.objectContaining({ transactionId: ID })]);
+    // The pipeline's own catch is the caller, so its cancel-in-flight window has ended.
+    expect(row?.cancelledInFlightAt).toBeUndefined();
     expect(notices().notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('a terminal row with no attempt to record still has its window ended', async () => {
+    await Repo.transactions.put(generating({ status: ITransactionStatus.Failed, attemptId: undefined }));
+    await markTransactionUnconfirmed(generating({ attemptId: undefined }), indefinite());
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(row?.submitEvidence).toBeUndefined();
+    expect(row?.cancelledInFlightAt).toBeUndefined();
   });
 
   it('an error-text id never replaces the id a stamp recorded', async () => {

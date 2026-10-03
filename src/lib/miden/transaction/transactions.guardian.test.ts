@@ -36,6 +36,7 @@ import { installHiddenDocument } from 'lib/mobile/testing/hidden-document';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { cancelTransactionById } from './cancel';
 import {
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   ERR_FEE_CONVERSION_INFO_MISSING_CODE,
@@ -46,7 +47,8 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
-  TRANSACTION_VAULT_SHORTFALL_ERROR
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import {
   completeReplaceHotKeyTransaction,
@@ -5643,6 +5645,58 @@ describe('generateTransaction — Guardian routing', () => {
         await run(row);
 
         expect(stored(row.id).status).toBe(ITransactionStatus.Unconfirmed);
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    });
+
+    it('a send cancelled mid-submit keeps its Failed state when the submit comes back indefinite, and its window ends (#1081)', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const indefiniteId = `0x${'ab'.repeat(32)}`;
+        mockGetOrCreateMultisigService.mockResolvedValue(busyService());
+        // The stamp cannot read the id, so only the error text can name it: its arrival shows the catch's write ran.
+        const result = makeResult();
+        const client = makeClientApi({
+          ...result,
+          executedTransaction: () => ({
+            ...result.executedTransaction(),
+            id: () => ({
+              toHex: () => {
+                throw new Error('id unreadable');
+              }
+            })
+          })
+        });
+        const row = queueRow('cancelled-then-indefinite', SEND);
+        let afterCancel: Record<string, unknown> = {};
+        client.transactions.submitProven.mockImplementationOnce(async () => {
+          await cancelTransactionById(row.id, USER_CANCELLED_TRANSACTION_REASON);
+          afterCancel = { ...stored(row.id) };
+          throw new Error(
+            `submission of transaction ${indefiniteId} came back without a definite outcome, so the node may ` +
+              'or may not have accepted it; nothing was recorded locally'
+          );
+        });
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+
+        await run(row);
+
+        expect(afterCancel.status).toBe(ITransactionStatus.Failed);
+        expect(afterCancel.cancelledInFlightAt).toEqual(expect.any(Number));
+        const { attemptId } = stored(row.id);
+        expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
+        expect(stored(row.id).error).toBe(afterCancel.error);
+        expect(stored(row.id).submitEvidence).toEqual([
+          expect.objectContaining({ attemptId, transactionId: indefiniteId })
+        ]);
+        expect(stored(row.id).cancelledInFlightAt).toBeUndefined();
       } finally {
         warn.mockRestore();
         error.mockRestore();
