@@ -1,5 +1,7 @@
 import { AccountId, Address, FungibleAsset, Note } from '@miden-sdk/miden-sdk/lazy';
 
+import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
+
 import {
   accountIdStringToSdk,
   accountRefToSdk,
@@ -53,7 +55,15 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
       this.ownOutputNotes = notes;
       return this;
     };
-    this.build = () => ({ kind: 'request', ownOutputNotes: this.ownOutputNotes });
+    this.withExpirationDelta = (delta: number) => {
+      this.expirationDelta = delta;
+      return this;
+    };
+    this.build = () => ({
+      kind: 'request',
+      ownOutputNotes: this.ownOutputNotes,
+      expirationDelta: this.expirationDelta
+    });
   })
 }));
 
@@ -186,12 +196,17 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
       expect(FungibleAsset).not.toHaveBeenCalled();
-      expect(request).toEqual({ kind: 'request', ownOutputNotes: expect.anything() });
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: expect.anything(),
+        expirationDelta: EXPIRATION_DELTA_BLOCKS
+      });
     });
 
     // The flag is part of the vault key, so one faucet can occupy two slots.
@@ -205,7 +220,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -222,7 +238,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         50n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 50n);
@@ -235,7 +252,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       // Largest slot, so the resulting kernel error names the real shortfall.
@@ -251,7 +269,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -264,7 +283,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
@@ -273,7 +293,15 @@ describe('miden sdk helpers', () => {
 
     it('constructs the asset directly when the sender account is unavailable', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-      buildSendTransactionRequest(undefined, sender, recipient, FAUCET_REF, 100n, 'Private' as any);
+      buildSendTransactionRequest(
+        undefined,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
+      );
 
       expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
       expect(FungibleAsset).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) }), 100n);
@@ -289,7 +317,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Public' as any
+        'Public' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(Note.createP2IDNote).toHaveBeenCalled();
@@ -304,6 +333,7 @@ describe('miden sdk helpers', () => {
         FAUCET_REF,
         100n,
         'Public' as any,
+        EXPIRATION_DELTA_BLOCKS,
         230
       );
 
@@ -329,6 +359,7 @@ describe('miden sdk helpers', () => {
         FAUCET_REF,
         100n,
         'Public' as any,
+        EXPIRATION_DELTA_BLOCKS,
         0
       );
 
@@ -361,7 +392,8 @@ describe('miden sdk helpers', () => {
             recipient,
             FAUCET_REF,
             amount,
-            'Public' as any
+            'Public' as any,
+            EXPIRATION_DELTA_BLOCKS
           )
         ).toThrow('outside the representable range');
         expect(Note.createP2IDNote).not.toHaveBeenCalled();
@@ -376,9 +408,23 @@ describe('miden sdk helpers', () => {
           recipient,
           FAUCET_REF,
           MAX_AMOUNT,
-          'Public' as any
+          'Public' as any,
+          EXPIRATION_DELTA_BLOCKS
         )
       ).not.toThrow();
+    });
+
+    it('carries the expiration delta it is given (#1081)', () => {
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any,
+        180
+      );
+      expect(request).toMatchObject({ expirationDelta: 180 });
     });
   });
 
@@ -415,7 +461,8 @@ describe('miden sdk helpers', () => {
         accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
         referenceRequest(referenceNote()),
         FAUCET_REF,
-        100n
+        100n,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -433,7 +480,8 @@ describe('miden sdk helpers', () => {
         accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
         referenceRequest(referenceNote()),
         FAUCET_REF,
-        100n
+        100n,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       const [, metadata, recipient, attachments] = rebuilt();
@@ -451,7 +499,8 @@ describe('miden sdk helpers', () => {
         accountHolding(vaultAsset(FAUCET_HEX, 10n, 'disabled'), vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
         referenceRequest(referenceNote()),
         FAUCET_REF,
-        100n
+        100n,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -465,7 +514,8 @@ describe('miden sdk helpers', () => {
           accountHolding(vaultAsset('accountId-0xother', 500n, 'enabled')) as any,
           referenceRequest(referenceNote()),
           FAUCET_REF,
-          100n
+          100n,
+          EXPIRATION_DELTA_BLOCKS
         );
 
         expect(request).toBeDefined();
@@ -481,7 +531,8 @@ describe('miden sdk helpers', () => {
           accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
           referenceRequest(referenceNote()),
           FAUCET_REF,
-          MAX_AMOUNT + 1n
+          MAX_AMOUNT + 1n,
+          EXPIRATION_DELTA_BLOCKS
         )
       ).toThrow('outside the representable range');
       expect(Note.withAttachments).not.toHaveBeenCalled();
@@ -495,9 +546,21 @@ describe('miden sdk helpers', () => {
           accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
           referenceRequest(undefined),
           FAUCET_REF,
-          100n
+          100n,
+          EXPIRATION_DELTA_BLOCKS
         )
       ).toThrow('carried no own output note');
+    });
+
+    it('carries the expiration delta it is given (#1081)', () => {
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n,
+        180
+      );
+      expect(request).toMatchObject({ expirationDelta: 180 });
     });
   });
 });

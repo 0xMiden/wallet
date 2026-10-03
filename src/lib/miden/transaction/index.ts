@@ -120,7 +120,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { isPrivateNoteType } from '../helpers';
+import { expirationDeltaBlocks, isPrivateNoteType } from '../helpers';
 import { applyAfterSubmit } from '../sdk/apply-after-submit';
 import {
   accountIdStringToSdk,
@@ -1753,12 +1753,17 @@ const generateTransactionWithProvider = async (
       // would silently lose the timings on Chrome, the primary platform.
       result = await midenClientProxy.sendTransaction(
         transaction as SendTransaction,
+        expirationDeltaBlocks(false),
         signCallback,
         stageStampFor(transaction.id)
       );
       break;
     case 'swap':
-      result = await midenClientProxy.swapTransaction(transaction as SwapTransaction, signCallback);
+      result = await midenClientProxy.swapTransaction(
+        transaction as SwapTransaction,
+        expirationDeltaBlocks(false),
+        signCallback
+      );
       break;
     case 'bridged-send':
     case 'earn-deposit':
@@ -1793,7 +1798,11 @@ const generateTransactionWithProvider = async (
           signCallback
         );
       } else {
-        result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
+        result = await midenClientProxy.sendTransaction(
+          transaction as SendTransaction,
+          expirationDeltaBlocks(false),
+          signCallback
+        );
       }
       break;
     case 'execute':
@@ -1949,6 +1958,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
   amount: bigint,
   noteType: NoteType,
   recallBlocks: number,
+  expirationDelta: number,
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) {
@@ -2041,6 +2051,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       faucetId,
       amount,
       noteType,
+      expirationDelta,
       syncHeight + recallBlocks,
       feeSalt
     );
@@ -2942,7 +2953,8 @@ const generateGuardianTransaction = async (
           // InvalidParams before the user is prompted, and the wallet's own
           // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
-          recallBlocks
+          recallBlocks,
+          expirationDeltaBlocks(true)
         );
         proposalResult = await service.createCustomProposal(requestBytes, 'recallable_send');
       } else {
@@ -3138,6 +3150,7 @@ const generateGuardianTransaction = async (
           BigInt(bridgeTx.amount),
           NoteType.Public,
           recallBlocks,
+          expirationDeltaBlocks(true),
           // Allocator-validated collateral: measure the reclaim height against a
           // fresh chain head.
           { freshSync: true }
@@ -3247,6 +3260,7 @@ const generateGuardianTransaction = async (
             tr,
             swapTx.faucetId,
             BigInt(swapTx.amount),
+            expirationDeltaBlocks(true),
             swapFeeSalt
           ).serialize();
         });

@@ -2101,6 +2101,7 @@ describe('generateTransaction — Guardian routing', () => {
         'faucet',
         1000n,
         expectedSdkNoteType,
+        180,
         125,
         'SALT'
       );
@@ -2169,6 +2170,7 @@ describe('generateTransaction — Guardian routing', () => {
       'faucet',
       1000n,
       'Public',
+      180,
       125,
       'SALT'
     );
@@ -2236,6 +2238,7 @@ describe('generateTransaction — Guardian routing', () => {
       reference,
       'offered-faucet',
       1000n,
+      180,
       'SALT'
     );
     // One builder call: each draws a fresh serial number, which IS the order id,
@@ -2376,6 +2379,7 @@ describe('generateTransaction — Guardian routing', () => {
       'faucet',
       1000n,
       'Public',
+      180,
       230,
       'SALT'
     );
@@ -2617,6 +2621,7 @@ describe('generateTransaction — Guardian routing', () => {
       'faucet',
       1000n,
       'Public',
+      180,
       225,
       'SALT'
     );

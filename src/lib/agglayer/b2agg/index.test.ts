@@ -12,6 +12,17 @@
  * id of the open token — so a hex id also drops the row out of that token's
  * history entirely.
  */
+// Every `withExpirationDelta` the B2AGG build makes, in order (#1081).
+const mockDeltas: number[] = [];
+const mockIsGuardian = jest.fn(async (...args: unknown[]): Promise<boolean> => {
+  void args;
+  return false;
+});
+
+jest.mock('lib/miden/front/guardian-manager', () => ({
+  isGuardianAccount: (...a: unknown[]) => mockIsGuardian(...a)
+}));
+
 const mockInitiateBridgedSendTransaction = jest.fn(async (...args: unknown[]): Promise<string> => {
   void args;
   return 'tx-agglayer';
@@ -83,6 +94,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     withFeeConversionSalt() {
       return this;
     }
+    withExpirationDelta(delta: number) {
+      mockDeltas.push(delta);
+      return this;
+    }
     build() {
       return { serialize: () => new Uint8Array([1, 2, 3]) };
     }
@@ -92,12 +107,24 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
 import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 
 import { MIDEN_AGGLAYER_FAUCET_ID } from './constant';
 import { initiateB2AggBridge } from './index';
 
+// Never reached: `isGuardianAccount` is mocked, so only its identity crosses.
+const guardianProvider: GuardianAccountProvider = {
+  getAccounts: async () => [],
+  getPublicKeyForCommitment: async () => '',
+  signWord: async () => ''
+};
+
 describe('initiateB2AggBridge', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDeltas.length = 0;
+    mockIsGuardian.mockResolvedValue(false);
+  });
 
   it('records the faucet id on the row in BECH32 form, never the raw hex constant', async () => {
     const txId = await initiateB2AggBridge({
@@ -105,7 +132,8 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     expect(txId).toBe('tx-agglayer');
@@ -121,7 +149,8 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     const [sender, bridge] = mockCreateB2AggNote.mock.calls[0]!;
@@ -147,7 +176,8 @@ describe('initiateB2AggBridge', () => {
       faucetId,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     const assets = mockCreateB2AggNote.mock.calls[0]![2];
@@ -161,7 +191,8 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     const call = mockInitiateBridgedSendTransaction.mock.calls[0]!;
@@ -191,6 +222,7 @@ describe('initiateB2AggBridge', () => {
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
       destinationNetwork: 0,
+      guardianProvider,
       spendingLimitAuthorization
     });
 
@@ -215,7 +247,8 @@ describe('initiateB2AggBridge', () => {
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
         senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0
+        destinationNetwork: 0,
+        guardianProvider
       })
     ).rejects.toThrow('operation abandoned before the bridge request build');
 
@@ -223,6 +256,26 @@ describe('initiateB2AggBridge', () => {
     expect(TransactionRequest.deserialize).not.toHaveBeenCalled();
     expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [false, 600],
+    [true, 180]
+  ])(
+    'builds the B2AGG request with the delta its route needs (Guardian: %s -> %s blocks) (#1081)',
+    async (guardian, delta) => {
+      mockIsGuardian.mockResolvedValue(guardian);
+      await initiateB2AggBridge({
+        amount: 1n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        destinationNetwork: 0,
+        guardianProvider
+      });
+      expect(mockIsGuardian).toHaveBeenCalledWith('mlcl1sender', guardianProvider);
+      expect(mockDeltas).toEqual([delta]);
+    }
+  );
 });
 
 // Bridge-in matching compares the sender string verbatim, so the bech32 literal must stay the same account as the

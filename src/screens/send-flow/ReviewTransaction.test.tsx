@@ -893,7 +893,8 @@ describe('ReviewTransaction — onSubmit', () => {
         amount: 12345n,
         faucetId: 'tok1',
         destinationAddress: '0xrecipient',
-        senderPublicKey: 'pubkey-1'
+        senderPublicKey: 'pubkey-1',
+        guardianProvider: expect.anything()
       })
     );
   });

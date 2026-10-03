@@ -264,18 +264,21 @@ describe('MidenClientInterface', () => {
     await client.getTransactionsForAccount('id');
     await client.exportDb();
     await client.importDb('{"version":1,"data":"dump"}');
-    await client.sendTransaction({
-      accountId: 'id',
-      amount: BigInt(1),
-      secondaryAccountId: 'recip',
-      faucetId: 'faucet',
-      noteType: 'public' as any,
-      type: 'send',
-      extraInputs: { recallBlocks: 1 },
-      status: 0,
-      initiatedAt: Math.floor(Date.now() / 1000),
-      displayIcon: 'SEND'
-    } as any);
+    await client.sendTransaction(
+      {
+        accountId: 'id',
+        amount: BigInt(1),
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        type: 'send',
+        extraInputs: { recallBlocks: 1 },
+        status: 0,
+        initiatedAt: Math.floor(Date.now() / 1000),
+        displayIcon: 'SEND'
+      } as any,
+      600
+    );
     await client.consumeNoteId({
       accountId: 'id',
       noteId: 'note',
@@ -782,20 +785,25 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.sendTransaction({
-      accountId: 'sender',
-      secondaryAccountId: 'recipient',
-      faucetId: 'faucet',
-      noteType: 'public' as any,
-      amount: BigInt(100),
-      extraInputs: {}
-    } as any);
+    const result = await client.sendTransaction(
+      {
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any,
+      600
+    );
 
     expect(result).toBe(fakeTransactionResult);
     // The non-offscreen send drives the staged pipeline (executeRequest → prove →
     // submit → apply), not the all-in-one `transactions.send`.
     expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalled();
     expect(fakeMidenClient.transactions.send).not.toHaveBeenCalled();
+    const { buildSendTransactionRequest } = jest.requireMock('./helpers');
+    expect(buildSendTransactionRequest.mock.calls[0][6]).toBe(600);
   });
 
   it('reports executing/proving/submitting stages through the onStage callback', async () => {
@@ -835,6 +843,7 @@ describe('MidenClientInterface', () => {
         amount: BigInt(1),
         extraInputs: {}
       } as any,
+      600,
       stage => {
         stages.push(stage);
       }
@@ -884,15 +893,18 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.sendTransaction({
-      accountId: 'sender',
-      secondaryAccountId: 'recipient',
-      faucetId: 'faucet',
-      noteType: 'public' as any,
-      amount: BigInt(1),
-      extraInputs: {},
-      delegateTransaction: true
-    } as any);
+    const result = await client.sendTransaction(
+      {
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(1),
+        extraInputs: {},
+        delegateTransaction: true
+      } as any,
+      600
+    );
 
     expect(result).toBe(fakeTransactionResult);
     // The delegated prove threw, so proveWithFallback re-ran the whole staged
@@ -952,15 +964,18 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
     const rejection = await settleThroughApplyRetry(() =>
-      client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recipient',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(1),
-        extraInputs: {},
-        delegateTransaction: true
-      } as any)
+      client.sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(1),
+          extraInputs: {},
+          delegateTransaction: true
+        } as any,
+        600
+      )
     );
     return { rejection, fakeMidenClient, submitCalls: () => submitCalls };
   };
@@ -1020,14 +1035,17 @@ describe('MidenClientInterface', () => {
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
     await expect(
-      client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recipient',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(1),
-        extraInputs: {}
-      } as any)
+      client.sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(1),
+          extraInputs: {}
+        } as any,
+        600
+      )
     ).rejects.toThrow(/_withInnerWebClient missing/);
   });
 
@@ -1081,19 +1099,24 @@ describe('MidenClientInterface', () => {
     );
 
     await expect(
-      client.swapTransaction({
-        accountId: 'acc-id',
-        faucetId: 'offered-faucet',
-        amount: BigInt(10),
-        type: 'swap',
-        delegateTransaction: true,
-        extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
-      } as any)
+      client.swapTransaction(
+        {
+          accountId: 'acc-id',
+          faucetId: 'offered-faucet',
+          amount: BigInt(10),
+          type: 'swap',
+          delegateTransaction: true,
+          extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
+        } as any,
+        600
+      )
     ).rejects.toBe(refused);
 
     expect(staged.executeRequest).toHaveBeenCalledTimes(1);
     expect(staged.prove).toHaveBeenCalledTimes(1);
     expect(staged.submit).toHaveBeenCalledTimes(1);
+    const { buildPswapCreateRequest } = jest.requireMock('./helpers');
+    expect(buildPswapCreateRequest.mock.calls[0][4]).toBe(600);
   });
 
   // `newTransaction` (dApp custom transactions + the Agglayer bridged-send) is
@@ -2473,7 +2496,7 @@ describe('MidenClientInterface', () => {
     };
     const writes: Array<[string, (client: MidenClientInterfaceType) => Promise<unknown>]> = [
       ['consume', client => client.consumeNoteId(consumeTx as any)],
-      ['swap', client => client.swapTransaction(swapTx as any)]
+      ['swap', client => client.swapTransaction(swapTx as any, 600)]
     ];
 
     const stagedClient = async (executeRequest: jest.Mock) => {
@@ -2528,7 +2551,7 @@ describe('MidenClientInterface', () => {
       client = await stagedClient(staged.executeRequest);
       const { WasmClientPoisonedError } = await import('./wasm-client-poison');
 
-      await expect(client.swapTransaction(swapTx as any)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      await expect(client.swapTransaction(swapTx as any, 600)).rejects.toBeInstanceOf(WasmClientPoisonedError);
 
       expect(staged.prove).toHaveBeenCalledTimes(1);
       expect(staged.submit).not.toHaveBeenCalled();
@@ -2662,14 +2685,17 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await client.sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any,
+        600
+      );
 
       expect(inner.executeTransaction).toHaveBeenCalledTimes(1);
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
@@ -2707,14 +2733,17 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await client.sendTransaction({
-        accountId: 'sender',
-        secondaryAccountId: 'recip',
-        faucetId: 'faucet',
-        noteType: 'public' as any,
-        amount: BigInt(100),
-        extraInputs: {}
-      } as any);
+      await client.sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any,
+        600
+      );
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
@@ -2757,18 +2786,21 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-        await client.sendTransaction({
-          // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
-          // suffix before parsing, or the bech32 parser sees a string it can reject.
-          accountId: 'mtst1sender_qr7qqq9wr6w',
-          // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
-          // that is otherwise valid would fail to resolve here.
-          secondaryAccountId: '0XRecipient',
-          faucetId: 'mtst1faucet',
-          noteType: 'private' as any,
-          amount: BigInt(250),
-          extraInputs
-        } as any);
+        await client.sendTransaction(
+          {
+            // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+            // suffix before parsing, or the bech32 parser sees a string it can reject.
+            accountId: 'mtst1sender_qr7qqq9wr6w',
+            // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+            // that is otherwise valid would fail to resolve here.
+            secondaryAccountId: '0XRecipient',
+            faucetId: 'mtst1faucet',
+            noteType: 'private' as any,
+            amount: BigInt(250),
+            extraInputs
+          } as any,
+          600
+        );
 
         expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
         expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
@@ -2780,6 +2812,7 @@ describe('MidenClientInterface', () => {
           'mtst1faucet',
           250n,
           'Private',
+          600,
           reclaimAfter
         );
         expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
@@ -2959,14 +2992,17 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.sendTransaction({
-          accountId: 'sender',
-          secondaryAccountId: 'recip',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(100),
-          extraInputs: {}
-        } as any)
+        client.sendTransaction(
+          {
+            accountId: 'sender',
+            secondaryAccountId: 'recip',
+            faucetId: 'faucet',
+            noteType: 'public' as any,
+            amount: BigInt(100),
+            extraInputs: {}
+          } as any,
+          600
+        )
       ).rejects.toBe(trap);
       expect(stubs.proveViaOffscreen).not.toHaveBeenCalled();
       expect(inner.executeTransaction).not.toHaveBeenCalled();
@@ -2995,14 +3031,17 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
       await expect(
-        client.sendTransaction({
-          accountId: 'sender',
-          secondaryAccountId: 'recip',
-          faucetId: 'faucet',
-          noteType: 'public' as any,
-          amount: BigInt(100),
-          extraInputs: {}
-        } as any)
+        client.sendTransaction(
+          {
+            accountId: 'sender',
+            secondaryAccountId: 'recip',
+            faucetId: 'faucet',
+            noteType: 'public' as any,
+            amount: BigInt(100),
+            extraInputs: {}
+          } as any,
+          600
+        )
       ).rejects.toThrow(/execute failed/);
     });
 

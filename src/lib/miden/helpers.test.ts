@@ -2,6 +2,9 @@ import { InputNoteRecord, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import {
   ESTIMATED_MS_PER_BLOCK,
+  EXPIRATION_DELTA_BLOCKS,
+  expirationDeltaBlocks,
+  GUARDIAN_EXPIRATION_DELTA_BLOCKS,
   MAX_RECALL_BLOCKS,
   assertValidRecallBlocks,
   getNoteRecallableAtMs,
@@ -186,5 +189,18 @@ describe('miden helpers', () => {
       } as unknown as InputNoteRecord;
       expect(getNoteRecallableAtMs(exploding, 1000)).toBeUndefined();
     });
+  });
+});
+
+describe('expirationDeltaBlocks (#1081)', () => {
+  it('is 600 blocks on its own and 180 through a Guardian', () => {
+    expect(EXPIRATION_DELTA_BLOCKS).toBe(600);
+    expect(GUARDIAN_EXPIRATION_DELTA_BLOCKS).toBe(180);
+    expect(expirationDeltaBlocks(false)).toBe(600);
+    expect(expirationDeltaBlocks(true)).toBe(180);
+  });
+
+  it('keeps the Guardian window inside the Guardian`s 600 s pending hold at the estimated cadence', () => {
+    expect(GUARDIAN_EXPIRATION_DELTA_BLOCKS * ESTIMATED_MS_PER_BLOCK).toBeLessThan(600_000);
   });
 });

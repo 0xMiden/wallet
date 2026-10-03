@@ -1499,6 +1499,7 @@ export class MidenClientInterface {
 
   async sendTransaction(
     dbTransaction: SendTransaction,
+    expirationDelta: number,
     onStage?: (stage: ITransactionStage) => Promise<void> | void
   ): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
@@ -1528,7 +1529,8 @@ export class MidenClientInterface {
                 faucetId,
                 noteType,
                 amount,
-                reclaimAfter
+                reclaimAfter,
+                expirationDelta
               ),
             attempt,
             onStage
@@ -1556,7 +1558,8 @@ export class MidenClientInterface {
             faucetId,
             noteType,
             amount,
-            reclaimAfter
+            reclaimAfter,
+            expirationDelta
           );
           return request.serialize();
         });
@@ -1678,7 +1681,7 @@ export class MidenClientInterface {
    * A delegated attempt that fails before `markSubmitting()` falls back to a
    * local one through `proveWithFallback`; nothing falls back once it has run.
    */
-  async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
+  async swapTransaction(transaction: SwapTransaction, expirationDelta: number): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
     const access = this.innerClientAccess();
@@ -1707,7 +1710,13 @@ export class MidenClientInterface {
             NoteType.Public
           )
         );
-        const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
+        const request = buildPswapCreateRequest(
+          creatorAccount ?? undefined,
+          reference,
+          faucetId,
+          BigInt(amount),
+          expirationDelta
+        );
         // Staged for every attempt (#1233): a worker leg proves in the prove worker (#945), every
         // other leg proves here, and both submit and apply themselves, so the apply after the submit
         // is reachable and a failure there classifies as landed. The prove is pre-submit, so a
@@ -2456,7 +2465,8 @@ async function buildSendExecuteArgs(
   faucetId: string,
   noteType: NoteType | string,
   amount: string | bigint,
-  reclaimAfter: number | undefined
+  reclaimAfter: number | undefined,
+  expirationDelta: number
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
@@ -2476,6 +2486,7 @@ async function buildSendExecuteArgs(
     faucetId,
     typeof amount === 'string' ? BigInt(amount) : amount,
     nt,
+    expirationDelta,
     reclaimAfter
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);

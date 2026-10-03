@@ -247,6 +247,7 @@ export function buildSendTransactionRequest(
   faucetRef: string,
   amount: bigint,
   noteType: NoteType,
+  expirationDelta: number,
   reclaimAfter?: number,
   feeSalt?: Word
 ): TransactionRequest {
@@ -256,7 +257,11 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  // Relative to each execution's reference block, so bytes cached and replayed on Retry stay valid per attempt; the
+  // reconciler reads the resulting expiration off the proof, never from this number (#1081).
+  let builder = new TransactionRequestBuilder()
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta);
   // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and rate from the AUTH ARGS
   // and aborts without them. Declaring the salt is all this has to do: miden-client
   // derives the native 1/1 conversion info from the execution reference header -- for a
@@ -318,6 +323,7 @@ export function buildPswapCreateRequest(
   reference: TransactionRequest,
   offeredFaucetRef: string,
   offeredAmount: bigint,
+  expirationDelta: number,
   feeSalt?: Word
 ): TransactionRequest {
   const referenceNote = reference.expectedOutputOwnNotes()[0];
@@ -333,7 +339,9 @@ export function buildPswapCreateRequest(
     referenceNote.recipient(),
     referenceNote.attachments()
   );
-  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  let builder = new TransactionRequestBuilder()
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta);
   // The salt this request declares; miden-client commits the conversion info from it.
   // Attached here rather than to the finished request: the SDK exposes no auth-arg
   // setter on `TransactionRequest`, only on the builder.

@@ -2336,7 +2336,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = sendTx();
-    const result = await midenClientProxy.sendTransaction(tx as any, signCallback);
+    const result = await midenClientProxy.sendTransaction(tx as any, 600, signCallback);
     expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
@@ -2348,7 +2348,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
     // The inline client's sendTransaction ran on the full tx object. The trailing
     // `onStage` is the PR #524 stage stamp, passed straight through (undefined here
     // — this caller supplied none).
-    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx, undefined);
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx, 600, undefined);
     expect(result).toEqual({ __inlineSendResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2359,6 +2359,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
     const { midenClientProxy } = await loadProxy(true);
     const result = await midenClientProxy.sendTransaction(
       sendTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     expect(G.__px.inlineSendTransaction).toHaveBeenCalled();
@@ -2379,6 +2380,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
 
     const p = midenClientProxy.sendTransaction(
       sendTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -2402,7 +2404,8 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
       noteType: 'public',
       amount: '1000',
       delegateTransaction: false,
-      extraInputs: { recallBlocks: 100 }
+      extraInputs: { recallBlocks: 100 },
+      expirationDelta: 600
     });
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -2424,6 +2427,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
     const p = midenClientProxy
       .sendTransaction(
         sendTx() as any,
+        600,
         jest.fn(async () => new Uint8Array())
       )
       .catch((e: Error) => e);
@@ -2478,7 +2482,7 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
       stages.push(s);
     });
     // The inline client drives the callback exactly as the SDK's staged pipeline does.
-    G.__px.inlineSendTransaction = jest.fn(async (_tx: any, cb?: (s: string) => Promise<void>) => {
+    G.__px.inlineSendTransaction = jest.fn(async (_tx: any, _delta: number, cb?: (s: string) => Promise<void>) => {
       await cb?.('executing');
       await cb?.('proving');
       await cb?.('submitting');
@@ -2488,11 +2492,12 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
     const tx = sendTx();
     const result = await midenClientProxy.sendTransaction(
       tx as any,
+      600,
       jest.fn(async () => new Uint8Array([1])),
       onStage
     );
 
-    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx, onStage);
+    expect(G.__px.inlineSendTransaction).toHaveBeenCalledWith(tx, 600, onStage);
     expect(stages).toEqual(['executing', 'proving', 'submitting']);
     expect(result).toEqual({ __inlineSendResult: true });
     // Nothing offscreen: no op registered, no message, no doc.
@@ -2520,6 +2525,7 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
 
     const p = midenClientProxy.sendTransaction(
       sendTx() as any,
+      600,
       jest.fn(async () => new Uint8Array()),
       onStage
     );
@@ -2557,6 +2563,7 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
 
     const p = midenClientProxy.sendTransaction(
       sendTx() as any,
+      600,
       jest.fn(async () => new Uint8Array()),
       onStage
     );
@@ -2592,6 +2599,7 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
 
     const p = midenClientProxy.sendTransaction(
       sendTx() as any,
+      600,
       jest.fn(async () => new Uint8Array()),
       onStage
     );
@@ -2634,7 +2642,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = swapTx();
-    const result = await midenClientProxy.swapTransaction(tx as any, signCallback);
+    const result = await midenClientProxy.swapTransaction(tx as any, 600, signCallback);
     expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
@@ -2643,7 +2651,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     // options: no per-write signer anywhere, the realm's installed one signs (#878).
     expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
-    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx);
+    expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx, 600);
     expect(result).toEqual({ __inlineSwapResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
@@ -2654,6 +2662,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     const { midenClientProxy } = await loadProxy(true);
     const result = await midenClientProxy.swapTransaction(
       swapTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     expect(G.__px.inlineSwapTransaction).toHaveBeenCalled();
@@ -2672,6 +2681,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
 
     const p = midenClientProxy.swapTransaction(
       swapTx() as any,
+      600,
       jest.fn(async () => new Uint8Array())
     );
     await flush();
@@ -2691,7 +2701,8 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
       faucetId: 'mtst1qoffered',
       amount: '500',
       delegateTransaction: false,
-      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' }
+      extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '250' },
+      expirationDelta: 600
     });
     expect(criticalDuring).toBe(true);
     expect(prover.isCriticalOpInFlight()).toBe(false);
@@ -2710,6 +2721,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
     const p = midenClientProxy
       .swapTransaction(
         swapTx() as any,
+        600,
         jest.fn(async () => new Uint8Array())
       )
       .catch((e: Error) => e);
@@ -2841,6 +2853,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       invoke: p =>
         p.sendTransaction(
           sendTx() as any,
+          600,
           jest.fn(async () => new Uint8Array())
         )
     },
@@ -2849,6 +2862,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
       invoke: p =>
         p.swapTransaction(
           swapTx() as any,
+          600,
           jest.fn(async () => new Uint8Array())
         )
     },
@@ -3032,6 +3046,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     const p = midenClientProxy
       .sendTransaction(
         sendTx() as any,
+        600,
         jest.fn(async () => new Uint8Array())
       )
       .catch((e: unknown) => e);
@@ -3056,6 +3071,7 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     const p = midenClientProxy
       .sendTransaction(
         sendTx() as any,
+        600,
         jest.fn(async () => new Uint8Array())
       )
       .catch((e: unknown) => e);

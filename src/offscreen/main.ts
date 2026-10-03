@@ -88,7 +88,12 @@ import {
 } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
-import { extractLanded, extractSdkErrorCode, type LandedTransaction } from 'lib/miden/sdk/sdk-error-code';
+import {
+  extractLanded,
+  extractSdkErrorCode,
+  markErrorBeforeSubmit,
+  type LandedTransaction
+} from 'lib/miden/sdk/sdk-error-code';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -518,6 +523,13 @@ type DispatchContext = {
   settled: boolean;
 };
 
+// A write's expiration delta as it crossed the bus (#1081): a positive safe integer, or the write fails before anything
+// runs, so a DTO that lost the field can never ship a request without an expiry.
+function requireExpirationDelta(value: unknown): number {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value;
+  throw markErrorBeforeSubmit(new Error(`The write carried no usable expiration delta (${String(value)})`));
+}
+
 const DISPATCH: Record<string, DispatchFn> = {
   getAccount: async (context, client, accountId: string) => {
     const account = await client.getAccount(accountId);
@@ -806,8 +818,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       amount: string;
       delegateTransaction?: boolean;
       extraInputs: { recallBlocks?: number };
+      expirationDelta?: unknown;
     }
   ) => {
+    const expirationDelta = requireExpirationDelta(dto.expirationDelta);
     // `context` arrived bound to THIS op (threaded by `handleCall` before any
     // await), so a stamp fired late (an evicted dispatch still running) carries
     // its own op_id rather than the successor's — see `postStageEvent` (#775).
@@ -818,7 +832,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // drives execute → prove → submit as distinct stages and invokes `onStage` on
     // every prover branch - delegated, the prove worker (#945), and the SW's
     // offscreen-prover one - so the stamps do not depend on which branch runs here.
-    const result = await client.sendTransaction(tx, stage => postStageEvent(context, stage));
+    const result = await client.sendTransaction(tx, expirationDelta, stage => postStageEvent(context, stage));
     // Deliberately NO hold re-check before the serialize (#788): the staged
     // pipeline inside `sendTransaction` has submitted (and applied) by the time
     // it returns, so the send may be broadcast — completing beats aborting.
@@ -834,8 +848,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       amount: string;
       delegateTransaction?: boolean;
       extraInputs: { requestedFaucetId: string; requestedAmount: string };
+      expirationDelta?: unknown;
     }
   ) => {
+    const expirationDelta = requireExpirationDelta(dto.expirationDelta);
     const tx = {
       ...dto,
       amount: BigInt(dto.amount),
@@ -844,7 +860,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         requestedAmount: BigInt(dto.extraInputs.requestedAmount)
       }
     } as unknown as SwapTransaction;
-    const result = await client.swapTransaction(tx);
+    const result = await client.swapTransaction(tx, expirationDelta);
     // Deliberately NO hold re-check (#788): `swapTransaction` has submitted (and
     // applied) by the time it returns, through its staged submit (in this realm, or
     // `submitProven` for a worker proof), so the PSWAP note may already be on the

@@ -18,7 +18,7 @@
  *     `midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback)`.
  *     An earn-deposit without its bytes is refused before it mints.
  *   - a legacy Epoch bridged-send with no bytes → send-style recallable P2IDE note →
- *     `midenClientProxy.sendTransaction(tx, signCallback)`.
+ *     `midenClientProxy.sendTransaction(tx, expirationDelta, signCallback)`.
  *
  * Funds-safety (analysed, not re-proven here — inherited from the shared proxy +
  * loop machinery): a wedge-kill → OperationAbortedError → the
@@ -241,7 +241,7 @@ afterEach(() => {
 });
 
 describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (slice 7b)', () => {
-  it('Epoch bridged-send (no requestBytes) → midenClientProxy.sendTransaction(tx, signCallback); never the inline SW leaf', async () => {
+  it('Epoch bridged-send (no requestBytes) → midenClientProxy.sendTransaction(tx, 600, signCallback); never the inline SW leaf', async () => {
     const tx = await run('tx-bs-epoch', {
       type: 'bridged-send',
       secondaryAccountId: 'mtst1qallocator',
@@ -253,7 +253,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
 
     // Leaf routed through the proxy send with the FULL tx row + the raw signCallback.
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, signCallback);
+    expect(mockProxySendTransaction).toHaveBeenCalledWith(tx, 600, signCallback);
     expect(mockProxyNewTransaction).not.toHaveBeenCalled();
     // The inline SW client leaf is entirely gone.
     expect(mockGetMidenClient).not.toHaveBeenCalled();

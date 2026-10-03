@@ -222,7 +222,7 @@ async function runSend(id: string) {
  * callback's contribution. */
 async function driveStages(): Promise<string[]> {
   stamped.length = 0;
-  const onStage = mockProxySendTransaction.mock.calls[0]![2] as (s: string) => Promise<void>;
+  const onStage = mockProxySendTransaction.mock.calls[0]![3] as (s: string) => Promise<void>;
   for (const stage of ['executing', 'proving', 'submitting']) {
     // eslint-disable-next-line no-await-in-loop
     await onStage(stage);
@@ -243,12 +243,13 @@ afterEach(() => {
 });
 
 describe('non-guardian send → the stage callback reaches the proxy whatever the offscreen flag says (PR #524 × #260)', () => {
-  it('flag OFF → one proxy call carrying (tx, signCallback, onStage); the stamps land on THIS row', async () => {
+  it('flag OFF → one proxy call carrying (tx, expirationDelta, signCallback, onStage); the stamps land on THIS row', async () => {
     const tx = await runSend('tx-send-flagoff');
 
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
+    const [sentTx, sentDelta, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
+    expect(sentDelta).toBe(600);
     expect(sentSign).toBe(signCallback);
     expect(typeof onStage).toBe('function');
     // The callback is row-bound: every stamp it makes is keyed by this tx's id.
@@ -267,14 +268,15 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     const tx = await runSend('tx-send-flagon');
 
     // Flag ON is the ambient state of the SW build, and the switch must be blind to
-    // it: exactly ONE proxy call, with the SAME three arguments the flag-OFF case
+    // it: exactly ONE proxy call, with the SAME four arguments the flag-OFF case
     // asserted, and no second flag-conditional branch anywhere near it.
     expect(mockProxySendTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(3);
-    const [sentTx, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
+    expect(mockProxySendTransaction.mock.calls[0]!).toHaveLength(4);
+    const [sentTx, sentDelta, sentSign, onStage] = mockProxySendTransaction.mock.calls[0]!;
     expect(sentTx).toBe(tx);
+    expect(sentDelta).toBe(600);
     expect(sentSign).toBe(signCallback);
-    // The load-bearing assertion: a third argument EXISTS flag-ON. Without it the
+    // The load-bearing assertion: a fourth argument EXISTS flag-ON. Without it the
     // per-step timings vanish on Chrome, silently.
     expect(typeof onStage).toBe('function');
     expect(await driveStages()).toEqual([
@@ -292,7 +294,7 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
     // so an unguarded rejection would propagate out of the send and Fail the row.
     mockThrowOnStage = 'proving';
     mockProxySendTransaction.mockImplementationOnce(async (..._a: unknown[]) => {
-      const onStage = _a[2] as (s: string) => Promise<void>;
+      const onStage = _a[3] as (s: string) => Promise<void>;
       await onStage('executing');
       await onStage('proving');
       await onStage('submitting');

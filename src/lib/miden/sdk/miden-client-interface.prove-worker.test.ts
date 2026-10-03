@@ -299,7 +299,7 @@ describe('send (site 5)', () => {
     // if both live in one timeline (#945 review: a mutant moving the 'submitting'
     // stamp after `submitProven` left `stages` alone and passed with two arrays).
     const returned = await withWasmClientLock(async () =>
-      client.sendTransaction(sendTx(false), stage => {
+      client.sendTransaction(sendTx(false), 600, stage => {
         stages.push(stage);
         harness.order.push(`stage:${stage}`);
       })
@@ -322,7 +322,7 @@ describe('send (site 5)', () => {
     const harness = buildHarness();
     harness.delegated.fail = true;
     const { client, withWasmClientLock } = await load(harness);
-    await withWasmClientLock(async () => client.sendTransaction(sendTx(true)));
+    await withWasmClientLock(async () => client.sendTransaction(sendTx(true), 600));
     expectWorkerProved(harness);
     expect(harness.transport.prewarm).not.toHaveBeenCalled();
     expect(harness.executeRequest).toHaveBeenCalledTimes(2);
@@ -331,7 +331,7 @@ describe('send (site 5)', () => {
   it('a delegated attempt that succeeds never touches the worker', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
-    await withWasmClientLock(async () => client.sendTransaction(sendTx(true)));
+    await withWasmClientLock(async () => client.sendTransaction(sendTx(true), 600));
     expect(harness.transport.prove).not.toHaveBeenCalled();
     expect(harness.transport.prewarm).not.toHaveBeenCalled();
     expect(harness.order).toEqual(['delegated prove', 'delegated submit', 'apply']);
@@ -347,7 +347,7 @@ describe('send (site 5)', () => {
         })
     );
     const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
-    const sending = withWasmClientLock(async () => client.sendTransaction(sendTx(false))).catch(
+    const sending = withWasmClientLock(async () => client.sendTransaction(sendTx(false), 600)).catch(
       (error: unknown) => error
     );
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -374,7 +374,7 @@ describe('send (site 5)', () => {
     const { ProveWorkerError } = await import('./local-prove-transport');
     let inner: Promise<unknown> | undefined;
     const sending = withWasmClientLock(async () => {
-      inner = client.sendTransaction(sendTx(false));
+      inner = client.sendTransaction(sendTx(false), 600);
       return inner;
     }).catch(() => undefined);
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -394,7 +394,7 @@ describe('send (site 5)', () => {
     harness.setWorkerProve(async () => {
       throw new ProveWorkerError('crashed', 'boom');
     });
-    await expect(withWasmClientLock(async () => client.sendTransaction(sendTx(false)))).rejects.toBeInstanceOf(
+    await expect(withWasmClientLock(async () => client.sendTransaction(sendTx(false), 600))).rejects.toBeInstanceOf(
       ProveWorkerError
     );
     expect(harness.submitProven).not.toHaveBeenCalled();
@@ -577,7 +577,7 @@ describe('swap (site 8)', () => {
   it('a local attempt executes the PSWAP request it built and proves in the worker', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
-    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(false)));
+    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(false), 600));
     expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', { pswapRequest: true });
     expectWorkerProved(harness);
     expect(returned).toBe(harness.result);
@@ -589,7 +589,7 @@ describe('swap (site 8)', () => {
     const harness = buildHarness();
     harness.delegated.fail = true;
     const { client, withWasmClientLock } = await load(harness);
-    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(true)));
+    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(true), 600));
     // Staged (#1233): the prove is pre-submit, so a delegated one that fails falls back.
     expect(returned).toBe(harness.result);
     expect(harness.fakeClient.transactions.submit).not.toHaveBeenCalled();
@@ -605,7 +605,7 @@ describe('swap (site 8)', () => {
       throw new Error('account read failed');
     });
     const { client, withWasmClientLock } = await load(harness);
-    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(true)));
+    const returned = await withWasmClientLock(async () => client.swapTransaction(swapTx(true), 600));
     expectWorkerProved(harness);
     expect(returned).toBe(harness.result);
     expect(harness.fakeClient.transactions.submit).not.toHaveBeenCalled();
@@ -622,7 +622,7 @@ describe('swap (site 8)', () => {
         })
     );
     const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness);
-    const swapping = withWasmClientLock(async () => client.swapTransaction(swapTx(false))).catch(
+    const swapping = withWasmClientLock(async () => client.swapTransaction(swapTx(false), 600)).catch(
       (error: unknown) => error
     );
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -641,7 +641,9 @@ describe('swap (site 8)', () => {
     harness.setWorkerProve(async () => {
       throw new Error('worker gone');
     });
-    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false)))).rejects.toThrow('worker gone');
+    await expect(withWasmClientLock(async () => client.swapTransaction(swapTx(false), 600))).rejects.toThrow(
+      'worker gone'
+    );
     expect(harness.submitProven).not.toHaveBeenCalled();
   });
 });
@@ -660,9 +662,9 @@ describe('the node has the write once submitProven resolves', () => {
   });
 
   const legs: Array<[string, (client: LoadedClient) => Promise<unknown>]> = [
-    ['send', client => client.sendTransaction(sendTx(false))],
+    ['send', client => client.sendTransaction(sendTx(false), 600)],
     ['consume', client => client.consumeNoteId(consumeTx(false))],
-    ['swap', client => client.swapTransaction(swapTx(false))],
+    ['swap', client => client.swapTransaction(swapTx(false), 600)],
     ['newTransaction', client => client.newTransaction('acct', new Uint8Array([4]), false)]
   ];
 
@@ -753,7 +755,7 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
       'send staged leg',
       {
         load: harness => load(harness, false),
-        write: client => client.sendTransaction(sendTx(true)),
+        write: client => client.sendTransaction(sendTx(true), 600),
         parts: stagedParts
       }
     ],
@@ -777,7 +779,7 @@ describe('the apply retry at the plain staged sites (#1233)', () => {
       'swap staged leg',
       {
         load: harness => load(harness, false),
-        write: client => client.swapTransaction(swapTx(true)),
+        write: client => client.swapTransaction(swapTx(true), 600),
         parts: stagedParts
       }
     ],
@@ -872,7 +874,7 @@ describe('an eviction during the in-realm leg (#1233)', () => {
     const { client, withWasmClientLock, WasmClientPoisonedError } = await load(harness, false);
     let abandoned: Promise<unknown> = Promise.resolve();
     const lockError = await withWasmClientLock(async () => {
-      const writing = client.swapTransaction(swapTx(true));
+      const writing = client.swapTransaction(swapTx(true), 600);
       abandoned = writing.catch((caught: unknown) => caught);
       return writing;
     }).catch((caught: unknown) => caught);
