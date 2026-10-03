@@ -10,18 +10,19 @@ import {
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
-
-import { MIDEN_BRIDGE_ID } from './b2agg/constant';
+import { requireAgglayerMidenBridge } from 'lib/remote-config/values';
 
 const REGISTRY_SLOT = 'agglayer::bridge::faucet_registry_map';
-// The registry can drop a token, so an approval lasts only as long as this realm.
+// The registry can drop a token, so an approval lasts only as long as this realm, and only for the bridge it was
+// read from: a config that moves the bridge asks the new one.
 const approved = new Set<string>();
-const approvalKey = (rpcUrl: string, faucetId: string) => `${rpcUrl}|${MIDEN_BRIDGE_ID}|${faucetId}`;
+const approvalKey = (rpcUrl: string, midenBridge: string, faucetId: string) => `${rpcUrl}|${midenBridge}|${faucetId}`;
 
 export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string): Promise<boolean> {
   await ensureSdkWasmReady();
+  const midenBridge = await requireAgglayerMidenBridge();
   const faucet = accountRefToSdk(faucetRef);
-  const approval = approvalKey(rpcUrl, faucet.toString());
+  const approval = approvalKey(rpcUrl, midenBridge, faucet.toString());
   if (approved.has(approval)) return true;
 
   const registryKey = () => new Word(new BigUint64Array([0n, 0n, faucet.suffix().asInt(), faucet.prefix().asInt()]));
@@ -31,7 +32,7 @@ export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string)
   const proof = await withRpcTimeout(
     () =>
       rpc.getAccountProof(
-        AccountId.fromHex(MIDEN_BRIDGE_ID),
+        AccountId.fromHex(midenBridge),
         AccountStorageRequirements.fromSlotAndKeysArray([new SlotAndKeys(REGISTRY_SLOT, [registryKey()])])
       ),
     'agglayer faucet registry'
@@ -54,5 +55,5 @@ export async function isAgglayerFaucetAllowed(faucetRef: string, rpcUrl: string)
  */
 export async function allowAgglayerFaucetForE2E(faucetRef: string, rpcUrl: string): Promise<void> {
   await ensureSdkWasmReady();
-  approved.add(approvalKey(rpcUrl, accountRefToSdk(faucetRef).toString()));
+  approved.add(approvalKey(rpcUrl, await requireAgglayerMidenBridge(), accountRefToSdk(faucetRef).toString()));
 }

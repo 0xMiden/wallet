@@ -65,6 +65,9 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   }
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
+// The bridge account and its L1 network id come from the remote config.
+const mockRequireBridgeOut = jest.fn();
+jest.mock('lib/remote-config/values', () => ({ requireAgglayerBridgeOut: () => mockRequireBridgeOut() }));
 
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
@@ -122,6 +125,7 @@ describe('initiateB2AggBridge', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFeeAwareBuilder.withOwnOutputNotes.mockReturnValue(mockFeeAwareBuilder);
+    mockRequireBridgeOut.mockResolvedValue({ midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 });
   });
 
   it('records the faucet id on the row in BECH32 form, never the raw hex constant', async () => {
@@ -129,8 +133,7 @@ describe('initiateB2AggBridge', () => {
       amount: 250n,
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
-      senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      senderPublicKey: 'mlcl1sender'
     });
 
     expect(txId).toBe('tx-agglayer');
@@ -145,8 +148,7 @@ describe('initiateB2AggBridge', () => {
       amount: 250n,
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
-      senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
-      destinationNetwork: 0
+      senderPublicKey: 'mlcl1sender_qr7qqq9wr6w'
     });
 
     const [sender, bridge] = mockCreateB2AggNote.mock.calls[0]!;
@@ -171,8 +173,7 @@ describe('initiateB2AggBridge', () => {
       amount: 250n,
       faucetId,
       destinationAddress: '0x1111111111111111111111111111111111111111',
-      senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      senderPublicKey: 'mlcl1sender'
     });
 
     const assets = mockCreateB2AggNote.mock.calls[0]![2];
@@ -185,8 +186,7 @@ describe('initiateB2AggBridge', () => {
       amount: 250n,
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
-      senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      senderPublicKey: 'mlcl1sender'
     });
 
     const call = mockInitiateBridgedSendTransaction.mock.calls[0]!;
@@ -215,7 +215,6 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0,
       spendingLimitAuthorization
     });
 
@@ -230,8 +229,7 @@ describe('initiateB2AggBridge', () => {
       amount: 250n,
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
-      senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
-      destinationNetwork: 0
+      senderPublicKey: 'mlcl1sender_qr7qqq9wr6w'
     });
 
     // The sender's account id, wallet suffix stripped; the salt is the one drawn for this build.
@@ -259,8 +257,7 @@ describe('initiateB2AggBridge', () => {
         amount: 250n,
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
-        senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0
+        senderPublicKey: 'mlcl1sender'
       })
     ).rejects.toThrow('operation abandoned after the fee-aware bridge builder');
 
@@ -285,13 +282,44 @@ describe('initiateB2AggBridge', () => {
         amount: 250n,
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
-        senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0
+        senderPublicKey: 'mlcl1sender'
       })
     ).rejects.toThrow('operation abandoned before the bridge request build');
 
     // Nothing past the guard ran: no request round-trip, no queued row.
     expect(TransactionRequest.deserialize).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('addresses the note to the configured bridge and network, and records that network on the row', async () => {
+    mockRequireBridgeOut.mockResolvedValue({ midenBridge: '0x0123456789abcdef0123456789abcd', evmNetworkId: 7 });
+
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender'
+    });
+
+    const [, bridge, , destinationNetwork] = mockCreateB2AggNote.mock.calls[0]!;
+    expect(bridge).toEqual({ hex: '0x0123456789abcdef0123456789abcd' });
+    expect(destinationNetwork).toBe(7);
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![4]).toBe(7);
+  });
+
+  it('builds and queues nothing while the bridge config cannot name the bridge-out values', async () => {
+    mockRequireBridgeOut.mockRejectedValue(new Error('bridge out unavailable'));
+
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender'
+      })
+    ).rejects.toThrow('bridge out unavailable');
+
+    expect(mockCreateB2AggNote).not.toHaveBeenCalled();
     expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 });

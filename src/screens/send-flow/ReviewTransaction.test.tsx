@@ -188,10 +188,6 @@ jest.mock('lib/agglayer/b2agg', () => ({
   initiateB2AggBridge: jest.fn()
 }));
 
-jest.mock('lib/agglayer/b2agg/constant', () => ({
-  EVM_AGGLAYER_NETWORK_ID: 11155111
-}));
-
 jest.mock('lib/epoch', () => ({
   bridgeEpochSend: jest.fn()
 }));
@@ -910,6 +906,8 @@ describe('ReviewTransaction — onSubmit', () => {
         senderPublicKey: 'pubkey-1'
       })
     );
+    // The bridge build reads the destination network from the config; the review passes none.
+    expect(initiateB2AggBridgeMock.mock.calls[0]![0]).not.toHaveProperty('destinationNetwork');
   });
 
   it('refuses a Slow bridge-out of a token the registry does not list (#1276)', async () => {

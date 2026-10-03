@@ -21,10 +21,6 @@ export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
   ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
 ]);
 
-// Agglayer bridge indexer. Query latest deposits for a destination address to
-// track when a (slow) bridge becomes claimable on the Miden side.
-export const AGGLAYER_BRIDGE_API = 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/bridges';
-
 export const AGGLAYER_BRIDGE_ABI = [
   {
     inputs: [],

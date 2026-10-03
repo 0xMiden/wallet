@@ -16,7 +16,6 @@ import { Hero } from 'components/ui/Hero';
 import { Skeleton } from 'components/ui/Skeleton';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
-import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -366,7 +365,6 @@ export const ReviewTransaction: React.FC = () => {
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
-            destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
             spendingLimitAuthorization: authorization
           });
           if (isExtension()) requestSWTransactionProcessing();

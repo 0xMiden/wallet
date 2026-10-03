@@ -1,3 +1,5 @@
+import { requireAgglayerMidenBridge } from 'lib/remote-config/values';
+
 import { allowAgglayerFaucetForE2E, isAgglayerFaucetAllowed } from './allowed-faucets';
 
 interface MockSlot {
@@ -45,6 +47,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   };
 });
 jest.mock('lib/miden-chain/constants', () => ({ ensureSdkWasmReady: jest.fn() }));
+jest.mock('lib/remote-config/values', () => ({ requireAgglayerMidenBridge: jest.fn() }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: (ref: string) => ({
     toString: () => ref,
@@ -53,6 +56,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   })
 }));
 
+const BRIDGE = '0x3b66e20b5088f25133b69216484652';
 const rpcUrl = 'https://rpc.one.example';
 const otherRpcUrl = 'https://rpc.two.example';
 let registryFlag = 1n;
@@ -79,6 +83,23 @@ beforeEach(() => {
   mockSlotRecords.length = 0;
   registryFlag = 1n;
   mockGetAccountProof.mockReset().mockImplementation(answerRequestedKeys);
+  jest.mocked(requireAgglayerMidenBridge).mockResolvedValue(BRIDGE);
+});
+
+it('reads the registry of the bridge the config names, and asks again once the config moves it', async () => {
+  await expect(isAgglayerFaucetAllowed('moved-token', rpcUrl)).resolves.toBe(true);
+  jest.mocked(requireAgglayerMidenBridge).mockResolvedValue('0x0123456789abcdef0123456789abcd');
+  await expect(isAgglayerFaucetAllowed('moved-token', rpcUrl)).resolves.toBe(true);
+  expect(mockGetAccountProof.mock.calls.map(([bridge]) => bridge)).toEqual([
+    BRIDGE,
+    '0x0123456789abcdef0123456789abcd'
+  ]);
+});
+
+it('reads no registry while the config names no bridge', async () => {
+  jest.mocked(requireAgglayerMidenBridge).mockRejectedValue(new Error('no bridge'));
+  await expect(isAgglayerFaucetAllowed('unconfigured-token', rpcUrl)).rejects.toThrow('no bridge');
+  expect(mockGetAccountProof).not.toHaveBeenCalled();
 });
 
 it('reuses an approval in this realm without another RPC (#1276)', async () => {
