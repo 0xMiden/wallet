@@ -12,7 +12,7 @@ Deploying Epoch and Agglayer contracts is the last step of a network deployment,
 - A feature recovers on its own: the wallet re-reads the config and re-runs its checks on a schedule (see Polling), and the control re-enables without a reload.
 - Withdraw (Earn), Claim (Agglayer, on L1) and Reclaim (Epoch, Miden-only) are recovery actions. **No remote switch can disable them, and this change does not gate them at all;** if a service they call is down they fail through their existing error paths, as today.
 - Gating happens at entry points. A flow already past its entry point that finds a value missing fails through its existing error path; there is no separate re-check before confirm.
-- A row created before a config change keeps the ids it was created with. Matching, polling and recovery for that row use the row's values, not the current config.
+- A row keeps only the values already stored on it. Claims, Withdraw retries and bridge-in matching read the current config: a redeploy comes with a network relaunch, so a row created before it has nothing left to recover on the old ids.
 - Swap (in-protocol DEX) is out of scope.
 
 ## The config repo
@@ -73,7 +73,8 @@ New module `src/lib/remote-config/`:
 | `source.ts` | URL for the effective network, bounded fetch (32 KB, 10 s, reusing `src/lib/remote-json.ts`), version floor, storage |
 | `derive.ts` | Chain and service reads that turn the document into everything the consumers need |
 | `availability.ts` | Feature states from the document, the derived values and the switches |
-| `runtime.ts` | Poll scheduler, change subscription, and the `useBridgeConfig` / `useFeatureAvailability` hooks |
+| `runtime.ts` | Poll scheduler, in-memory snapshot and change subscription |
+| `use-feature-availability.ts` | The `useBridgeConfigSnapshot`, `useFeatureAvailability` and `useAnyFeatureAvailability` hooks |
 
 - **Network:** `getEffectiveNetworkName()`, so the Developer Settings network override is honoured. Localnet and mainnet have no document today; a 404 makes every feature not configured.
 - **Startup load:** each realm hydrates the stored document and derived snapshot into memory when it starts, and every consumer reads them synchronously. The service worker awaits that hydration in `start()` before its handlers run; pages start it at app mount without blocking render, since their entry points stay greyed until the snapshot is ready. A realm with nothing stored starts the first fetch without waiting for it.
