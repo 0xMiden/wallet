@@ -190,7 +190,8 @@ export async function gaslessEarnWithdrawalToMiden(
       args.amount,
       'USDC',
       attemptId,
-      attemptStartedAt
+      attemptStartedAt,
+      args.underlyingDecimals
     );
     assertCurrent();
     args.onRowCreated?.(txId);
@@ -690,15 +691,17 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
     nonce: ei.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, ei.submissionAttemptId)
   };
-  const usdc = getEvmUsdc();
+  // A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
+  // decimals stand in while that read fails. A row from before they were recorded refuses through the getter.
+  const underlyingDecimals = findEvmUsdc()?.decimals ?? ei.sourceDecimals ?? getEvmUsdc().decimals;
   await gaslessEarnWithdrawalToMiden(
     {
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
-      underlyingAddress: usdc.address,
+      underlyingAddress: getEvmUsdcAddress(),
       amount: ei.sourceAmount,
-      underlyingDecimals: usdc.decimals
+      underlyingDecimals
     },
     {
       ...deps,

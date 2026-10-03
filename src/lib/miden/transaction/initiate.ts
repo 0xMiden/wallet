@@ -662,7 +662,8 @@ export const initiateEarnWithdrawTransaction = async (
   sourceAmount: string,
   sourceSymbol = 'USDC',
   submissionAttemptId?: string,
-  attemptStartedAt?: number
+  attemptStartedAt?: number,
+  sourceDecimals?: number
 ): Promise<string> => {
   const dbTransaction = new EarnWithdrawTransaction(
     accountId,
@@ -673,7 +674,8 @@ export const initiateEarnWithdrawTransaction = async (
     sourceAmount,
     sourceSymbol,
     submissionAttemptId,
-    attemptStartedAt
+    attemptStartedAt,
+    sourceDecimals
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
