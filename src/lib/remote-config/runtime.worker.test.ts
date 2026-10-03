@@ -17,7 +17,10 @@ import {
 import type { BridgeConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
 
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'testnet',
+  getEffectiveRpcUrl: () => 'https://rpc.testnet.example'
+}));
 
 const mockStorage = new Map<string, unknown>();
 const mockRereads: Array<() => Promise<void>> = [];

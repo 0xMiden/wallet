@@ -5,7 +5,7 @@ import {
   registerStorageReread,
   type StorageChangeSubscription
 } from 'lib/miden/front/storage';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
 import { deriveBridgeConfig, type DerivedBridgeConfig } from './derive';
@@ -217,9 +217,12 @@ async function rehydrate(state: NetworkState): Promise<void> {
 const newer = (a: StoredBridgeConfig | null, b: StoredBridgeConfig | null) =>
   a && (!b || a.config.version >= b.config.version) ? a : b;
 
-async function derive(config: BridgeConfig): Promise<{ derived: DerivedBridgeConfig; store: boolean }> {
+async function derive(
+  config: BridgeConfig,
+  midenRpcUrl: string
+): Promise<{ derived: DerivedBridgeConfig; store: boolean }> {
   try {
-    return { derived: await deriveBridgeConfig(config), store: true };
+    return { derived: await deriveBridgeConfig(config, { midenRpcUrl: () => midenRpcUrl }), store: true };
   } catch (error) {
     console.warn(`[remote-config] derivation failed for ${config.network}:`, error);
     // Kept to this realm: every other realm goes on with its own last derivation rather than this stand-in.
@@ -228,6 +231,8 @@ async function derive(config: BridgeConfig): Promise<{ derived: DerivedBridgeCon
 }
 
 async function refresh(state: NetworkState): Promise<void> {
+  // The RPC of the network this refresh is for: a switch while the fetch is out must not point its reads elsewhere.
+  const midenRpcUrl = getEffectiveRpcUrl();
   let fetched: StoredBridgeConfig | null = null;
   let lastFetch: NonNullable<BridgeConfigSnapshot['lastFetch']>;
   try {
@@ -241,7 +246,10 @@ async function refresh(state: NetworkState): Promise<void> {
   }
   // The checks re-run whether or not the fetch landed, against the newest document this realm knows of.
   const target = newer(fetched, state.stored);
-  const result = target ? await derive(target.config) : null;
+  const result = target ? await derive(target.config, midenRpcUrl) : null;
+  // Across a switch the captured RPC need not be this network's, so the derivation is dropped, not trusted. The
+  // fetched document stays stored; this network's next check derives it again.
+  if (getEffectiveNetworkName() !== state.network) return;
   // A newer document adopted from another realm while this ran stays; the run still counts as a check.
   const superseded = state.stored !== null && target !== null && state.stored.config.version > target.config.version;
   if (!superseded) {

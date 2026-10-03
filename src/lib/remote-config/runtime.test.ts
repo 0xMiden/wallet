@@ -19,7 +19,10 @@ import type { BridgeConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
 
 let mockNetwork = 'testnet';
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockNetwork,
+  getEffectiveRpcUrl: () => `https://rpc.${mockNetwork}.example`
+}));
 
 // One map stands in for platform storage: the mocked source keeps documents in it, the runtime its derivations.
 const mockStorage = new Map<string, unknown>();
@@ -51,7 +54,14 @@ jest.mock('./source', () => ({
 }));
 
 const mockDerive = jest.fn<Promise<DerivedBridgeConfig>, [BridgeConfig]>();
-jest.mock('./derive', () => ({ deriveBridgeConfig: (config: BridgeConfig) => mockDerive(config) }));
+// The Miden RPC each derivation reads, as derive itself resolves it when it starts.
+const mockDerivedRpc = jest.fn<void, [string | undefined]>();
+jest.mock('./derive', () => ({
+  deriveBridgeConfig: (config: BridgeConfig, deps?: { midenRpcUrl?: () => string }) => {
+    mockDerivedRpc(deps?.midenRpcUrl?.());
+    return mockDerive(config);
+  }
+}));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 let mockAvailability: Partial<Record<string, FeatureAvailability>> = {};
@@ -162,6 +172,7 @@ beforeEach(() => {
   mockReadStored.mockReset().mockImplementation(async network => readEntry(network));
   mockFetch.mockReset().mockRejectedValue(new Error('unexpected fetch'));
   mockDerive.mockReset().mockImplementation(async source => derivedFor(source, Date.now()));
+  mockDerivedRpc.mockClear();
   mockFeatureAvailability.mockClear();
   warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -399,7 +410,7 @@ describe('networks', () => {
     await expect(pending).resolves.toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
   });
 
-  it('lands a first fetch that finishes after a switch on its own network', async () => {
+  it('lands nothing from a first fetch that finishes after a switch on either network', async () => {
     const fetched = gate();
     mockFetch.mockImplementationOnce(async network => {
       await fetched.opened;
@@ -414,7 +425,26 @@ describe('networks', () => {
     await flush();
     expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
     mockNetwork = 'testnet';
-    expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', config: config(2) });
+    expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', status: 'loading', config: null });
+    serve(2);
+    await initBridgeConfig();
+    await flush();
+    expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', status: 'ready', config: config(2) });
+  });
+
+  it('derives against the RPC current when a refresh started, and stores nothing once the network moved', async () => {
+    const fetched = gate();
+    mockFetch.mockImplementationOnce(async network => {
+      await fetched.opened;
+      return storeEntry(network, 2);
+    });
+    await initBridgeConfig();
+    mockNetwork = 'devnet';
+    fetched.release();
+    await flush();
+    expect(mockStorage.get(DERIVED)).toBeUndefined();
+    expect(mockDerivedRpc).toHaveBeenCalledWith('https://rpc.testnet.example');
+    expect(mockStorage.get(CACHE)).toEqual({ config: config(2), fetchedAt: NOW });
   });
 });
 
