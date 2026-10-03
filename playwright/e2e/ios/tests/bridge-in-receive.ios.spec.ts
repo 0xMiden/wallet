@@ -1,5 +1,6 @@
 import { parseUnits } from 'viem';
 
+import { AGGLAYER_BRIDGE_NOTE_SCALE } from '../../../../src/lib/agglayer/constant';
 import { expect, test } from '../fixtures/two-simulators';
 
 /**
@@ -19,12 +20,10 @@ test.describe('Bridge-IN receive (AggLayer, real Miden receipt)', () => {
 
   // The tracking row records the deposit in wei, as the deposit screen does; the
   // bridge delivers it scaled by its ETH faucet's registry scale
-  // (AGGLAYER_BRIDGE_NOTE_SCALE in src/lib/agglayer/constant.ts). If the two drift,
-  // the delivery stops matching and this spec fails.
-  const AGGLAYER_SCALE = 10n;
+  // (AGGLAYER_BRIDGE_NOTE_SCALE).
   const SOURCE_AMOUNT = '0.1';
   const TRACKED_WEI = parseUnits(SOURCE_AMOUNT, 18);
-  const DELIVERED = TRACKED_WEI / 10n ** AGGLAYER_SCALE;
+  const DELIVERED = TRACKED_WEI / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE);
 
   test('a delivered note is reconciled and the bridged-receive row reaches received', async ({
     walletA,

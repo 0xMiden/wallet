@@ -1,5 +1,6 @@
 import { decodeFunctionData, parseUnits, zeroAddress } from 'viem';
 
+import { AGGLAYER_BRIDGE_NOTE_SCALE } from '../../../../src/lib/agglayer/constant';
 import { expect, test } from '../fixtures/two-simulators';
 import { AnvilInstance } from '../helpers/anvil';
 import {
@@ -41,8 +42,6 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
   // (AGGLAYER_BRIDGE_NOTE_SCALE in src/lib/agglayer/constant.ts), so the solver
   // mints 1e12 / 1e10 = 100 units.
   const DEPOSIT_ETH = '0.000001';
-  // The wallet's AGGLAYER_BRIDGE_NOTE_SCALE; if the two drift, the delivery stops matching and this spec fails.
-  const AGGLAYER_SCALE = 10n;
   const FAUCET_MAX_SUPPLY = 1_000_000_000_000_000n; // 1e15, ample headroom over the 100-unit note
 
   const BRIDGE_ASSET_ABI = [
@@ -162,7 +161,12 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
       });
 
       await steps.step('solver_delivers_note', async () => {
-        await midenCli.mint(faucetHex, addressA, BigInt(rowAmount) / 10n ** AGGLAYER_SCALE, 'public');
+        await midenCli.mint(
+          faucetHex,
+          addressA,
+          BigInt(rowAmount) / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE),
+          'public'
+        );
         await midenCli.sync();
       });
 
