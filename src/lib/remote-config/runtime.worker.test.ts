@@ -12,7 +12,7 @@ import {
   getBridgeConfigSnapshot,
   HEALTHY_POLL_MS,
   holdFastPoll,
-  loadBridgeConfig
+  initBridgeConfig
 } from './runtime';
 import type { BridgeConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
@@ -98,7 +98,7 @@ afterEach(() => {
 it('never sets a timer, whatever the health or the holds', async () => {
   mockDegraded = true;
   seed(1);
-  await loadBridgeConfig();
+  await initBridgeConfig();
   const release = holdFastPoll();
   await flush();
   expect(jest.getTimerCount()).toBe(0);
@@ -108,23 +108,27 @@ it('never sets a timer, whatever the health or the holds', async () => {
 
 it('refreshes on load once the copy is an hour old, and not before', async () => {
   seed(1, NOW - HEALTHY_POLL_MS + 1);
-  await loadBridgeConfig();
+  await initBridgeConfig();
   await flush();
   expect(mockFetch).not.toHaveBeenCalled();
   await jest.advanceTimersByTimeAsync(1);
-  await loadBridgeConfig();
+  await initBridgeConfig();
   await flush();
   expect(mockFetch).toHaveBeenCalledTimes(1);
 });
 
-it('with nothing stored, waits for the first fetch, so a fresh worker can match bridge-in notes at once', async () => {
-  await expect(loadBridgeConfig()).resolves.toMatchObject({ status: 'ready', config: config(1) });
+it('with nothing stored, resolves at once and lands the first fetch without being awaited', async () => {
+  await expect(initBridgeConfig()).resolves.toMatchObject({ status: 'loading', config: null });
   expect(mockFetch).toHaveBeenCalledTimes(1);
+  await flush();
+  expect(getBridgeConfigSnapshot()).toMatchObject({ status: 'ready', config: config(1) });
 });
 
-it('with nothing stored and a failed first fetch, resolves ready with no document', async () => {
+it('with nothing stored and a failed first fetch, publishes ready with no document', async () => {
   mockFetch.mockRejectedValue(new Error('HTTP 503'));
-  await expect(loadBridgeConfig()).resolves.toMatchObject({
+  await initBridgeConfig();
+  await flush();
+  expect(getBridgeConfigSnapshot()).toMatchObject({
     status: 'ready',
     config: null,
     derived: null,
@@ -134,27 +138,27 @@ it('with nothing stored and a failed first fetch, resolves ready with no documen
 
 it('backs off a failed refresh before the next load may retry', async () => {
   mockFetch.mockRejectedValue(new Error('HTTP 503'));
-  await loadBridgeConfig();
+  await initBridgeConfig();
   await flush();
   expect(mockFetch).toHaveBeenCalledTimes(1);
   await jest.advanceTimersByTimeAsync(60_000 - 1);
-  await loadBridgeConfig();
+  await initBridgeConfig();
   await flush();
   expect(mockFetch).toHaveBeenCalledTimes(1);
   await jest.advanceTimersByTimeAsync(1);
-  await loadBridgeConfig();
+  await initBridgeConfig();
   await flush();
   expect(mockFetch).toHaveBeenCalledTimes(2);
 });
 
 it('after a wipe, drops the copy and waits for the next load to fetch', async () => {
   seed(1);
-  await loadBridgeConfig();
+  await initBridgeConfig();
   mockStorage.clear();
   await Promise.all(mockRereads.map(reread => reread()));
   expect(mockFetch).not.toHaveBeenCalled();
   expect(getBridgeConfigSnapshot().status).toBe('loading');
-  await loadBridgeConfig();
+  await initBridgeConfig();
   await flush();
   expect(mockFetch).toHaveBeenCalledTimes(1);
 });

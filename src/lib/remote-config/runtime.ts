@@ -163,7 +163,7 @@ function registerReread(): void {
   // refetches; the service worker waits for its next use. Not awaited: a wipe must not wait on the network.
   registerStorageReread(async () => {
     forgetAll();
-    if (schedulerInstalled) void loadBridgeConfig();
+    if (schedulerInstalled) void initBridgeConfig();
   });
 }
 
@@ -356,22 +356,16 @@ async function hydrateCurrent(): Promise<NetworkState> {
 }
 
 /**
- * Resolves once the stored document (and its derivation) is in memory, starting a refresh when due without awaiting
- * it. With no document stored for the network, it awaits the first fetch and its derivation instead (bounded by the
- * fetch's 10 s timeout and the probes' own); a failed one resolves with config null and status 'ready'. Never rejects.
+ * Hydrates the stored document and its derivation for the effective network into memory, so every reader can take
+ * them synchronously, and starts a refresh when due without awaiting it. Never waits for the network: with nothing
+ * stored it starts the first fetch and resolves while still loading. Never rejects.
  */
-export async function loadBridgeConfig(): Promise<BridgeConfigSnapshot> {
+export async function initBridgeConfig(): Promise<BridgeConfigSnapshot> {
   const state = await hydrateCurrent();
   // Every realm refreshes an hour-old copy on use; the service worker, which has no scheduler, depends on it.
-  const due = isDue(state, state.failures > 0 ? backoffDelay(state.failures) : HEALTHY_POLL_MS);
-  const refreshing = due ? startRefresh(state) : state.refreshing;
+  if (isDue(state, state.failures > 0 ? backoffDelay(state.failures) : HEALTHY_POLL_MS)) void startRefresh(state);
   ensureScheduler();
-  // With nothing stored there is nothing to answer from: a fresh install's getters and the worker's bridge-in matching
-  // need the first fetch, not a later load.
-  if (state.stored || !refreshing) return state.snapshot;
-  await refreshing;
-  // The network can change while the first fetch is out.
-  return state.network === getEffectiveNetworkName() ? stateFor(state.network).snapshot : loadBridgeConfig();
+  return state.snapshot;
 }
 
 /** Test-only: fetches and re-derives now, awaited. */

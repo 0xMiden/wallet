@@ -10,7 +10,7 @@ import {
   getBridgeConfigSnapshot,
   HEALTHY_POLL_MS,
   holdFastPoll,
-  loadBridgeConfig,
+  initBridgeConfig,
   MAX_BACKOFF_MS,
   _refreshBridgeConfigForTest,
   subscribeBridgeConfig
@@ -180,7 +180,7 @@ describe('the store', () => {
 
   it('serves the stored document with its derivation, ready, without fetching a fresh copy', async () => {
     seed(3, { fetchedAt: NOW - 60_000 });
-    const snapshot = await loadBridgeConfig();
+    const snapshot = await initBridgeConfig();
     await flush();
     expect(snapshot).toEqual({
       network: 'testnet',
@@ -197,7 +197,7 @@ describe('the store', () => {
     seed(3);
     mockStorage.set(DERIVED, derivedFor(config(2), NOW));
     serve(3);
-    expect(await loadBridgeConfig()).toMatchObject({ status: 'loading', config: config(3), derived: null });
+    expect(await initBridgeConfig()).toMatchObject({ status: 'loading', config: config(3), derived: null });
     await flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockDerive).toHaveBeenCalledWith(config(3));
@@ -209,43 +209,44 @@ describe('the store', () => {
     seed(1);
     mockGet.mockRejectedValueOnce(new Error('storage unavailable'));
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('derived snapshot'), expect.any(Error));
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('with nothing stored, waits for the first fetch and resolves with the document and its derivation', async () => {
+  it('with nothing stored, resolves at once while loading and publishes the first fetch when it lands', async () => {
     const fetched = gate();
     mockFetch.mockImplementationOnce(async network => {
       await fetched.opened;
       return storeEntry(network, 1);
     });
-    let settled = false;
-    const loading = loadBridgeConfig().then(snapshot => {
-      settled = true;
-      return snapshot;
-    });
-    await flush();
-    expect(settled).toBe(false);
-    expect(getBridgeConfigSnapshot()).toMatchObject({ status: 'loading', config: null });
+    await expect(initBridgeConfig()).resolves.toMatchObject({ status: 'loading', config: null });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
     fetched.release();
-    await expect(loading).resolves.toEqual({
+    await flush();
+    expect(getBridgeConfigSnapshot()).toEqual({
       network: 'testnet',
       status: 'ready',
       config: config(1),
       derived: derivedFor(config(1), NOW),
       lastFetch: { at: NOW, ok: true }
     });
-    await flush();
     expect(mockStorage.get(DERIVED)).toEqual(derivedFor(config(1), NOW));
+  });
+
+  it('starts one hydration and one fetch however often it is called', async () => {
+    mockFetch.mockImplementation(() => new Promise<StoredBridgeConfig>(() => undefined));
+    await Promise.all([initBridgeConfig(), initBridgeConfig()]);
+    await initBridgeConfig();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('with a stored document, resolves from storage without waiting for the refresh it starts', async () => {
     seed(1, { fetchedAt: NOW - HEALTHY_POLL_MS });
     mockFetch.mockImplementation(() => new Promise<StoredBridgeConfig>(() => undefined));
     let resolved: BridgeConfigSnapshot | undefined;
-    void loadBridgeConfig().then(snapshot => {
+    void initBridgeConfig().then(snapshot => {
       resolved = snapshot;
     });
     await flush();
@@ -256,7 +257,7 @@ describe('the store', () => {
   it('keeps the last accepted document when a fetch fails, records why, and still re-runs the checks', async () => {
     seed(2, { fetchedAt: NOW - HEALTHY_POLL_MS });
     failFetch('HTTP 503');
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(mockDerive).toHaveBeenCalledWith(config(2));
     expect(getBridgeConfigSnapshot()).toEqual({
@@ -272,9 +273,11 @@ describe('the store', () => {
     );
   });
 
-  it('with nothing stored and a failed first fetch, resolves ready with no document instead of throwing', async () => {
+  it('with nothing stored and a failed first fetch, publishes ready with no document instead of throwing', async () => {
     failFetch();
-    await expect(loadBridgeConfig()).resolves.toEqual({
+    await expect(initBridgeConfig()).resolves.toMatchObject({ status: 'loading', config: null });
+    await flush();
+    expect(getBridgeConfigSnapshot()).toEqual({
       network: 'testnet',
       status: 'ready',
       config: null,
@@ -293,7 +296,7 @@ describe('the store', () => {
   it('refreshes on demand even when the copy is fresh, and resolves with the result', async () => {
     seed(1);
     serve(2);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await expect(_refreshBridgeConfigForTest()).resolves.toMatchObject({
       config: config(2),
       derived: derivedFor(config(2), NOW),
@@ -304,7 +307,7 @@ describe('the store', () => {
   it('treats a copy stamped later than the clock as stale', async () => {
     seed(1, { fetchedAt: NOW + 60_000 });
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
@@ -312,7 +315,7 @@ describe('the store', () => {
   it('reads a derivation that throws as every check failed, and keeps it out of storage', async () => {
     mockDerive.mockRejectedValue(new Error('wasm init failed'));
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(getBridgeConfigSnapshot()).toMatchObject({
       status: 'ready',
@@ -325,7 +328,7 @@ describe('the store', () => {
   it('still shows a derivation that storage refuses to keep', async () => {
     mockPut.mockRejectedValueOnce(new Error('quota exceeded'));
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(getBridgeConfigSnapshot()).toMatchObject({ derived: derivedFor(config(1), NOW) });
     expect(warn).toHaveBeenCalledWith(
@@ -338,7 +341,7 @@ describe('the store', () => {
     const listener = jest.fn();
     const unsubscribe = subscribeBridgeConfig(listener);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(listener).toHaveBeenCalled();
     listener.mockClear();
@@ -352,7 +355,7 @@ describe('the store', () => {
     mockAvailability = { fastBridgeOut: unavailable('service-down') };
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await _refreshBridgeConfigForTest();
     expect(logged()).toEqual([['[remote-config] fastBridgeOut is unavailable on testnet (service-down: test)']]);
     mockAvailability = {};
@@ -368,7 +371,7 @@ describe('networks', () => {
   it('never shows one network document for another', async () => {
     seed(1);
     seed(5, { network: 'devnet' });
-    await loadBridgeConfig();
+    await initBridgeConfig();
     mockNetwork = 'devnet';
     expect(getBridgeConfigSnapshot()).toEqual({
       network: 'devnet',
@@ -377,7 +380,7 @@ describe('networks', () => {
       derived: null,
       lastFetch: null
     });
-    await expect(loadBridgeConfig()).resolves.toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
+    await expect(initBridgeConfig()).resolves.toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
     mockNetwork = 'testnet';
     expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', config: config(1) });
   });
@@ -390,25 +393,25 @@ describe('networks', () => {
       await read.opened;
       return readEntry(network);
     });
-    const pending = loadBridgeConfig();
+    const pending = initBridgeConfig();
     mockNetwork = 'devnet';
     read.release();
     await expect(pending).resolves.toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
   });
 
-  it('lands a first fetch that finishes after a switch on its own network, and resolves with the new one', async () => {
+  it('lands a first fetch that finishes after a switch on its own network', async () => {
     const fetched = gate();
     mockFetch.mockImplementationOnce(async network => {
       await fetched.opened;
       return storeEntry(network, 2);
     });
-    const first = loadBridgeConfig();
-    await flush();
+    await expect(initBridgeConfig()).resolves.toMatchObject({ network: 'testnet', status: 'loading' });
     mockNetwork = 'devnet';
+    expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'devnet', status: 'loading', config: null });
     seed(5, { network: 'devnet' });
-    await loadBridgeConfig();
+    await initBridgeConfig();
     fetched.release();
-    await expect(first).resolves.toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
+    await flush();
     expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
     mockNetwork = 'testnet';
     expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', config: config(2) });
@@ -418,7 +421,7 @@ describe('networks', () => {
 describe('commits from another realm', () => {
   it('adopts a newer document together with its derivation', async () => {
     seed(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     seed(2, { fetchedAt: NOW + 1, derivedAt: NOW + 2 });
     fireChange(DERIVED);
     await flush();
@@ -437,19 +440,20 @@ describe('commits from another realm', () => {
       await fetched.opened;
       throw new Error('HTTP 503');
     });
-    const loading = loadBridgeConfig();
+    const loading = initBridgeConfig();
     await flush();
     seed(1);
     fireChange(DERIVED);
     await flush();
     expect(getBridgeConfigSnapshot()).toMatchObject({ status: 'ready', config: config(1) });
     fetched.release();
-    await expect(loading).resolves.toMatchObject({ config: config(1) });
+    // The call itself never waited for the fetch.
+    await expect(loading).resolves.toMatchObject({ status: 'loading', config: null });
   });
 
   it('waits for the derivation before taking a newer document', async () => {
     seed(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     storeEntry('testnet', 2);
     fireChange(CACHE);
     await flush();
@@ -464,7 +468,7 @@ describe('commits from another realm', () => {
     seed(3);
     mockStorage.set(DERIVED, derivedFor(config(2), NOW));
     mockFetch.mockImplementation(() => new Promise<StoredBridgeConfig>(() => undefined));
-    await loadBridgeConfig();
+    await initBridgeConfig();
     mockStorage.set(DERIVED, derivedFor(config(3), NOW + 5));
     fireChange(DERIVED);
     await flush();
@@ -477,7 +481,7 @@ describe('commits from another realm', () => {
 
   it('ignores a removal: the copy in memory stays', async () => {
     seed(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     const before = getBridgeConfigSnapshot();
     mockStorage.clear();
     fireChange(CACHE);
@@ -488,7 +492,7 @@ describe('commits from another realm', () => {
 
   it('ignores an older document', async () => {
     seed(3);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     const before = getBridgeConfigSnapshot();
     seed(2, { fetchedAt: NOW + 1 });
     fireChange(DERIVED);
@@ -498,7 +502,7 @@ describe('commits from another realm', () => {
 
   it('ignores a derivation of the same version that is not newer', async () => {
     seed(3);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     const before = getBridgeConfigSnapshot();
     mockStorage.set(DERIVED, derivedFor(config(3), NOW));
     fireChange(DERIVED);
@@ -508,7 +512,7 @@ describe('commits from another realm', () => {
 
   it('takes a fresher derivation of the same version, and its fetch ends the backoff here', async () => {
     seed(3);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     failFetch();
     await _refreshBridgeConfigForTest();
     expect(getBridgeConfigSnapshot().lastFetch).toEqual({ at: NOW, ok: false, error: 'HTTP 503' });
@@ -526,7 +530,7 @@ describe('commits from another realm', () => {
 
   it('keeps a newer document adopted while a failed refresh was out, and checks that one', async () => {
     seed(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     const fetched = gate();
     mockFetch.mockImplementationOnce(async () => {
       await fetched.opened;
@@ -547,7 +551,7 @@ describe('commits from another realm', () => {
 
   it('keeps a newer document adopted while a fetch of an older one was out', async () => {
     seed(2);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     const fetched = gate();
     mockFetch.mockImplementationOnce(async network => {
       await fetched.opened;
@@ -565,7 +569,7 @@ describe('commits from another realm', () => {
 
   it('does not replace a newer document adopted while its derivation ran, nor store that derivation', async () => {
     seed(2);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     serve(3);
     const derived = gate();
     mockDerive.mockImplementationOnce(async source => {
@@ -587,7 +591,7 @@ describe('commits from another realm', () => {
 describe('a wipe in this realm', () => {
   it('drops the copy in memory and reads again at once', async () => {
     seed(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     mockStorage.clear();
     const refetch = gate();
     mockFetch.mockImplementationOnce(async network => {
@@ -614,7 +618,7 @@ describe('a wipe in this realm', () => {
       await first.opened;
       return storeEntry(network, 1);
     });
-    const firstLoad = loadBridgeConfig();
+    const firstLoad = initBridgeConfig();
     await flush();
     serve(2);
     await rereadAfterWipe();
@@ -623,7 +627,7 @@ describe('a wipe in this realm', () => {
     first.release();
     await flush();
     expect(getBridgeConfigSnapshot()).toMatchObject({ config: config(2) });
-    await expect(firstLoad).resolves.toMatchObject({ config: config(2) });
+    await expect(firstLoad).resolves.toMatchObject({ status: 'loading', config: null });
   });
 });
 
@@ -631,7 +635,7 @@ describe('the poll schedule', () => {
   it('re-checks a healthy wallet every hour', async () => {
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 1);
     expect(mockFetch).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(1);
@@ -643,14 +647,14 @@ describe('the poll schedule', () => {
   it('on open, refreshes a healthy copy 15 minutes old at once', async () => {
     seed(1, { fetchedAt: NOW - FOREGROUND_STALE_MS });
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('on open, leaves a healthy copy younger than 15 minutes', async () => {
     seed(1, { fetchedAt: NOW - FOREGROUND_STALE_MS + 1 });
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -661,7 +665,7 @@ describe('the poll schedule', () => {
       mockAvailability = { bridgeIn: unavailable(reason) };
       seed(1);
       serve(1);
-      await loadBridgeConfig();
+      await initBridgeConfig();
       await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
       expect(mockFetch).not.toHaveBeenCalled();
       await jest.advanceTimersByTimeAsync(1);
@@ -675,7 +679,7 @@ describe('the poll schedule', () => {
       mockAvailability = { earnDeposit: unavailable(reason), bridgeOut: unavailable(reason) };
       seed(1);
       serve(1);
-      await loadBridgeConfig();
+      await initBridgeConfig();
       await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 1);
       expect(mockFetch).not.toHaveBeenCalled();
       await jest.advanceTimersByTimeAsync(1);
@@ -689,7 +693,7 @@ describe('the poll schedule', () => {
       mockAvailability = { earnDeposit: unavailable(reason) };
       seed(1);
       serve(1);
-      await loadBridgeConfig();
+      await initBridgeConfig();
       const release = holdFastPoll();
       await jest.advanceTimersByTimeAsync(DEGRADED_VISIBLE_POLL_MS - 1);
       expect(mockFetch).not.toHaveBeenCalled();
@@ -707,7 +711,7 @@ describe('the poll schedule', () => {
     mockAvailability = { fastBridgeOut: unavailable('service-down') };
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     const release = holdFastPoll();
     await jest.advanceTimersByTimeAsync(DEGRADED_VISIBLE_POLL_MS);
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -724,7 +728,7 @@ describe('the poll schedule', () => {
     mockAvailability = { fastBridgeOut: unavailable('service-down') };
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     const first = holdFastPoll();
     holdFastPoll();
     first();
@@ -737,7 +741,7 @@ describe('the poll schedule', () => {
     mockAvailability = { bridgeIn: unavailable('service-down') };
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await jest.advanceTimersByTimeAsync(3 * DEGRADED_VISIBLE_POLL_MS);
     expect(mockFetch).not.toHaveBeenCalled();
     holdFastPoll();
@@ -748,7 +752,7 @@ describe('the poll schedule', () => {
   it('ignores a hold while every feature is available', async () => {
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     holdFastPoll();
     await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
     expect(mockFetch).not.toHaveBeenCalled();
@@ -756,7 +760,7 @@ describe('the poll schedule', () => {
 
   it('backs off failed fetches from 60 s, doubling to a 15-minute cap, and a success resets it', async () => {
     seed(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     failFetch();
     await _refreshBridgeConfigForTest();
     let calls = 1;
@@ -779,7 +783,7 @@ describe('the poll schedule', () => {
   it('stops while hidden and, back in the foreground, refreshes a copy older than 15 minutes', async () => {
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(jest.getTimerCount()).toBe(1);
     setVisibility('hidden');
@@ -794,7 +798,7 @@ describe('the poll schedule', () => {
   it('back in the foreground within 15 minutes, keeps the hourly timer from the last check', async () => {
     seed(1);
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     setVisibility('hidden');
     await jest.advanceTimersByTimeAsync(10 * 60_000);
@@ -811,7 +815,7 @@ describe('the poll schedule', () => {
     visibility = 'hidden';
     seed(1, { fetchedAt: NOW - HEALTHY_POLL_MS });
     serve(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(jest.getTimerCount()).toBe(0);
@@ -822,8 +826,8 @@ describe('the poll schedule', () => {
   it('installs one foreground listener per realm', async () => {
     const addListener = jest.spyOn(document, 'addEventListener');
     seed(1);
-    await Promise.all([loadBridgeConfig(), loadBridgeConfig()]);
-    await loadBridgeConfig();
+    await Promise.all([initBridgeConfig(), initBridgeConfig()]);
+    await initBridgeConfig();
     expect(addListener.mock.calls.filter(([type]) => type === 'visibilitychange')).toHaveLength(1);
     addListener.mockRestore();
   });
@@ -831,7 +835,7 @@ describe('the poll schedule', () => {
   it('picks up a network switch on its next tick', async () => {
     seed(1);
     serve(5);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     mockNetwork = 'devnet';
     await jest.advanceTimersByTimeAsync(HEALTHY_POLL_MS - 1);
@@ -844,7 +848,7 @@ describe('the poll schedule', () => {
   it('reads a newly current network as soon as anything re-arms the timer', async () => {
     seed(1);
     seed(5, { network: 'devnet' });
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     mockNetwork = 'devnet';
     holdFastPoll();
@@ -859,7 +863,7 @@ describe('the poll schedule', () => {
 
   it('judges health with the E2E overrides applied', async () => {
     seed(1);
-    await loadBridgeConfig();
+    await initBridgeConfig();
     await flush();
     expect(mockFeatureAvailability).toHaveBeenCalledWith('earnDeposit', getBridgeConfigSnapshot(), mockOverrides);
   });
