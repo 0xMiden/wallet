@@ -159,6 +159,7 @@ export class IosWalletPage implements WalletPage {
     sourceSymbol: string;
     outputAmount?: string;
     outputSymbol?: string;
+    evmTxHash: string;
   }): Promise<string> {
     return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
   }

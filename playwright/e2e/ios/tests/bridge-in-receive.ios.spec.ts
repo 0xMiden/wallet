@@ -58,7 +58,10 @@ test.describe('Bridge-IN receive (AggLayer, real Miden receipt)', () => {
         provider: 'agglayer',
         sourceAddress: '0x000000000000000000000000000000000000dEaD',
         sourceAmount: SOURCE_AMOUNT,
-        sourceSymbol: 'ETH'
+        sourceSymbol: 'ETH',
+        // The deposit screen records its EVM hash and moves the row to delivering; a row left submitting with no hash
+        // is failed as an orphan before the note arrives.
+        evmTxHash: `0x${'11'.repeat(32)}`
       });
       expect(bridgeReceiveTxId, 'bridged-receive txId').toBeTruthy();
     });
