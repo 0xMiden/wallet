@@ -8,6 +8,7 @@ import {
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from './balance-truth';
+import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../src/lib/miden-chain/native-asset-cache-keys';
 
 /**
  * Drives the real `page.evaluate` callback against a fake store. The fixture's second row is the
@@ -235,8 +236,8 @@ describe.each([
     name: 'walletDiscoveredNativeFaucetId',
     read: walletDiscoveredNativeFaucetId,
     stale: 'native_asset_id:v3:https://rpc.devnet.miden.io',
-    current: 'native_asset_id:v4:https://rpc.devnet.miden.io|devnet',
-    otherScope: 'native_asset_id:v4:https://rpc.testnet.miden.io|testnet',
+    current: `${NATIVE_ASSET_ID_CACHE}:https://rpc.devnet.miden.io|devnet`,
+    otherScope: `${NATIVE_ASSET_ID_CACHE}:https://rpc.testnet.miden.io|testnet`,
     value: feeFaucetId,
     staleValue: otherFaucetId
   },
@@ -244,8 +245,8 @@ describe.each([
     name: 'walletDiscoveredBaseFee',
     read: walletDiscoveredBaseFee,
     stale: 'native_asset_fee:v0:https://rpc.devnet.miden.io',
-    current: 'native_asset_fee:v1:https://rpc.devnet.miden.io|devnet',
-    otherScope: 'native_asset_fee:v1:https://rpc.testnet.miden.io|testnet',
+    current: `${NATIVE_ASSET_FEE_CACHE}:https://rpc.devnet.miden.io|devnet`,
+    otherScope: `${NATIVE_ASSET_FEE_CACHE}:https://rpc.testnet.miden.io|testnet`,
     value: 10_000,
     staleValue: 250
   }
@@ -260,5 +261,19 @@ describe.each([
 
   it('answers null when the wallet has not discovered it', async () => {
     await expect(read(cachePage({ [stale]: staleValue }))).resolves.toBeNull();
+  });
+});
+
+it('reads the cache names the wallet writes, so a version bump moves the harness with it', async () => {
+  await jest.isolateModulesAsync(async () => {
+    jest.doMock('../../../src/lib/miden-chain/native-asset-cache-keys', () => ({
+      NATIVE_ASSET_ID_CACHE: 'native_asset_id:v9',
+      NATIVE_ASSET_META_CACHE: 'native_asset_meta:v9',
+      NATIVE_ASSET_FEE_CACHE: 'native_asset_fee:v9'
+    }));
+    const truth = await import('./balance-truth');
+    const page = cachePage({ 'native_asset_id:v9:rpc|devnet': feeFaucetId, 'native_asset_fee:v9:rpc|devnet': 10_000 });
+    await expect(truth.walletDiscoveredNativeFaucetId(page)).resolves.toBe(feeFaucetId);
+    await expect(truth.walletDiscoveredBaseFee(page)).resolves.toBe(10_000);
   });
 });

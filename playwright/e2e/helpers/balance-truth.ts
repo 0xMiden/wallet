@@ -28,6 +28,7 @@ import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { AssetMetadata } from 'lib/miden/metadata';
 
 import { readTransactionRows } from './history';
+import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../src/lib/miden-chain/native-asset-cache-keys';
 
 /** A token's on-screen identity plus the raw amount, as the store reports it. */
 export interface SymbolBalance {
@@ -421,7 +422,7 @@ async function walletCacheEntry(page: Page, prefix: string): Promise<unknown> {
  * The chain's `verification_base_fee` as the WALLET discovered it, or `null` if the
  * wallet has not discovered it.
  *
- * Read from the extension's own cache (`native_asset_fee:v1:<scope>`, written by
+ * Read from the extension's own cache (the NATIVE_ASSET_FEE_CACHE entry written by
  * `lib/miden-chain/native-asset`) rather than from the harness's knowledge of how
  * the node was genesised. That makes a spec self-describing -- it can require a fee
  * on a fee-charging chain and say so on a fee-free one -- and it doubles as an
@@ -431,20 +432,20 @@ async function walletCacheEntry(page: Page, prefix: string): Promise<unknown> {
  * `null` is a wallet that does not know. Callers must not collapse them.
  */
 export async function walletDiscoveredBaseFee(page: Page): Promise<number | null> {
-  const v = await walletCacheEntry(page, 'native_asset_fee:v1:');
+  const v = await walletCacheEntry(page, `${NATIVE_ASSET_FEE_CACHE}:`);
   return typeof v === 'number' ? v : null;
 }
 
 /**
  * The chain's native (fee) faucet id as the WALLET discovered it, or `null`.
  *
- * Read from the extension's own cache (`native_asset_id:v4:<scope>`). Preferred
+ * Read from the extension's own cache (the NATIVE_ASSET_ID_CACHE entry). Preferred
  * over looking the row up by symbol: the native asset's symbol comes from chain
  * metadata that a local chain need not supply, so a symbol lookup can miss on a
  * wallet that knows the faucet perfectly well.
  */
 export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string | null> {
-  const v = await walletCacheEntry(page, 'native_asset_id:v4:');
+  const v = await walletCacheEntry(page, `${NATIVE_ASSET_ID_CACHE}:`);
   return typeof v === 'string' ? v : null;
 }
 
