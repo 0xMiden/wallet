@@ -277,6 +277,7 @@ describe('findAgglayerExitDeposit (#1325)', () => {
   it('a failed page fetch leaves the search to run again', async () => {
     serveHistory(exitsFrom(510, 25));
     const served = fetchMock.getMockImplementation();
+    if (served === undefined) throw new Error('serveHistory installs the fetch implementation');
     fetchMock.mockImplementationOnce(served).mockImplementationOnce(async () => {
       throw new TypeError('Failed to fetch');
     });
