@@ -416,13 +416,16 @@ export class MultisigService {
    * cold co-sign path where cold contributes a signature without driving the
    * follow-up createTransactionProposalRequest call (hot does that).
    * Sigs accumulate on the Guardian server keyed by proposal id.
+   *
+   * The WASM hold spans the guardian round trip, so a caller with its own deadline
+   * passes `lockOptions` to bound the hold by it.
    */
-  async signProposal(id: string): Promise<void> {
+  async signProposal(id: string, lockOptions?: Parameters<typeof withWasmClientLock>[1]): Promise<void> {
     // Signing syncs and previews with the same shared client as account creation.
     await withWasmClientLock(async hold => {
       await this.multisig.signProposal(id);
       assertWasmHoldCurrent(hold, 'guardian proposal signing');
-    });
+    }, lockOptions);
   }
 
   /**
@@ -436,7 +439,11 @@ export class MultisigService {
     await this.multisig.abandonCandidate(nonce);
   }
 
-  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
+  async signAndCreateTransactionRequest(
+    id: string,
+    requestBytes?: Uint8Array,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1]
+  ): Promise<TransactionRequest> {
     return withWasmClientLock(async hold => {
       const proposal = await this.multisig.signProposal(id);
       assertWasmHoldCurrent(hold, 'guardian request: after proposal signing');
@@ -452,7 +459,7 @@ export class MultisigService {
       const request = await this.multisig.createTransactionProposalRequest(id);
       assertWasmHoldCurrent(hold, 'guardian request: after proposal request preparation');
       return request;
-    });
+    }, lockOptions);
   }
 
   /**

@@ -15,7 +15,7 @@ import { Account } from '@miden-sdk/miden-sdk/lazy';
 
 import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
@@ -700,6 +700,28 @@ describe('MultisigService', () => {
       await expect(service.signAndCreateTransactionRequest('p')).rejects.toMatchObject({
         name: 'WasmClientPoisonedError'
       });
+    });
+
+    it.each([
+      {
+        name: 'signProposal',
+        run: (service: MultisigService, options?: WasmClientLockOptions) => service.signProposal('p', options)
+      },
+      {
+        name: 'signAndCreateTransactionRequest',
+        run: (service: MultisigService, options?: WasmClientLockOptions) =>
+          service.signAndCreateTransactionRequest('p', undefined, options)
+      }
+    ])('$name bounds its hold only with the ceiling its caller passes', async ({ run }) => {
+      const multisig = makeMultisig({ signProposal: jest.fn(async () => ({ metadata: { proposalType: 'send' } })) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const ceiling = { watchdogMs: 30_000, label: 'switch-guardian co-sign' };
+      wasmLockOptionsSeen.length = 0;
+
+      await run(service, ceiling);
+      await run(service);
+
+      expect(wasmLockOptionsSeen).toEqual([ceiling, undefined]);
     });
 
     it('signAndExecuteProposal signs then executes a given proposal', async () => {
