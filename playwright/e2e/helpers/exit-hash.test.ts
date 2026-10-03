@@ -1,7 +1,6 @@
 /**
  * @jest-environment node
  */
-/* eslint-disable import/first -- the jest.mock() factory must be registered before the module under test is imported. */
 /**
  * The E2E check is only as good as this recomputation, so it is held to the wallet's own formula
  * (src/lib/agglayer/b2agg/exit-hash.ts), run here on the same napi addon. That formula is the one the golden vectors
