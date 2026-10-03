@@ -311,6 +311,136 @@ describe('non-guardian send → the stage callback reaches the proxy whatever th
   });
 });
 
+describe('attempts (#1081)', () => {
+  it('stamps a fresh attemptId at pickup and records the crossing under it, with its evidence', async () => {
+    await runSend('tx-attempt');
+    const row = txStore.find(r => r.id === 'tx-attempt');
+    expect(typeof row?.attemptId).toBe('string');
+    const onStage = mockProxySendTransaction.mock.calls[0]![2] as (s: string, d?: unknown) => Promise<void>;
+    const id = `0x${'a'.repeat(64)}`;
+    await onStage('submitting', { reliable: false, evidence: { transactionId: id } });
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(row?.submitEvidence).toEqual([
+      expect.objectContaining({ attemptId: row?.attemptId, source: 'stage', transactionId: id })
+    ]);
+  });
+
+  it('gives every run its own attemptId', async () => {
+    await runSend('tx-one');
+    await runSend('tx-two');
+    const ids = txStore.map(r => r.attemptId);
+    expect(new Set(ids).size).toBe(2);
+  });
+});
+
+describe('an attempt that may have crossed is never invisible (#1081)', () => {
+  const entriesOf = (id: string) => txStore.find(r => r.id === id)?.submitEvidence ?? [];
+
+  it('offscreen: an untagged leaf failure leaves an evidence-less end entry', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockProxySendTransaction.mockRejectedValueOnce(new Error('sendTransaction: result decode failed'));
+    await expect(runSend('tx-end')).rejects.toThrow('result decode failed');
+    expect(entriesOf('tx-end')).toEqual([expect.objectContaining({ source: 'end' })]);
+  });
+
+  it('offscreen: an untagged execute failure leaves an end entry marked as an execute', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    proxyMock().newTransaction.mockRejectedValueOnce(new Error('newTransaction: result decode failed'));
+    await expect(runRow({ id: 'tx-exec-end', type: 'execute', requestBytes: new Uint8Array([1]) })).rejects.toThrow(
+      'result decode failed'
+    );
+    expect(entriesOf('tx-exec-end')).toEqual([expect.objectContaining({ source: 'end', fromExecute: true })]);
+  });
+
+  it('offscreen: a tagged failure leaves none', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockProxySendTransaction.mockRejectedValueOnce(markErrorBeforeSubmit(new Error('vault slot missing')));
+    await expect(runSend('tx-pre')).rejects.toThrow('vault slot missing');
+    expect(entriesOf('tx-pre')).toEqual([]);
+  });
+
+  it('in realm: a stamp-free failure leaves none', async () => {
+    mockProxySendTransaction.mockRejectedValueOnce(new Error('prover exploded'));
+    await expect(runSend('tx-inline')).rejects.toThrow('prover exploded');
+    expect(entriesOf('tx-inline')).toEqual([]);
+  });
+
+  it('a kill or the indefinite outcome is left to its own route', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { WasmClientPoisonedError } = jest.requireActual('../sdk/wasm-client-poison');
+    mockProxySendTransaction.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog', new Error('x')));
+    await expect(runSend('tx-kill')).rejects.toThrow();
+    mockProxySendTransaction.mockRejectedValueOnce(
+      new Error(`submission of transaction 0x${'a'.repeat(64)} came back without a definite outcome`)
+    );
+    await expect(runSend('tx-unknown')).rejects.toThrow();
+    expect(entriesOf('tx-kill')).toEqual([]);
+    expect(entriesOf('tx-unknown')).toEqual([]);
+  });
+});
+
+async function runRow(row: Record<string, unknown>) {
+  const tx = {
+    status: ITransactionStatus.Queued,
+    displayMessage: 'Queued',
+    displayIcon: 'DEFAULT',
+    delegateTransaction: false,
+    initiatedAt: Math.floor(Date.now() / 1000),
+    accountId: 'acc-1',
+    ...row
+  };
+  txStore.push({ ...tx });
+  await generateTransaction(tx as never, signCallback, false, provider as never);
+}
+
+const proxyMock = () => jest.requireMock('../back/miden-client-proxy').midenClientProxy;
+
+describe('which dispatches carry a stamp (#1081)', () => {
+  it.each<[string, Record<string, unknown>, 'consumeNoteId' | 'swapTransaction' | 'newTransaction', number, boolean]>([
+    ['a claim', { id: 'c', type: 'consume', noteId: 'n', noteIds: ['n'] }, 'consumeNoteId', 2, true],
+    [
+      'a rotation-funding claim',
+      { id: 'cf', type: 'consume', noteId: 'n', noteIds: ['n'], rotationFunding: true },
+      'consumeNoteId',
+      2,
+      false
+    ],
+    [
+      'a swap',
+      {
+        id: 's',
+        type: 'swap',
+        faucetId: 'f',
+        amount: 1n,
+        extraInputs: { requestedFaucetId: 'g', requestedAmount: 2n }
+      },
+      'swapTransaction',
+      2,
+      true
+    ],
+    ['a dApp execute', { id: 'e', type: 'execute', requestBytes: new Uint8Array([1]) }, 'newTransaction', 4, true],
+    [
+      'an Agglayer bridge',
+      { id: 'b', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'agglayer' } },
+      'newTransaction',
+      4,
+      true
+    ],
+    [
+      'an Epoch bridge',
+      { id: 'p', type: 'bridged-send', requestBytes: new Uint8Array([1]), extraInputs: { provider: 'epoch' } },
+      'newTransaction',
+      4,
+      false
+    ]
+  ])('%s', async (_label, row, leaf, stampIndex, stamped) => {
+    await runRow(row);
+    const call = proxyMock()[leaf].mock.calls[0];
+    expect(typeof call[stampIndex] === 'function').toBe(stamped);
+  });
+});
+
 describe('the cold-start sweep against a row the real writer moved to GeneratingTransaction (#1202)', () => {
   /** Holds the next proxy send open until `release`, which is safe to call before the send gets there. */
   function holdNextProxySend() {

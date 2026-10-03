@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Рекомендовані сховища",
-    "englishSource": "Featured Vaults"
+    "message": "Доступні сховища",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -623,8 +623,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "Гаманець не зміг підтвердити, чи пройшла ця операція. Можливо, вона ще надійде, тому перевірте свій баланс після синхронізації гаманця, перш ніж надсилати її знову.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "Гаманець не зміг підтвердити, чи відбулася ця операція. Вона може ще завершитися, тому перевірте гаманець після синхронізації, перш ніж спробувати ще раз.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "Гаманець не зміг визначити, чи відбулася ця операція, і не перевіряє це. Перевірте гаманець, перш ніж спробувати ще раз.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "Це було відновлено з резервної копії, тому гаманець не може перевірити, чи операція пройшла успішно, або повторити її. Перевірте гаманець, перш ніж повторювати операцію.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Показати повний текст помилки",
@@ -4076,8 +4084,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "Гаманець не зміг підтвердити, чи пройшла транзакція. Відкрийте гаманець, перш ніж надіслати її знову.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "Гаманець не зміг підтвердити, чи пройшла транзакція. Відкрийте гаманець, перш ніж спробувати ще раз.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Натисніть тут, щоб прийняти",

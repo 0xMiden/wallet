@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "精选保险库",
-    "englishSource": "Featured Vaults"
+    "message": "可用保险库",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -623,8 +623,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "钱包无法确认此笔交易是否已成功。该笔交易仍有可能到账，因此请在钱包同步完成后查看余额，再决定是否再次发送。",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "钱包无法确认此操作是否已成功。该操作仍可能完成，因此请在再次尝试前，待钱包同步完成后检查其状态。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "钱包无法确定此操作是否成功，且不会进行验证。请检查钱包后再尝试。",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "此次是从备份中恢复的，因此钱包无法检查操作是否成功，也无法重试。请在重复操作前检查钱包。",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "显示完整错误信息",
@@ -4076,8 +4084,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "钱包无法确认交易是否成功。请在再次发送前打开钱包。",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "钱包无法确认交易是否成功。请先打开钱包，然后重试。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "点击此处接受",

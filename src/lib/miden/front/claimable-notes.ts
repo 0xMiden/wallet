@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getUncompletedTransactions } from 'lib/miden/activity';
+import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -208,7 +208,7 @@ async function fetchNotesFromLocalClient(
     throw e;
   }
 
-  const uncompletedTxs = await getUncompletedTransactions(publicAddress);
+  const uncompletedTxs = await getNoteHoldingTransactions(publicAddress);
   const notesBeingClaimed = claimingTxIdByNoteId(uncompletedTxs);
 
   // Per-order PSWAP lineage inside classifySwapOrderNotes routes through the proxy
@@ -509,7 +509,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   // row is what mobile and desktop already do, and unlike the broadcast it also covers
   // a consume that FAILED -- that row leaves Queued/GeneratingTransaction, so the note
   // becomes claimable again instead of staying hidden. Polled on the same 3s cadence as
-  // the sync read above so both gates move together.
+  // the sync read above so both gates move together. Held claims count too: the dedup
+  // refuses a second claim of their notes (#1081).
   // `readClaiming` is async and is called from both the poll and `mutate`, so a read started before
   // an account switch can resolve after it and install the PREVIOUS account's claim gate over the
   // new account's notes. The effect-scoped `cancelled` flag this replaced did that job; lifting the
@@ -532,7 +533,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const boundGeneration = readGenerationRef.current;
 
   const readClaiming = useCallback(() => {
-    return getUncompletedTransactions(publicAddress)
+    return getNoteHoldingTransactions(publicAddress)
       .then(txs => {
         if (readGenerationRef.current !== boundGeneration) {
           console.warn('[claimable-notes] dropped a consume-row read from a previous account');

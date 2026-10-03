@@ -24,15 +24,28 @@ import {
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { getTransactionsInProgress } from './get';
-import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, updateTransactionStatus } from './helper';
+import {
+  clearCancelledInFlight,
+  markCancelledInFlight,
+  markMayHaveSubmitted,
+  recordKillEnd,
+  recordOutOfBandEnd,
+  updateTransactionStatus
+} from './helper';
+import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
 } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { ConsumeTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { ConsumeTransaction, hasLeftQueue, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
-import { isKilledPipeline, isPoisonedPipeline } from '../sdk/sdk-error-code';
+import {
+  indefiniteSubmitTransactionId,
+  isIndefiniteSubmitOutcomeError,
+  isKilledPipeline,
+  isPoisonedPipeline
+} from '../sdk/sdk-error-code';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -40,6 +53,38 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
+
+/**
+ * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
+ * and the untouched thrown text. Shared by `cancelTransaction` and the Unconfirmed write so one failure never reads
+ * two ways (#1081).
+ */
+const describeFailure = (
+  transaction: Pick<ITransaction, 'delegateTransaction'>,
+  error: unknown,
+  existing: ITransaction | undefined
+): { displayError: string; rawError: string } => {
+  // The stage the tx died in (persisted by setTransactionStage) disambiguates
+  // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
+  const failedStage = existing?.stage;
+  const rawError = formatRawTransactionError(error);
+  // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
+  // withhold the may-have-submitted crossing, re-derived HERE from the row the caller
+  // already read, so the message and the crossing can never disagree: hedging "left in an
+  // unknown state, check your activity" on a row whose Retry is provably safe is a
+  // falsehood that costs the user the retry.
+  const abandonedPreWrite =
+    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
+  // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
+  // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
+  // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
+  // claim read as a completed failure instead of not confirmed.
+  const displayError =
+    typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
+      ? error
+      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  return { displayError, rawError };
+};
 
 /**
  * Returns whether the row was actually failed. `false` means a concurrent writer
@@ -73,8 +118,9 @@ export const cancelTransaction = async (
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
   // a perfectly-successful transaction to Failed and confuse the user.
+  // An Unconfirmed row is refused too: a late reaper, sweep or cancel must not settle an unknown outcome (#1081).
   const existing = await Repo.transactions.where({ id: transaction.id }).first();
-  if (existing && (existing.status === ITransactionStatus.Completed || existing.status === ITransactionStatus.Failed)) {
+  if (existing && hasLeftQueue(existing)) {
     console.warn(
       `[cancelTransaction] ignored — tx ${transaction.id} is already ${existing.status}; suppressed error:`,
       error
@@ -82,25 +128,8 @@ export const cancelTransaction = async (
     return false;
   }
 
-  // The stage the tx died in (persisted by setTransactionStage) disambiguates
-  // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
   const failedStage = existing?.stage;
-  const rawError = formatRawTransactionError(error);
-  // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
-  // withhold the may-have-submitted crossing, re-derived HERE from the row this function
-  // already read, so the message and the crossing can never disagree: hedging "left in an
-  // unknown state, check your activity" on a row whose Retry is provably safe is a
-  // falsehood that costs the user the retry.
-  const abandonedPreWrite =
-    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
-  // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
-  // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
-  // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
-  // claim read as a completed failure instead of not confirmed.
-  const displayError =
-    typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
-      ? error
-      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  const { displayError, rawError } = describeFailure(transaction, error, existing);
   const nodeDiscarded = isGuardianWriteDiscardedError(error);
   let applied = false;
   let racedTerminal = false;
@@ -109,7 +138,7 @@ export const cancelTransaction = async (
     // `false`, not a bare return: Dexie treats `undefined` as "modified" and
     // issues a put of the unchanged clone, which is a pointless write and a
     // spurious event for anything observing the table.
-    if (dbTx.status === ITransactionStatus.Completed || dbTx.status === ITransactionStatus.Failed) {
+    if (hasLeftQueue(dbTx)) {
       racedTerminal = true;
       return false;
     }
@@ -220,6 +249,59 @@ export const cancelTransaction = async (
 };
 
 /**
+ * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
+ * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
+ * `cancelTransaction` describes); a row already terminal keeps its state and only gains the attempt's entry. The
+ * cancel-in-flight window ends on every path. Raises the not-confirmed notice and an `errored` report, as the Failed
+ * write does for an unconfirmed row today.
+ */
+export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+  const existing = await Repo.transactions.where({ id: tx.id }).first();
+  const { displayError, rawError } = describeFailure(tx, error, existing);
+  const transactionId = indefiniteSubmitTransactionId(error);
+  const nowSec = Math.floor(Date.now() / 1000);
+  let entered = false;
+  await Repo.transactions.where({ id: tx.id }).modify(row => {
+    const attemptId = row.attemptId ?? tx.attemptId;
+    const windowOpen = row.cancelledInFlightAt !== undefined;
+    if (attemptId !== undefined) {
+      row.submitEvidence = upsertEvidenceEntry(
+        row.submitEvidence,
+        attemptId,
+        {
+          source: 'error-text',
+          evidence: transactionId === undefined ? undefined : { transactionId },
+          fromExecute: row.type === 'execute'
+        },
+        nowSec
+      );
+    }
+    // Every caller is the pipeline's own catch, so the pipeline has stopped even on a row a cancel already failed: a
+    // window left open would refuse its Retry as possibly still running.
+    row.cancelledInFlightAt = undefined;
+    if (row.status !== ITransactionStatus.GeneratingTransaction) {
+      return attemptId === undefined && !windowOpen ? false : undefined;
+    }
+    row.status = ITransactionStatus.Unconfirmed;
+    row.completedAt = nowSec;
+    row.mayHaveSubmitted = true;
+    row.error = displayError;
+    if (displayError !== rawError) row.rawError = rawError;
+    entered = true;
+    return undefined;
+  });
+  if (!entered) return;
+  notifyBackgroundTransactionNotConfirmed();
+  reportOperation({
+    operation: operationOfType(tx.type),
+    result: 'errored',
+    durationMs: elapsedMsSince(existing?.initiatedAt ?? tx.initiatedAt),
+    errorKind: classifyError(rawError),
+    step: stepOfStage(existing?.stage)
+  });
+};
+
+/**
  * Fail a row from OUTSIDE its pipeline, noting that the pipeline is still
  * running and may yet submit.
  *
@@ -238,13 +320,12 @@ export const cancelTransaction = async (
  * window and then expires — see its docstring for why a sticky flag here was
  * wrong.
  *
- * Read that scope literally. A send from a NON-guardian account stamps nothing at
- * all: its leaf calls straight through to the proxy, and the row it leaves behind
- * is frozen at the 'sending' its pipeline stamped once at pickup. For those rows
- * this marker is not a supplement to a recorded crossing, it is the only signal
- * there is, which is why `requeueFailedTransaction` refuses on it rather than
- * merely holding bytes, and why the residual gap documented there is the shape it
- * is.
+ * Read that scope literally. Every leaf of a row that can await a verdict stamps
+ * its crossing with the attempt's evidence (#1081), but an offscreen stamp is
+ * replayed late and can be lost with its realm, so until it lands this marker is
+ * the only signal there is, which is why `requeueFailedTransaction` refuses on it
+ * rather than merely holding bytes. The cancel also ends the attempt's entry
+ * (`recordOutOfBandEnd`), which is what liveness reads for a swap or an execute.
  *
  * Deliberately NOT used by the pipeline's own catch handlers, which instead
  * CLEAR the marker: by the time those run the pipeline has stopped. That
@@ -252,6 +333,8 @@ export const cancelTransaction = async (
  * request — the rebuild this guard exists to gate, not to prevent.
  */
 const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
+  // Before the cancel, while the row is still in flight: liveness reads this end, never the source (#1081).
+  await recordOutOfBandEnd(tx.id);
   // Only a `send` reaches the retry path this protects. The in-flight half of the
   // condition — that there is a pipeline to outlive the cancel at all, rather
   // than a Queued row never picked up — is re-tested inside
@@ -269,14 +352,12 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * submit is no longer merely possible — resolve the in-flight marker a
  * concurrent Cancel may have left, and let the request be rebuilt.
  *
- * Safe on the guardian paths because the ordering there is one-way: those leaves
- * stamp `mayHaveSubmitted` before they submit, so any attempt that got that far
- * is already recorded on a field this does not touch.
- *
- * A plain send has no such stamp — it is not that the marker is redundant there,
- * it is that nothing else exists — so clearing it returns the row to "no evidence
- * either way", which is what lets the vault-slot failure rebuild and is also the
- * limit `requeueFailedTransaction` documents.
+ * Safe because the ordering is one-way: every leaf of a row that can await a
+ * verdict records its crossing on the attempt's evidence entry before it submits,
+ * or, offscreen, gets an 'end' entry for a failure it cannot place before its
+ * submit (#1081), so any attempt that got that far is on a field this does not
+ * touch. A run that failed earlier returns to "no evidence either way", which is
+ * what lets the vault-slot failure rebuild.
  *
  * With ONE exception, and it is the reason this takes the error rather than just
  * the row. An offscreen wedge-kill does not report a failure — it destroys the
@@ -317,6 +398,12 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
 export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
+  // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
+  // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
+  if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
+    await markTransactionUnconfirmed(tx, error);
+    return;
+  }
   // A lock-recovery eviction (issue #775) is treated like an offscreen
   // wedge-kill: the pipeline was ABANDONED, not stopped — it may still reach
   // submit — so the crossing must be recorded, never cleared. EXCEPT where the
@@ -356,6 +443,9 @@ export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, err
     const committed = await Repo.transactions.where({ id: tx.id }).first();
     abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '') && committed?.processingStartedAt === undefined;
   }
+  // The kill route marks the attempt's end for every type (#1081): the abandoned pipeline may still submit, and the
+  // live-sibling and liveness rules read this end. The send-only flag below is unchanged.
+  if (killed && !abandonedPreWrite) await recordKillEnd(tx.id, tx.attemptId);
   if (tx.type === 'send' && !abandonedPreWrite && killed) {
     await markMayHaveSubmitted(tx.id);
     if (isPoisonedPipeline(error)) {
@@ -484,11 +574,11 @@ export const cancelStuckTransactions = async () => {
     // for: reaped, still submitting, and retried as though nothing had been sent.
     //
     // Skipping it was safe only under a second claim (that a submit this row DID
-    // reach is on `mayHaveSubmitted`), and that one holds for the guardian leaves
-    // but not for a plain send, which stamps nothing (see
-    // `cancelTransactionAfterPipelineStopped`). Marking costs little now that the
-    // marker expires and is scoped to rows with something to protect: Retry waits
-    // out the window instead of being refused for good.
+    // reach is already recorded), and an offscreen stamp is replayed late and can
+    // be lost with its realm, so the claim fails exactly when the reaper fires.
+    // Marking costs little now that the marker expires and is scoped to rows with
+    // something to protect: Retry waits out the window instead of being refused for
+    // good. The attempt's out-of-band end is recorded before it (#1081).
     .map(async tx => cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR));
 
   await Promise.all(cancelTransactionUpdates);
@@ -598,9 +688,14 @@ export const failInterruptedTransactions = async () => {
         (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT))
   );
   await Promise.all(
-    transactions.map(async tx =>
-      cancelTransaction(tx, TRANSACTION_INTERRUPTED_ON_STARTUP, 'Interrupted — check your activity after it syncs')
-    )
+    transactions.map(async tx => {
+      await recordOutOfBandEnd(tx.id);
+      return cancelTransaction(
+        tx,
+        TRANSACTION_INTERRUPTED_ON_STARTUP,
+        'Interrupted - check your activity after it syncs'
+      );
+    })
   );
 };
 
@@ -610,9 +705,10 @@ export const failInterruptedTransactions = async () => {
  */
 export const forceCaneclAllInProgressTransactions = async () => {
   const transactions = await getTransactionsInProgress();
-  const cancelTransactionUpdates = transactions.map(async tx =>
-    cancelTransaction(tx, TRANSACTION_FORCE_CANCELLED_ERROR)
-  );
+  const cancelTransactionUpdates = transactions.map(async tx => {
+    await recordOutOfBandEnd(tx.id);
+    return cancelTransaction(tx, TRANSACTION_FORCE_CANCELLED_ERROR);
+  });
   await Promise.all(cancelTransactionUpdates);
 };
 
@@ -762,18 +858,16 @@ export type SendLandedVerdict = 'landed' | 'unknown';
  * freshest node state; a sync failure falls back to the last-synced record, except
  * a watchdog eviction, which reads nothing and gives `'unknown'` (`syncBeforeVerdict`).
  *
- * COVERAGE LIMIT — read before relying on this as the only double-send guard.
+ * COVERAGE LIMIT - read before relying on this as the only double-send guard.
  * `ITransaction.transactionId` is written only by the completion handlers in
- * `complete.ts` (the success path), by `updateBridgedReceivePhase`, and by the
- * landed arms of a failed apply after submit (#1233). A row
- * failed by a route that killed it from OUTSIDE its own write pipeline — the
- * stuck reaper, the cold-start sweep, an offscreen deadline kill, a user Cancel
- * mid-flight — therefore arrives here with no id at all and short-circuits to
- * `'unknown'`, i.e. this check is INERT on exactly the rows whose submit outcome
- * is in doubt. Stamping the id pre-submit is not currently possible under
- * `MIDEN_USE_OFFSCREEN_CLIENT`: the write runs in the offscreen realm and its
- * DTOs carry no row id. `isSubmitOutcomeUnknown` (constants.ts) is what closes
- * that gap, by refusing the retry outright for the rebuilt-request types.
+ * `complete.ts` (the success path), by `updateBridgedReceivePhase`, by the
+ * landed arms of a failed apply after submit (#1233), and by the reconciler's
+ * landed write (#1081). A row failed from OUTSIDE its own write pipeline
+ * therefore arrives here with no id and short-circuits to `'unknown'`. The id its
+ * attempt submitted is on the attempt's evidence entry instead (`submitEvidence`,
+ * recorded at the stamped crossing), where the reconciler and Retry's tap-time
+ * check judge it against the node; `isSubmitOutcomeUnknown` (constants.ts) still
+ * refuses the retry of a rebuilt-request type that neither can prove.
  */
 export const verifySendLanded = async (tx: { id: string; transactionId?: string }): Promise<SendLandedVerdict> => {
   if (!tx.transactionId) return 'unknown';
@@ -897,6 +991,7 @@ const verifyStuckTransactions = async (): Promise<number> => {
       // this function returns and what `useClaimNotes` reports, so counting a
       // refused write — a row a concurrent driver already settled — overstates
       // what the reaper did.
+      await recordOutOfBandEnd(tx.id);
       if (await cancelTransaction(tx, INVALID_NOTE_ERROR)) resolvedCount++;
     } else if (verdict === 'not-landed' || verdict === 'landed-external') {
       // Either the note is not consumed at all, or it is consumed by someone who is
@@ -909,6 +1004,7 @@ const verifyStuckTransactions = async (): Promise<number> => {
         ? activeProcessingSeconds(tx.processingStartedAt, Math.floor(Date.now() / 1000))
         : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
+        await recordOutOfBandEnd(tx.id);
         if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR)) resolvedCount++;
       }
     }

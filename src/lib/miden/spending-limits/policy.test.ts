@@ -157,7 +157,8 @@ describe('assessSpendingLimit', () => {
     ITransactionStatus.Queued,
     ITransactionStatus.GeneratingTransaction,
     ITransactionStatus.Completed,
-    ITransactionStatus.Failed
+    ITransactionStatus.Failed,
+    ITransactionStatus.Unconfirmed
   ])('includes a matching row in status %s', status => {
     const rows = [row({ status, initiatedAt: NOW - 20, spentUsd: 90_000_000n })];
 

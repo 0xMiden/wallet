@@ -3,8 +3,15 @@ export const BRIDGE_ASSET_ABI = [
   'function bridgeAsset(uint32 destinationNetwork,address destinationAddress,uint256 amount,address token,bool forceUpdateGlobalExitRoot,bytes calldata permitData)'
 ];
 // AggLayer rollupID of Miden Testnet (rollup 86; l2ChainID 402699011). This is
-// the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id.
+// the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id. It is
+// also the `network_id` the bridge indexer files every Miden -> EVM exit under.
 export const MIDEN_CHAIN_ID = 86;
+// When the indexer renumbered Miden's exits from network 78 to MIDEN_CHAIN_ID, in unix seconds like a row's
+// `initiatedAt`. It serves nothing under 78 any more, so it gates only one thing: an unpinned row initiated before
+// this whose exit a search of its address's whole history missed is retired (#1325); a later row never is.
+// The issue's evidence dates the switch only to the day (the last network-78 claim is on 2026-09-08), so this is
+// the start of that day, UTC: a row from later that day is still polled rather than retired while it might settle.
+export const MIDEN_CHAIN_ID_RENUMBERED_AT = Date.parse('2026-09-08T00:00:00Z') / 1000;
 /**
  * Miden account that sends notes created by AggLayer bridge-ins.
  * Matching is intentionally disabled whenever this is empty so ordinary
@@ -17,6 +24,11 @@ export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aq9nwte8xh3nayfpdkv4
  * tracker, never an ERC-20 one with the same base-unit amount.
  */
 export const AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL = 'ETH';
+/**
+ * The bridge registry's scale for the faucet `AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID` names: a deposit of `w` wei
+ * arrives as `floor(w / 10^scale)` of that faucet's units.
+ */
+export const AGGLAYER_BRIDGE_NOTE_SCALE = 10;
 export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
   ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
 ]);

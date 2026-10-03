@@ -60,6 +60,14 @@ export function withGuardianAccountLock<T>(accountId: string, fn: () => Promise<
  * a mobile app is frozen, and `proposedAtMono` on the monotonic one
  * (`monotonicNowMs()`), which a clock set back cannot move and this per-realm
  * record never outlives. A mark keeps them, so it cannot restart the hold.
+ * `attemptId` names the attempt whose Guardian leaf kept the candidate for the
+ * node's verdict (#1081), and only that keep sets it. An abandon is keyed by
+ * nonce alone, and an attempt can be kept after its Guardian freed the nonce,
+ * so the reconciler's release abandons only while the record still names the
+ * attempt its entry names; a resolved submit, a #1317 mark and a later write
+ * name none or another, and never match. A mark of a kept record keeps it;
+ * #1317's retry rewrites a marked record plain without it once that abandon
+ * is taken or the window closes.
  */
 export interface GuardianCandidate {
   endpoint: string;
@@ -67,6 +75,7 @@ export interface GuardianCandidate {
   proposedAt: number;
   proposedAtMono: number;
   abandon?: true;
+  attemptId?: string;
 }
 
 // Per realm, keyed like the lock chains above (the canonical account id), and dropped with them.

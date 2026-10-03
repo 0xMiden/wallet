@@ -7,6 +7,7 @@ import { storageCleared } from 'lib/storage-cleared';
 import {
   fetchFromStorage,
   inStorageTurn,
+  inVerdictTurn,
   preloadStorage,
   putToStorage,
   onStorageChanged,
@@ -435,6 +436,213 @@ describe('storage utilities', () => {
           held.resolve();
           await Promise.all([accountA, accountB]);
         }
+      });
+    });
+  });
+
+  describe('inVerdictTurn (#1081)', () => {
+    /** A LockManager with what the verdict lock uses: exclusive names, ifAvailable and an abort signal. */
+    class FakeLocks {
+      held = new Set<string>();
+      queue = new Map<string, Array<() => void>>();
+      requests: Array<{ name: string; ifAvailable?: boolean; signal?: AbortSignal }> = [];
+      async request<T>(
+        name: string,
+        options: { ifAvailable?: boolean; signal?: AbortSignal },
+        callback: (lock: object | null) => T
+      ): Promise<Awaited<T>> {
+        this.requests.push({ name, ...options });
+        if (options.ifAvailable && this.held.has(name)) return await callback(null);
+        if (this.held.has(name)) {
+          await new Promise<void>((resolve, reject) => {
+            const waiters = this.queue.get(name) ?? [];
+            waiters.push(resolve);
+            this.queue.set(name, waiters);
+            options.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          });
+        }
+        this.held.add(name);
+        try {
+          return await callback({});
+        } finally {
+          this.held.delete(name);
+          this.queue.get(name)?.shift()?.();
+        }
+      }
+    }
+
+    afterEach(() => {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+      jest.useRealTimers();
+    });
+
+    it('takes the row`s own lock name, and ifAvailable skips a row whose lock is held', async () => {
+      const locks = new FakeLocks();
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+      const held = deferred<void>();
+      const first = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+      await flushPromises();
+      await expect(inVerdictTurn('row-1', async () => 'ran', { ifAvailable: true })).resolves.toEqual({ ran: false });
+      held.resolve();
+      await expect(first).resolves.toEqual({ ran: true, value: undefined });
+      expect(locks.requests[0]?.name).toBe('miden-tx-verdict:row-1');
+    });
+
+    it('a waiter that gives up after waitMs never runs later', async () => {
+      jest.useFakeTimers();
+      const locks = new FakeLocks();
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+      const held = deferred<void>();
+      void inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+      let ran = false;
+      const waiter = inVerdictTurn(
+        'row-1',
+        async () => {
+          ran = true;
+        },
+        { waitMs: 10_000 }
+      );
+      await jest.advanceTimersByTimeAsync(10_001);
+      await expect(waiter).resolves.toEqual({ ran: false });
+      held.resolve();
+      await jest.advanceTimersByTimeAsync(10);
+      expect(ran).toBe(false);
+    });
+
+    it('with Web Locks, a turn whose operation throws rejects with its error and frees the lock', async () => {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: new FakeLocks() });
+      await expect(
+        inVerdictTurn(
+          'row-1',
+          async () => {
+            throw new Error('boom');
+          },
+          { waitMs: 10_000 }
+        )
+      ).rejects.toThrow('boom');
+      await expect(inVerdictTurn('row-1', async () => 'free', { ifAvailable: true })).resolves.toEqual({
+        ran: true,
+        value: 'free'
+      });
+    });
+
+    describe('without Web Locks', () => {
+      beforeEach(() => {
+        Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+      });
+
+      it('serializes a pass and a Retry on one row, and lets other rows through', async () => {
+        const order: string[] = [];
+        const held = deferred<void>();
+        const pass = inVerdictTurn(
+          'row-1',
+          async () => {
+            order.push('pass:start');
+            await held.promise;
+            order.push('pass:end');
+          },
+          { waitMs: 10_000 }
+        );
+        const retry = inVerdictTurn(
+          'row-1',
+          async () => {
+            order.push('retry');
+          },
+          { waitMs: 10_000 }
+        );
+        const other = inVerdictTurn(
+          'row-2',
+          async () => {
+            order.push('other');
+          },
+          { waitMs: 10_000 }
+        );
+        try {
+          await flushPromises();
+          expect(order).toEqual(['pass:start', 'other']);
+        } finally {
+          held.resolve();
+        }
+        await Promise.all([pass, retry, other]);
+        expect(order).toEqual(['pass:start', 'other', 'pass:end', 'retry']);
+      });
+
+      it('ifAvailable reports a held row', async () => {
+        const held = deferred<void>();
+        const holder = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+        try {
+          await flushPromises();
+          await expect(inVerdictTurn('row-1', async () => 'x', { ifAvailable: true })).resolves.toEqual({ ran: false });
+        } finally {
+          held.resolve();
+          await holder;
+        }
+      });
+
+      it('a waiter past 10 s gives up and never runs later', async () => {
+        jest.useFakeTimers();
+        const held = deferred<void>();
+        const holder = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+        let ran = false;
+        const waiter = inVerdictTurn(
+          'row-1',
+          async () => {
+            ran = true;
+          },
+          { waitMs: 10_000 }
+        );
+        try {
+          await jest.advanceTimersByTimeAsync(10_001);
+          await expect(waiter).resolves.toEqual({ ran: false });
+        } finally {
+          held.resolve();
+          await holder;
+        }
+        await jest.advanceTimersByTimeAsync(10);
+        expect(ran).toBe(false);
+      });
+
+      it('a waiter that gave up passes its place on: the next one runs as soon as the holder ends', async () => {
+        jest.useFakeTimers();
+        const held = deferred<void>();
+        const holder = inVerdictTurn('row-3', () => held.promise, { waitMs: 10_000 });
+        const waiter = inVerdictTurn('row-3', async () => 'second', { waitMs: 10_000 });
+        await jest.advanceTimersByTimeAsync(10_001);
+        await expect(waiter).resolves.toEqual({ ran: false });
+        let thirdRan = false;
+        const third = inVerdictTurn(
+          'row-3',
+          async () => {
+            thirdRan = true;
+            return 'third';
+          },
+          { waitMs: 10_000 }
+        );
+        held.resolve();
+        await jest.advanceTimersByTimeAsync(10);
+        expect(thirdRan).toBe(true);
+        await expect(Promise.all([holder, third])).resolves.toEqual([
+          { ran: true, value: undefined },
+          { ran: true, value: 'third' }
+        ]);
+      });
+
+      it('a turn whose operation throws rejects with its error and frees the row', async () => {
+        const failed = inVerdictTurn(
+          'row-4',
+          async () => {
+            throw new Error('boom');
+          },
+          { waitMs: 1_000 }
+        );
+        const next = inVerdictTurn('row-4', async () => 'next', { waitMs: 1_000 });
+        await expect(failed).rejects.toThrow('boom');
+        await expect(next).resolves.toEqual({ ran: true, value: 'next' });
+        await flushPromises();
+        await expect(inVerdictTurn('row-4', async () => 'free', { ifAvailable: true })).resolves.toEqual({
+          ran: true,
+          value: 'free'
+        });
       });
     });
   });

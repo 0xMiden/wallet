@@ -6,6 +6,8 @@ import {
   FungibleAsset,
   MidenClient,
   Note,
+  NoteAndArgs,
+  NoteAndArgsArray,
   NoteArray,
   NoteAssets,
   NoteAttachment,
@@ -227,14 +229,24 @@ export function randomFeeSalt(): Word {
  * untouched builder for any other account, which miden-client then settles by itself. The salt
  * is serialized with the request, so persisted bytes reproduce the co-signed summary.
  *
+ * `approvalExpirationDelta` (multisig only) expires the approvers' signatures that many blocks after the bound
+ * block, so the transaction must be included by `bound_block + delta` wherever it executes (#1081). It is bound by the
+ * summary, so it is the one expiration a tip execution cannot move past the proposal's own block.
+ *
  * `feeSalt` is consumed (moved into WASM). Call inside the WASM client lock.
  */
 export function feeAwareRequestBuilder(
   client: MidenClient,
   account: string,
-  feeSalt: Word
+  feeSalt: Word,
+  approvalExpirationDelta?: number
 ): Promise<TransactionRequestBuilder> {
-  return client.feeAwareTransactionRequestBuilder(account, { feeConversionSalt: feeSalt });
+  return client.feeAwareTransactionRequestBuilder(
+    account,
+    approvalExpirationDelta === undefined
+      ? { feeConversionSalt: feeSalt }
+      : { feeConversionSalt: feeSalt, approvalExpirationDelta }
+  );
 }
 
 /**
@@ -269,6 +281,7 @@ export function buildSendTransactionRequest(
   faucetRef: string,
   amount: bigint,
   noteType: NoteType,
+  expirationDelta: number,
   reclaimAfter?: number,
   baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
@@ -281,7 +294,24 @@ export function buildSendTransactionRequest(
   // `baseBuilder` is where a request that has to declare its fee auth starts: a guarded
   // (multisig) sender's comes from `feeAwareRequestBuilder`. Without one, miden-client
   // commits the native conversion info itself, which is all an ordinary account needs.
-  return (baseBuilder ?? new TransactionRequestBuilder()).withOwnOutputNotes(new NoteArray([note])).build();
+  // The delta is relative to each execution's reference block, so bytes cached and replayed on Retry stay valid per
+  // attempt; the reconciler reads the resulting expiration off the proof, never from this number (#1081).
+  return (baseBuilder ?? new TransactionRequestBuilder())
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta)
+    .build();
+}
+
+/**
+ * The consume request the wallet executes, with an expiration delta (#1081). `newConsumeTransactionRequest` returns a
+ * finished request, which has no expiration setter, so this builds the same request: the multisig client's own
+ * consume shape (input notes as `(note, null)` pairs) without a salt. Its account argument only decides whether fee
+ * conversion info is committed, and for a single-sig account miden-client commits it under its fixed default salt.
+ * `scripts/consume-request-equivalence.mjs` is the proof the two serialize identically apart from the delta.
+ */
+export function buildConsumeTransactionRequest(notes: Note[], expirationDelta: number): TransactionRequest {
+  const pairs = new NoteAndArgsArray(notes.map(note => new NoteAndArgs(note, null)));
+  return new TransactionRequestBuilder().withInputNotes(pairs).withExpirationDelta(expirationDelta).build();
 }
 
 /**
@@ -325,6 +355,7 @@ export function buildPswapCreateRequest(
   reference: TransactionRequest,
   offeredFaucetRef: string,
   offeredAmount: bigint,
+  expirationDelta: number,
   baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
   const referenceNote = reference.expectedOutputOwnNotes()[0];
@@ -342,5 +373,8 @@ export function buildPswapCreateRequest(
   );
   // Fee auth rides on the builder the request starts from (see `buildSendTransactionRequest`):
   // the SDK exposes no auth-arg setter on a finished `TransactionRequest`.
-  return (baseBuilder ?? new TransactionRequestBuilder()).withOwnOutputNotes(new NoteArray([note])).build();
+  return (baseBuilder ?? new TransactionRequestBuilder())
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta)
+    .build();
 }

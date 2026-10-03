@@ -1,6 +1,7 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
+import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
   IBridgedSendExtraInputs,
   ITransaction,
@@ -8,7 +9,7 @@ import {
   ITransactionStatus,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
-import { causeChain, isKilledPipeline } from '../sdk/sdk-error-code';
+import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded } from '../sdk/sdk-error-code';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -28,6 +29,10 @@ export const REMOTE_PROVER_TIMEOUT_ERROR =
   'The proving service timed out. The transaction may not have completed — check your balance before trying again.';
 
 export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try again.';
+
+// A write whose submit crossing could not be recorded stops before its submit (#1081), so nothing reached the network.
+export const SUBMIT_CROSSING_UNRECORDED_ERROR =
+  'The wallet could not record this transaction before sending it, so nothing was sent and no funds moved.';
 
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
   'Proving failed because the prover does not recognize part of this transaction — the app and its prover are out of sync. Update to the latest version; retrying this version will not help.';
@@ -150,9 +155,12 @@ export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED
  */
 export function isUnconfirmedFailure(
   row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
-    Partial<Pick<ITransaction, 'extraInputs'>>
+    Partial<Pick<ITransaction, 'extraInputs' | 'neverCommittedAt'>>
 ): boolean {
   if (row.status !== ITransactionStatus.Failed) return false;
+  // A row the node proved never committed still carries its mayHaveSubmitted, and would otherwise read Not confirmed
+  // beside "It is safe to retry" (#1081).
+  if (row.neverCommittedAt !== undefined) return false;
   // A vault shortfall is provable straight from the error, so it stays a definite failure.
   if (isVaultShortfallRow(row)) return false;
   // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
@@ -168,12 +176,65 @@ export function isUnconfirmedFailure(
 }
 
 /**
+ * Not confirmed, by the one rule History, the detail page and the in-progress page share (#1081): an Unconfirmed row,
+ * a #1250 row (`isUnconfirmedFailure`), or a Failed eligible row, not proven safe and not a definite failure, holding
+ * an entry neither proven dead nor retired before its submit: an earlier attempt may have crossed after a later one
+ * failed before its own. An ineligible row's entries are inert, so it keeps today's label, and the rotation gate,
+ * which stays on `isUnconfirmedFailure`, agrees with History.
+ */
+export function isOutcomeUnconfirmed(
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<
+      Pick<
+        ITransaction,
+        'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'
+      >
+    >
+): boolean {
+  if (row.status === ITransactionStatus.Unconfirmed) return true;
+  if (isUnconfirmedFailure(row)) return true;
+  if (row.status !== ITransactionStatus.Failed || row.neverCommittedAt !== undefined || !canAwaitVerdict(row))
+    return false;
+  if (isVaultShortfallRow(row) || isBridgeRouteFailedRow(row) || isNodeDiscardedRow(row)) return false;
+  return (row.submitEvidence ?? []).some(isUnresolvedEntry);
+}
+
+/**
  * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim
  * by the two retry footers (they render `error.message`).
  */
 export const TRANSACTION_RETRY_UNSAFE_ERROR =
   'This transaction may already have been submitted, so it cannot be retried automatically. ' +
   'Check your activity once it syncs, and start a new one only if it never arrived.';
+
+/**
+ * The reason on a row the node proved can never commit (#1081), rendered verbatim by `TransactionFailureCard`. It joins
+ * neither reason set: the row keeps its earlier reason in `rawError`.
+ */
+export const TRANSACTION_NEVER_COMMITTED_ERROR =
+  'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.';
+
+/** Retry waited out its 10 s for a reconciler pass on this row, or the evidence moved twice under it (#1081). */
+export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
+  'The wallet is checking this transaction right now. Try again in a moment.';
+
+/** Retry met a candidate the Guardian still holds for this row (#1081); `{time}` is when its hold clears. */
+export const GUARDIAN_HOLD_RETRY_ERROR =
+  'The Guardian is still holding this transaction. You can retry it after {time}.';
+
+/** The hold refusal, naming the local time at which `clearsAtSec` (unix seconds) falls. */
+export const guardianHoldRetryMessage = (clearsAtSec: number): string =>
+  GUARDIAN_HOLD_RETRY_ERROR.replace(
+    '{time}',
+    new Date(clearsAtSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+
+/**
+ * Retry found a landing the deferral holds, a landed write that gave up, or a recorded landing it could not re-read
+ * (#1081): the row may already have landed, so it must not reach the acknowledgeable refusal.
+ */
+export const TRANSACTION_LANDING_PENDING_RETRY_ERROR =
+  'This transaction may already have gone through. The wallet is still checking, so do not retry it yet.';
 
 /**
  * A lock-recovery eviction (issue #775). Deliberately hedged: recovery ABANDONS
@@ -474,6 +535,10 @@ function classifyTransactionError(
   }
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
+  }
+  // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
+  if (isSubmitCrossingUnrecorded(error)) {
+    return SUBMIT_CROSSING_UNRECORDED_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote

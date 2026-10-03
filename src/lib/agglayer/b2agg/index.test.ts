@@ -12,6 +12,17 @@
  * id of the open token — so a hex id also drops the row out of that token's
  * history entirely.
  */
+// Every `withExpirationDelta` the B2AGG build makes, in order (#1081).
+const mockDeltas: number[] = [];
+const mockIsGuardian = jest.fn(async (...args: unknown[]): Promise<boolean> => {
+  void args;
+  return false;
+});
+
+jest.mock('lib/miden/front/guardian-manager', () => ({
+  isGuardianAccount: (...a: unknown[]) => mockIsGuardian(...a)
+}));
+
 const mockInitiateBridgedSendTransaction = jest.fn(async (...args: unknown[]): Promise<string> => {
   void args;
   return 'tx-agglayer';
@@ -33,6 +44,7 @@ let currentWasmHold: object | null = null;
 // land on THIS object; a fresh `TransactionRequestBuilder` would drop them.
 const mockFeeAwareBuilder = {
   withOwnOutputNotes: jest.fn(),
+  withExpirationDelta: jest.fn(),
   withFeeConversionSalt: jest.fn(),
   build: jest.fn(() => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
 };
@@ -65,6 +77,13 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   }
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
+
+// The real exit hash needs the real SDK (exit-hash.real-sdk.test.ts); here it only has to reach the row.
+const mockAgglayerExitTxHash = jest.fn((...args: unknown[]): string => {
+  void args;
+  return '0xexit';
+});
+jest.mock('./exit-hash', () => ({ agglayerExitTxHash: (...args: unknown[]) => mockAgglayerExitTxHash(...args) }));
 
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
@@ -114,14 +133,28 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 
 import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 
 import { MIDEN_AGGLAYER_FAUCET_ID } from './constant';
 import { initiateB2AggBridge } from './index';
 
+// Never reached: `isGuardianAccount` is mocked, so only its identity crosses.
+const guardianProvider: GuardianAccountProvider = {
+  getAccounts: async () => [],
+  getPublicKeyForCommitment: async () => '',
+  signWord: async () => ''
+};
+
 describe('initiateB2AggBridge', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDeltas.length = 0;
+    mockIsGuardian.mockResolvedValue(false);
     mockFeeAwareBuilder.withOwnOutputNotes.mockReturnValue(mockFeeAwareBuilder);
+    mockFeeAwareBuilder.withExpirationDelta.mockImplementation((delta: number) => {
+      mockDeltas.push(delta);
+      return mockFeeAwareBuilder;
+    });
   });
 
   it('records the faucet id on the row in BECH32 form, never the raw hex constant', async () => {
@@ -130,7 +163,8 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     expect(txId).toBe('tx-agglayer');
@@ -146,7 +180,8 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     const [sender, bridge] = mockCreateB2AggNote.mock.calls[0]!;
@@ -172,7 +207,8 @@ describe('initiateB2AggBridge', () => {
       faucetId,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     const assets = mockCreateB2AggNote.mock.calls[0]![2];
@@ -186,7 +222,8 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     const call = mockInitiateBridgedSendTransaction.mock.calls[0]!;
@@ -216,6 +253,7 @@ describe('initiateB2AggBridge', () => {
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
       destinationNetwork: 0,
+      guardianProvider,
       spendingLimitAuthorization
     });
 
@@ -231,7 +269,8 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
-      destinationNetwork: 0
+      destinationNetwork: 0,
+      guardianProvider
     });
 
     // The sender's account id, wallet suffix stripped; the salt is the one drawn for this build.
@@ -260,7 +299,8 @@ describe('initiateB2AggBridge', () => {
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
         senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0
+        destinationNetwork: 0,
+        guardianProvider
       })
     ).rejects.toThrow('operation abandoned after the fee-aware bridge builder');
 
@@ -286,12 +326,67 @@ describe('initiateB2AggBridge', () => {
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
         senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0
+        destinationNetwork: 0,
+        guardianProvider
       })
     ).rejects.toThrow('operation abandoned before the bridge request build');
 
-    // Nothing past the guard ran: no request round-trip, no queued row.
+    // Nothing past the guard ran: no exit hash, no request round-trip, no queued row.
+    expect(mockAgglayerExitTxHash).not.toHaveBeenCalled();
     expect(TransactionRequest.deserialize).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [false, 600],
+    [true, 180]
+  ])(
+    'builds the B2AGG request with the delta its route needs (Guardian: %s -> %s blocks) (#1081)',
+    async (guardian, delta) => {
+      mockIsGuardian.mockResolvedValue(guardian);
+      await initiateB2AggBridge({
+        amount: 1n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        destinationNetwork: 0,
+        guardianProvider
+      });
+      expect(mockIsGuardian).toHaveBeenCalledWith('mlcl1sender', guardianProvider);
+      expect(mockDeltas).toEqual([delta]);
+    }
+  );
+
+  // The indexer files the exit under this hash, and the row needs it to find its own deposit (#1325).
+  it('hands the row the exit hash of the note it built', async () => {
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      destinationNetwork: 0,
+      guardianProvider
+    });
+
+    expect(mockAgglayerExitTxHash).toHaveBeenCalledWith({ note: true });
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![10]).toBe('0xexit');
+  });
+
+  it('queues no row when the exit hash cannot be computed, since that row could never settle', async () => {
+    mockAgglayerExitTxHash.mockImplementationOnce(() => {
+      throw new Error('A B2AGG note carries at least one fungible asset');
+    });
+
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        destinationNetwork: 0,
+        guardianProvider
+      })
+    ).rejects.toThrow('A B2AGG note carries at least one fungible asset');
     expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 });

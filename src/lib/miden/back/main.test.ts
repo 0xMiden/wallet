@@ -1086,9 +1086,32 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     expect(ret).toBe(false);
     expect(sendResponse).not.toHaveBeenCalled();
     // Routed to the stage handler — NOT to the sign handler or markOpStarted.
-    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenCalledWith('op-524', 'proving');
+    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenCalledWith('op-524', 'proving', undefined);
     expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
     expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('parses the evidence an OFFSCREEN_STAGE_EVENT carries, and drops malformed evidence (#1081)', () => {
+    const id = `0x${'b'.repeat(64)}`;
+    signListener()(
+      {
+        target: 'sw',
+        type: 'OFFSCREEN_STAGE_EVENT',
+        op_id: 'op-1',
+        stage: 'submitting',
+        evidence: { transactionId: id, smuggled: 1 }
+      },
+      ownSender,
+      jest.fn()
+    );
+    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenLastCalledWith('op-1', 'submitting', { transactionId: id });
+    signListener()(
+      { target: 'sw', type: 'OFFSCREEN_STAGE_EVENT', op_id: 'op-2', stage: 'submitting', evidence: { refBlock: -4 } },
+      ownSender,
+      jest.fn()
+    );
+    // The crossing is still recorded downstream, as an evidence-less entry.
+    expect(proxyMock.handleOffscreenStageEvent).toHaveBeenLastCalledWith('op-2', 'submitting', undefined);
   });
 
   it('ignores an OFFSCREEN_STAGE_EVENT missing op_id or stage (no handler call, no crash)', () => {
