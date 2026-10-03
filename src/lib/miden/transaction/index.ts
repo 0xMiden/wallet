@@ -162,6 +162,7 @@ export * from './get';
 export * from './helper';
 export * from './initiate';
 export * from './retry';
+export * from './verdict-rules';
 
 // Transaction types whose proposal creator is side-effect-free and idempotent on
 // a pending-delta 409, so returning the tx to the queue for a later cycle is safe.

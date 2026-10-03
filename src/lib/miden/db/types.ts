@@ -13,12 +13,76 @@ export enum ITransactionStatus {
   Queued,
   GeneratingTransaction,
   Completed,
-  Failed
+  Failed,
+  /**
+   * Its submit came back without a definite outcome, so it waits for the node's verdict (#1081). Appended, so the
+   * persisted 0 to 3 keep their meaning; an older build shows such a row in no list.
+   */
+  Unconfirmed
 }
 
 /** The row can still produce a transaction: it is queued or generating. */
 export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
+/** The pipeline is done with the row: it completed, failed, or waits for the node's verdict (#1081). */
+export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Completed ||
+  row.status === ITransactionStatus.Failed ||
+  row.status === ITransactionStatus.Unconfirmed;
+
+export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'end' | 'error-text';
+
+/** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
+export interface ISubmitEvidence {
+  attemptId: string;
+  capturedAt: number; // unix seconds
+  source: SubmitEvidenceSource;
+  transactionId?: string;
+  initialCommitment?: string;
+  finalCommitment?: string;
+  initialNonce?: string; // decimal
+  outputNoteIds?: string[]; // user output notes; [] when known empty
+  nullifiers?: string[]; // [] when known empty
+  refBlock?: number;
+  refBlockCommitment?: string; // the network identity
+  expirationBlock?: number;
+  guardianProposalNonce?: number;
+  candidateKept?: true; // the guardian still holds this attempt's candidate
+  initialSeenAtBlock?: number;
+  otherNetworkSince?: number; // unix seconds
+  landingSeenAtBlock?: number; // the block a landing judgement rested on; set once by row 1 or 3, a row 2 record may be replaced
+  landingSeenBy?: 1 | 2 | 3; // the verdict row whose judgement wrote landingSeenAtBlock
+  verdict?: 'never-committed' | 'unresolvable'; // sticky
+  endedBy?: 'kill' | 'out-of-band'; // how the attempt ended outside its pipeline; set once
+  endedAt?: number; // unix seconds, with endedBy
+  preSubmitEnd?: true; // the leaf's tag proved the attempt ended before its submit call
+  raisedFlag?: true; // the pin, not an earlier crossing, set mayHaveSubmitted
+  fromExecute?: true; // the row was an execute when this entry was made
+}
+
+/** What a leaf reads off the executed and proven transaction just before it submits (#1081). */
+export type SubmitEvidenceFields = Pick<
+  ISubmitEvidence,
+  | 'transactionId'
+  | 'initialCommitment'
+  | 'finalCommitment'
+  | 'initialNonce'
+  | 'outputNoteIds'
+  | 'nullifiers'
+  | 'refBlock'
+  | 'refBlockCommitment'
+  | 'expirationBlock'
+>;
+
+/**
+ * What a stage stamp carries besides its stage (#1081): `reliable: false` for a stamp replayed from the offscreen
+ * realm (see `setTransactionStage`), and the submit evidence the 'submitting' stamp brings.
+ */
+export interface StageDetail {
+  readonly reliable?: boolean;
+  readonly evidence?: SubmitEvidenceFields;
+}
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
@@ -743,6 +807,12 @@ export interface ITransaction {
    * of the window this field exists to cover.
    */
   cancelledInFlightAt?: number;
+  /** One entry per attempt that may have crossed its submit, kept across Retry (#1081). See `ISubmitEvidence`. */
+  submitEvidence?: ISubmitEvidence[];
+  /** Unix seconds at which the node proved no recorded attempt can ever commit: the safe-to-retry marker (#1081). */
+  neverCommittedAt?: number;
+  /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
+  attemptId?: string;
 }
 
 /**
@@ -795,6 +865,7 @@ export class Transaction implements ITransaction {
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
   queuedSeq?: number;
   processingStartedAt?: number;
+  attemptId?: string;
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
