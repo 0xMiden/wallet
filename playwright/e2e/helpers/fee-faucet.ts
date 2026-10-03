@@ -1,21 +1,39 @@
+import type { ClientOptions, MidenClient } from '@miden-sdk/miden-sdk';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+// The query runs as an untyped string in a child process. Its SDK names are checked against
+// the SDK's types here, so a rename fails `yarn ts` rather than every public-network fixture.
+const sdk = {
+  create: 'create' satisfies keyof typeof MidenClient,
+  rpcUrl: 'rpcUrl' satisfies keyof ClientOptions,
+  autoSync: 'autoSync' satisfies keyof ClientOptions,
+  syncChain: 'syncChain' satisfies keyof MidenClient,
+  feeFaucetId: 'feeFaucetId' satisfies keyof MidenClient,
+  terminate: 'terminate' satisfies keyof MidenClient
+};
+
 const query = `
 import { MidenClient } from '@miden-sdk/miden-sdk';
-const client = await MidenClient.create({ rpcUrl: process.argv[1], autoSync: false });
+const client = await MidenClient.${sdk.create}({ ${sdk.rpcUrl}: process.argv[1], ${sdk.autoSync}: false });
 try {
-  await client.syncChain();
-  console.log((await client.feeFaucetId()).toString());
+  await client.${sdk.syncChain}();
+  console.log((await client.${sdk.feeFaucetId}()).toString());
 } finally {
-  client.terminate();
+  client.${sdk.terminate}();
 }
 `;
 
-/** Read the node's synced protocol configuration, without a bootstrap fee override. */
-export async function discoverFeeFaucetId(rpcUrl: string): Promise<string> {
+/**
+ * Read the node's synced protocol configuration, without a bootstrap fee override.
+ * `sdkRoot` is where the child resolves `@miden-sdk/miden-sdk` from.
+ */
+export async function discoverFeeFaucetId(
+  rpcUrl: string,
+  sdkRoot = path.resolve(__dirname, '../../..')
+): Promise<string> {
   // The native SDK keeps SQLite handles open until process exit. Own both the process
   // and its temporary directory so discovery never shares or leaks a test's store.
   const storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-fee-faucet-'));
@@ -25,7 +43,7 @@ export async function discoverFeeFaucetId(rpcUrl: string): Promise<string> {
         process.execPath,
         ['--input-type=module', '--eval', query, rpcUrl],
         {
-          cwd: path.resolve(__dirname, '../../..'),
+          cwd: sdkRoot,
           env: { ...process.env, TMPDIR: storeRoot, TMP: storeRoot, TEMP: storeRoot },
           timeout: 45_000
         },
