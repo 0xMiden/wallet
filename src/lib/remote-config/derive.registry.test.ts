@@ -199,6 +199,16 @@ describe('readBridgeRegistry', () => {
     await expect(readBridgeRegistry(BRIDGE, RPC)).resolves.toEqual({ rollupId: 86, tokens: [ETH, TRNSK, CIRCLE_USDC] });
   });
 
+  it('skips a registered faucet with no metadata, and still decodes native ETH without its sub-key 0 word', async () => {
+    const unlisted: FakeEntry = { key: [0n, 0n, 0x1100n, 0x22n], value: [1n, 0n, 0n, 0n] };
+    mockGetAccountProof.mockResolvedValue(
+      proof({ maps: { [REGISTRY]: [...TESTNET_REGISTRY, unlisted], [METADATA]: TESTNET_METADATA } })
+    );
+    const { tokens } = await readBridgeRegistry(BRIDGE, RPC);
+    expect(tokens.map(t => t.midenFaucetId)).not.toContain('0x000000000000002200000000000011');
+    expect(tokens).toEqual([ETH, USDC, TRNSK, CIRCLE_USDC]);
+  });
+
   it('rejects a network id that is not a u32', async () => {
     mockGetAccountProof.mockResolvedValue(proof({ networkId: [0x1_0000_0000n, 0n, 0n, 0n] }));
     await expect(readBridgeRegistry(BRIDGE, RPC)).rejects.toThrow('not a u32');

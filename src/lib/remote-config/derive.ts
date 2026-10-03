@@ -138,8 +138,11 @@ function decodeRegistry(
     if (at(value, 0) !== 1n) continue;
     const suffix = at(key, 2);
     const prefix = at(key, 3);
+    // Only the sub-key 0 word may be missing (native ETH). Without sub-key 1 there is no origin or scale on record,
+    // and zeros would decode as native ETH, which prices bridged ETH and is trusted as the delivery sender.
+    const hi = words.get(wordKey(1n, suffix, prefix));
+    if (!hi) continue;
     const lo = words.get(wordKey(0n, suffix, prefix)) ?? [];
-    const hi = words.get(wordKey(1n, suffix, prefix)) ?? [];
     const limbs = [at(lo, 0), at(lo, 1), at(lo, 2), at(lo, 3), at(hi, 0)];
     const originNetwork = at(hi, 1);
     const scale = at(hi, 2);
