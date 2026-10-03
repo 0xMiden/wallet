@@ -135,6 +135,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  type WasmClientLockOptions,
   type WasmLockHold,
   withWasmClientLock,
   withWasmLockWatchdogPaused
@@ -2293,6 +2294,12 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   isOffscreenAvailable() &&
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
+/** Lock options for a hold made under {@link withOutgoingGuardianDeadline}: its watchdog fires at the deadline. */
+const outgoingGuardianHold = (label: string): WasmClientLockOptions => ({
+  watchdogMs: OUTGOING_GUARDIAN_DEADLINE_MS,
+  label
+});
+
 /**
  * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
  * guardian answering, with a message the unreachability classifier recognizes.
@@ -2327,6 +2334,13 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
  * unreachable verdict at 30s and commits to the direct path; that path's own
  * `withWasmClientLock` then queues behind the abandoned holder and is admitted
  * once that hold ends. Slow, but it completes.
+ *
+ * The cold service load and both co-signs also hold the lock across their
+ * operator round trip, and take {@link outgoingGuardianHold} as their watchdog
+ * ceiling: a silent operator there is evicted at about the deadline, so the
+ * direct path is admitted then rather than at the fetch boundary's cut-off. The
+ * hot service load and the proposal push keep their own ceilings and the slow
+ * path above.
  */
 const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
@@ -3356,7 +3370,13 @@ const generateGuardianTransaction = async (
       // the OUTGOING guardian, and a silent operator here would otherwise hold the
       // lock until the fetch boundary's cut-off before reaching the fallback below.
       const coldService = await withOutgoingGuardianDeadline(
-        () => MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord),
+        () =>
+          MultisigService.buildColdMultisigService(
+            sdkAccount,
+            walletAccount,
+            guardianProvider.signWord,
+            outgoingGuardianHold('switch-guardian cold service load')
+          ),
         'loading the cold co-signing service from the outgoing guardian'
       );
       // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
@@ -3364,7 +3384,7 @@ const generateGuardianTransaction = async (
       // though the hot proposal already landed.
       await withGuardianConflictRetry(() =>
         withOutgoingGuardianDeadline(
-          () => coldService.signProposal(proposalResult.id),
+          () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
           'cold co-signing the switch-guardian proposal'
         )
       );
@@ -3479,21 +3499,26 @@ const generateGuardianTransaction = async (
     // new way to fail.
     //
     // KNOWN IMPRECISION: this call is not purely a guardian round trip.
-    // `signAndCreateTransactionRequest` POSTs to the operator and THEN builds the
-    // request under `withWasmClientLock`, so a contended local lock — an AutoSync
-    // tick, someone else's local prove — can burn the 30s even though the
-    // operator answered promptly, and the escape then attributes local
-    // contention to the guardian. Accepted rather than papered over: the
-    // consequence is that a rotation the user explicitly asked for completes
+    // `signAndCreateTransactionRequest` holds `withWasmClientLock` across the
+    // operator POST and the request build, because signing syncs and previews on
+    // the shared client. A contended local lock - an AutoSync tick, someone else's
+    // local prove - can therefore burn the 30s before the operator is asked, and
+    // the escape then attributes local contention to the guardian. The cold
+    // co-sign above is exposed the same way. Accepted rather than papered over:
+    // the consequence is that a rotation the user explicitly asked for completes
     // unilaterally instead of coordinated, which is the same end state by a
     // worse-attributed route, and it costs a leftover pending delta on a healthy
-    // operator (best-effort abandoned below). Splitting the two halves would mean
-    // widening the MultisigService API at the very end of a long review, and the
-    // failure it would prevent is cosmetic next to the wedge the deadline closes.
+    // operator (best-effort abandoned below). A silent operator is the case that
+    // matters, and the hold's deadline ceiling evicts it at about 30s.
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(
-            () => service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes),
+            () =>
+              service.signAndCreateTransactionRequest(
+                proposalResult.id,
+                transaction.requestBytes,
+                outgoingGuardianHold('switch-guardian hot co-sign')
+              ),
             'co-signing the switch-guardian request with the outgoing guardian'
           )
         : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);

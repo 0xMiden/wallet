@@ -7579,12 +7579,28 @@ describe('generateTransaction — Guardian routing', () => {
     // (threshold-2 satisfied on-chain), then hot signs + creates the request,
     // then waits for inclusion and finalizes.
     expect(multisigService.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian');
-    expect(mockBuildColdMultisigService).toHaveBeenCalled();
-    expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch');
+    // Every hold the outgoing guardian can wedge is bounded by the 30 s deadline, so a silent operator is
+    // evicted then instead of queueing the direct switch behind the full watchdog.
+    expect(mockBuildColdMultisigService).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.any(Function),
+      {
+        watchdogMs: 30_000,
+        label: 'switch-guardian cold service load'
+      }
+    );
+    expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch', {
+      watchdogMs: 30_000,
+      label: 'switch-guardian cold co-sign'
+    });
     // After the multisigService/signingService consolidation, the hot service IS
     // the only service for non-replace-hot-key types — it drives the final
     // signAndCreateTransactionRequest.
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch', undefined);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch', undefined, {
+      watchdogMs: 30_000,
+      label: 'switch-guardian hot co-sign'
+    });
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
     expect(mockChainAnchorDeserialize).not.toHaveBeenCalled();
@@ -8809,7 +8825,10 @@ describe('generateTransaction — Guardian routing', () => {
       ).catch(() => undefined);
 
       expect(mockBuildColdMultisigService).toHaveBeenCalled();
-      expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch');
+      expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch', {
+        watchdogMs: 30_000,
+        label: 'switch-guardian cold co-sign'
+      });
     });
 
     it('update-procedure-threshold reaches the cold service and its proposal', async () => {
@@ -11781,7 +11800,7 @@ describe('generateTransaction — direct switch audit marker', () => {
     // Pin that the coordinated path was actually walked — otherwise an early
     // throw for an unrelated reason would satisfy the assertion below.
     expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian');
-    expect(signProposal).toHaveBeenCalledWith('prop-1');
+    expect(signProposal).toHaveBeenCalledWith('prop-1', { watchdogMs: 30_000, label: 'switch-guardian cold co-sign' });
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
 
     expect(markerExtraInputs(txId).switchedDirectly).toBeUndefined();

@@ -433,9 +433,7 @@ export class MultisigService {
   }
 
   async signAndExecuteProposal(id: string): Promise<void> {
-    // `signProposal` is signing + guardian HTTP (no shared-client access); only
-    // `executeProposal` touches the WASM client and needs the mutex.
-    await this.multisig.signProposal(id);
+    await this.signProposal(id);
     await withWasmClientLock(() => this.multisig.executeProposal(id));
   }
 
@@ -487,9 +485,16 @@ export class MultisigService {
    * cold co-sign path where cold contributes a signature without driving the
    * follow-up createTransactionProposalRequest call (hot does that).
    * Sigs accumulate on the Guardian server keyed by proposal id.
+   *
+   * The WASM hold spans the guardian round trip, so a caller with its own deadline
+   * passes `lockOptions` to bound the hold by it.
    */
-  async signProposal(id: string): Promise<void> {
-    await this.multisig.signProposal(id);
+  async signProposal(id: string, lockOptions?: Parameters<typeof withWasmClientLock>[1]): Promise<void> {
+    // Signing syncs and previews with the same shared client as account creation.
+    await withWasmClientLock(async hold => {
+      await this.multisig.signProposal(id);
+      assertWasmHoldCurrent(hold, 'guardian proposal signing');
+    }, lockOptions);
   }
 
   /**
@@ -582,19 +587,28 @@ export class MultisigService {
     }
   }
 
-  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
-    const proposal = await this.multisig.signProposal(id);
-    if (proposal.metadata.proposalType === 'custom') {
-      if (!requestBytes) {
-        throw new Error('Request Bytes are required for custom execution');
+  async signAndCreateTransactionRequest(
+    id: string,
+    requestBytes?: Uint8Array,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1]
+  ): Promise<TransactionRequest> {
+    return withWasmClientLock(async hold => {
+      const proposal = await this.multisig.signProposal(id);
+      assertWasmHoldCurrent(hold, 'guardian request: after proposal signing');
+      if (proposal.metadata.proposalType === 'custom') {
+        if (!requestBytes) {
+          throw new Error('Request Bytes are required for custom execution');
+        }
+        const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+        assertWasmHoldCurrent(hold, 'guardian request: after custom advice preparation');
+        const request = TransactionRequest.deserialize(requestBytes);
+        return request.extendAdviceMap(advice);
       }
-      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-      const request = TransactionRequest.deserialize(requestBytes);
-      return request.extendAdviceMap(advice);
-    }
-    const request = await withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
-    if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
-    return request;
+      const request = await this.multisig.createTransactionProposalRequest(id);
+      assertWasmHoldCurrent(hold, 'guardian request: after proposal request preparation');
+      if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
+      return request;
+    }, lockOptions);
   }
 
   /**

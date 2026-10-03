@@ -9,6 +9,7 @@ import {
 } from 'lib/miden-chain/effective-endpoints';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from './constants';
+import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE, NATIVE_ASSET_META_CACHE } from './native-asset-cache-keys';
 import { withRpcTimeout } from './rpc-timeout';
 
 // Cache identity = (effective RPC URL, effective network name):
@@ -27,16 +28,16 @@ export function cacheScope(): string {
   return `${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
 }
 function idCacheKey(): string {
-  return `native_asset_id:v4:${cacheScope()}`;
+  return `${NATIVE_ASSET_ID_CACHE}:${cacheScope()}`;
 }
 function metaCacheKey(): string {
-  return `native_asset_meta:v4:${cacheScope()}`;
+  return `${NATIVE_ASSET_META_CACHE}:${cacheScope()}`;
 }
 // A separate key, deliberately not a `v4` bump: the faucet id cached under the
 // existing key is still correct, and invalidating it to add a second field would
 // cost every client a rediscovery for nothing.
 function feeCacheKey(): string {
-  return `native_asset_fee:v1:${cacheScope()}`;
+  return `${NATIVE_ASSET_FEE_CACHE}:${cacheScope()}`;
 }
 
 export type NativeAssetChainMetadata = {
@@ -385,7 +386,7 @@ export async function getVerificationBaseFee(): Promise<number | null> {
  *
  * Resolution order:
  *   1. in-memory cache (self-invalidated when the effective RPC changes)
- *   2. persisted cache (`native_asset_id:v3:<rpcUrl>` in platform key-value store)
+ *   2. persisted cache (`native_asset_id:v4:<scope>` in platform key-value store)
  *   3. configured fee faucet (`getEffectiveFeeFaucetId`) plus a header fetch for the base fee
  *
  * Single-flight: concurrent callers share one RPC round-trip.
