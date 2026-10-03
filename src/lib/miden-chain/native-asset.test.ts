@@ -366,19 +366,30 @@ describe('native-asset module', () => {
   });
 
   it('a trap in the fee discovery resolves null behind the cooldown', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     onFreshNode('rpc-discovery-trap');
     _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-discovery-trap|testnet'] = 'pre-cached-id';
-    _g.__nativeAssetTest.rpcHeader = {
-      feeFaucetId: () => {
-        throw new WebAssembly.RuntimeError('unreachable');
-      }
+    // The fee faucet is configured in 0.17, so the header read is the discovery's one RPC and the trap lands there.
+    // A thenable rejects only once awaited, so no rejection waits unhandled between reads.
+    _g.__nativeAssetTest.deferHeader = {
+      then: (_resolve: unknown, reject: (reason: unknown) => void) =>
+        reject(new WebAssembly.RuntimeError('unreachable'))
     };
 
     await expect(getVerificationBaseFee()).resolves.toBeNull();
-    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    // withRpcTimeout retries a failed read once, so one discovery is two header reads.
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
+    expect(warn).toHaveBeenCalledWith('native-asset fee discovery failed', expect.any(WebAssembly.RuntimeError));
     await expect(getVerificationBaseFee()).resolves.toBeNull();
 
-    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(2);
+    expect(isVerificationBaseFeeKnownAbsent()).toBe(false);
+    // It is the cooldown, not a latch, that holds the second read back: once it lapses the fee is read again.
+    const now = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_001);
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    now.mockRestore();
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(4);
+    warn.mockRestore();
   });
 
   it('drops a discovered base fee when the endpoint changes', async () => {
