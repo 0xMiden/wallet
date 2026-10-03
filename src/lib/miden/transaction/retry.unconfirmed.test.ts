@@ -137,6 +137,24 @@ describe('the tap-time proof (#1081)', () => {
     expect((await read())?.status).toBe(ITransactionStatus.Queued);
   });
 
+  it('a first sighting of a landing whose header re-read fails refuses with the wait message and requeues nothing', async () => {
+    // The node answers the first header read and none after: the note is seen, the post-read check cannot be made.
+    let headerReads = 0;
+    mockNode.current = {
+      ...LANDED,
+      blockCommitment: async () => {
+        headerReads += 1;
+        return headerReads === 1 ? HEADER : undefined;
+      }
+    };
+    await Repo.transactions.put(unconfirmedSend());
+    const error = await refusal('tx-1', { acknowledged: { attemptId: 'a1' } });
+    expect(error).toHaveProperty('message', TRANSACTION_LANDING_PENDING_RETRY_ERROR);
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(row?.submitEvidence?.[0]?.landingSeenAtBlock).toBeUndefined();
+  });
+
   it('a recorded landing whose reads fail this time refuses with the wait message, never the acknowledgement', async () => {
     mockNode.current = node({ blockNum: 150 }, { tipFails: true });
     await Repo.transactions.put(

@@ -28,6 +28,8 @@ interface FakeChain {
   readTakesMs?: number;
   /** Return a different header from the Nth header read on: the endpoint moved mid-pass. */
   headerChangesAfter?: number;
+  /** Fail every header read from the Nth on: the node stopped answering mid-pass. */
+  headerFailsAfter?: number;
   /** The tip once the headers changed: the chain behind the same URL was swapped. */
   tipAfterChange?: AccountState;
 }
@@ -41,6 +43,7 @@ const chain = (fake: FakeChain): NodeReads & { calls: string[] } => {
     blockCommitment: async block => {
       calls.push(`header:${block}`);
       headerReads += 1;
+      if (fake.headerFailsAfter !== undefined && headerReads > fake.headerFailsAfter) return undefined;
       if (swapped()) return OTHER;
       return fake.headers === undefined ? HEADER : fake.headers[block];
     },
@@ -748,6 +751,58 @@ describe('a failed read means no verdict this pass', () => {
     // 20 blocks past X at 3 s leaves the full 15 s, and the read takes 20.
     const slow = { tip, history: { 700: { blockNum: 700, commitment: INITIAL } }, readTakesMs: 20_000 };
     expect(await resultOf(row('t'), slow)).toBe('no-read');
+  });
+});
+
+describe('a header re-read that fails after the reads found a landing', () => {
+  const liveExecute = row('live', {
+    type: 'execute',
+    status: ITransactionStatus.GeneratingTransaction,
+    attemptId: 'b',
+    submitEvidence: []
+  });
+  const noteOnChain: FakeChain = { tip: { blockNum: 150, commitment: OTHER }, notes: { [NOTE]: 140 } };
+
+  it.each<[string, ITransaction, FakeChain, ITransaction[]]>([
+    ['an attributable note', row('t'), noteOnChain, []],
+    ['a candidate note', row('t'), noteOnChain, [liveExecute]],
+    [
+      'a row 1 landing',
+      row('t', { type: 'execute', submitEvidence: [bareEntry()] }),
+      { tip: { blockNum: 150, commitment: FINAL, nonce: '6' } },
+      []
+    ],
+    [
+      'a row 3 landing',
+      row('t', { type: 'consume', submitEvidence: [consumeEntry()] }),
+      {
+        tip: { blockNum: 160, commitment: OTHER },
+        spent: { [NULLIFIER]: 150 },
+        history: { 150: { blockNum: 150, commitment: FINAL } }
+      },
+      []
+    ]
+  ])('holds %s and writes nothing for it', async (_label, target, fake, others) => {
+    const judged = await judge(target, { ...fake, headerFailsAfter: 1 }, others);
+    expect(judged.entries[0]).toMatchObject({ result: 'no-read', readsFailed: true, landingSuspected: true });
+    expect(judged.entries[0]?.landingRecord).toBeUndefined();
+    expect(judged.entries[0]?.initialSeenAtBlock).toBeUndefined();
+    expect(judged.landed).toBeUndefined();
+    expect(judged.landingHeld).toBe(true);
+  });
+
+  it('a header that changed instead is another chain, whose landing holds nothing', async () => {
+    const judged = await judge(row('t'), { ...noteOnChain, headerChangesAfter: 1 });
+    expect(judged.entries[0]).toMatchObject({ result: 'no-read', readsFailed: true });
+    expect(judged.entries[0]?.landingSuspected).toBeUndefined();
+    expect(judged.landingHeld).toBe(false);
+  });
+
+  it('a failed re-read after reads that found nothing holds nothing', async () => {
+    const judged = await judge(row('t'), { tip: { blockNum: 150, commitment: INITIAL }, headerFailsAfter: 1 });
+    expect(judged.entries[0]).toMatchObject({ result: 'no-read', readsFailed: true });
+    expect(judged.entries[0]?.landingSuspected).toBeUndefined();
+    expect(judged.landingHeld).toBe(false);
   });
 });
 

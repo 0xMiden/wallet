@@ -36,6 +36,8 @@ export interface EntryJudgement {
   /** A number to record, null to clear, undefined to leave as it is. */
   otherNetworkSince?: number | null;
   readsFailed: boolean;
+  /** The reads found a landing or a candidate note and the header re-read then failed: held, with nothing written. */
+  landingSuspected?: boolean;
 }
 
 export interface VerdictReads {
@@ -53,7 +55,10 @@ export interface RowJudgement {
   entries: EntryJudgement[];
   landed?: { attemptId: string; proof: LandingProof; boundTransactionId?: string };
   allDead: boolean;
-  /** A landing or candidate note the deferral holds, or a recorded landing whose reads failed this time. */
+  /**
+   * A landing or candidate note the deferral holds, one found before a header re-read that failed, or a recorded
+   * landing whose reads failed this time.
+   */
   landingHeld: boolean;
   tipBlock?: number;
 }
@@ -229,10 +234,27 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     }
   }
 
+  const landsByAccount = moved && !sameFinalElsewhere(entry.finalCommitment, others);
+  const finalRead = accountReads.find(state => state.commitment === entry.finalCommitment);
+  const row1 =
+    landsByAccount &&
+    entry.outputNoteIds.length === 0 &&
+    entry.nullifiers.length === 0 &&
+    (finalRead !== undefined || recordedByAccount);
+  const row3 =
+    landsByAccount &&
+    spend !== undefined &&
+    (atSpend?.commitment === entry.finalCommitment || (recordedByAccount && entry.landingSeenAtBlock === spend.height));
+
   // Checked again after the reads: nothing is written for E unless both checks pass, so a pass on another chain
-  // leaves no seen block a later pass could use.
+  // leaves no seen block a later pass could use. A re-read that failed is not another chain, though: a landing or a
+  // candidate note the reads found is still held, or Retry would reach the acknowledgeable refusal for a write that
+  // may be on chain.
   const after = await reads.node.blockCommitment(entry.refBlock);
-  if (after !== entry.refBlockCommitment) return noRead();
+  if (after !== entry.refBlockCommitment) {
+    const found = row1 || row3 || attributable !== undefined || candidate !== undefined;
+    return after === undefined && found ? { ...noRead(), landingSuspected: true } : noRead();
+  }
 
   const seenBlocks = accountReads
     .filter(state => state.commitment === entry.initialCommitment)
@@ -252,18 +274,6 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     ...(otherNetworkSince === undefined ? {} : { otherNetworkSince }),
     ...(initialSeenAtBlock === undefined ? {} : { initialSeenAtBlock })
   };
-
-  const landsByAccount = moved && !sameFinalElsewhere(entry.finalCommitment, others);
-  const finalRead = accountReads.find(state => state.commitment === entry.finalCommitment);
-  const row1 =
-    landsByAccount &&
-    entry.outputNoteIds.length === 0 &&
-    entry.nullifiers.length === 0 &&
-    (finalRead !== undefined || recordedByAccount);
-  const row3 =
-    landsByAccount &&
-    spend !== undefined &&
-    (atSpend?.commitment === entry.finalCommitment || (recordedByAccount && entry.landingSeenAtBlock === spend.height));
 
   // Row 3 outranks row 1 and row 2 for the record: only an account read lets rows 1 and 3 accept a record later.
   const landingRecord: { block: number; by: 1 | 2 | 3 } | undefined =
@@ -394,7 +404,7 @@ export async function judgeSubmitEvidence(row: ITransaction, reads: VerdictReads
       entry => entry.preSubmitEnd === true || (isProvable(entry) && verdictOf(entry) === 'never-committed')
     );
   const landingHeld =
-    entries.some(judgement => judgement.result === 'deferred') ||
+    entries.some(judgement => judgement.result === 'deferred' || judgement.landingSuspected === true) ||
     entries.some(
       judgement =>
         judgement.readsFailed &&
