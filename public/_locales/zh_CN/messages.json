@@ -3536,6 +3536,14 @@
     "message": "不可用",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "暂时不可用",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "该外部服务目前无法使用。请稍后再试。",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "正在检查该代币是否支持慢速路线……",
     "englishSource": "Checking whether this token supports the Slow route…"
