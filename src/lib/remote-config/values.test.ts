@@ -1,20 +1,20 @@
 import type { DerivedBridgeConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
-import { type BridgeConfigSnapshot, loadBridgeConfig } from './runtime';
+import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { BridgeConfig } from './schema';
 import {
   BridgeConfigUnavailableError,
-  requireAgglayerBridgeOut,
-  requireAgglayerDeposit,
-  requireAgglayerIndexerUrl,
-  requireAgglayerL1Bridge,
-  requireAgglayerMidenBridge,
-  requireEarnMarket,
-  requireEpochAllocatorUrl,
-  requireEpochPositionsUrl,
-  requireEvmChainId,
-  requireEvmUsdc,
-  requireMidenUsdc,
+  getAgglayerBridgeOut,
+  getAgglayerDeposit,
+  getAgglayerIndexerUrl,
+  getAgglayerL1Bridge,
+  getAgglayerMidenBridge,
+  getEarnMarket,
+  getEpochAllocatorUrl,
+  getEpochPositionsUrl,
+  getEvmChainId,
+  getEvmUsdc,
+  getMidenUsdc,
   selectEarnMarket,
   selectEvmUsdc,
   selectMidenUsdc,
@@ -22,7 +22,7 @@ import {
   selectNativeEthFaucet
 } from './values';
 
-jest.mock('./runtime', () => ({ loadBridgeConfig: jest.fn() }));
+jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
 
 const CONFIG: BridgeConfig = {
   network: 'testnet',
@@ -95,7 +95,7 @@ const savedE2e = process.env.MIDEN_E2E_TEST;
 beforeEach(() => {
   delete process.env.MIDEN_E2E_TEST;
   _resetE2eOverridesForTest();
-  jest.mocked(loadBridgeConfig).mockReset();
+  jest.mocked(getBridgeConfigSnapshot).mockReset();
 });
 afterAll(() => {
   process.env.MIDEN_E2E_TEST = savedE2e;
@@ -167,50 +167,52 @@ describe('selectors', () => {
   });
 });
 
-describe('require getters', () => {
+describe('getters', () => {
   it.each([
-    [requireEpochAllocatorUrl, 'https://testnet-dev.epochprotocol.xyz'],
-    [requireEpochPositionsUrl, 'https://positions-testnet-dev.epochprotocol.xyz'],
-    [requireEvmChainId, 11155111],
-    [requireMidenUsdc, selectMidenUsdc(snapshot())],
-    [requireEvmUsdc, selectEvmUsdc(snapshot())],
-    [requireEarnMarket, selectEarnMarket(snapshot())],
-    [requireAgglayerMidenBridge, '0x3b66e20b5088f25133b69216484652'],
-    [requireAgglayerIndexerUrl, 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'],
-    [requireAgglayerL1Bridge, '0x1348947e282138d8f377b467f7d9c2eb0f335d1f'],
-    [requireAgglayerBridgeOut, { midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 }],
-    [requireAgglayerDeposit, { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f', rollupId: 86 }]
-  ])('%p resolves the loaded value', async (get, expected) => {
-    jest.mocked(loadBridgeConfig).mockResolvedValue(snapshot());
-    await expect(get()).resolves.toEqual(expected);
+    [getEpochAllocatorUrl, 'https://testnet-dev.epochprotocol.xyz'],
+    [getEpochPositionsUrl, 'https://positions-testnet-dev.epochprotocol.xyz'],
+    [getEvmChainId, 11155111],
+    [getMidenUsdc, selectMidenUsdc(snapshot())],
+    [getEvmUsdc, selectEvmUsdc(snapshot())],
+    [getEarnMarket, selectEarnMarket(snapshot())],
+    [getAgglayerMidenBridge, '0x3b66e20b5088f25133b69216484652'],
+    [getAgglayerIndexerUrl, 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'],
+    [getAgglayerL1Bridge, '0x1348947e282138d8f377b467f7d9c2eb0f335d1f'],
+    [getAgglayerBridgeOut, { midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 }],
+    [getAgglayerDeposit, { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f', rollupId: 86 }]
+  ])('%p returns the current value synchronously', (get, expected) => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot());
+    const value = get();
+    expect(value).not.toBeInstanceOf(Promise);
+    expect(value).toEqual(expected);
   });
 
   it.each([
-    requireEpochAllocatorUrl,
-    requireEpochPositionsUrl,
-    requireEvmChainId,
-    requireMidenUsdc,
-    requireEvmUsdc,
-    requireEarnMarket,
-    requireAgglayerMidenBridge,
-    requireAgglayerIndexerUrl,
-    requireAgglayerL1Bridge,
-    requireAgglayerBridgeOut,
-    requireAgglayerDeposit
-  ])('%p rejects while there is no accepted document', async get => {
-    jest.mocked(loadBridgeConfig).mockResolvedValue(EMPTY);
-    await expect(get()).rejects.toBeInstanceOf(BridgeConfigUnavailableError);
+    getEpochAllocatorUrl,
+    getEpochPositionsUrl,
+    getEvmChainId,
+    getMidenUsdc,
+    getEvmUsdc,
+    getEarnMarket,
+    getAgglayerMidenBridge,
+    getAgglayerIndexerUrl,
+    getAgglayerL1Bridge,
+    getAgglayerBridgeOut,
+    getAgglayerDeposit
+  ])('%p throws while there is no accepted document', get => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(() => get()).toThrow(BridgeConfigUnavailableError);
   });
 
-  it('need only their own derived read: bridge out the L1 network id, a deposit the rollup id', async () => {
-    jest.mocked(loadBridgeConfig).mockResolvedValue(withDerived({ agglayer: { rollupId: ERROR } }));
-    await expect(requireAgglayerBridgeOut()).resolves.toEqual({
+  it('need only their own derived read: bridge out the L1 network id, a deposit the rollup id', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { rollupId: ERROR } }));
+    expect(getAgglayerBridgeOut()).toEqual({
       midenBridge: '0x3b66e20b5088f25133b69216484652',
       evmNetworkId: 0
     });
-    await expect(requireAgglayerDeposit()).rejects.toThrow('The bridge config has no usable Agglayer deposit values.');
-    jest.mocked(loadBridgeConfig).mockResolvedValue(withDerived({ agglayer: { evmNetworkId: ERROR } }));
-    await expect(requireAgglayerBridgeOut()).rejects.toBeInstanceOf(BridgeConfigUnavailableError);
-    await expect(requireAgglayerDeposit()).resolves.toMatchObject({ rollupId: 86 });
+    expect(() => getAgglayerDeposit()).toThrow('The bridge config has no usable Agglayer deposit values.');
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { evmNetworkId: ERROR } }));
+    expect(() => getAgglayerBridgeOut()).toThrow(BridgeConfigUnavailableError);
+    expect(getAgglayerDeposit()).toMatchObject({ rollupId: 86 });
   });
 });

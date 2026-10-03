@@ -2,10 +2,10 @@ import { getAddress, keccak256, toBytes } from 'viem';
 
 import type { Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
-import { type BridgeConfigSnapshot, loadBridgeConfig } from './runtime';
+import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { EarnProtocol } from './schema';
 
-/** Thrown by a `require*` getter while the accepted document or its derivation cannot supply the value. */
+/** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
 export class BridgeConfigUnavailableError extends Error {
   constructor(readonly value: string) {
     super(`The bridge config has no usable ${value}.`);
@@ -78,51 +78,53 @@ export function selectNativeEthFaucet(s: BridgeConfigSnapshot): string | null {
   return tokens.find(token => token.originToken === NATIVE_ETH && token.originNetwork === 0)?.midenFaucetId ?? null;
 }
 
-async function requireValue<T>(value: string, select: (s: BridgeConfigSnapshot) => T | null): Promise<T> {
-  const found = select(await loadBridgeConfig());
+// Read synchronously: each realm hydrates its snapshot at startup, and an entry point stays greyed until its values are
+// in it, so code past one only reaches a null through a deep link or a document that changed under it.
+function getValue<T>(value: string, select: (s: BridgeConfigSnapshot) => T | null): T {
+  const found = select(getBridgeConfigSnapshot());
   if (found === null) throw new BridgeConfigUnavailableError(value);
   return found;
 }
 
-export async function requireEpochAllocatorUrl(): Promise<string> {
-  return requireValue('epoch.allocatorUrl', s => s.config?.epoch.allocatorUrl ?? null);
+export function getEpochAllocatorUrl(): string {
+  return getValue('epoch.allocatorUrl', s => s.config?.epoch.allocatorUrl ?? null);
 }
 
-export async function requireEpochPositionsUrl(): Promise<string> {
-  return requireValue('epoch.positionsUrl', s => s.config?.epoch.positionsUrl ?? null);
+export function getEpochPositionsUrl(): string {
+  return getValue('epoch.positionsUrl', s => s.config?.epoch.positionsUrl ?? null);
 }
 
-export async function requireEvmChainId(): Promise<number> {
-  return requireValue('evm.chainId', selectEvmChainId);
+export function getEvmChainId(): number {
+  return getValue('evm.chainId', selectEvmChainId);
 }
 
-export async function requireMidenUsdc(): Promise<MidenUsdc> {
-  return requireValue('Earn collateral faucet', selectMidenUsdc);
+export function getMidenUsdc(): MidenUsdc {
+  return getValue('Earn collateral faucet', selectMidenUsdc);
 }
 
-export async function requireEvmUsdc(): Promise<EvmUsdc> {
-  return requireValue('EVM USDC', selectEvmUsdc);
+export function getEvmUsdc(): EvmUsdc {
+  return getValue('EVM USDC', selectEvmUsdc);
 }
 
-export async function requireEarnMarket(): Promise<EarnMarket> {
-  return requireValue('Earn market', selectEarnMarket);
+export function getEarnMarket(): EarnMarket {
+  return getValue('Earn market', selectEarnMarket);
 }
 
-export async function requireAgglayerMidenBridge(): Promise<string> {
-  return requireValue('agglayer.midenBridge', s => s.config?.agglayer.midenBridge ?? null);
+export function getAgglayerMidenBridge(): string {
+  return getValue('agglayer.midenBridge', s => s.config?.agglayer.midenBridge ?? null);
 }
 
-export async function requireAgglayerIndexerUrl(): Promise<string> {
-  return requireValue('agglayer.indexerUrl', s => s.config?.agglayer.indexerUrl ?? null);
+export function getAgglayerIndexerUrl(): string {
+  return getValue('agglayer.indexerUrl', s => s.config?.agglayer.indexerUrl ?? null);
 }
 
-export async function requireAgglayerL1Bridge(): Promise<`0x${string}`> {
-  return requireValue('agglayer.l1Bridge', s => s.config?.agglayer.l1Bridge ?? null);
+export function getAgglayerL1Bridge(): `0x${string}` {
+  return getValue('agglayer.l1Bridge', s => s.config?.agglayer.l1Bridge ?? null);
 }
 
 /** What a bridge-out note carries: the Miden bridge it targets and the L1 bridge's networkID() as its destination. */
-export async function requireAgglayerBridgeOut(): Promise<{ midenBridge: string; evmNetworkId: number }> {
-  return requireValue('Agglayer bridge-out values', s => {
+export function getAgglayerBridgeOut(): { midenBridge: string; evmNetworkId: number } {
+  return getValue('Agglayer bridge-out values', s => {
     const midenBridge = s.config?.agglayer.midenBridge;
     const evmNetworkId = okValue(s.derived?.agglayer.evmNetworkId);
     return midenBridge && evmNetworkId !== null ? { midenBridge, evmNetworkId } : null;
@@ -130,8 +132,8 @@ export async function requireAgglayerBridgeOut(): Promise<{ midenBridge: string;
 }
 
 /** What an L1 deposit calls: the L1 bridge, with the Miden rollup id as the destination network. */
-export async function requireAgglayerDeposit(): Promise<{ l1Bridge: `0x${string}`; rollupId: number }> {
-  return requireValue('Agglayer deposit values', s => {
+export function getAgglayerDeposit(): { l1Bridge: `0x${string}`; rollupId: number } {
+  return getValue('Agglayer deposit values', s => {
     const l1Bridge = s.config?.agglayer.l1Bridge;
     const rollupId = okValue(s.derived?.agglayer.rollupId);
     return l1Bridge && rollupId !== null ? { l1Bridge, rollupId } : null;
