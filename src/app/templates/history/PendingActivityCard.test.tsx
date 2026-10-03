@@ -203,6 +203,15 @@ describe('PendingActivityCard', () => {
       expect(onRetryHeld).toHaveBeenCalledWith(item);
     });
 
+    it('a held claim without a refusal says it is not confirmed yet, not that it waits to be accepted (#1081)', () => {
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('transactionNotConfirmedHint');
+      expect(hint).not.toHaveTextContent('activityNotYetAccepted');
+    });
+
     it('a refusal replaces the hint and opens the folded section (#1081)', () => {
       const item: PendingActivityItem = {
         note,

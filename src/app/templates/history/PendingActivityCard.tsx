@@ -104,7 +104,12 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
 
   // The hint belongs to the folded section, which only an open note has. The tone carries the
   // failure; the words say it too, so the block is never colour alone.
-  const hint = item.retryError ?? (status === 'failed' ? t('noteClaimFailedRetry') : t('activityNotYetAccepted'));
+  // A held claim awaits its verdict and may already have gone through, and its only action is Retry, so it says it
+  // is not confirmed rather than inviting a review (#1081).
+  let hint = t('activityNotYetAccepted');
+  if (item.retryError !== undefined) hint = item.retryError;
+  else if (held) hint = t('transactionNotConfirmedHint');
+  else if (status === 'failed') hint = t('noteClaimFailedRetry');
   const negative = status === 'failed' || item.retryError !== undefined;
 
   // A refusal's message lives in the folded section, so it opens with it (#1081).
