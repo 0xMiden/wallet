@@ -1,6 +1,7 @@
 import { withRequestTimeout } from 'lib/remote-json';
 
-import { AGGLAYER_BRIDGE_API } from './constant';
+import { EVM_AGGLAYER_NETWORK_ID } from './b2agg/constant';
+import { AGGLAYER_BRIDGE_API, MIDEN_CHAIN_ID } from './constant';
 
 // A bridge indexer that accepts the connection then goes silent must not hang
 // the claim/poll flow forever; bound every AggLayer request, its body read
@@ -84,9 +85,25 @@ const ZERO_TX_HASH = /^(0x)?0*$/i;
  * already-claimed. Claim selection has to exclude these explicitly.
  */
 export function isAgglayerDepositClaimed(deposit: AgglayerDeposit): boolean {
-  const claimHash = deposit.claim_tx_hash?.trim();
-  if (claimHash && !ZERO_TX_HASH.test(claimHash)) return true;
+  if (claimHashOf(deposit) !== undefined) return true;
   return normalizedDepositStatus(deposit) === 'claimed';
+}
+
+function claimHashOf(deposit: AgglayerDeposit): string | undefined {
+  const claimHash = deposit.claim_tx_hash?.trim();
+  return claimHash && !ZERO_TX_HASH.test(claimHash) ? claimHash : undefined;
+}
+
+/**
+ * What a `claimed` write records for a deposit the indexer reports claimed, by the wallet or anyone else: the pin,
+ * and the claim hash when the indexer has one. An absent hash is left out rather than written as undefined, so it
+ * can never erase the hash of the wallet's own claim.
+ */
+export function agglayerClaimedFields(deposit: AgglayerDeposit): { claimTxHash?: string; agglayerDepositCnt: number } {
+  const claimTxHash = claimHashOf(deposit);
+  return claimTxHash === undefined
+    ? { agglayerDepositCnt: deposit.deposit_cnt }
+    : { claimTxHash, agglayerDepositCnt: deposit.deposit_cnt };
 }
 
 interface BridgesResponse {
@@ -125,6 +142,58 @@ const BRIDGE_SERVICE_URL = AGGLAYER_BRIDGE_API.replace(/\/bridges$/, '');
 export function sameTxHash(left: string, right: string): boolean {
   const normalize = (hash: string) => hash.trim().toLowerCase().replace(/^0x/, '');
   return normalize(left) === normalize(right);
+}
+
+/** A deposit the indexer filed as a Miden -> EVM exit. */
+export const isMidenToEvmDeposit = (deposit: AgglayerDeposit): boolean =>
+  deposit.network_id === MIDEN_CHAIN_ID && deposit.dest_net === EVM_AGGLAYER_NETWORK_ID;
+
+interface DepositResponse {
+  deposit: AgglayerDeposit;
+}
+
+/** Miden -> EVM exit number `depositCnt`. The indexer answers an unknown one with HTTP 500, which rejects. */
+export async function fetchMidenToEvmDeposit(depositCnt: number): Promise<AgglayerDeposit> {
+  const data = await agglayerJson<DepositResponse>(
+    `${BRIDGE_SERVICE_URL}/bridge?net_id=${MIDEN_CHAIN_ID}&deposit_cnt=${depositCnt}`,
+    'Agglayer bridge deposit'
+  );
+  return data.deposit;
+}
+
+/**
+ * This row's own exit deposit, in any state (indexed, ready or claimed), or null. Callers classify it with
+ * `isAgglayerDepositReady` and `isAgglayerDepositClaimed`.
+ *
+ * Bound to the row by `exitTxHash`, the indexer's `tx_hash` for the B2AGG note the row built
+ * (`lib/agglayer/b2agg/exit-hash.ts`). The caller claims whatever comes back, and settles its own row on a claim
+ * made by anyone, so an unbound answer would claim a sibling's amount or mark this row claimed off a sibling's
+ * claim. Nothing unbound is ever answered.
+ *
+ * `depositCnt` is the row's pin: one GET for that deposit, kept only while it still carries this exit, so a
+ * renumbered or reset indexer, or a failed GET, falls back to the address's ten newest deposits.
+ */
+export async function findAgglayerExitDeposit(
+  l1Dest: string,
+  exitTxHash: string,
+  depositCnt?: number
+): Promise<AgglayerDeposit | null> {
+  const isThisExit = (deposit: AgglayerDeposit) =>
+    isMidenToEvmDeposit(deposit) && sameTxHash(deposit.tx_hash, exitTxHash);
+  if (depositCnt !== undefined) {
+    try {
+      const pinned = await fetchMidenToEvmDeposit(depositCnt);
+      if (isThisExit(pinned)) return pinned;
+      console.warn('[agglayer] the pinned deposit no longer carries this exit; looking it up by address', {
+        depositCnt,
+        exitTxHash
+      });
+    } catch {
+      // Not found, or the indexer is down; the address page below answers either way.
+    }
+  }
+  const deposits = await fetchDeposits(l1Dest);
+  return deposits.find(isThisExit) ?? null;
 }
 
 /**

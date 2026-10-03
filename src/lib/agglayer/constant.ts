@@ -3,7 +3,8 @@ export const BRIDGE_ASSET_ABI = [
   'function bridgeAsset(uint32 destinationNetwork,address destinationAddress,uint256 amount,address token,bool forceUpdateGlobalExitRoot,bytes calldata permitData)'
 ];
 // AggLayer rollupID of Miden Testnet (rollup 86; l2ChainID 402699011). This is
-// the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id.
+// the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id. It is
+// also the `network_id` the bridge indexer files every Miden -> EVM exit under.
 export const MIDEN_CHAIN_ID = 86;
 /**
  * Miden account that sends notes created by AggLayer bridge-ins.

@@ -1,7 +1,10 @@
+import fixture from './b2agg/exit-hash.vectors.json';
 import {
   AgglayerDeposit,
+  agglayerClaimedFields,
   fetchDeposits,
   fetchMerkleProof,
+  findAgglayerExitDeposit,
   findClaimableMidenToEvmDeposit,
   isAgglayerDepositClaimed,
   isAgglayerDepositReady
@@ -222,5 +225,91 @@ describe('findClaimableMidenToEvmDeposit', () => {
 
       expect(await findClaimableMidenToEvmDeposit('0xdestination')).toBeNull();
     });
+  });
+});
+
+/**
+ * Live deposit 16 as the indexer serves it: a Miden exit filed under the rollup id (86) and already claimed by the
+ * bridge's auto-claimer. Its `tx_hash` is the exit hash of the B2AGG note in the same fixture.
+ */
+const deposit16 = fixture.vectors.find(vector => vector.depositCnt === 16);
+if (deposit16?.indexerDeposit === undefined) throw new Error('the fixture lost deposit 16');
+const LIVE_16: AgglayerDeposit = deposit16.indexerDeposit;
+const EXIT_16 = deposit16.exitTxHash;
+
+describe('findAgglayerExitDeposit (#1325)', () => {
+  const PINNED_URL = 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/bridge?net_id=86&deposit_cnt=16';
+
+  // `/bridge?` serves one deposit by number, `/bridges/<address>` the address's newest ten.
+  const serve = ({ pinned, page }: { pinned?: AgglayerDeposit | 'not-found'; page: AgglayerDeposit[] }) => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('/bridge?')) {
+        // An unknown deposit answers HTTP 500 with `{"code":2,...}`, as the live indexer does.
+        if (pinned === 'not-found') return { ok: false, status: 500, json: async () => ({ code: 2 }) };
+        return { ok: true, json: async () => ({ deposit: pinned }) };
+      }
+      return { ok: true, json: async () => ({ deposits: page, total_cnt: String(page.length) }) };
+    });
+  };
+  const SIBLING: AgglayerDeposit = { ...LIVE_16, deposit_cnt: 17, tx_hash: `0x${'5'.repeat(64)}` };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('finds live deposit 16, claimed as the indexer serves it, by its exit hash', async () => {
+    serve({ page: [SIBLING, LIVE_16] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16)).toEqual(LIVE_16);
+  });
+
+  it.each([
+    ['bound for another network (dest_net 1)', { dest_net: 1 }],
+    ['not filed as a Miden exit (network_id 0)', { network_id: 0 }]
+  ])('rejects a deposit %s', async (_label, change) => {
+    serve({ page: [{ ...LIVE_16, ...change }] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16)).toBeNull();
+  });
+
+  it("answers nothing for a Miden transaction id: the indexer's tx_hash is the exit hash", async () => {
+    serve({ page: [LIVE_16] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, `0x${'ab'.repeat(32)}`)).toBeNull();
+  });
+
+  it('reads a pinned deposit with one GET and skips the address page', async () => {
+    serve({ pinned: LIVE_16, page: [] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16)).toEqual(LIVE_16);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe(PINNED_URL);
+  });
+
+  it('falls back to the address page when the pinned GET fails', async () => {
+    serve({ pinned: 'not-found', page: [LIVE_16] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16)).toEqual(LIVE_16);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to the address page, and warns, when the pinned deposit is another exit', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    serve({ pinned: SIBLING, page: [LIVE_16] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16)).toEqual(LIVE_16);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+});
+
+describe('agglayerClaimedFields (#1325)', () => {
+  it("records the indexer's claim hash and the pin", () => {
+    expect(agglayerClaimedFields(LIVE_16)).toEqual({ claimTxHash: LIVE_16.claim_tx_hash, agglayerDepositCnt: 16 });
+  });
+
+  it('leaves out a claim hash the indexer does not report, so it erases no hash already stored', () => {
+    const fields = agglayerClaimedFields({ ...LIVE_16, claim_tx_hash: `0x${'0'.repeat(64)}`, status: 'claimed' });
+
+    expect(fields).toEqual({ agglayerDepositCnt: 16 });
+    expect(fields).not.toHaveProperty('claimTxHash');
   });
 });
