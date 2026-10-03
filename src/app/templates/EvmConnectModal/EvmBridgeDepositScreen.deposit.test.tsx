@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
+import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -21,8 +22,36 @@ jest.mock('@reown/appkit/react', () => ({
   useAppKitProvider: () => ({ walletProvider: { request: jest.fn() } })
 }));
 
+const mockMutateAsync = jest.fn();
 jest.mock('wagmi', () => ({
-  useWriteContract: () => ({ mutateAsync: jest.fn() })
+  useWriteContract: () => ({ mutateAsync: mockMutateAsync })
+}));
+
+// The Fast USDC pair and the Slow route's L1 bridge come from the bridge config. Stable objects, as the runtime's
+// snapshot is, so the screen's effects keyed on them run once.
+const mockSnapshot = {};
+const mockEvmUsdc = {
+  address: '0x00000000000000000000000000000000000000c0',
+  symbol: 'USDC',
+  decimals: 18,
+  chainId: 84532
+};
+const mockMidenUsdc = { faucetId: '0x00000000000000000000000000e2e0', symbol: 'USDC', decimals: 6 };
+let mockAvailability: Partial<Record<BridgeFeature, FeatureAvailability>> = {};
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => mockSnapshot,
+  useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
+}));
+// The suite's Miden account is no real address; the Slow route only needs its EVM form to exist.
+jest.mock('lib/agglayer', () => ({
+  AGGLAYER_BRIDGE_ABI: [],
+  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH',
+  midenAddrToEvmAddr: () => '0x00000000000000000000000000000000000000a1'
+}));
+jest.mock('lib/remote-config/values', () => ({
+  selectEvmUsdc: () => mockEvmUsdc,
+  selectMidenUsdc: () => mockMidenUsdc,
+  getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
 }));
 
 jest.mock('use-debounce', () => ({
@@ -250,6 +279,7 @@ const renderScreen = (reportDeposit?: ReportDeposit) =>
 describe('EvmBridgeDepositScreen deposit reporting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAvailability = {};
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
   });
@@ -384,6 +414,61 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledWith(
       expect.objectContaining({ sourceAmount: '1.5050', outputAmount: '1.5050' })
     );
+  });
+
+  it('bridges the Slow route through the L1 bridge and the rollup id the config names', async () => {
+    renderScreen();
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: '0x00000000000000000000000000000000000000b2',
+        functionName: 'bridgeAsset',
+        args: [
+          77,
+          '0x00000000000000000000000000000000000000a1',
+          1_500_000_000_000_000_000n,
+          expect.any(String),
+          true,
+          '0x'
+        ]
+      })
+    );
+  });
+
+  it('quotes the Fast route for the USDC pair the config names', async () => {
+    const quoteEVMToMiden = jest.fn().mockResolvedValue(undefined);
+    Object.assign(epochState, { quoteEVMToMiden });
+    renderScreen();
+
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+
+    expect(quoteEVMToMiden).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceChainId: 84532,
+        evmTokenAddress: '0x00000000000000000000000000000000000000c0',
+        midenFaucetId: '0x00000000000000000000000000e2e0',
+        minTokenOut: '1500000'
+      }),
+      '0xevm-wallet'
+    );
+  });
+
+  it.each<[string, BridgeFeature, () => Promise<void>]>([
+    ['Fast', 'fastBridgeIn', reachFastReview],
+    ['Slow', 'bridgeIn', reachReview]
+  ])('keeps the %s route from Review while %s is unavailable', async (_route, feature, reach) => {
+    quoteFast();
+    mockAvailability = { [feature]: { state: 'unavailable', reason: 'service-down', detail: 'down' } };
+    renderScreen();
+
+    await reach();
+
+    expect(screen.queryByTestId('confirm-deposit')).not.toBeInTheDocument();
   });
 
   it('starts every case from an idle epoch store', () => {

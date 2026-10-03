@@ -10,6 +10,7 @@
 
 ### Changes
 
+- [CHANGE][all] Epoch and Agglayer addresses, services and switches come from a per-network document in `0xMiden/wallet-config` instead of the build, so a redeploy no longer needs a wallet release. Earn deposit, Fast bridge, Bridge in and Bridge out grey out with a "Temporarily unavailable" notice while what they need is missing, undeployed or down.
 - [CHANGE][all] Set wallet version 1.17.0 and upgrade the SDK, React bindings, wallet adapters and Vite plugin to stable 0.17.0, including the shared-store account cache repair. The CLI, local node and native provers use matching stable dependencies. SDK databases created by 0.17 release candidates are unsupported and are not migrated.
 - [FIX][all] Guardian proposal signing and request preparation share the wallet's WASM mutex, preventing account creation from overlapping the signing client's chain sync. Devnet E2E checks identify fees by the synced chain's faucet ID and recognize canonical Guardian state/nonce responses while retaining exact balance, receipt, and settlement assertions.
 - [CHANGE][all] Wallets and backup files created before 0.17 are no longer supported: the legacy key scheme and the unlock-time migrations are removed (#1091).

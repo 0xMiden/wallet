@@ -173,7 +173,7 @@ export interface IBridgedSendExtraInputs {
   provider: IBridgeProvider;
   /** 0x EVM recipient. */
   destinationAddress: string;
-  /** EVM destination network: `EVM_AGGLAYER_NETWORK_ID` (agglayer) or chain id (epoch). */
+  /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
   destinationNetwork: number;
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;

@@ -43,7 +43,9 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
  * woken service worker with cached metadata would otherwise miss the allowlist match and count a
  * priced spend as nothing, so a load that fails refuses the spend instead. Once it is loaded, a
  * spend id or allowlist entry it cannot parse refuses the spend too, since a raw-text fallback
- * would miss the allowlist and count a priced spend as nothing.
+ * would miss the allowlist and count a priced spend as nothing. The bridged faucets' entries come
+ * from the bridge config, so it is loaded first; on a fresh install that has never fetched one,
+ * they are unpriced like any unknown token.
  */
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
   const [first] = spends;

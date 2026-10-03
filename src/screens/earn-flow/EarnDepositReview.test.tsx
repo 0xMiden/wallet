@@ -67,12 +67,17 @@ jest.mock('lib/miden/back/protector-probe', () => ({
 }));
 
 // --- Epoch SDK barrel (wasm + network clients): only the deposit entry point
-//     and the USDC decimals constant are used by this screen.
+//     and the collateral id helper are used by this screen.
 jest.mock('lib/epoch', () => ({
-  getEarnCollateralFaucetId: () => 'mtst1usdc',
-  MIDEN_USDC_DECIMALS: 6,
+  earnCollateralFaucetId: () => 'mtst1usdc',
   openEarnPosition: jest.fn(() => Promise.resolve())
 }));
+
+// The collateral comes from the bridge config: the testnet USDC faucet, at 6 decimals.
+const USDC = { faucetId: '0x537c15a622074e91188aa894456c52', symbol: 'USDC', decimals: 6 };
+let mockCollateral: typeof USDC | null = USDC;
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
 
 const mockWalletStoreState = {
   assessSpendingLimit: jest.fn(),
@@ -274,6 +279,7 @@ describe('EarnDepositReview', () => {
     mockAccount.type = undefined;
     (isMobile as jest.Mock).mockReturnValue(false);
     mockOpenEarnPosition.mockResolvedValue(undefined);
+    mockCollateral = USDC;
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
     mockWalletStoreState.readSpendingLimit.mockResolvedValue({
       accountId: 'mm1testaccount',
@@ -389,6 +395,26 @@ describe('EarnDepositReview', () => {
       expect(call.evmAddress).toBe('0xdeadbeef');
       expect(call.senderPublicKey).toBe('mm1testaccount');
       expect(call.deps.signTransaction).toBe(mockSignTransaction);
+    });
+
+    it('scales by the collateral the config names and deposits that collateral', async () => {
+      mockCollateral = { faucetId: '0x00000000000000000000000000e2e0', symbol: 'tUSDC', decimals: 2 };
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      await waitFor(() => expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1));
+      expect(mockOpenEarnPosition.mock.calls[0]![0]).toMatchObject({ amount: 100_000n, collateral: mockCollateral });
+    });
+
+    it('deposits nothing while the config names no collateral', async () => {
+      mockCollateral = null;
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
     });
 
     it('confirms the deposit with the earn-deposit reason and the shared hardware-only protector probe', async () => {

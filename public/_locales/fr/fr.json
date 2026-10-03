@@ -807,6 +807,8 @@
   "fast": "Rapide",
   "slow": "Lent",
   "unavailable": "Indisponible",
+  "bridgeFeatureUnavailableTitle": "Temporairement indisponible",
+  "bridgeFeatureUnavailableBody": "Ce service externe est actuellement indisponible. Veuillez réessayer plus tard.",
   "agglayerCheckingToken": "Vérification de la prise en charge de la « Slow route » par ce jeton…",
   "agglayerTokenUnsupported": "Ce jeton ne prend pas en charge la voie « Slow ».",
   "agglayerTokenCheckFailed": "Impossible de vérifier ce jeton. Revenez en arrière et réessayez.",

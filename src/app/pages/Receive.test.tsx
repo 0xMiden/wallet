@@ -10,6 +10,7 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { Receive } from './Receive';
@@ -165,9 +166,10 @@ jest.mock('lib/platform', () => ({
   isExtension: () => false
 }));
 
-jest.mock('lib/feature-flags', () => ({
-  ...jest.requireActual('lib/feature-flags'),
-  isBridgeDepositEnabled: () => true
+let mockCrossChain: FeatureAvailability = { state: 'available' };
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useAnyFeatureAvailability: (features: readonly string[]) =>
+    features.join() === 'fastBridgeIn,bridgeIn' ? mockCrossChain : { state: 'loading' }
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -212,6 +214,7 @@ describe('Receive - Address', () => {
 
   beforeEach(() => {
     mockReduceMotion = false;
+    mockCrossChain = { state: 'available' };
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
@@ -343,6 +346,22 @@ describe('Receive - Address', () => {
       fireEvent.click(crossChain);
     });
     expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('greys out Cross Chain under the notice while neither bridge-in route can start', async () => {
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
+    expect(crossChain).toBeDisabled();
+    expect(crossChain).toHaveClass('disabled:opacity-50');
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
+      'bridgeFeatureUnavailableBody'
+    );
+    await act(async () => {
+      fireEvent.click(crossChain);
+    });
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

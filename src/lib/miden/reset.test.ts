@@ -553,3 +553,51 @@ describe('announcing the platform wipe, once fully settled', () => {
     expect(cleared).not.toHaveBeenCalled();
   });
 });
+
+describe('the bridge config version floor', () => {
+  const FLOOR = { bridge_config_floor_v1: { testnet: 4 } };
+
+  it('survives the wallet-setup wipe while the stored document goes', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      ...FLOOR,
+      'bridge_config_v1:testnet': { fetchedAt: 1, body: {} },
+      vault_key: 'v'
+    });
+
+    await clearStorage();
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['bridge_config_v1:testnet', 'vault_key']]]);
+  });
+
+  it('survives the destructive reset that takes the endpoint override with it', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      endpoint_overrides: { rpcUrl: 'https://rpc.custom' },
+      ...FLOOR,
+      vault_key: 'v'
+    });
+
+    await resetStorageDestructive({ keepEndpointOverride: false });
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['endpoint_overrides', 'vault_key']]]);
+  });
+
+  it('survives the mobile wipe', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: ['bridge_config_floor_v1', 'bridge_config_v1:testnet'] });
+
+    await clearStorage();
+
+    expect(_g.__resetTest.prefStub.remove.mock.calls).toEqual([[{ key: 'bridge_config_v1:testnet' }]]);
+  });
+
+  it('survives the recovery page wipe in its desktop form', async () => {
+    localStorage.setItem('miden_wallet_bridge_config_floor_v1', '{"testnet":4}');
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+
+    await clearClientStorage();
+
+    expect(Object.keys(localStorage)).toEqual(['miden_wallet_bridge_config_floor_v1']);
+  });
+});

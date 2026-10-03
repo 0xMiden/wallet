@@ -54,6 +54,11 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
 
+// The Earn collateral the deposit fallback reads comes from the bridge config.
+let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
+
 const baseTransaction = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ({
     id: 'tx-1',
@@ -152,6 +157,7 @@ describe('useTransactionSummaryBadgeContent', () => {
   beforeEach(() => {
     mockState.assetsMetadata = {};
     mockNativeAssetId = null;
+    mockCollateral = { faucetId: 'mtst1collateral', symbol: 'USDC', decimals: 6 };
   });
 
   const Probe: React.FC<{ tx?: ITransaction }> = ({ tx }) => {
@@ -220,6 +226,7 @@ describe('useTransactionSummaryBadgeContent', () => {
       baseTransaction({
         type: 'earn-deposit',
         amount: 750n,
+        faucetId: 'mtst1collateral',
         extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
       })
     );
@@ -433,6 +440,7 @@ describe('useTransactionSummaryBadgeContent', () => {
       baseTransaction({
         type: 'earn-deposit',
         amount: 750n,
+        faucetId: 'mtst1collateral',
         extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
       })
     );
@@ -457,6 +465,34 @@ describe('useTransactionSummaryBadgeContent', () => {
 
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('125000 mUSDC');
     expect(container.textContent).toContain('NEW-LENDER');
+    act(() => root.unmount());
+  });
+
+  it('withholds the summary of a deposit whose faucet the config does not name', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: 'mtst1other',
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it("scales a deposit without metadata by the configured collateral's decimals", async () => {
+    mockCollateral = { faucetId: 'mtst1collateral', symbol: 'tUSDC', decimals: 2 };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: 'mtst1collateral',
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(mockFormatAmount).toHaveBeenCalledWith(750n, 2);
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 tUSDC');
     act(() => root.unmount());
   });
 

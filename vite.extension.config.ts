@@ -228,6 +228,9 @@ const sharedDefine = {
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  // E2E builds read the bridge config document from this base instead of the published repo. Ignored unless
+  // MIDEN_E2E_TEST is 'true' (lib/remote-config/source.ts); empty by default, so every other build reads the repo.
+  'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
   'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
   // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
   // the __TEST_*__ hooks) so a harness build can keep the hooks while still
@@ -246,14 +249,7 @@ const sharedDefine = {
   'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
     process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
   ),
-  'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
   'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
-  'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
-    process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
-  ),
-  'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
-    process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
-  ),
   'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
   // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
   // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in

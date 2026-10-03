@@ -6,11 +6,13 @@ import { useTranslation } from 'react-i18next';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { Icon, IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import { Button } from 'components/ui/Button';
 import { Notice } from 'components/ui/Notice';
 import { hapticMedium } from 'lib/mobile/haptics';
+import { useAnyFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
@@ -29,6 +31,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   // deposit form: the connect step is part of funding, and dropping out of it is
   // exactly the abandonment worth seeing.
   const reportDeposit = useFundTelemetry();
+  const bridgeIn = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn']);
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -110,7 +113,9 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
           </div>
         )}
 
-        <Button onClick={handleConnect} className="max-w-80">
+        <FeatureUnavailableNotice availability={bridgeIn} className="max-w-80" />
+
+        <Button onClick={handleConnect} disabled={isFeatureBlocked(bridgeIn)} className="max-w-80">
           {t('openWallet')}
         </Button>
       </div>

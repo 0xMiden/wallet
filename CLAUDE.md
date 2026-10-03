@@ -120,6 +120,9 @@ Write a key a storage hook reads (`useStorage`, `usePassiveStorage` in `lib/mide
 ### Recovered Guardian history
 Recovered history rows are trusted as the operator serves them (no signer signature or old account commitment can be checked), so `recoverGuardianHistory` asks only the account's own operators (its current `guardianEndpoint`, which a restored wallet file sets, and the switch endpoints of rows this wallet made) and the network's built-in ones. An endpoint that a Guardian reports, or that a recovered or file-restored transaction row names, must never join that list.
 
+### Remote bridge config
+Epoch and Agglayer values come from `0xMiden/wallet-config` (`<network>.json`) through `lib/remote-config`: read them with the `select*`/`get*` getters in `lib/remote-config/values.ts` (each realm hydrates the snapshot at startup, so reads are synchronous), never a compiled constant. Entry points read `useFeatureAvailability(feature)` and grey out under `FeatureUnavailableNotice`; a flow past its entry point fails through its own error path. E2E builds read the document from `MIDEN_REMOTE_CONFIG_URL` (honoured only under `MIDEN_E2E_TEST`); the hermetic suites serve it with `playwright/e2e/helpers/fake-bridge-config.ts`.
+
 ## Frontend UI, CSS, and Motion
 
 Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.

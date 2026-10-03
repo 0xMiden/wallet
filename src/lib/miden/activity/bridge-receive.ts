@@ -1,5 +1,6 @@
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
+import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
@@ -101,7 +102,7 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
     const results = await readEpochIntentStatus(sdk, inputs.sourceAddress, inputs.intentNonce);
     const noteId = results.map(result => firstString(result, 'midenNoteId')).find(Boolean);
     if (noteId) await resolveBridgeInNoteId(inputs.sourceAddress, inputs.intentNonce, noteId);
-    const midenLeg = results.find(result => result.chainId === 999999999);
+    const midenLeg = results.find(result => result.chainId === MIDEN_DESTINATION_CHAIN_ID);
     if (midenLeg && midenLeg.status.toLowerCase() === 'failed') {
       await updateBridgedReceivePhase(row.id, 'failed', { error: 'The Epoch bridge intent failed.' });
     }

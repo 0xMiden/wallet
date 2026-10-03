@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { goBack, navigate } from 'lib/woozie';
 
 // Imported after the mocks above are registered (jest hoists jest.mock).
@@ -25,6 +26,11 @@ const mockRefetch = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useFeatureAvailability: (feature: string) => (feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' })
 }));
 
 // Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
@@ -217,6 +223,7 @@ const metricValue = (label: string) => {
 describe('EarnVaultDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEarnDeposit = { state: 'available' };
   });
 
   // Guardian accounts are supported: earn deposits are built as a recallable
@@ -334,6 +341,24 @@ describe('EarnVaultDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
     expect(navigate).toHaveBeenCalledWith('/earn/vaults/v-audited/deposit');
+  });
+
+  it('greys out Deposit under the notice while Earn deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  it('holds Deposit, with no notice, while availability is loading', () => {
+    mockEarnDeposit = { state: 'loading' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
   });
 
   // No timeframe row: no chart on this screen reads a timeframe, so the control changed nothing.

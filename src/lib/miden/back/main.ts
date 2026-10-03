@@ -37,6 +37,7 @@ import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sd
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
 
@@ -91,6 +92,10 @@ export async function start() {
   // endpoints. Must run before primeNativeAssetId() below — its cache keys
   // are derived from getEffectiveNetworkName() at call time.
   await loadEndpointOverrides();
+
+  // Synchronous readers in this realm (bridge-in matching, spend valuation) need the stored config before any
+  // handler runs. Instant from storage; never waits for the network.
+  await initBridgeConfig();
 
   await Actions.init();
 
@@ -370,6 +375,9 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     rediscovery to whoever happens to ask next means the first sync after a
       //     repoint judges notes against the old chain's fee.
       await loadEndpointOverrides();
+      //   - initBridgeConfig() hydrates the remote bridge config of the network the override selects; this realm has
+      //     no scheduler to notice the switch on its own.
+      await initBridgeConfig();
       resetSyncBackoffForEndpointChange();
       clearSyncFuseForEndpointChange();
       //   - retireGuardianWritesForEndpointChange() retires guardian writes DECIDED against the

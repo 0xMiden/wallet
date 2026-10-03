@@ -9,6 +9,8 @@ import {
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
+const mockIndexerUrl = jest.fn(() => 'https://indexer.one.example/api');
+jest.mock('lib/remote-config/values', () => ({ getAgglayerIndexerUrl: () => mockIndexerUrl() }));
 
 const deposit = (overrides: Record<string, unknown>) =>
   ({ tx_hash: '0x1', ready_for_claim: false, ...overrides }) as any;
@@ -222,5 +224,32 @@ describe('findClaimableMidenToEvmDeposit', () => {
 
       expect(await findClaimableMidenToEvmDeposit('0xdestination')).toBeNull();
     });
+  });
+});
+
+describe('the configured indexer', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ deposits: [], total_cnt: '0', proof: { merkle_proof: [] } })
+    });
+  });
+
+  it('lists deposits and reads merkle proofs from the indexer the config names', async () => {
+    await fetchDeposits('0xdest');
+    await fetchMerkleProof(16, 86);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://indexer.one.example/api/bridges/0xdest?limit=10&offset=0',
+      'https://indexer.one.example/api/merkle-proof?deposit_cnt=16&net_id=86'
+    ]);
+  });
+
+  it('sends nothing while the config names no indexer', async () => {
+    mockIndexerUrl.mockImplementationOnce(() => {
+      throw new Error('no indexer');
+    });
+    await expect(fetchDeposits('0xdest')).rejects.toThrow('no indexer');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

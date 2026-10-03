@@ -1,10 +1,13 @@
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
-import { MIDEN_USDC_FAUCET, setEarnCollateralFaucetForTest } from 'lib/epoch/collateral';
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 import { isCoveredSymbol } from 'lib/prices/usd';
 
+import { bridgePriceAllowlist } from './bridge-price-allowlist';
 import {
   canonicalFaucetId,
   deriveRequestAmount,
@@ -28,6 +31,8 @@ import {
   SWAP_TOKENS
 } from './tokens';
 
+// The bridged price entries: the testnet config's by default (the manual mock's answer), and others a test sets.
+jest.mock('./bridge-price-allowlist', () => ({ bridgePriceAllowlist: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
   getNativeAssetMetadataSync: jest.fn()
@@ -52,6 +57,13 @@ const mockNetworkName = jest.mocked(getEffectiveNetworkName);
 
 beforeEach(() => {
   _resetNormalizedFaucetIdsForTest();
+  jest
+    .mocked(bridgePriceAllowlist)
+    .mockReset()
+    .mockImplementation(
+      jest.requireActual<typeof import('./__mocks__/bridge-price-allowlist')>('./__mocks__/bridge-price-allowlist')
+        .bridgePriceAllowlist
+    );
   mockToBech32.mockReset().mockImplementation(mockFakeBech32);
   mockNetworkName.mockReturnValue('testnet' as any);
 });
@@ -158,14 +170,13 @@ describe('priceSymbolFor', () => {
     expect(priceSymbolFor('0xiethhex', 'IETH')).toBe('ETH');
   });
 
-  it('follows the Earn collateral faucet an E2E run injects', () => {
-    setEarnCollateralFaucetForTest('0xe2ecollateral');
-    try {
-      expect(priceSymbolFor('0xe2ecollateral', 'USDC')).toBe('USDC');
-      expect(priceSymbolFor(MIDEN_USDC_FAUCET, 'USDC')).toBeUndefined();
-    } finally {
-      setEarnCollateralFaucetForTest(undefined);
-    }
+  it('prices the bridged faucets the bridge config names, and no compiled one', () => {
+    jest.mocked(bridgePriceAllowlist).mockReturnValueOnce([{ faucetId: '0xe2ecollateral', priceSymbol: 'USDC' }]);
+    expect(priceSymbolFor('0xe2ecollateral', 'USDC')).toBe('USDC');
+    jest.mocked(bridgePriceAllowlist).mockReturnValueOnce([]);
+    expect(priceSymbolFor(MIDEN_USDC_FAUCET, 'USDC')).toBeUndefined();
+    jest.mocked(bridgePriceAllowlist).mockReturnValueOnce([]);
+    expect(priceSymbolFor(MIDEN_AGGLAYER_FAUCET_ID, 'ETH')).toBeUndefined();
   });
 
   it('gives no price symbol to any other faucet, whatever symbol it gives itself', () => {

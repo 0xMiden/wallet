@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import type { FeatureAvailability } from 'lib/remote-config/availability';
+
 import { BridgeDeposit } from './BridgeDeposit';
 
 // The network banner now tops this screen, so the wallet names the chain on every surface that
@@ -42,9 +44,23 @@ jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
+let mockBridgeIn: FeatureAvailability = { state: 'available' };
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useAnyFeatureAvailability: (features: readonly string[]) =>
+    features.join() === 'fastBridgeIn,bridgeIn' ? mockBridgeIn : { state: 'loading' }
+}));
+
 jest.mock('components/ui/Button', () => ({
-  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button type="button" onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    disabled
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+  }) => (
+    <button type="button" onClick={onClick} disabled={disabled}>
       {children}
     </button>
   )
@@ -73,6 +89,7 @@ jest.mock('app/icons/v2', () => ({
 describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
+    mockBridgeIn = { state: 'available' };
     mockNavigate.mockClear();
   });
 
@@ -102,6 +119,21 @@ describe('BridgeDeposit (#875)', () => {
     expect(warning).toHaveAttribute('data-tone', 'warning');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
+  });
+
+  it('opens a wallet while a bridge-in route can start', () => {
+    render(<BridgeDeposit />);
+
+    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+  });
+
+  it('greys out Open wallet under the notice while neither bridge-in route can start', () => {
+    mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
+    render(<BridgeDeposit />);
+
+    expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
   });
 
   it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {
