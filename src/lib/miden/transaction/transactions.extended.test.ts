@@ -1533,6 +1533,38 @@ describe('updateBridgeClaimStatus', () => {
     expect(row().status).toBe(ITransactionStatus.Queued);
   });
 
+  it('promotes an Unconfirmed row to Completed on its own exit-hash deposit, in one write (#1081)', async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed, transactionId: '0xmiden' });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
+    expect(mockedRepoWhere).toHaveBeenCalledTimes(1);
+    expect(row().status).toBe(ITransactionStatus.Completed);
+    expect(row().error).toBeUndefined();
+    expect(row().displayIcon).toBe('SEND');
+  });
+
+  it.each(['0xmiden', undefined])(
+    'leaves the transactionId %s of an Unconfirmed row it promotes as it was (#1081)',
+    async transactionId => {
+      pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed, transactionId });
+      await updateBridgeClaimStatus('bs-1', 'claimed', { claimTxHash: '0xclaim' }, '0xABC');
+      expect(row().status).toBe(ITransactionStatus.Completed);
+      expect(row().transactionId).toBe(transactionId);
+    }
+  );
+
+  it('leaves an Unconfirmed row Unconfirmed on an unbound write (#1081)', async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true });
+    expect(row().status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  it("leaves an Unconfirmed row Unconfirmed on a bound write whose route status is 'failed' (#1081)", async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true, epochStatus: 'failed' }, '0xABC');
+    expect(row().extraInputs.claimStatus).toBe('ready');
+    expect(row().status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
   // The indexer's tx_hash is the exit hash of the row's B2AGG note, never its Miden transaction id (#1325).
   it('promotes a Failed row with no transaction id on a deposit carrying its exit hash', async () => {
     pushFailedBridgedSend({ transactionId: undefined });

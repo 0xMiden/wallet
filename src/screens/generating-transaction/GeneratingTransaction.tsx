@@ -12,17 +12,18 @@ import { FlowLayout } from 'components/flow/FlowLayout';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import {
+  acknowledgementOf,
   bridgeProviderOf,
+  isOutcomeUnconfirmed,
   isRequeueableTransaction,
-  isUnconfirmedFailure,
-  isUnverifiableSendRetryError,
+  notConfirmedHintKey,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   safeGenerateTransactionsLoop as dbTransactionsLoop
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
-import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { reconcileUnconfirmedInApp, zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -61,7 +62,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
+  const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
 
   // Single source of truth: the tracked row, watched by id. It advances
   // Queued → GeneratingTransaction → Completed | Failed and never disappears,
@@ -105,8 +106,22 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [generateTransaction]);
 
   const status = active?.status;
-  const transactionComplete = status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
-  const hasErrors = status === ITransactionStatus.Failed;
+  // On mobile and desktop the reconciler follows the sync tick, which skips this page, so the page's own tick fires
+  // it while the row waits for a verdict; its judging takes no WASM lock (#1081).
+  useEffect(() => {
+    if (isExtension() || status !== ITransactionStatus.Unconfirmed) return;
+    void reconcileUnconfirmedInApp();
+    const timer = setInterval(() => void reconcileUnconfirmedInApp(), TRANSACTION_LOOP_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [status]);
+
+  // An Unconfirmed row stops the spinner and shows the not-confirmed header and Retry; a landing later flips the live
+  // row to the receipt (#1081).
+  const transactionComplete =
+    status === ITransactionStatus.Completed ||
+    status === ITransactionStatus.Failed ||
+    status === ITransactionStatus.Unconfirmed;
+  const hasErrors = status === ITransactionStatus.Failed || status === ITransactionStatus.Unconfirmed;
   const activeStage = active?.stage;
   const activeType = active?.type;
   // Select the step set from the *tracked tx's* account, not just the current
@@ -135,15 +150,15 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const canRetry = !!active && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
 
   const handleRetry = useCallback(
-    async (acknowledgeUnverifiedSend = false) => {
+    async (acknowledged?: { attemptId: string | null }) => {
       if (!active) return;
       setIsRetrying(true);
       setRetryError(null);
-      setNeedsSendAcknowledgement(false);
+      setAcknowledgement(null);
       try {
         // Requeue flips this row back to Queued; the page (subscribed via
         // useTransactionRow) re-renders as processing — no navigation needed.
-        await requeueFailedTransaction(active.id, { acknowledgeUnverifiedSend });
+        await requeueFailedTransaction(active.id, acknowledged === undefined ? {} : { acknowledged });
         requestSWTransactionProcessing();
       } catch (error) {
         console.error('[GeneratingTransaction] Failed to retry transaction:', error);
@@ -151,7 +166,9 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         // Not a dead end: the wallet cannot tell whether this send landed, but the
         // user can see it in their balance. Offer that as an explicit second step
         // rather than leaving a Retry button that throws the same error forever.
-        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
+        // The acknowledgement answers exactly the attempt the refusal named, never
+        // re-read from the live row, which may already name a newer attempt (#1081).
+        setAcknowledgement(acknowledgementOf(error));
       } finally {
         setIsRetrying(false);
       }
@@ -159,8 +176,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     [active, t]
   );
 
-  const onRetry = useCallback(() => handleRetry(false), [handleRetry]);
-  const onRetryAnyway = useCallback(() => handleRetry(true), [handleRetry]);
+  const onRetry = useCallback(() => handleRetry(), [handleRetry]);
+  const onRetryAnyway = useCallback(() => {
+    if (acknowledgement !== null) void handleRetry(acknowledgement);
+  }, [acknowledgement, handleRetry]);
 
   // Drop any hash left over from an EARLIER receipt as soon as this screen
   // starts tracking a different row. `lastCompletedTxHash` is module-global and
@@ -248,7 +267,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
           onRetry={onRetry}
-          onRetryAnyway={needsSendAcknowledgement ? onRetryAnyway : undefined}
+          onRetryAnyway={acknowledgement !== null ? onRetryAnyway : undefined}
           canRetry={canRetry}
           isRetrying={isRetrying}
           retryError={retryError}
@@ -293,10 +312,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const commitUnconfirmed =
     isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
   const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
-  // A failed row whose outcome is unknown reads as not confirmed here too, by the rule Activity and the
-  // rotation gate share (#1250): no failed title, and no classifier copy that claims the send did not land.
+  // A row whose outcome is unknown reads as not confirmed here too, by the rule Activity reads (#1250, #1081): no
+  // failed title, and no classifier copy that claims the send did not land.
   const failedRow = activeTransaction ?? completedTransaction;
-  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isUnconfirmedFailure(failedRow);
+  const unconfirmed = transactionComplete && hasErrors && failedRow !== undefined && isOutcomeUnconfirmed(failedRow);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
   // The pipeline requeued this row while its Guardian settles the account's previous transaction (#312): say so
   // instead of spinning the approval step. Only a Queued row counts, since the mark survives a Failed end.
@@ -338,7 +357,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
-      if (unconfirmed) return t('transactionNotConfirmedHint');
+      if (unconfirmed && failedRow !== undefined) return t(notConfirmedHintKey(failedRow));
       // Prefer the row's own error. The pipeline writes prose here for the failures it
       // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
       // be the MIDEN for the network fee rather than the amount sent, which the generic
@@ -356,6 +375,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     transactionComplete,
     hasErrors,
     unconfirmed,
+    failedRow,
     t,
     activeStage,
     commitUnconfirmed,

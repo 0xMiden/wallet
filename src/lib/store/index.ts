@@ -980,12 +980,14 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
         { NoteType },
         { accountRefToSdk, buildSendTransactionRequest, randomFeeSalt, walletAccountIdToSdk },
         { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
-        { u8ToB64 }
+        { u8ToB64 },
+        { EXPIRATION_DELTA_BLOCKS }
       ] = await Promise.all([
         import('@miden-sdk/miden-sdk/lazy'),
         import('lib/miden/sdk/helpers'),
         import('lib/miden/sdk/miden-client'),
-        import('lib/shared/helpers')
+        import('lib/shared/helpers'),
+        import('lib/miden/helpers')
       ]);
       const accountId = useWalletStore.getState().currentAccount?.publicKey;
       if (accountId === undefined) throw new Error('Custom-request hook found no current account');
@@ -1004,6 +1006,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
             input.faucetId,
             BigInt(input.amountBaseUnits),
             NoteType.Public,
+            EXPIRATION_DELTA_BLOCKS,
             undefined,
             // Declared, like every wallet-built request: since protocol 0.16 `fee::pay_fee` reads
             // the conversion salt from the auth args and aborts without one.

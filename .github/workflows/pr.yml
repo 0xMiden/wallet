@@ -227,6 +227,14 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
 
+      # #1081: the wallet builds its consume requests itself, safe only while they serialize to the SDK's own, and an
+      # SDK bump can change that, so every PR re-proves it. In this job because it runs check:deps (Build chrome's
+      # prebuild) and has the SDK's napi binary, a linked web-sdk PR's included. Offline on a mock chain, about 15 s;
+      # exit 1 is a real difference, exit 2 a broken gate.
+      - name: Check the consume request equivalence
+        timeout-minutes: 5
+        run: node scripts/consume-request-equivalence.mjs
+
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 

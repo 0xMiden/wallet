@@ -2336,6 +2336,92 @@ describe('bridge prompts', () => {
     );
   });
 
+  it('polls an Unconfirmed AggLayer row by its own exit hash inside the 24-hour window from its stamp (#1081)', async () => {
+    searchExitDeposit.mockImplementation(async (_dest: unknown, exitTxHash: unknown) =>
+      exitTxHash === '0xexit-u'
+        ? found({ tx_hash: '0xEXIT-U', deposit_cnt: 4, ready_for_claim: true })
+        : { deposit: null, complete: false }
+    );
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Initiated past the window, stamped Unconfirmed inside it: the window runs from the stamp.
+    const unconfirmed = (over: Partial<ITransaction>, agglayerExitTxHash: string) =>
+      baseBridge({
+        status: ITransactionStatus.Unconfirmed,
+        initiatedAt: nowSec - 30 * 60 * 60,
+        completedAt: nowSec - 60 * 60,
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest', agglayerExitTxHash },
+        ...over
+      });
+    bridgeRows.push(
+      // No transaction id: the exit hash alone binds the lookup.
+      unconfirmed({ id: 'agg-unconfirmed' }, '0xexit-u'),
+      unconfirmed({ id: 'agg-unconfirmed-restored', restoredFromBackup: true }, '0xexit-restored'),
+      unconfirmed({ id: 'agg-unconfirmed-stale', completedAt: nowSec - 25 * 60 * 60 }, '0xexit-stale')
+    );
+    await reconcileBridgedSends();
+    expect(searchExitDeposit.mock.calls).toEqual([['0xdest', '0xexit-u', undefined]]);
+    expect(updateClaimStatus.mock.calls).toEqual([
+      ['agg-unconfirmed', 'ready', { depositReady: true, agglayerDepositCnt: 4 }, '0xEXIT-U']
+    ]);
+  });
+
+  it('never looks up an Unconfirmed AggLayer row with no exit hash, whatever ids it recorded (#1081)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    sdkReady.mockRejectedValueOnce(new Error('wasm load failed'));
+    const nowSec = Math.floor(Date.now() / 1000);
+    bridgeRows.push(
+      baseBridge({
+        id: 'agg-unconfirmed-no-exit',
+        status: ITransactionStatus.Unconfirmed,
+        transactionId: '0xmiden',
+        submitEvidence: [{ attemptId: 'a', capturedAt: nowSec - 60, source: 'stage', transactionId: '0xattempt-a' }],
+        completedAt: nowSec - 60 * 60,
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      })
+    );
+    await reconcileBridgedSends();
+    expect(searchExitDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('still looks up an Unconfirmed AggLayer row that recorded claimed, and settles it on its claimed deposit (#1081)', async () => {
+    searchExitDeposit.mockImplementation(async (_dest: unknown, exitTxHash: unknown) =>
+      exitTxHash === '0xexit-claimed-u'
+        ? found({ tx_hash: '0xEXIT-CLAIMED-U', deposit_cnt: 6, ready_for_claim: true, claim_tx_hash: '0xauto' })
+        : found({ tx_hash: '0xEXIT-COMPLETED', deposit_cnt: 7, ready_for_claim: true, claim_tx_hash: '0xauto' })
+    );
+    const nowSec = Math.floor(Date.now() / 1000);
+    bridgeRows.push(
+      baseBridge({
+        id: 'agg-unconfirmed-claimed',
+        status: ITransactionStatus.Unconfirmed,
+        completedAt: nowSec - 60 * 60,
+        extraInputs: {
+          provider: 'agglayer',
+          claimStatus: 'claimed',
+          destinationAddress: '0xdest',
+          agglayerExitTxHash: '0xexit-claimed-u'
+        }
+      }),
+      // A Completed row at `claimed` has nothing left to settle, so it is still never looked up.
+      baseBridge({
+        id: 'agg-completed-claimed',
+        extraInputs: {
+          provider: 'agglayer',
+          claimStatus: 'claimed',
+          destinationAddress: '0xdest',
+          agglayerExitTxHash: '0xexit-completed'
+        }
+      })
+    );
+    await reconcileBridgedSends();
+    expect(searchExitDeposit.mock.calls).toEqual([['0xdest', '0xexit-claimed-u', undefined]]);
+    expect(updateClaimStatus.mock.calls).toEqual([
+      ['agg-unconfirmed-claimed', 'claimed', { claimTxHash: '0xauto', agglayerDepositCnt: 6 }, '0xEXIT-CLAIMED-U']
+    ]);
+  });
+
   // `pollBridgedSend` queries the allocator and writes back onto the row, so a
   // row restored from a backup must never reach it.
   it('polls nothing for a restored row', async () => {

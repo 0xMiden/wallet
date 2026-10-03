@@ -1664,13 +1664,16 @@ describe('generateTransaction execute + consume default switch arms', () => {
     };
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
+    const consumeNoteId = jest.fn(async (_tx: unknown, _onStage: unknown) => fakeResult);
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(),
-      consumeNoteId: jest.fn(async () => fakeResult)
+      consumeNoteId
     });
     try {
       await generateTransaction(txStore[0] as any, jest.fn(), false, {} as any);
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      // The leaf reads its own expiration delta, so the consume carries only its stage stamp (#1081).
+      expect(consumeNoteId).toHaveBeenCalledWith(expect.objectContaining({ id: 'tx-consume' }), expect.any(Function));
     } finally {
       sdk.getMidenClient = origGetClient;
     }

@@ -623,8 +623,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "Portfel nie mógł potwierdzić, czy transakcja została zrealizowana. Być może jeszcze dotrze, więc przed ponownym wysłaniem sprawdź stan konta po zsynchronizowaniu portfela.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "Portfel nie mógł potwierdzić, czy operacja ta została zrealizowana. Może ona jeszcze zostać zakończona, więc przed ponowną próbą sprawdź portfel po zakończeniu synchronizacji.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "Portfel nie mógł ustalić, czy operacja została zrealizowana, i nie sprawdza tego. Sprawdź portfel przed ponowną próbą.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "Portfel został przywrócony z kopii zapasowej, więc nie może sprawdzić, czy operacja się powiodła, ani jej powtórzyć. Przed ponowną próbą sprawdź stan portfela.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Pokaż pełny komunikat o błędzie",
@@ -4073,8 +4081,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "Portfel nie mógł potwierdzić, czy transakcja została zrealizowana. Otwórz portfel przed ponownym wysłaniem transakcji.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "Portfel nie mógł potwierdzić, czy transakcja została zrealizowana. Otwórz portfel przed ponowną próbą.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Dotknij tutaj, aby zaakceptować",

@@ -623,8 +623,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "지갑에서 이 거래가 정상적으로 처리되었는지 확인할 수 없었습니다. 아직 도착하지 않았을 수도 있으니, 다시 보내기 전에 지갑이 동기화된 후 잔액을 확인해 주십시오.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "지갑에서 이 작업이 정상적으로 처리되었는지 확인할 수 없었습니다. 아직 완료될 수 있으므로, 다시 시도하기 전에 지갑이 동기화된 후 상태를 확인해 주십시오.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "지갑은 이 작업이 정상적으로 처리되었는지 확인할 수 없으며, 현재 이를 확인 중이 아닙니다. 다시 시도하기 전에 지갑을 확인해 주십시오.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "이 작업은 백업에서 복원된 것이므로, 지갑은 작업이 정상적으로 완료되었는지 확인하거나 재시도할 수 없습니다. 작업을 반복하기 전에 지갑 상태를 확인하십시오.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "전체 오류 보기",
@@ -4073,8 +4081,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "지갑에서 거래가 처리되었는지 확인할 수 없었습니다. 다시 전송하기 전에 지갑을 열어보세요.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "지갑에서 거래가 처리되었는지 확인할 수 없었습니다. 다시 시도하기 전에 지갑을 열어주세요.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "여기를 눌러 수락하세요",

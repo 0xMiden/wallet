@@ -1588,9 +1588,10 @@ export const bridgedSendLandedValues = (): Partial<ITransaction> => ({
  * by THIS row's exit hash (`findAgglayerExitDeposit`). A deposit carrying the row's own
  * `agglayerExitTxHash` proves the bridge consumed this row's own note, so the row landed. When the
  * merged write proves that - the hashes match (`sameTxHash`), or the Epoch fill poll reports
- * `epochStatus: 'confirmed'` - a row that is Failed in the store is promoted to Completed in that
- * same write, via `applyVerifiedLanding` (#1250), so the evidence and the status can never be
- * stored apart. A write whose merged route status is itself 'failed' never promotes.
+ * `epochStatus: 'confirmed'` - a row that is Failed or Unconfirmed in the store is promoted to
+ * Completed in that same write, via `applyVerifiedLanding` (#1250, #1081), so the evidence and the
+ * status can never be stored apart. A write whose merged route status is itself 'failed' never
+ * promotes.
  *
  * An Agglayer claim status only moves forward: `claimed` is final, and `ready` applies only over
  * `pending`. The claim flow and the background poll each write from a snapshot of the row, so
@@ -1635,7 +1636,8 @@ export const updateBridgeClaimStatus = async (
       merged.agglayerExitTxHash !== undefined &&
       sameTxHash(boundDepositTxHash, merged.agglayerExitTxHash);
     const epochLanded = !routeFailed && merged.epochStatus === 'confirmed';
-    if (tx.status === ITransactionStatus.Failed && (agglayerLanded || epochLanded)) {
+    const landingUnknown = tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed;
+    if (landingUnknown && (agglayerLanded || epochLanded)) {
       applyVerifiedLanding(tx, bridgedSendLandedValues());
       landed = tx;
     }

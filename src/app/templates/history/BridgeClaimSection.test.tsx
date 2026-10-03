@@ -38,6 +38,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 const mockFindExitDeposit = jest.fn(async (..._a: unknown[]): Promise<unknown> => null);
+const mockTrackerActive = jest.fn((_active: boolean) => undefined);
 const mockClaimAgglayer = jest.fn(async (..._a: unknown[]) => ({ wait: async () => undefined, hash: '0xclaimhash' }));
 // What each tracker poll resolved to: `true` stops the tracker, `false` keeps it polling.
 const mockTrackerPolls: Promise<boolean>[] = [];
@@ -55,6 +56,7 @@ jest.mock('lib/agglayer', () => {
     isAgglayerDepositReady: status.isAgglayerDepositReady,
     // Drive the poll once so tests can surface a claimable deposit.
     useBridgeTracker: ({ active, poll }: { active: boolean; poll: () => Promise<boolean> }) => {
+      mockTrackerActive(active);
       mockLatestTrackerPoll = poll;
       react.useEffect(() => {
         if (active) mockTrackerPolls.push(poll());
@@ -117,6 +119,7 @@ jest.mock('./TransactionStatus', () => ({
 }));
 
 const FAILED = 3;
+const UNCONFIRMED = 4;
 
 function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
   return {
@@ -652,6 +655,35 @@ describe('BridgeClaimSection', () => {
       expect(mockFindExitDeposit).not.toHaveBeenCalled();
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
       expect(screen.getByText(/t:claimPending/)).toBeInTheDocument();
+    });
+
+    it('leaves the tracker inactive for an Unconfirmed row with no exit hash, so no unbound lookup runs (#1081)', async () => {
+      renderSection({
+        entry: agglayer({
+          status: UNCONFIRMED,
+          isUnconfirmed: true,
+          externalTxId: '0xmiden',
+          bridgeAgglayerExitTxHash: undefined
+        })
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockTrackerActive).toHaveBeenCalled();
+      expect(mockTrackerActive.mock.calls.every(([active]) => active === false)).toBe(true);
+      expect(mockFindExitDeposit).not.toHaveBeenCalled();
+    });
+
+    it('polls an Unconfirmed row by its exit hash, with no transaction id (#1081)', async () => {
+      renderSection({ entry: agglayer({ status: UNCONFIRMED, isUnconfirmed: true, externalTxId: undefined }) });
+      expect(mockTrackerActive).toHaveBeenLastCalledWith(true);
+      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined));
+    });
+
+    it('never polls a restored Unconfirmed row, though it has an exit hash (#1081)', async () => {
+      mockFindExitDeposit.mockResolvedValue(READY);
+      renderSection({ entry: agglayer({ status: UNCONFIRMED, isUnconfirmed: true }), restoredFromBackup: true });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockTrackerActive.mock.calls.every(([active]) => active === false)).toBe(true);
+      expect(mockFindExitDeposit).not.toHaveBeenCalled();
     });
 
     it('shows the submitted state once the deposit is claimed', () => {

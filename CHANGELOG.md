@@ -61,6 +61,7 @@
 
 ### Fixes
 
+- [FIX][all] A transaction whose submit came back without a definite outcome is no longer left Failed: it shows as Not confirmed until the network decides, then completes on its own if it landed or is marked safe to retry once the network proves it never will, and Retry checks the network first (#1081).
 - [FIX][all] When a Guardian transaction fails and the Guardian cannot be reached to release it, the account's next send, claim, swap or other Guardian transaction asks the Guardian to release it first, so it waits under a minute instead of about ten minutes for the Guardian's hold to expire (#1317).
 - [FIX][mobile] The 2-minute delegated-prove deadline and the 5-minute WASM lock watchdog count only time the app could run, and a remote prove that a background stretch cut off is sent to the remote prover again instead of being proved on the device (#473).
 - [FIX][mobile] A wallet that unlocks with biometrics asks for Face ID or fingerprint to confirm each send, swap, earn deposit and dApp transaction, and the Guardian rotation review labels its hot key by how it is actually protected (#1308)

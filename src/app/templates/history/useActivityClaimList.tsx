@@ -27,7 +27,7 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
  */
 export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const { t } = useTranslation();
-  const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
+  const { items, accept, acceptMany, retryHeld, account, isLoadingNotes } = useActivityClaims();
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
   const currentItems = useRef(items);
@@ -80,6 +80,8 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   };
   const acceptRef = useRef(accept);
   acceptRef.current = accept;
+  const retryHeldRef = useRef(retryHeld);
+  retryHeldRef.current = retryHeld;
   const rejectRef = useRef(reject);
   rejectRef.current = reject;
   const hiddenLoaded = hidden.loaded;
@@ -89,6 +91,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
         item={item}
         onAccept={note => acceptRef.current(note)}
         onReject={hiddenLoaded ? note => rejectRef.current(note) : undefined}
+        onRetryHeld={heldItem => retryHeldRef.current(heldItem)}
       />
     ),
     [hiddenLoaded]

@@ -275,7 +275,13 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     });
 
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, true, signCallback);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith(
+      'acc-1',
+      requestBytes,
+      true,
+      signCallback,
+      expect.any(Function)
+    );
     expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(mockInlineNewTransaction).not.toHaveBeenCalled();
@@ -296,7 +302,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     });
 
     expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
     expect(mockProxySendTransaction).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(mockInlineNewTransaction).not.toHaveBeenCalled();
@@ -421,7 +427,7 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
     });
 
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback);
+    expect(mockProxyNewTransaction).toHaveBeenCalledWith('acc-1', requestBytes, false, signCallback, undefined);
     // The proxy is the ONLY leaf — the switch never forks on the flag itself.
     expect(mockGetMidenClient).not.toHaveBeenCalled();
   });

@@ -1,4 +1,5 @@
 import { Account, MidenClient, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import type { AbandonStatus } from '@openzeppelin/guardian-client';
 import {
   AccountInspector,
   Multisig,
@@ -429,6 +430,14 @@ export class MultisigService {
    */
   async abandonCandidate(nonce: number): Promise<void> {
     await this.multisig.abandonCandidate(nonce);
+  }
+
+  /**
+   * Where an abandon asked for with `abandonCandidate` stands (#1081): `'waiting'` while the Guardian's quarantine
+   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all.
+   */
+  async abandonStatus(nonce: number): Promise<AbandonStatus> {
+    return this.multisig.abandonStatus(nonce);
   }
 
   /**

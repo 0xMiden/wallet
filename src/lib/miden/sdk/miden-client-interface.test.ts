@@ -1,3 +1,4 @@
+import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 import { installHiddenDocument, type HiddenDocument } from 'lib/mobile/testing/hidden-document';
 
 import { APPLY_RETRY_DELAYS_MS } from './apply-after-submit';
@@ -150,7 +151,8 @@ describe('MidenClientInterface', () => {
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
-      buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) }))
+      buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) })),
+      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -216,7 +218,8 @@ describe('MidenClientInterface', () => {
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
-      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
+      buildConsumeTransactionRequest: jest.fn(() => ({ kind: 'consume', serialize: () => new Uint8Array([7]) }))
     }));
     jest.doMock('../helpers', () => ({
       // Real `isPrivateNoteType`: it is the note-type validation under test on
@@ -796,6 +799,8 @@ describe('MidenClientInterface', () => {
     // submit → apply), not the all-in-one `transactions.send`.
     expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalled();
     expect(fakeMidenClient.transactions.send).not.toHaveBeenCalled();
+    const { buildSendTransactionRequest } = jest.requireMock('./helpers');
+    expect(buildSendTransactionRequest.mock.calls[0][6]).toBe(600);
   });
 
   it('reports executing/proving/submitting stages through the onStage callback', async () => {
@@ -901,6 +906,106 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.executeRequest).toHaveBeenCalledTimes(2);
     expect(proveCalls).toBe(2);
   });
+
+  // The SDK and id helpers a staged send reaches, with the prove telemetry recorded rather than reported.
+  const mockSendSdk = () => {
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
+      TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+    jest.doMock('lib/telemetry/report-operation', () => ({
+      ...jest.requireActual('lib/telemetry/report-operation'),
+      reportProve: jest.fn()
+    }));
+  };
+
+  // A delegated send whose 'submitting' stamp throws the crossing error, itself or wrapped as a cause.
+  const sendWithFailingCrossing = async (
+    wrapped: boolean,
+    prove: jest.Mock
+  ): Promise<{ thrown: Error; rejection: unknown; executeRequest: jest.Mock }> => {
+    const executeRequest = jest.fn(async () => ({ id: 'tx-id', result: fakeTransactionResult, prove }));
+    mockSendSdk();
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { SubmitCrossingUnrecordedError } = await import('./sdk-error-code');
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest } }) as any,
+      'testnet'
+    );
+    const crossing = new SubmitCrossingUnrecordedError('row-1', new Error('QuotaExceededError'));
+    const thrown = wrapped ? new Error('the stamp failed', { cause: crossing }) : crossing;
+    const rejection = await client
+      .sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(1),
+          extraInputs: {},
+          delegateTransaction: true
+        } as any,
+        async stage => {
+          if (stage === 'submitting') throw thrown;
+        }
+      )
+      .catch((error: unknown) => error);
+    return { thrown, rejection, executeRequest };
+  };
+
+  it.each([false, true])(
+    'does not re-run a delegated send whose submit crossing could not be recorded, wrapped: %s (#1081)',
+    async wrapped => {
+      const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+      const prove = jest.fn(async () => ({ submit }));
+      const { thrown, rejection, executeRequest } = await sendWithFailingCrossing(wrapped, prove);
+      const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+
+      expect(rejection).toBe(thrown);
+      expect(hasErrorBeforeSubmit(rejection)).toBe(true);
+      expect(executeRequest).toHaveBeenCalledTimes(1);
+      expect(submit).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([false, true])(
+    'a local fallback whose submit crossing could not be recorded is no failed prove_fallback, wrapped: %s (#1081)',
+    async wrapped => {
+      const submit = jest.fn(async () => ({ apply: jest.fn(async () => undefined) }));
+      // The delegated attempt fails at its remote prove, before any stamp; the local fallback proves.
+      const prove = jest.fn(async (options?: { prover?: unknown }) => {
+        if (!options?.prover) throw new Error('remote prover deadline exceeded');
+        return { submit };
+      });
+      const { thrown, rejection } = await sendWithFailingCrossing(wrapped, prove);
+      const { hasErrorBeforeSubmit } = await import('./sdk-error-code');
+      const { reportProve } = await import('lib/telemetry/report-operation');
+
+      expect(rejection).toBe(thrown);
+      expect(hasErrorBeforeSubmit(rejection)).toBe(true);
+      expect(prove).toHaveBeenCalledTimes(2);
+      expect(submit).not.toHaveBeenCalled();
+      expect(jest.mocked(reportProve)).not.toHaveBeenCalledWith(
+        expect.objectContaining({ step: 'prove_fallback', error: expect.anything() })
+      );
+    }
+  );
 
   // Regression (funds safety): `proveWithFallback`'s callback is not a prove step
   // — for every caller it also submits and applies. Retrying it wholesale after a
@@ -1094,6 +1199,8 @@ describe('MidenClientInterface', () => {
     expect(staged.executeRequest).toHaveBeenCalledTimes(1);
     expect(staged.prove).toHaveBeenCalledTimes(1);
     expect(staged.submit).toHaveBeenCalledTimes(1);
+    const { buildPswapCreateRequest } = jest.requireMock('./helpers');
+    expect(buildPswapCreateRequest.mock.calls[0][4]).toBe(600);
   });
 
   // `newTransaction` (dApp custom transactions + the Agglayer bridged-send) is
@@ -1157,6 +1264,79 @@ describe('MidenClientInterface', () => {
     expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
     expect(error).toHaveProperty('cause', storeAbort);
     expect(executeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('tags a failure raised before markSubmitting, never one at or after it (#1081)', async () => {
+    mockStagedSdk();
+    const { hasErrorBeforeSubmit } = jest.requireActual('./sdk-error-code');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    // A delegated prove that fails, then a local re-prove that fails too: both before the submit.
+    const failing = stagedExecuteRequest(() => {
+      throw new Error('prover exploded');
+    });
+    const failingClient = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: failing.executeRequest } }) as any,
+      'net'
+    );
+    const proveError = await failingClient.newTransaction('acc-id', new Uint8Array([1]), true).catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(proveError)).toBe(true);
+    // A submit the node refuses: at the submit.
+    const refused = stagedExecuteRequest();
+    refused.submit.mockRejectedValue(new Error('node refused'));
+    const refusedClient = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: refused.executeRequest } }) as any,
+      'net'
+    );
+    const submitError = await refusedClient
+      .newTransaction('acc-id', new Uint8Array([1]), true)
+      .catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(submitError)).toBe(false);
+  });
+
+  it('tags a local prove that fails with nothing to fall back to (#1081)', async () => {
+    mockStagedSdk();
+    const { hasErrorBeforeSubmit } = jest.requireActual('./sdk-error-code');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const failing = stagedExecuteRequest(() => {
+      throw new Error('local prover exploded');
+    });
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: failing.executeRequest } }) as any,
+      'net'
+    );
+    const error = await client.newTransaction('acc-id', new Uint8Array([1]), false).catch((e: unknown) => e);
+    expect(error).toHaveProperty('message', 'local prover exploded');
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+    expect(failing.submit).not.toHaveBeenCalled();
+  });
+
+  it('tags a recall sync that fails before any request exists (#1081)', async () => {
+    mockStagedSdk();
+    const { hasErrorBeforeSubmit } = jest.requireActual('./sdk-error-code');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const staged = stagedExecuteRequest();
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({
+        transactions: { executeRequest: staged.executeRequest },
+        sync: jest.fn(async () => {
+          throw new Error('sync failed');
+        })
+      }) as any,
+      'net'
+    );
+    const error = await client
+      .sendTransaction({
+        accountId: 'acc-id',
+        amount: BigInt(1),
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public',
+        type: 'send',
+        extraInputs: { recallBlocks: 10 }
+      } as any)
+      .catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+    expect(staged.executeRequest).not.toHaveBeenCalled();
   });
 
   it('consumeNoteId returns TransactionResult', async () => {
@@ -1505,6 +1685,66 @@ describe('MidenClientInterface', () => {
     });
   });
 
+  it('every non-Guardian write leaf builds its request with EXPIRATION_DELTA_BLOCKS itself (#1081)', async () => {
+    const staged = stagedExecuteRequest();
+    mockStagedSdk({
+      getWasmOrThrow: async () => ({
+        AccountId: { fromHex: (id: string) => id, fromBech32: (id: string) => id },
+        NoteType: { Public: 'public', Private: 'private' }
+      })
+    });
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({
+        transactions: { executeRequest: staged.executeRequest },
+        __inner: {
+          getAccount: jest.fn(async () => ({ vault: jest.fn() })),
+          getInputNote: jest.fn(async (id: string) => ({ toNote: () => ({ note: id }) })),
+          newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) }))
+        }
+      }) as any,
+      'testnet'
+    );
+
+    await client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any);
+    await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public',
+      amount: BigInt(1),
+      extraInputs: {}
+    } as any);
+    await client.swapTransaction({
+      accountId: 'acc-id',
+      faucetId: 'offered-faucet',
+      amount: BigInt(10),
+      type: 'swap',
+      extraInputs: { requestedFaucetId: 'wanted-faucet', requestedAmount: BigInt(20) }
+    } as any);
+
+    const { buildConsumeTransactionRequest, buildSendTransactionRequest, buildPswapCreateRequest } =
+      jest.requireMock('./helpers');
+    expect(buildConsumeTransactionRequest).toHaveBeenCalledWith(expect.any(Array), EXPIRATION_DELTA_BLOCKS);
+    expect(buildSendTransactionRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      'sender',
+      'recipient',
+      'faucet',
+      BigInt(1),
+      'public',
+      EXPIRATION_DELTA_BLOCKS,
+      undefined
+    );
+    expect(buildPswapCreateRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'offered-faucet',
+      BigInt(10),
+      EXPIRATION_DELTA_BLOCKS
+    );
+  });
+
   it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
     const staged = stagedExecuteRequest();
     const inner = {
@@ -1528,10 +1768,14 @@ describe('MidenClientInterface', () => {
       type: 'consume'
     } as any);
 
+    const { buildConsumeTransactionRequest } = jest.requireMock('./helpers');
+    expect(buildConsumeTransactionRequest).toHaveBeenCalledWith(expect.any(Array), 600);
+    // The SDK's finished request has no expiration setter, so it is no longer built.
+    expect(inner.newConsumeTransactionRequest).not.toHaveBeenCalled();
     // Claim All batches into a single consume (one proof, one submit) rather
     // than falling back to the singular `noteId`.
-    expect(inner.newConsumeTransactionRequest).toHaveBeenCalledTimes(1);
-    expect(inner.newConsumeTransactionRequest.mock.calls[0]?.[0]).toEqual([
+    expect(buildConsumeTransactionRequest).toHaveBeenCalledTimes(1);
+    expect(buildConsumeTransactionRequest.mock.calls[0]?.[0]).toEqual([
       { note: 'note-1' },
       { note: 'note-2' },
       { note: 'note-3' }
@@ -2550,6 +2794,37 @@ describe('MidenClientInterface', () => {
         expect(staged.executeRequest).toHaveBeenCalledTimes(1);
       }
     );
+
+    it.each<'consume' | 'swap' | 'newTransaction'>(['consume', 'swap', 'newTransaction'])(
+      'the staged %s stamps submitting with the evidence, before it submits (#1081)',
+      async write => {
+        const staged = stagedExecuteRequest();
+        const order: string[] = [];
+        staged.submit.mockImplementation(async () => {
+          order.push('submit');
+          return { apply: staged.apply };
+        });
+        const onStage = jest.fn(async (stage: string) => {
+          order.push(`stamp:${stage}`);
+        });
+        // Under a real hold, since a write that holds none reads no evidence; an earlier test's lock stub would
+        // otherwise outlive the module reset.
+        jest.dontMock('./miden-client');
+        const client = await stagedClient(staged.executeRequest);
+        const { withWasmClientLock } = await import('./miden-client');
+        await withWasmClientLock(async () => {
+          if (write === 'consume') await client.consumeNoteId(consumeTx as any, onStage);
+          else if (write === 'swap') await client.swapTransaction(swapTx as any, onStage);
+          else await client.newTransaction('acc-id', new Uint8Array([1]), true, onStage);
+        });
+
+        expect(onStage).toHaveBeenCalledWith('submitting', {
+          evidence: expect.objectContaining({ transactionId: 'tx-hex' })
+        });
+        expect(order.indexOf('stamp:submitting')).toBeGreaterThan(-1);
+        expect(order.indexOf('stamp:submitting')).toBeLessThan(order.indexOf('submit'));
+      }
+    );
   });
 
   // Offscreen-prove paths.
@@ -2633,7 +2908,10 @@ describe('MidenClientInterface', () => {
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
-        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) })),
+        buildConsumeTransactionRequest: jest.fn((_notes: unknown[], _expirationDelta: number) => ({
+          kind: 'consume-request'
+        }))
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue: jest.fn(),
@@ -2675,6 +2953,57 @@ describe('MidenClientInterface', () => {
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
       expect(inner.applyTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('stamps submitting with the evidence of the offscreen proof, before it submits (#1081)', async () => {
+      const fakeWasm = buildWasmStub();
+      const order: string[] = [];
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => {
+          order.push('submit');
+          return 100;
+        }),
+        applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined)
+      };
+      buildOffscreenStubs();
+      // The write still owns the hold it took, so its leaf reads the evidence.
+      const hold = {};
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => hold
+      }));
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+      const onStage = jest.fn(async (stage: string) => {
+        order.push(`stamp:${stage}`);
+      });
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      await client.sendTransaction(
+        {
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any,
+        onStage
+      );
+
+      expect(onStage).toHaveBeenCalledWith('submitting', {
+        evidence: expect.objectContaining({ transactionId: 'tx-hex' })
+      });
+      expect(order).toEqual(['stamp:executing', 'stamp:proving', 'stamp:submitting', 'submit']);
     });
 
     it('skips the mutex yield once the client is disposed — an evicted corpse must not release a lock it no longer owns', async () => {
@@ -2780,13 +3109,14 @@ describe('MidenClientInterface', () => {
           'mtst1faucet',
           250n,
           'Private',
+          600,
           reclaimAfter
         );
         expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
       }
     );
 
-    it('consumeNoteId offscreen path: builds request from inner.getInputNote → toNote → array', async () => {
+    it('consumeNoteId offscreen path: builds the request from inner.getInputNote → toNote and the delta', async () => {
       const fakeWasm = buildWasmStub();
       const note = { kind: 'note' };
       const inputNoteRecord = { toNote: jest.fn(() => note) };
@@ -2817,15 +3147,14 @@ describe('MidenClientInterface', () => {
 
       expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
       expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
-      const [notes, account] = inner.newConsumeTransactionRequest.mock.calls[0] ?? [];
-      // Plain JS array, NOT wasm.NoteArray.
-      expect(notes).toEqual([note]);
-      expect(String(account)).toBe('sdk-mtst1acc');
-      // A fresh handle, not the one execute runs on: defensive, not required, since the
-      // pinned SDK borrows `&AccountId` (see the doc above buildSendExecuteArgs in
-      // miden-client-interface.ts). This assertion pins that independence as a
-      // deliberate invariant regardless.
-      expect(account).not.toBe(inner.executeTransaction.mock.calls[0]![0]);
+      const { buildConsumeTransactionRequest } = jest.requireMock('./helpers');
+      expect(buildConsumeTransactionRequest).toHaveBeenCalledWith([note], 600);
+      expect(inner.newConsumeTransactionRequest).not.toHaveBeenCalled();
+      // The builder's request is the one executed, on the resolved account.
+      expect(inner.executeTransaction).toHaveBeenCalledWith(
+        { tag: 'bech32', id: 'mtst1acc' },
+        buildConsumeTransactionRequest.mock.results[0]?.value
+      );
       // Then through the offscreen pipeline.
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);

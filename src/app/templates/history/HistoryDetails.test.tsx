@@ -93,7 +93,7 @@ const mockCancelTransactionById = jest.fn();
 const mockRequeueFailedTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockIsRequeueableTransaction = jest.fn();
-const mockIsUnverifiableSendRetryError = jest.fn((..._args: unknown[]) => false);
+const mockAcknowledgementOf = jest.fn((..._a: unknown[]): { attemptId: string | null } | null => null);
 const mockCancelSwapOrder = jest.fn();
 const mockConfirm = jest.fn();
 
@@ -114,13 +114,15 @@ jest.mock('lib/miden/activity', () => ({
   // The REAL predicate: which rows may be cancelled is exactly what these
   // tests assert, so a reimplementation here would assert the mock instead.
   isCancellableTransaction: jest.requireActual('lib/miden/transaction/retry').isCancellableTransaction,
-  isUnverifiableSendRetryError: (...args: unknown[]) => mockIsUnverifiableSendRetryError(...args),
+  acknowledgementOf: (...a: unknown[]) => mockAcknowledgementOf(...a),
   retryEarnWithdrawReceive: (...args: unknown[]) => mockRetryEarnWithdrawReceive(...args),
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
   isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user',
   // The REAL predicate, same reasoning as isCancellableTransaction above: which rows read as
   // not-confirmed (#1250) is exactly what the failed-transaction tests below assert.
-  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure,
+  isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
+  notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -457,7 +459,7 @@ beforeEach(() => {
     (tx: { status?: number; type: string }) =>
       tx.status === 3 && ['send', 'consume', 'swap', 'bridged-send', 'execute'].includes(tx.type)
   );
-  mockIsUnverifiableSendRetryError.mockReturnValue(false);
+  mockAcknowledgementOf.mockReturnValue(null);
   mockCancelTransactionById.mockResolvedValue(undefined);
   mockRequeueFailedTransaction.mockResolvedValue(undefined);
   mockCancelSwapOrder.mockResolvedValue(undefined);
@@ -2736,7 +2738,7 @@ describe('HistoryDetails', () => {
       fireEvent.click(screen.getByText('retry'));
       await flush();
 
-      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
+      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', {});
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
     });
@@ -2776,6 +2778,61 @@ describe('HistoryDetails', () => {
       expect(card.textContent).toContain(TRANSACTION_STUCK_ERROR);
     });
 
+    describe('an Unconfirmed or not-confirmed row (#1081)', () => {
+      const STATUS_UNCONFIRMED = 4;
+      const checkableEntry = {
+        attemptId: 'a1',
+        capturedAt: 1_700_000_000,
+        source: 'stage',
+        transactionId: 'ext-tx-1',
+        initialCommitment: '0x02',
+        finalCommitment: '0x03',
+        initialNonce: '4',
+        outputNoteIds: ['note-1'],
+        nullifiers: [],
+        refBlock: 100,
+        refBlockCommitment: '0x06'
+      };
+      const unconfirmedSendTx = (overrides: Tx = {}): Tx =>
+        failedSendTx({
+          status: STATUS_UNCONFIRMED,
+          mayHaveSubmitted: true,
+          submitEvidence: [checkableEntry],
+          ...overrides
+        });
+      const notConfirmedCard = () =>
+        Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+          el => el.getAttribute('data-title') === 'notConfirmed'
+        );
+
+      it('renders the failure card with the may-still-complete hint while its entry is checkable', async () => {
+        setMockRow(unconfirmedSendTx());
+        await renderAndLoad();
+
+        expect(notConfirmedCard()).toBeTruthy();
+        expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionNotConfirmedHint');
+        expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
+      });
+
+      it('says the wallet is not checking it once its only entry is unresolvable', async () => {
+        setMockRow(unconfirmedSendTx({ submitEvidence: [{ ...checkableEntry, verdict: 'unresolvable' }] }));
+        await renderAndLoad();
+
+        expect(notConfirmedCard()).toBeTruthy();
+        expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionUndeterminedHint');
+        expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
+      });
+
+      it('gives a restored row that may have submitted the restored hint', async () => {
+        setMockRow(failedSendTx({ restoredFromBackup: true, mayHaveSubmitted: true }));
+        await renderAndLoad();
+
+        expect(notConfirmedCard()).toBeTruthy();
+        expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent('transactionRestoredHint');
+        expect(screen.getByTestId('status-pill')).toHaveAttribute('data-unconfirmed', 'true');
+      });
+    });
+
     it('withholds Retry for a row the user cancelled by hand', async () => {
       setMockRow(failedSendTx({ error: USER_CANCELLED_TRANSACTION_REASON }));
       await renderAndLoad();
@@ -2801,7 +2858,7 @@ describe('HistoryDetails', () => {
     it('offers "retry anyway" after refusing a send it cannot verify', async () => {
       setMockRow(failedSendTx());
       mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have reached the network'));
-      mockIsUnverifiableSendRetryError.mockReturnValue(true);
+      mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
       await renderAndLoad();
 
       expect(screen.queryByTestId('history-retry-anyway-button')).toBeNull();
@@ -2816,19 +2873,59 @@ describe('HistoryDetails', () => {
       fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
       await flush();
 
-      expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+      expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
     });
 
     it('does not offer it for an ordinary retry failure', async () => {
       setMockRow(failedSendTx());
       mockRequeueFailedTransaction.mockRejectedValue(new Error('row is gone'));
-      mockIsUnverifiableSendRetryError.mockReturnValue(false);
+      mockAcknowledgementOf.mockReturnValue(null);
       await renderAndLoad();
 
       fireEvent.click(screen.getByText('retry'));
       await flush();
 
+      expect(screen.queryByTestId('history-retry-anyway-button')).toBeNull();
+    });
+
+    it('passes back the attempt the rendered refusal named, not the newer attempt on the row (#1081)', async () => {
+      setMockRow(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have reached the network'));
+      mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
+      await renderAndLoad();
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+      // Another surface ran attempt a2 meanwhile; the stale button still answers a1, and Retry refuses again.
+      setMockRow(failedSendTx({ attemptId: 'a2' }));
+      mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have reached the network'));
+      mockAcknowledgementOf.mockReturnValue({ attemptId: 'a2' });
+      fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
+      await flush();
+      expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
+
+    it('passes { attemptId: null } back for a row with no attempt id (#1081)', async () => {
+      setMockRow(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have reached the network'));
+      mockAcknowledgementOf.mockReturnValue({ attemptId: null });
+      await renderAndLoad();
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+      mockRequeueFailedTransaction.mockResolvedValueOnce(undefined);
+      fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
+      await flush();
+      expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: null } });
+    });
+
+    it('offers no "retry anyway" for the liveness refusal (#1081)', async () => {
+      setMockRow(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may still be finishing in the background'));
+      mockAcknowledgementOf.mockReturnValue(null);
+      await renderAndLoad();
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
       expect(screen.queryByTestId('history-retry-anyway-button')).toBeNull();
     });
 
@@ -4013,7 +4110,7 @@ describe('HistoryDetails swap order actions', () => {
     fireEvent.click(screen.getByTestId('history-retry-button'));
     await flush();
 
-    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
+    expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', {});
     expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
   });
 
@@ -4028,7 +4125,7 @@ describe('HistoryDetails swap order actions', () => {
   it('surfaces an unverifiable-retry refusal and the acknowledged retry beneath it', async () => {
     mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
     mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have landed'));
-    mockIsUnverifiableSendRetryError.mockReturnValue(true);
+    mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
     setMockRow({ ...openSwapTx(), status: 3, error: 'aborted' });
     await renderAndLoad();
 
@@ -4041,6 +4138,6 @@ describe('HistoryDetails swap order actions', () => {
     fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
     await flush();
 
-    expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+    expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
   });
 });

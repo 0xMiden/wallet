@@ -33,6 +33,7 @@ import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
+import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -221,6 +222,7 @@ function registerOffscreenSignHandler(): void {
           op_id?: string;
           sign_id?: string;
           stage?: ITransactionStage;
+          evidence?: unknown;
           category?: ConnectivityCategory;
           active?: boolean;
           ts?: number;
@@ -255,7 +257,10 @@ function registerOffscreenSignHandler(): void {
     // port; the handler itself swallows an unknown op and a throwing callback.
     // `isTransactionStage` is a VALUE check, not just a type check — see its doc.
     if (m.type === OFFSCREEN_STAGE_EVENT) {
-      if (typeof m.op_id === 'string' && isTransactionStage(m.stage)) handleOffscreenStageEvent(m.op_id, m.stage);
+      if (typeof m.op_id === 'string' && isTransactionStage(m.stage)) {
+        // Malformed evidence parses to undefined and the crossing is still recorded, as an evidence-less entry (#1081).
+        handleOffscreenStageEvent(m.op_id, m.stage, parseSubmitEvidence(m.evidence));
+      }
       return false;
     }
     // Connectivity report from the offscreen realm. That realm executes the writes,

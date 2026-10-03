@@ -38,7 +38,9 @@
  *     AFTER the leaf with the id re-derived from `result.executedTransaction().id()`,
  *     on both flags — never the raw SW `getMidenClient().waitForTransactionCommit`.
  *   - kill-window (funds-safety): an offscreen `OperationAbortedError` (wedge-kill)
- *     runs `abandonCandidate` exactly once (as inline) and marks the row FAILED —
+ *     keeps the candidate for the node's verdict on the value-moving types and the
+ *     Agglayer bridged-send (#1081), and abandons it exactly once (as inline) on the
+ *     structural types and the earn deposit. Either way it marks the row FAILED:
  *     it is NOT auto-requeued, and it dispatches exactly ONCE. A guardian
  *     send/swap/execute has NO input-note nullifier (each retry builds a FRESH
  *     proposal with a new random output-note serial), so auto-requeueing would let
@@ -60,7 +62,8 @@ import { WalletType } from 'screens/onboarding/types';
 import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
@@ -70,6 +73,10 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // guardian co-signatures survives serialize; verified end-to-end at the WASM level in
 // the flag-flip guardian E2E, structurally here).
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
+
+const INDEFINITE = `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`;
+// The attempt's entry records its kept candidate with the proposal nonce (#1081).
+const KEPT_AT_7 = expect.arrayContaining([expect.objectContaining({ candidateKept: true, guardianProposalNonce: 7 })]);
 
 const txStore: Array<Record<string, unknown>> = [];
 
@@ -120,6 +127,7 @@ jest.mock('lib/miden/repo', () => ({
     where: jest.fn((query: { id: string }) => ({
       modify: jest.fn(async (fn: (tx: Record<string, unknown>) => unknown) => {
         const row = txStore.find(r => r.id === query.id);
+        const stageBefore = row?.stage;
         // Dexie hands the callback a CLONE and only writes it back when the
         // callback does not return `false` — which is the entire mechanism
         // behind the write-time terminal guards. Mutating the stored row
@@ -140,7 +148,7 @@ jest.mock('lib/miden/repo', () => ({
           if (fn(draft) === false) mockDeclinedWrites += 1;
           else Object.assign(row, draft);
         }
-        if (mockThrowOnStageWrite !== null && row?.stage === mockThrowOnStageWrite) {
+        if (mockThrowOnStageWrite !== null && row?.stage === mockThrowOnStageWrite && stageBefore !== row.stage) {
           throw new Error(`dexie write blew up stamping '${mockThrowOnStageWrite}'`);
         }
       }),
@@ -571,6 +579,59 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   );
 
+  it('an unknown submit outcome from the offscreen leaf keeps the candidate for the verdict (#1081)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${INDEFINITE}`)
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-indefinite', row);
+
+    await generateTransaction(buildTx('on-send-indefinite', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-indefinite') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(stored.submitEvidence).toEqual([expect.objectContaining({ candidateKept: true, guardianProposalNonce: 7 })]);
+  });
+
+  it('a failure the offscreen leaf proved came before its submit still abandons at once, so it is retryable at once (#1081)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      markErrorBeforeSubmit(
+        new Error("Offscreen call 'guardianPipeline' failed: failed to execute transaction: kernel assertion")
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-pre-submit', row);
+
+    await generateTransaction(buildTx('on-send-pre-submit', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-pre-submit') as Record<string, unknown>;
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+  });
+
+  it('an untagged failure after the offscreen dispatch keeps the candidate, a node refusal included (#1081)', async () => {
+    // Once the request reached the leaf no classifier tells a refusal from a lost response, so the candidate waits
+    // for the node's verdict or the Guardian's own discard.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error("Offscreen call 'guardianPipeline' failed: node refused the proven transaction")
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-refused', row);
+
+    await generateTransaction(buildTx('on-send-refused', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-refused') as Record<string, unknown>;
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+  });
+
   it('an "unauthorized" execution failure requeues even though the realm cannot author `stage`', async () => {
     // The guardian co-signs a summary bound to the state it saw; if that state
     // moves before the leaf's executeRequest recomputes it, execution rejects
@@ -584,15 +645,18 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // on 'executing' would make the whole arm dead code on the shipping path —
     // the service-worker bundle defaults MIDEN_USE_OFFSCREEN_CLIENT to 'true'.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Tagged as the offscreen leaf tags every failure it raises before its submit call (Task 8).
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary ' +
-          'TransactionSummary { nonce_delta: 1 }'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary ' +
+            'TransactionSummary { nonce_delta: 1 }'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
-    arrange('on-send-unauthorized', row);
+    const { service } = arrange('on-send-unauthorized', row);
     const before = Math.floor(Date.now() / 1000);
 
     await generateTransaction(buildTx('on-send-unauthorized', row) as never, signCallback, false, provider as never);
@@ -609,6 +673,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(stored.stage).not.toBe('executing');
     expect(stored.status).toBe(ITransactionStatus.Queued);
     expect(stored.processingStartedAt).toBeUndefined();
+    // Provably before the submit, so the candidate is abandoned at once and the requeue never meets it (#1081).
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(stored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
     // Bounded on BOTH sides: a bare "is a number" assertion stays green if the
     // cooldown is changed to 0 (the row is re-picked every ~5s poll, hammering
     // the guardian and starving other accounts) or to something so large the row
@@ -631,9 +700,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // re-eligible inside the documented window.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -662,9 +733,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // the arm through the same set as `send`, and only `send` was covered.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'consume', noteId: 'note-unauth' };
@@ -808,9 +881,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1131,9 +1206,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1184,9 +1261,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1209,17 +1288,23 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
-  it('stops re-arming the wake once the row leaves Queued', async () => {
+  it.each([
+    ['Completed', ITransactionStatus.Completed],
+    ['Unconfirmed', ITransactionStatus.Unconfirmed]
+  ])('stops re-arming the wake once the row leaves Queued as %s', async (_label, leftAs) => {
     // The re-arm chain has to end on its own. A row the user cancelled, or one a
-    // later cycle completed, must not keep a timer alive behind it.
+    // later cycle completed, must not keep a timer alive behind it. Nor one waiting
+    // for the node's verdict: no driver can move it, only the reconciler (#1081).
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockPlatformIsExtension = false;
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1234,7 +1319,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       expect(jest.getTimerCount()).toBeGreaterThan(0);
 
       const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-stop') as Record<string, unknown>;
-      stored.status = ITransactionStatus.Completed;
+      stored.status = leftAs;
       await jest.advanceTimersByTimeAsync(60_000);
 
       expect(jest.getTimerCount()).toBe(0);
@@ -1263,9 +1348,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1313,9 +1400,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1363,9 +1452,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1424,9 +1515,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1478,9 +1571,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const restoreLocks = installNavigatorLocks();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1524,9 +1619,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1560,9 +1657,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1600,9 +1699,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1658,9 +1759,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       warn.mock.calls.filter(c => typeof c[0] === 'string' && c[0].includes('adopted a newer row')).length;
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1721,9 +1824,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       jest.useFakeTimers();
       try {
         mockDispatchGuardianPipeline.mockRejectedValue(
-          new Error(
-            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          markErrorBeforeSubmit(
+            new Error(
+              "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+                'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+            )
           )
         );
         const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1767,9 +1872,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const warn = jest.spyOn(console, 'warn');
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1832,9 +1939,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const error = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1904,9 +2013,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     jest.useFakeTimers();
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -1965,9 +2076,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // change replaced. Past the window it fails with the reason it actually got.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2002,9 +2115,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // have succeeded is lost. Fail now instead.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2047,9 +2162,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     const error = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
       mockDispatchGuardianPipeline.mockRejectedValue(
-        new Error(
-          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        markErrorBeforeSubmit(
+          new Error(
+            "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+              'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+          )
         )
       );
       const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2121,9 +2238,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // zero retries — a silent no-op exactly when it is needed.
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockRejectedValue(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
-          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
       )
     );
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2372,6 +2491,81 @@ describe('guardian leaf records the submit crossing', () => {
   });
 });
 
+/**
+ * Run the recallable Guardian send of the crossing tests above, offscreen, with `overrides` on its row, swallow the
+ * leaf's failure and return what the row stored about its attempt.
+ */
+async function runGuardianRowExpectingFailure(
+  overrides: Record<string, unknown>
+): Promise<Pick<ITransaction, 'submitEvidence' | 'mayHaveSubmitted'>> {
+  process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+  const id = 'pin-retire';
+  const row = {
+    type: 'send',
+    secondaryAccountId: 'r',
+    faucetId: 'f',
+    amount: '1',
+    extraInputs: { recallBlocks: 100 },
+    ...overrides
+  };
+  arrange(id, row);
+  await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never).catch(() => undefined);
+  expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+  const stored = txStore.find(r => r.id === id);
+  return {
+    submitEvidence: Array.isArray(stored?.submitEvidence) ? stored.submitEvidence : undefined,
+    mayHaveSubmitted: typeof stored?.mayHaveSubmitted === 'boolean' ? stored.mayHaveSubmitted : undefined
+  };
+}
+
+describe('the pin is per attempt and retires on a tagged failure (#1081)', () => {
+  it('a tagged failure marks the pin preSubmitEnd and clears the flag it raised', async () => {
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(new Error('transaction execution failed: transaction is unauthorized'))
+    );
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'pin', preSubmitEnd: true })]);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('a request that cannot serialize is never pinned', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const row = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: { recallBlocks: 100 },
+      requestBytes: new Uint8Array([1])
+    };
+    const { service } = arrange('pin-unserializable', row);
+    service.signAndCreateTransactionRequest.mockResolvedValueOnce({
+      serialize: () => {
+        throw new Error('request serialize failed');
+      },
+      authArg: () => undefined
+    });
+    await generateTransaction(
+      buildTx('pin-unserializable', row) as never,
+      signCallback,
+      false,
+      provider as never
+    ).catch(() => undefined);
+    const stored = txStore.find(r => r.id === 'pin-unserializable');
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(stored?.submitEvidence).toBeUndefined();
+    expect(stored?.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('an untagged failure keeps the pin and the flag', async () => {
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(new Error('guardianPipeline: result decode failed'));
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence?.[0]?.preSubmitEnd).toBeUndefined();
+    expect(row.mayHaveSubmitted).toBe(true);
+  });
+});
+
 // ─── Slice 7c: bridged-send / earn-deposit guardian leaf → offscreen ──────────
 // The final two value-moving guardian types. Before 7c they ran the leaf INLINE
 // even flag-ON (excluded from OFFSCREEN_ROUTABLE_GUARDIAN_TYPES) → the dormant SW
@@ -2443,10 +2637,22 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
   );
 });
 
+// An Agglayer bridged-send can await the node's verdict, so its killed attempt keeps the candidate (#1081); an earn
+// deposit cannot, so it still abandons at once.
+type KillCase = Case & { abandons: number[][]; evidence: unknown };
+const bridgeEarnKillCases = (): KillCase[] => [
+  { ...bridgeEarnCases()[0]!, abandons: [], evidence: KEPT_AT_7 },
+  {
+    ...bridgeEarnCases()[1]!,
+    abandons: [[7]],
+    evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
+  }
+];
+
 describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an offscreen kill FAILS the row, no auto-requeue', () => {
-  it.each(bridgeEarnCases())(
+  it.each(bridgeEarnKillCases())(
     '$type: an OperationAbortedError marks the row Failed, does NOT requeue, and dispatches exactly ONCE (no double-send)',
-    async ({ row, complete }) => {
+    async ({ row, complete, abandons, evidence }) => {
       process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
       // A wedge-kill fires AFTER the offscreen submit may have landed → retryable
       // OperationAbortedError. bridged-send has no input-note nullifier (fresh
@@ -2460,9 +2666,9 @@ describe('guardian bridged-send / earn-deposit kill-window (funds-safety) — an
       await generateTransaction(buildTx(`be-kill-${row.type}`, row) as never, signCallback, false, provider as never);
 
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      expect(service.abandonCandidate.mock.calls).toEqual(abandons);
       const finalRow = txStore.find(r => r.id === `be-kill-${row.type}`)!;
+      expect(finalRow.submitEvidence ?? []).toEqual(evidence);
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
       expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
       expect(finalRow.nextEligibleAt).toBeUndefined();
@@ -2575,12 +2781,12 @@ describe('guardian leaf kill-window (funds-safety) — an offscreen kill FAILS t
 
       // Dispatched exactly ONCE — the abort did NOT trigger a second offscreen submit.
       expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-      // The SW submit-catch abandoned the guardian candidate (idempotent), exactly once.
-      expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-      expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+      // The killed attempt may have submitted, so its candidate is kept for the node's verdict, not abandoned (#1081).
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
       // The row is terminally FAILED — NOT requeued to Queued (which would let a fresh
       // retry double-send), and carries no requeue cooldown stamp.
       const finalRow = txStore.find(r => r.id === `kill-${row.type}`)!;
+      expect(finalRow.submitEvidence).toEqual(KEPT_AT_7);
       expect(finalRow.status).toBe(ITransactionStatus.Failed);
       expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
       expect(finalRow.nextEligibleAt).toBeUndefined();
@@ -2617,9 +2823,9 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    // Dispatched once; the guardian candidate was still abandoned (idempotent).
+    // Dispatched once; the killed consume keeps its candidate for the node's verdict (#1081).
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     // Node-verified landed → Completed with the normal consume label, no requeue.
     const finalRow = txStore.find(r => r.id === 'kill-consume-landed')!;
     expect(finalRow.status).toBe(ITransactionStatus.Completed);
@@ -2647,7 +2853,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-external')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
@@ -2668,7 +2874,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-committed')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.status).not.toBe(ITransactionStatus.Queued);
@@ -2689,7 +2895,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-nodeerr')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(mockComplete.consume).not.toHaveBeenCalled();
@@ -2711,7 +2917,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
       provider as never
     );
 
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
     expect(mockProxyGetInputNoteDetails).not.toHaveBeenCalled();
     const finalRow = txStore.find(r => r.id === 'kill-consume-noid')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
@@ -2749,10 +2955,13 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 
   it('send: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Raised before the offscreen leaf's submit call, so the leaf tags it (Task 8) and the catch abandons at once (#1081).
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
-          'local nonce 4 but commitments differ for account 0xacc'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+            'local nonce 4 but commitments differ for account 0xacc'
+        )
       )
     );
     const row = {
@@ -2794,10 +3003,13 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
 
   it('execute: an unwrapped canonicalization refusal is no landed shape: Failed, and the candidate is abandoned (#1233)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Raised before the offscreen leaf's submit call, so the leaf tags it (Task 8) and the catch abandons at once (#1081).
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
-      new Error(
-        "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
-          'local nonce 4 but commitments differ for account 0xacc'
+      markErrorBeforeSubmit(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: Refusing to overwrite local state: incoming nonce 4 equals " +
+            'local nonce 4 but commitments differ for account 0xacc'
+        )
       )
     );
     const row = { type: 'execute', requestBytes: new Uint8Array([2, 2]), secondaryAccountId: 'recipient' };

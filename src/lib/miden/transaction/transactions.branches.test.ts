@@ -16,7 +16,12 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
-import { TRANSACTION_ENGINE_RECOVERED_ERROR, TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } from './constants';
+import { cancelTransactionById } from './cancel';
+import {
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { isLockedError } from './helper';
 import {
   completeSendTransaction,
@@ -1416,6 +1421,164 @@ describe('generateTransactionsLoop error paths', () => {
     expect(txStore[0]!.nextEligibleAt).toBeUndefined();
 
     sdk.withWasmClientLock = origLock;
+  });
+
+  it('never requeues the indefinite outcome as a locked or pre-send failure (#1081)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      // Locked-looking text alongside the indefinite outcome: the submit was reached, so nothing is strictly pre-submit.
+      if (callCount >= 2) {
+        throw new Error(
+          `vault is null; submission of transaction 0x${'a'.repeat(64)} came back without a definite outcome`
+        );
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-indefinite',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(txStore[0]!.mayHaveSubmitted).toBe(true);
+    expect(txStore[0]!.nextEligibleAt).toBeUndefined();
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('a send a user cancel failed mid-submit keeps Failed when the submit comes back indefinite, and its window ends (#1081)', async () => {
+    const indefiniteId = `0x${'ab'.repeat(32)}`;
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById('tx-cancelled-indefinite', USER_CANCELLED_TRANSACTION_REASON);
+        throw new Error(
+          `submission of transaction ${indefiniteId} came back without a definite outcome, so the node may or ` +
+            'may not have accepted it; nothing was recorded locally'
+        );
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-cancelled-indefinite',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    const row = txStore[0]!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(row.submitEvidence).toEqual([
+      expect.objectContaining({ attemptId: row.attemptId, transactionId: indefiniteId })
+    ]);
+  });
+
+  // The Unconfirmed write's terminal-row branch is for the indefinite outcome on a row that can await a verdict;
+  // any other cancelled row keeps exactly what its cancel wrote.
+  const cancelMidLeafThenThrow = (id: string, error: Error): (() => Record<string, unknown>) => {
+    let afterCancel: Record<string, unknown> = {};
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById(id, USER_CANCELLED_TRANSACTION_REASON);
+        const row = txStore[0]!;
+        afterCancel = {
+          ...row,
+          submitEvidence: row.submitEvidence?.map((entry: Record<string, unknown>) => ({ ...entry })),
+          extraInputs: row.extraInputs && { ...row.extraInputs }
+        };
+        throw error;
+      }
+      return fn();
+    });
+    return () => afterCancel;
+  };
+
+  it('a cancelled send whose submit fails with any other error keeps what its cancel wrote (#1081)', async () => {
+    const afterCancel = cancelMidLeafThenThrow(
+      'tx-cancelled-other',
+      new Error('failed to submit proven transaction: the node rejected the transaction')
+    );
+    txStore.push({
+      id: 'tx-cancelled-other',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(afterCancel()).toMatchObject({
+      status: ITransactionStatus.Failed,
+      cancelledInFlightAt: expect.any(Number)
+    });
+    expect(txStore[0]).toEqual(afterCancel());
+  });
+
+  it('a cancelled row that cannot await a verdict keeps what its cancel wrote on the indefinite outcome (#1081)', async () => {
+    const afterCancel = cancelMidLeafThenThrow(
+      'tx-cancelled-earn',
+      new Error(
+        `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may or ` +
+          'may not have accepted it; nothing was recorded locally'
+      )
+    );
+    // An Earn deposit's caller needs a terminal answer, so it never awaits a verdict.
+    txStore.push({
+      id: 'tx-cancelled-earn',
+      type: 'earn-deposit',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      requestBytes: new Uint8Array([1]),
+      extraInputs: { recallBlocks: 25 }
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(afterCancel()).toMatchObject({ status: ITransactionStatus.Failed });
+    expect(txStore[0]).toEqual(afterCancel());
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  // The row left the queue as Unconfirmed while its leaf was failing: only the reconciler moves it now (#1081).
+  const failLeafAfterRowLeftAsUnconfirmed = (error: Error) => {
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        txStore[0]!.status = ITransactionStatus.Unconfirmed;
+        throw error;
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-left-unconfirmed',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+  };
+
+  it('leaves an Unconfirmed row alone on the apply-after-submit error (#1081)', async () => {
+    failLeafAfterRowLeftAsUnconfirmed(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE));
+    // The completion write throws on a row that left the queue, and this catch is the loop's own.
+    await expect(generateTransactionsLoop(dummySign, true, stubGuardianProvider)).resolves.toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  it('records no kill end on a row that left the queue as Unconfirmed (#1081)', async () => {
+    failLeafAfterRowLeftAsUnconfirmed(new WasmClientPoisonedError('watchdog'));
+    expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(txStore[0]!.submitEvidence ?? []).not.toContainEqual(expect.objectContaining({ endedBy: 'kill' }));
   });
 
   it('leaves a Guardian tx Queued (not Failed) when the wallet is locked at consume time (#313)', async () => {

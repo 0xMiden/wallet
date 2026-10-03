@@ -193,8 +193,11 @@ jest.mock('../transaction/initiate', () => ({
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsume(...args)
 }));
 
+// The unconfirmed reconciler (#1081) owns its own suite; here only whether the lap fires it.
+const mockReconcile = jest.fn(async () => {});
 jest.mock('./transaction-processor', () => ({
-  startTransactionProcessing: jest.fn(async () => {})
+  startTransactionProcessing: jest.fn(async () => {}),
+  reconcileUnconfirmedInWorker: () => mockReconcile()
 }));
 
 // The private-note delivery sweep rides on every sync tick. Mocked here (it owns a
@@ -208,6 +211,7 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 
 // ── Imports under test ─────────────────────────────────────────────
 
+import * as Repo from 'lib/miden/repo';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
@@ -216,6 +220,7 @@ import {
 import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
+import { ITransactionStatus } from '../db/types';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Helper: build a fake consumable note WASM record
@@ -561,6 +566,21 @@ describe('doSync', () => {
     mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
     await doSync();
     expect(mockSweepNoteDeliveries).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
+  });
+
+  it('fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockReconcile.mockClear();
+    await doSync();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
+    await doSync();
+    mockClient.syncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    await doSync();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
     jest.restoreAllMocks();
   });
 
@@ -1366,6 +1386,55 @@ describe('doSync — native-note auto-consume', () => {
     await doSync();
 
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('leaves a note whose claim is held while the node decides out of the value check (#1081)', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 10000;
+    const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+    // Real Dexie: an Unconfirmed consume with an unjudged, provable entry holds its note (`holdsNotes`).
+    await Repo.transactions.put({
+      id: 'held-claim',
+      accountId: 'pk-1',
+      type: 'consume',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: 1,
+      displayIcon: 'RECEIVE',
+      noteId: 'held',
+      noteIds: ['held'],
+      submitEvidence: [
+        {
+          attemptId: 'a1',
+          capturedAt: Math.floor(Date.now() / 1000),
+          source: 'stage',
+          transactionId: hex(1),
+          initialCommitment: hex(2),
+          finalCommitment: hex(3),
+          initialNonce: '1',
+          outputNoteIds: [],
+          nullifiers: [hex(4)],
+          refBlock: 10,
+          refBlockCommitment: hex(5)
+        }
+      ]
+    });
+    try {
+      // Counted, the held note's value would carry the dust past the fee, and the dedup would then claim the
+      // dust alone for a full fee.
+      mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+        fakeNote({ id: 'held', faucetId: 'native-faucet', amount: String(10000 * 50) }),
+        fakeNote({ id: 'dust', faucetId: 'native-faucet', amount: '1' })
+      ]);
+
+      await doSync();
+
+      expect(mockGetFaucetIdSetting).toHaveBeenCalled();
+      expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+    } finally {
+      await Repo.transactions.clear();
+    }
   });
 
   it('auto-consumes a backlog of individually-marginal native notes in one transaction', async () => {

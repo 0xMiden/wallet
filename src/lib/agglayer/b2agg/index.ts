@@ -15,7 +15,8 @@ import {
   startBackgroundTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
-import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { isGuardianAccount, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { expirationDeltaBlocks } from 'lib/miden/helpers';
 import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
@@ -81,10 +82,18 @@ export async function initiateB2AggBridge(args: {
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
   destinationNetwork: number;
+  guardianProvider: GuardianAccountProvider;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
 }): Promise<string> {
-  const { amount, faucetId, destinationAddress, senderPublicKey, destinationNetwork, spendingLimitAuthorization } =
-    args;
+  const {
+    amount,
+    faucetId,
+    destinationAddress,
+    senderPublicKey,
+    destinationNetwork,
+    guardianProvider,
+    spendingLimitAuthorization
+  } = args;
 
   // Build the note + TransactionRequest under the WASM lock; the queue stores
   // the serialized request and the processor submits it.
@@ -102,6 +111,9 @@ export async function initiateB2AggBridge(args: {
   // to be read off the chain here. The salt is serialized with the request, and these
   // bytes are persisted and reused, so a rebuild by a co-signer commits the same word.
   const feeSalt = randomFeeSalt();
+  // Decided before the WASM hold: the bytes go to a Guardian proposal, inside its pending hold, or straight to the
+  // node (#1081).
+  const expirationDelta = expirationDeltaBlocks(await isGuardianAccount(senderPublicKey, guardianProvider));
   const { requestBytes, faucetBech32, exitTxHash } = await withWasmClientLock(async hold => {
     const note = await createB2AggNote(amount, faucetId, destinationAddress, senderPublicKey, destinationNetwork);
     // The awaited note build parks (the lazy SDK load can be the long one), and
@@ -120,6 +132,7 @@ export async function initiateB2AggBridge(args: {
     // only on the builder.
     let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
     builder = builder.withFeeConversionSalt(feeSalt);
+    builder = builder.withExpirationDelta(expirationDelta);
     const request = builder.build();
     const serialisedReq = request.serialize();
     console.log('Got the serialised transaction request', serialisedReq);
@@ -163,7 +176,7 @@ export async function bridgeB2Agg(args: {
   deps: B2AggBridgeDeps;
 }): Promise<{ txHash: string }> {
   const { deps, ...noteArgs } = args;
-  const txId = await initiateB2AggBridge(noteArgs);
+  const txId = await initiateB2AggBridge({ ...noteArgs, guardianProvider: deps.guardianProvider });
 
   if (isExtension()) {
     requestSWTransactionProcessing();

@@ -32,6 +32,7 @@ import type {
 } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -61,7 +62,14 @@ import {
   isCriticalOpInFlight,
   isOffscreenAvailable
 } from './offscreen-prover';
-import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
+import type {
+  ConsumeTransaction,
+  ITransactionStage,
+  SendTransaction,
+  StageDetail,
+  SubmitEvidenceFields,
+  SwapTransaction
+} from '../db/types';
 import {
   GuardianHistoryDataError,
   GuardianHistoryFeeLookupError,
@@ -341,13 +349,15 @@ type RawSignCallback = (publicKey: string, signingInputs: string) => Promise<Uin
 /**
  * A per-step stage stamp (PR #524).
  *
- * `opts.reliable === false` marks a stamp REPLAYED FROM THE OFFSCREEN REALM: it
+ * `detail.reliable === false` marks a stamp REPLAYED FROM THE OFFSCREEN REALM: it
  * crossed `chrome.runtime` fire-and-forget, so it carries no delivery or ordering
  * guarantee relative to the op's own reply. The stamp is still good enough to time
  * a step, but NOT to drive a control decision — see the funds-safety note in
- * `setTransactionStage`. An inline caller omits `opts` entirely.
+ * `setTransactionStage`. A replayed 'submitting' stamp's detail also carries the
+ * evidence the offscreen leaf read before its submit (#1081). An inline leaf passes
+ * its evidence the same way and omits `reliable`.
  */
-type StageCallback = (stage: ITransactionStage, opts?: { readonly reliable?: boolean }) => Promise<void> | void;
+type StageCallback = (stage: ITransactionStage, detail?: StageDetail) => Promise<void> | void;
 
 /**
  * op_id → the RAW `(publicKeyHex, signingInputsHex) => signatureBytes` callback
@@ -458,6 +468,7 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     if (resp.errorLanded !== undefined) Object.assign(err, { landed: resp.errorLanded });
+    if (resp.errorBeforeSubmit === true) markErrorBeforeSubmit(err);
     op.reject(err);
   }
 }
@@ -546,7 +557,19 @@ async function dispatchOp(
   deadlineMs: number | null,
   critical: boolean
 ): Promise<string | null> {
-  await ensureOffscreenDocument();
+  // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
+  // deadline could later close the document under every write in flight (#1081).
+  try {
+    await ensureOffscreenDocument();
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
+  let argsB64: string[];
+  try {
+    argsB64 = args.map(encodeArg);
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
   return new Promise<string | null>((resolve, reject) => {
     // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
     // is armed at EXECUTION START via `markOpStarted` when the op wins the offscreen
@@ -577,7 +600,7 @@ async function dispatchOp(
       type: OFFSCREEN_CALL,
       op_id,
       method,
-      argsB64: args.map(encodeArg),
+      argsB64,
       deadline_ms: deadlineMs
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc
@@ -756,7 +779,11 @@ export async function reloadOffscreenEndpointOverrides(): Promise<boolean> {
  *   - A throwing or rejecting `onStage` is SWALLOWED (logged only). The stamp is
  *     telemetry; a Dexie hiccup writing it must never fail a funds-moving write.
  */
-export function handleOffscreenStageEvent(op_id: string, stage: ITransactionStage): void {
+export function handleOffscreenStageEvent(
+  op_id: string,
+  stage: ITransactionStage,
+  evidence?: SubmitEvidenceFields
+): void {
   const onStage = opStageCallbacks.get(op_id);
   if (!onStage) return;
   try {
@@ -766,7 +793,7 @@ export function handleOffscreenStageEvent(op_id: string, stage: ITransactionStag
     // it may be dropped or reordered against the op's reply. It must therefore time
     // a step without authoring the control `stage` field that the guardian requeue
     // gates read (see `setTransactionStage`).
-    void Promise.resolve(onStage(stage, { reliable: false })).catch((err: unknown) => {
+    void Promise.resolve(onStage(stage, { reliable: false, evidence })).catch((err: unknown) => {
       console.warn(`[MidenClientProxy] stage stamp '${stage}' for op ${op_id} rejected; ignoring`, err);
     });
   } catch (err) {
@@ -836,11 +863,11 @@ type OffscreenSwapDto = {
  * balance for the whole (multi-second) op and block the reverse-IPC sign handler
  * that must run SW-side mid-op (design §7.1).
  *
- * `onStage` (optional) is the write's per-step stage stamp (PR #524). The two
- * pipelines that drive execute → prove → submit as distinct stages supply one — the
- * non-guardian send and the guardian leaf; the other writes (`consumeNoteId`,
- * `swapTransaction`, `newTransaction`) take no stage callback, so they leave it
- * undefined and register nothing.
+ * `onStage` (optional) is the write's per-step stage stamp (PR #524). Every write
+ * that can cross its submit supplies one (#1081): the send, consume, swap and
+ * execute leaves and the guardian leaf. Its 'submitting' stamp carries the
+ * attempt's submit evidence, which `handleOffscreenStageEvent` forwards with
+ * `reliable: false`. A write called without one registers nothing.
  */
 async function dispatchOffscreenWrite(
   method: string,
@@ -1532,7 +1559,7 @@ export const midenClientProxy = {
    *
    *   Flag OFF (default) / offscreen unavailable: the consume runs inline on the
    *   realm's one client under the WASM lock, `withWasmClientLock(() =>
-   *   getMidenClient().consumeNoteId(tx))`; the realm signer `Actions.init`
+   *   getMidenClient().consumeNoteId(tx, onStage))`; the realm signer `Actions.init`
    *   installed signs it, and the `signCallback` argument is unused (#878).
    *
    *   Flag ON: the whole execute→prove→submit→apply chain runs in the offscreen
@@ -1540,10 +1567,16 @@ export const midenClientProxy = {
    *   the reverse-IPC sign channel (which invokes THIS `signCallback` on the SW).
    *   The SW WASM lock is NOT held (design §7.1) — the offscreen doc's own mutex
    *   serializes the write.
+   *
+   * `onStage` rides both paths as it does on {@link sendTransaction} (#1081).
    */
-  async consumeNoteId(transaction: ConsumeTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+  async consumeNoteId(
+    transaction: ConsumeTransaction,
+    signCallback: RawSignCallback,
+    onStage?: StageCallback
+  ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction));
+      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction, onStage));
     }
     const dto: OffscreenConsumeDto = {
       accountId: transaction.accountId,
@@ -1551,7 +1584,7 @@ export const midenClientProxy = {
       noteIds: transaction.noteIds,
       delegateTransaction: transaction.delegateTransaction
     };
-    return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback);
+    return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback, onStage);
   },
 
   /**
@@ -1565,7 +1598,7 @@ export const midenClientProxy = {
    * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
    * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
    * `amount` (BigInt → decimal string), `delegateTransaction`, and
-   * `extraInputs.recallBlocks` — no more. `completeSendTransaction` (SW-side)
+   * `extraInputs.recallBlocks`, no more. `completeSendTransaction` (SW-side)
    * consumes the round-tripped `TransactionResult` identically; any private-note
    * relay it does runs on the SW's own inline client (no further offscreen call).
    *
@@ -1609,9 +1642,13 @@ export const midenClientProxy = {
    * (BigInt → string). `completeSwapTransaction` consumes the round-tripped
    * `TransactionResult` identically (no further client call).
    */
-  async swapTransaction(transaction: SwapTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+  async swapTransaction(
+    transaction: SwapTransaction,
+    signCallback: RawSignCallback,
+    onStage?: StageCallback
+  ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction));
+      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage));
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1623,7 +1660,7 @@ export const midenClientProxy = {
         requestedAmount: transaction.extraInputs.requestedAmount.toString()
       }
     };
-    return dispatchOffscreenWrite('swapTransaction', [dto], signCallback);
+    return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage);
   },
 
   /**
@@ -1641,14 +1678,20 @@ export const midenClientProxy = {
     accountId: string,
     requestBytes: Uint8Array,
     delegateTransaction: boolean | undefined,
-    signCallback: RawSignCallback
+    signCallback: RawSignCallback,
+    onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () =>
-        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction)
+        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
       );
     }
-    return dispatchOffscreenWrite('newTransaction', [accountId, requestBytes, delegateTransaction], signCallback);
+    return dispatchOffscreenWrite(
+      'newTransaction',
+      [accountId, requestBytes, delegateTransaction],
+      signCallback,
+      onStage
+    );
   }
 };
 
