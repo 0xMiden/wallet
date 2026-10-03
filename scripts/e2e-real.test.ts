@@ -19,6 +19,7 @@ import {
   agglayerExitFilingProblem,
   composeGrep,
   pricedAmountFrom,
+  probeAgglayerIndexer,
   resolveOperatorInput,
   run,
   suiteRetries
@@ -455,7 +456,7 @@ describe('pricedAmountFrom', () => {
 /**
  * The AggLayer indexer guard (#1325). The Slow bridge-out finds its deposit by the network id the indexer files
  * Miden exits under, and a renumbering once left every bridge-out unsettled with no error anywhere. E2E Bridge runs
- * this probe on its own, before the build, so a renumbering fails that job.
+ * this probe on its own, after the suite, so a renumbering fails that job without hiding the suite's own result.
  */
 describe('the AggLayer indexer guard', () => {
   // Miden exit 0 as the live indexer serves it, trimmed to the fields the guard reads.
@@ -482,6 +483,39 @@ describe('the AggLayer indexer guard', () => {
     expect(agglayerExitFilingProblem(status, body)).toContain(reason);
   });
 
+  // E2E Bridge must not go red on one gateway blip, so a failed GET or a problem answer is asked again once.
+  describe('retrying once', () => {
+    const RENUMBERED = { deposit: { ...LIVE.deposit, network_id: 78 } };
+
+    // `record` prints one line per probe.
+    beforeEach(() => jest.spyOn(console, 'log').mockImplementation(() => undefined));
+    afterEach(() => jest.restoreAllMocks());
+
+    it('asks once when the first GET shows the live filing', async () => {
+      const get = jest.fn().mockResolvedValue({ status: 200, body: LIVE });
+
+      await expect(probeAgglayerIndexer({ get, retryDelayMs: 0 })).resolves.toBe(true);
+      expect(get).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['a GET that throws', () => Promise.reject(new Error('socket hang up'))],
+      ['a gateway error', () => Promise.resolve({ status: 502, body: 'Bad Gateway' })]
+    ])('passes on the second GET after %s', async (_label, firstAnswer) => {
+      const get = jest.fn().mockImplementationOnce(firstAnswer).mockResolvedValueOnce({ status: 200, body: LIVE });
+
+      await expect(probeAgglayerIndexer({ get, retryDelayMs: 0 })).resolves.toBe(true);
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails a renumbering, which the second GET shows again', async () => {
+      const get = jest.fn().mockResolvedValue({ status: 200, body: RENUMBERED });
+
+      await expect(probeAgglayerIndexer({ get, retryDelayMs: 0 })).resolves.toBe(false);
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('is probed by both bridge-out suites that take the Slow route', () => {
     expect(SUITES['bridge-out-agglayer'].probes).toContain('agglayer');
     expect(SUITES['bridge-out'].probes).toContain('agglayer');
@@ -499,8 +533,8 @@ describe('the AggLayer indexer guard', () => {
 });
 
 describe('probeAgglayerIndexer uses the shared check', () => {
-  // Source-level, like probeEpochQuote's: the probe does live network I/O, so its call site cannot be reached
-  // behaviourally from a unit test.
+  // Source-level, like probeEpochQuote's. The probe's verdict is also tested above through an injected GET; its call
+  // sites in main(), which does live network I/O, are reachable only here.
   const source = readFileSync(path.join(__dirname, 'e2e-real.mjs'), 'utf8');
   const body = /async function probeAgglayerIndexer\([\s\S]*?\n\}/.exec(source)?.[0] ?? '';
 

@@ -710,19 +710,33 @@ export function agglayerExitFilingProblem(status, body) {
   return undefined;
 }
 
-async function probeAgglayerIndexer() {
+/**
+ * Check the indexer's filing of Miden exit 0, asking a second time before a failure counts: E2E Bridge runs this
+ * on every push to main, and a third party's blip must not red main on its own. A renumbering fails both asks.
+ * `get` and `retryDelayMs` are injectable for test.
+ *
+ * Exported for test.
+ */
+export async function probeAgglayerIndexer({ get = getJson, retryDelayMs = 5_000 } = {}) {
   const url = `${AGGLAYER_INDEXER}/bridge?net_id=${AGGLAYER_MIDEN_NETWORK_ID}&deposit_cnt=0`;
-  try {
-    const { status, body } = await getJson(url);
-    const problem = agglayerExitFilingProblem(status, body);
-    return record(
-      problem === undefined,
-      'AggLayer indexer',
-      problem ?? `files Miden exits under network ${AGGLAYER_MIDEN_NETWORK_ID}`
-    );
-  } catch (err) {
-    return record(false, 'AggLayer indexer', `${AGGLAYER_INDEXER} unreachable: ${err.message}`);
+  const ask = async () => {
+    try {
+      const { status, body } = await get(url);
+      return agglayerExitFilingProblem(status, body);
+    } catch (err) {
+      return `${AGGLAYER_INDEXER} unreachable: ${err.message}`;
+    }
+  };
+  let problem = await ask();
+  if (problem !== undefined) {
+    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    problem = await ask();
   }
+  return record(
+    problem === undefined,
+    'AggLayer indexer',
+    problem ?? `files Miden exits under network ${AGGLAYER_MIDEN_NETWORK_ID}`
+  );
 }
 
 function formatUnits(value, decimals) {
