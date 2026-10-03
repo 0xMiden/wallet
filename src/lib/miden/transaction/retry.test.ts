@@ -205,6 +205,20 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
+  it('offers Retry on an Unconfirmed row: it is the exit while no verdict exists (#1081)', () => {
+    expect(isRequeueableTransaction({ status: ITransactionStatus.Unconfirmed, type: 'send' })).toBe(true);
+    expect(
+      isRequeueableTransaction({ status: ITransactionStatus.Unconfirmed, type: 'send', restoredFromBackup: true })
+    ).toBe(false);
+  });
+
+  it('requeues an Unconfirmed row whose stage still matches (#1081)', async () => {
+    const row = failedRow({ type: 'consume', status: ITransactionStatus.Unconfirmed, stage: 'sending' });
+    wireRow(row);
+    await requeueFailedTransaction(row.id);
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
   it('applies the same guard to a swap (its PSWAP order would be created twice)', async () => {
     const row = failedRow({ type: 'swap', transactionId: undefined, requestBytes: undefined });
     wireRow(row);

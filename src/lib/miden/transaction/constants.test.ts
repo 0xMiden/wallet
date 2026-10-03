@@ -7,6 +7,7 @@ import {
   GUARDIAN_UNREACHABLE_ERROR,
   INVALID_NOTE_ERROR,
   isGuardianOutage,
+  isOutcomeUnconfirmed,
   isProverProcedureMismatch,
   isUnconfirmedFailure,
   isVaultShortfallError,
@@ -30,7 +31,7 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { ITransaction, ITransactionStatus } from '../db/types';
+import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 // The real native-prover error captured in #487.
 const MISSING_PROCEDURE =
@@ -407,6 +408,59 @@ describe('isUnconfirmedFailure', () => {
     ]
   ])('is false for %s', (_label, row) => {
     expect(isUnconfirmedFailure(row)).toBe(false);
+  });
+});
+
+describe('isUnconfirmedFailure and isOutcomeUnconfirmed (#1081)', () => {
+  const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+  const failed = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+    id: 'r',
+    type: 'send',
+    accountId: 'a',
+    status: ITransactionStatus.Failed,
+    initiatedAt: 1,
+    displayIcon: 'FAILED',
+    error: 'Some failure',
+    ...overrides
+  });
+  const entry = (overrides: Partial<ISubmitEvidence> = {}): ISubmitEvidence => ({
+    attemptId: 'a',
+    capturedAt: 1,
+    source: 'stage',
+    ...overrides
+  });
+
+  it('a proven row is not unconfirmed, although it still carries mayHaveSubmitted', () => {
+    expect(isUnconfirmedFailure(failed({ mayHaveSubmitted: true }))).toBe(true);
+    expect(isUnconfirmedFailure(failed({ mayHaveSubmitted: true, neverCommittedAt: 5 }))).toBe(false);
+  });
+
+  it('an Unconfirmed row is not confirmed, whatever else it holds', () => {
+    expect(isOutcomeUnconfirmed(failed({ status: ITransactionStatus.Unconfirmed }))).toBe(true);
+  });
+
+  it('a Failed eligible row with an unresolved entry reads not confirmed; dead or retired entries do not', () => {
+    expect(isOutcomeUnconfirmed(failed({ submitEvidence: [entry({ transactionId: hex(1) })] }))).toBe(true);
+    expect(isOutcomeUnconfirmed(failed({ submitEvidence: [entry({ verdict: 'never-committed' })] }))).toBe(false);
+    expect(isOutcomeUnconfirmed(failed({ submitEvidence: [entry({ preSubmitEnd: true })] }))).toBe(false);
+    expect(
+      isOutcomeUnconfirmed(failed({ submitEvidence: [entry(), entry({ attemptId: 'b', preSubmitEnd: true })] }))
+    ).toBe(true);
+    expect(isOutcomeUnconfirmed(failed({ submitEvidence: [entry()], neverCommittedAt: 5 }))).toBe(false);
+  });
+
+  it('an ineligible row`s entries are inert, and a definite failure stays one', () => {
+    expect(isOutcomeUnconfirmed(failed({ type: 'earn-deposit', submitEvidence: [entry()] }))).toBe(false);
+    expect(isOutcomeUnconfirmed(failed({ restoredFromBackup: true, submitEvidence: [entry()] }))).toBe(false);
+    expect(
+      isOutcomeUnconfirmed(
+        failed({
+          type: 'bridged-send',
+          extraInputs: { provider: 'agglayer', epochStatus: 'failed' },
+          submitEvidence: [entry()]
+        })
+      )
+    ).toBe(false);
   });
 });
 

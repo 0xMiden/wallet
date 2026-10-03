@@ -1,6 +1,7 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
+import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
   IBridgedSendExtraInputs,
   ITransaction,
@@ -150,9 +151,12 @@ export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED
  */
 export function isUnconfirmedFailure(
   row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
-    Partial<Pick<ITransaction, 'extraInputs'>>
+    Partial<Pick<ITransaction, 'extraInputs' | 'neverCommittedAt'>>
 ): boolean {
   if (row.status !== ITransactionStatus.Failed) return false;
+  // A row the node proved never committed still carries its mayHaveSubmitted, and would otherwise read Not confirmed
+  // beside "It is safe to retry" (#1081).
+  if (row.neverCommittedAt !== undefined) return false;
   // A vault shortfall is provable straight from the error, so it stays a definite failure.
   if (isVaultShortfallRow(row)) return false;
   // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
@@ -165,6 +169,30 @@ export function isUnconfirmedFailure(
     (reason !== undefined && isUnconfirmedFailureReason(reason)) ||
     (row.processingStartedAt !== undefined && reason !== undefined && isUserCancelledTransaction(reason))
   );
+}
+
+/**
+ * Not confirmed, by the one rule History, the detail page and the in-progress page share (#1081): an Unconfirmed row,
+ * a #1250 row (`isUnconfirmedFailure`), or a Failed eligible row, not proven safe and not a definite failure, holding
+ * an entry neither proven dead nor retired before its submit: an earlier attempt may have crossed after a later one
+ * failed before its own. An ineligible row's entries are inert, so it keeps today's label, and the rotation gate,
+ * which stays on `isUnconfirmedFailure`, agrees with History.
+ */
+export function isOutcomeUnconfirmed(
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<
+      Pick<
+        ITransaction,
+        'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'
+      >
+    >
+): boolean {
+  if (row.status === ITransactionStatus.Unconfirmed) return true;
+  if (isUnconfirmedFailure(row)) return true;
+  if (row.status !== ITransactionStatus.Failed || row.neverCommittedAt !== undefined || !canAwaitVerdict(row))
+    return false;
+  if (isVaultShortfallRow(row) || isBridgeRouteFailedRow(row) || isNodeDiscardedRow(row)) return false;
+  return (row.submitEvidence ?? []).some(isUnresolvedEntry);
 }
 
 /**

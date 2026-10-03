@@ -114,6 +114,8 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
  * makes people re-send by hand - the double payment the guard exists to prevent.
  * An imported row has no such exit to offer, because there is no user intent
  * behind it to confirm; hence the hard exclusion above.
+ *
+ * Unconfirmed too: Retry is the exit while no verdict exists (#1081).
  */
 export const isRequeueableTransaction = (tx: {
   status?: ITransactionStatus;
@@ -121,7 +123,7 @@ export const isRequeueableTransaction = (tx: {
   bridgeProvider?: IBridgeProvider;
   restoredFromBackup?: boolean;
 }): boolean => {
-  if (tx.status !== ITransactionStatus.Failed) return false;
+  if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
   if (tx.restoredFromBackup) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && tx.bridgeProvider === NON_REQUEUEABLE_BRIDGE_PROVIDER) return false;
@@ -435,7 +437,11 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     // `requestBytes` on the strength of the OLD attempt's stage, dropping the
     // double-send guard for a submit that may since have landed.
     // `false`, so Dexie skips the put rather than re-writing the unchanged clone.
-    if (dbTx.status !== ITransactionStatus.Failed || dbTx.stage !== failedStage) return false;
+    if (
+      (dbTx.status !== ITransactionStatus.Failed && dbTx.status !== ITransactionStatus.Unconfirmed) ||
+      dbTx.stage !== failedStage
+    )
+      return false;
     dbTx.status = ITransactionStatus.Queued;
     dbTx.initiatedAt = Math.floor(Date.now() / 1000);
     // Re-stamped with the timestamp, not left at the original. `initiatedAt` is

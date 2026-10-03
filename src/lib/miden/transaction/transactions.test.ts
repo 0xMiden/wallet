@@ -202,7 +202,9 @@ describe('transactions utilities', () => {
 
       mockTransactionsFilter
         .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(completedTxs) })
-        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(failedTxs) });
+        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(failedTxs) })
+        // The Unconfirmed read (#1081).
+        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([]) });
 
       const result = await getCompletedTransactions('acc-1', undefined, undefined, true);
 
