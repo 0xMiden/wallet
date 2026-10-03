@@ -90,7 +90,7 @@
   "earnSeeAll": "すべて表示",
   "earnNoActivePositionsTitle": "アクティブなポジションはありません",
   "earnNoActivePositionsBody": "以下のVaultに入金して、報酬の獲得を始めましょう。",
-  "earnVaultsTitle": "注目の金庫",
+  "earnVaultsTitle": "利用可能な金庫",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ $network$ にて",
   "earnCurrentPositionsTitle": "現在のポジション",

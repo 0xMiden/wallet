@@ -90,7 +90,7 @@
   "earnSeeAll": "查看全部",
   "earnNoActivePositionsTitle": "无持仓",
   "earnNoActivePositionsBody": "将资金存入下方的金库，即可开始赚取奖励。",
-  "earnVaultsTitle": "精选保险库",
+  "earnVaultsTitle": "可用保险库",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ 网址：$network$",
   "earnCurrentPositionsTitle": "当前持仓",

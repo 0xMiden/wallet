@@ -90,7 +90,7 @@
   "earnSeeAll": "Zobacz wszystko",
   "earnNoActivePositionsTitle": "Brak otwartych pozycji",
   "earnNoActivePositionsBody": "Wpłać środki do skarbca poniżej, aby zacząć zdobywać nagrody.",
-  "earnVaultsTitle": "Polecane skarbce",
+  "earnVaultsTitle": "Dostępne skarbce",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ na stronie $network$",
   "earnCurrentPositionsTitle": "Aktualne pozycje",

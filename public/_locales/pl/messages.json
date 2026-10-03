@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Polecane skarbce",
-    "englishSource": "Featured Vaults"
+    "message": "Dostępne skarbce",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",

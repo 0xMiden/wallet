@@ -90,7 +90,7 @@
   "earnSeeAll": "Alle anzeigen",
   "earnNoActivePositionsTitle": "Keine offenen Positionen",
   "earnNoActivePositionsBody": "Zahlen Sie in einen der unten aufgeführten Tresore ein, um Prämien zu verdienen.",
-  "earnVaultsTitle": "Ausgewählte Tresore",
+  "earnVaultsTitle": "Verfügbare Tresore",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ auf $network$",
   "earnCurrentPositionsTitle": "Aktuelle Positionen",

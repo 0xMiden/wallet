@@ -90,7 +90,7 @@
   "earnSeeAll": "Tout afficher",
   "earnNoActivePositionsTitle": "Aucune position ouverte",
   "earnNoActivePositionsBody": "Effectuez un dépôt dans un coffre-fort ci-dessous pour commencer à gagner des récompenses.",
-  "earnVaultsTitle": "Coffres-forts à la une",
+  "earnVaultsTitle": "Coffres-forts disponibles",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ sur $network$",
   "earnCurrentPositionsTitle": "Positions actuelles",

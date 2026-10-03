@@ -90,7 +90,7 @@
   "earnSeeAll": "Tümünü Göster",
   "earnNoActivePositionsTitle": "Aktif pozisyon yok",
   "earnNoActivePositionsBody": "Ödüller kazanmaya başlamak için aşağıdaki kasalardan birine para yatırın.",
-  "earnVaultsTitle": "Öne Çıkan Kasalar",
+  "earnVaultsTitle": "Kullanılabilir Kasalar",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ $network$ adresinde",
   "earnCurrentPositionsTitle": "Mevcut Pozisyonlar",

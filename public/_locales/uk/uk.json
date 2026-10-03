@@ -90,7 +90,7 @@
   "earnSeeAll": "Переглянути все",
   "earnNoActivePositionsTitle": "Відсутність активних позицій",
   "earnNoActivePositionsBody": "Здійсніть депозит у сховище нижче, щоб почати отримувати винагороди.",
-  "earnVaultsTitle": "Рекомендовані сховища",
+  "earnVaultsTitle": "Доступні сховища",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ на сайті $network$",
   "earnCurrentPositionsTitle": "Поточні позиції",

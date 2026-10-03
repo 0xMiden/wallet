@@ -90,7 +90,7 @@
   "earnSeeAll": "Показать всё",
   "earnNoActivePositionsTitle": "Нет открытых позиций",
   "earnNoActivePositionsBody": "Пополните хранилище ниже, чтобы начать получать вознаграждения.",
-  "earnVaultsTitle": "Избранные хранилища",
+  "earnVaultsTitle": "Доступные хранилища",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ на сайте $network$",
   "earnCurrentPositionsTitle": "Текущие позиции",

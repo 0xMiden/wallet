@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Öne Çıkan Kasalar",
-    "englishSource": "Featured Vaults"
+    "message": "Kullanılabilir Kasalar",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",

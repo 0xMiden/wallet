@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "精選保險庫",
-    "englishSource": "Featured Vaults"
+    "message": "可用保險庫",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
