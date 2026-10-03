@@ -10,23 +10,37 @@
  * carefully once.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { SUITES, composeGrep, pricedAmountFrom, resolveOperatorInput, run, suiteRetries } from './e2e-real.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-// A leading object sets variables for the child, over an environment that holds
-// none of the four the runner reads: a key or an empty URL in the caller's
-// environment would add its own refusal ahead of the one under test.
+// The caller's environment without any variable the runner reads: a key, an
+// empty URL or a served config document there would add its own refusal, or its
+// own document, ahead of the one under test.
+function cleanEnv() {
+  const env = { ...process.env };
+  for (const name of [
+    'E2E_SEPOLIA_PRIVATE_KEY',
+    'EPOCH_ALLOCATOR_URL',
+    'EPOCH_POSITIONS_URL',
+    'E2E_SEPOLIA_RPC_URL',
+    'MIDEN_REMOTE_CONFIG_URL'
+  ]) {
+    delete env[name];
+  }
+  return env;
+}
+
+// A leading object sets variables for the child, over cleanEnv().
 function runCli(first: string | Record<string, string>, ...rest: string[]) {
   const override = typeof first === 'string' ? {} : first;
   const args = typeof first === 'string' ? [first, ...rest] : rest;
-  const env = { ...process.env };
-  for (const name of ['E2E_SEPOLIA_PRIVATE_KEY', 'EPOCH_ALLOCATOR_URL', 'EPOCH_POSITIONS_URL', 'E2E_SEPOLIA_RPC_URL']) {
-    delete env[name];
-  }
+  const env = cleanEnv();
   const res = spawnSync(process.execPath, ['scripts/e2e-real.mjs', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
@@ -102,8 +116,6 @@ describe('resolveOperatorInput', () => {
   const parseArgsDefaults = {
     suite: 'swap',
     network: 'testnet',
-    epochUrl: 'https://epoch.invalid',
-    epochPositionsUrl: 'https://epoch-positions.invalid',
     sepoliaRpc: 'https://sepolia.invalid',
     sepoliaKey: undefined,
     minEth: '0.02',
@@ -218,16 +230,7 @@ describe('the command refuses operator input before any probe or build', () => {
 
   // A quoted unset variable arrives as '': `--grep "$UNSET"` would drop the
   // operator's narrowing and widen a real-money run.
-  it.each([
-    '--suite',
-    '--network',
-    '--epoch-url',
-    '--epoch-positions-url',
-    '--sepolia-rpc',
-    '--sepolia-key',
-    '--min-eth',
-    '--grep'
-  ])(
+  it.each(['--suite', '--network', '--sepolia-rpc', '--sepolia-key', '--min-eth', '--grep'])(
     'refuses an empty value for %s',
     flag => {
       const res = runCli('--suite', 'swap', flag, '', '--min-eth', 'abc');
@@ -244,8 +247,6 @@ describe('the command refuses operator input before any probe or build', () => {
   it.each([
     ['--suite', 'swap', 'swap'],
     ['--network', 'testnet', 'devnet'],
-    ['--epoch-url', 'https://a.example', 'https://b.example'],
-    ['--epoch-positions-url', 'https://a.example', 'https://b.example'],
     ['--sepolia-rpc', 'https://a.example', 'https://b.example'],
     ['--sepolia-key', `0x${'1'.repeat(64)}`, `0x${'2'.repeat(64)}`],
     ['--grep', 'aaa', 'bbb']
@@ -306,8 +307,6 @@ describe('the command refuses operator input before any probe or build', () => {
   it.each([
     '--suite',
     '--network',
-    '--epoch-url',
-    '--epoch-positions-url',
     '--sepolia-rpc',
     '--sepolia-key',
     '--min-eth',
@@ -365,13 +364,39 @@ describe('the command refuses operator input before any probe or build', () => {
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 
-  // `export EPOCH_ALLOCATOR_URL=` is not `unset`: '' would be probed and built in.
-  it.each(['EPOCH_ALLOCATOR_URL', 'EPOCH_POSITIONS_URL', 'E2E_SEPOLIA_RPC_URL'])(
-    'refuses %s set but empty',
-    name => {
-      const res = runCli({ [name]: '' }, '--suite', 'swap', '--min-eth', 'abc');
+  // `export E2E_SEPOLIA_RPC_URL=` is not `unset`: '' would be probed and built in.
+  it('refuses E2E_SEPOLIA_RPC_URL set but empty', () => {
+    const res = runCli({ E2E_SEPOLIA_RPC_URL: '' }, '--suite', 'swap', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('E2E_SEPOLIA_RPC_URL is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  // The wallet reads its Epoch hosts from the network's config document, so a
+  // run given its own would preflight one host while the wallet uses another.
+  it.each([
+    ['EPOCH_ALLOCATOR_URL', 'https://allocator.example'],
+    ['EPOCH_POSITIONS_URL', 'https://positions.example'],
+    ['EPOCH_ALLOCATOR_URL', '']
+  ])(
+    'refuses %s set (to "%s"), which nothing reads any more',
+    (name, value) => {
+      const res = runCli({ [name]: value }, '--suite', 'swap', '--min-eth', 'abc');
       expect(res.status).toBe(1);
-      expect(res.stderr).toContain(`${name} is set but empty`);
+      expect(res.stderr).toContain(`${name} is set`);
+      expect(res.stderr).toContain('config document');
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it.each(['--epoch-url', '--epoch-positions-url'])(
+    'refuses %s, which nothing reads any more',
+    flag => {
+      const res = runCli('--suite', 'swap', flag, 'https://a.example', '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} is gone`);
+      expect(res.stderr).toContain('config document');
       expect(res.stdout).not.toContain('Preflight');
     },
     35_000
@@ -379,11 +404,11 @@ describe('the command refuses operator input before any probe or build', () => {
 
   it('takes a flag over an empty variable', () => {
     const res = runCli(
-      { EPOCH_POSITIONS_URL: '' },
+      { E2E_SEPOLIA_RPC_URL: '' },
       '--suite',
       'swap',
-      '--epoch-positions-url',
-      'https://positions.example',
+      '--sepolia-rpc',
+      'https://sepolia.example',
       '--min-eth',
       'abc'
     );
@@ -394,9 +419,86 @@ describe('the command refuses operator input before any probe or build', () => {
   }, 35_000);
 
   it('prints the usage despite an empty variable', () => {
-    const res = runCli({ EPOCH_POSITIONS_URL: '' }, '-h');
+    const res = runCli({ E2E_SEPOLIA_RPC_URL: '' }, '-h');
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('yarn e2e:real --suite <name> [options]');
+  }, 35_000);
+});
+
+describe('the preflight reads what it probes from the network config document', () => {
+  const ALLOCATOR = 'https://allocator.example';
+  const EVM_USDC = `0x${'a'.repeat(40)}`;
+  const L1_BRIDGE = `0x${'b'.repeat(40)}`;
+  const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
+  const DOCUMENT = {
+    network: 'testnet',
+    version: 7,
+    evm: { chainId: 11155111 },
+    agglayer: { l1Bridge: L1_BRIDGE, midenBridge: '0x3b66e20b5088f25133b69216484652' },
+    epoch: { allocatorUrl: ALLOCATOR, positionsUrl: 'https://positions.example', evmUsdc: EVM_USDC },
+    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  };
+  const STUB = pathToFileURL(path.join(__dirname, 'e2e-real.fetch-stub.mjs')).href;
+
+  // The whole command under --preflight-only, its every request answered by the stub and logged.
+  function preflight(suite: string, served: unknown = DOCUMENT, env: Record<string, string> = {}) {
+    const log = path.join(mkdtempSync(path.join(os.tmpdir(), 'e2e-real-')), 'requests.log');
+    writeFileSync(log, '');
+    const res = spawnSync(
+      process.execPath,
+      ['--import', STUB, 'scripts/e2e-real.mjs', '--suite', suite, '--preflight-only'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: { ...cleanEnv(), ...env, E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log }) },
+        timeout: 30_000
+      }
+    );
+    return { status: res.status, output: `${res.stdout}${res.stderr}`, requests: readFileSync(log, 'utf8') };
+  }
+
+  it('probes the allocator, the USDC and the L1 bridge the published document names', () => {
+    const res = preflight('bridge-out-epoch');
+    expect(res.requests).toContain(`${ALLOCATOR}/health`);
+    expect(res.requests).toContain(`${ALLOCATOR}/checkIfDepositNeeded`);
+    expect(res.requests).toContain(`eth_getCode ["${EVM_USDC}","latest"]`);
+    expect(res.requests).toContain(`eth_getCode ["${L1_BRIDGE}","latest"]`);
+    expect(res.requests).toContain(PUBLISHED);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it.each([
+    ['for another network', { ...DOCUMENT, network: 'devnet' }],
+    [
+      'with an allocator that is not https',
+      { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, allocatorUrl: 'http://a.example' } }
+    ],
+    ['with a malformed USDC address', { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, evmUsdc: '0x1234' } }],
+    ['naming no allocator', { ...DOCUMENT, epoch: { evmUsdc: EVM_USDC } }]
+  ])(
+    'fails the preflight on a document %s and probes nothing it would have named',
+    (_label, served) => {
+      const res = preflight('bridge-out-epoch', served);
+      expect(res.status).toBe(1);
+      expect(res.output).toContain('Config document');
+      expect(res.requests).not.toContain('/health');
+      expect(res.requests).not.toContain('eth_getCode');
+    },
+    35_000
+  );
+
+  it('reads the served document the E2E build reads when MIDEN_REMOTE_CONFIG_URL is set', () => {
+    const served = { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, allocatorUrl: 'http://127.0.0.1:8548' } };
+    const res = preflight('bridge-out-epoch', served, { MIDEN_REMOTE_CONFIG_URL: 'http://127.0.0.1:8550/' });
+    expect(res.requests).toContain('http://127.0.0.1:8550/testnet.json');
+    expect(res.requests).toContain('http://127.0.0.1:8548/health');
+    expect(res.requests).not.toContain(PUBLISHED);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('reads no document for a suite that probes nothing it names', () => {
+    const res = preflight('swap');
+    expect(res.requests).not.toContain('.json');
   }, 35_000);
 });
 

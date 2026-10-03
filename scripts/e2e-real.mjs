@@ -24,18 +24,15 @@ import path from 'node:path';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const DEFAULT_EPOCH_URL = 'https://testnet-dev.epochprotocol.xyz';
-const DEFAULT_EPOCH_POSITIONS_URL = 'https://positions-testnet-dev.epochprotocol.xyz';
 const DEFAULT_SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
 const SEPOLIA_CHAIN_ID = 11155111;
 /** Epoch's virtual chain id for a Miden leg - src/lib/epoch/config.ts. */
 const MIDEN_CHAIN_ID = 999999999;
 
-/** The published testnet document's `epoch.evmUsdc`; kept in sync with helpers/sepolia.ts. */
-const SEPOLIA_USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-/** The Compact (pinned in the Epoch SDK) and the AggLayer bridge (the testnet document's `agglayer.l1Bridge`). */
+/** The Compact, pinned in the Epoch SDK. Everything else the probes ask about comes from the config document. */
 const SEPOLIA_COMPACT = '0x00000000000000171ede64904551eeDF3C6C9788';
-const SEPOLIA_AGGLAYER_BRIDGE = '0x1348947e282138d8f377b467f7d9c2eb0f335d1f';
+/** Where wallets read `<network>.json` (0xMiden/wallet-config, branch main) - src/lib/remote-config/source.ts. */
+const PUBLISHED_CONFIG_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main';
 
 const MIDEN_RPC = {
   testnet: 'https://rpc.testnet.miden.io',
@@ -113,8 +110,6 @@ ${Object.entries(SUITES)
 Options
   --suite <name>            which suite to run (required)
   --network <net>           testnet | devnet            (default: testnet)
-  --epoch-url <url>         Epoch allocator base URL    (default: hosted testnet-dev)
-  --epoch-positions-url <u> Epoch positions base URL    (default: hosted testnet-dev)
   --sepolia-rpc <url>       Sepolia RPC                 (default: a public node)
   --sepolia-key <0x...>     funded Sepolia EOA key, for suites with a signed EVM leg
                             (env: E2E_SEPOLIA_PRIVATE_KEY)
@@ -124,6 +119,10 @@ Options
   --headed                  run the browser headed
   --grep <pattern>          further narrow the tests within the suite
   -h, --help                this message
+
+The Epoch allocator, the Sepolia USDC and the AggLayer bridge come from the
+network's config document, read as the wallet reads it: MIDEN_REMOTE_CONFIG_URL
+when set, else the published 0xMiden/wallet-config.
 
 No suite here is secret-gated. Bridge-out is solver-fulfilled and swap is
 Miden-side, so neither signs on EVM and neither needs a key; --sepolia-key is
@@ -139,8 +138,6 @@ function parseArgs(argv) {
   const opts = {
     suite: undefined,
     network: 'testnet',
-    epochUrl: process.env.EPOCH_ALLOCATOR_URL ?? DEFAULT_EPOCH_URL,
-    epochPositionsUrl: process.env.EPOCH_POSITIONS_URL ?? DEFAULT_EPOCH_POSITIONS_URL,
     sepoliaRpc: process.env.E2E_SEPOLIA_RPC_URL ?? DEFAULT_SEPOLIA_RPC,
     sepoliaKey: process.env.E2E_SEPOLIA_PRIVATE_KEY,
     minEth: '0.02',
@@ -158,8 +155,6 @@ function parseArgs(argv) {
   const takesValue = {
     '--suite': 'suite',
     '--network': 'network',
-    '--epoch-url': 'epochUrl',
-    '--epoch-positions-url': 'epochPositionsUrl',
     '--sepolia-rpc': 'sepoliaRpc',
     '--sepolia-key': 'sepoliaKey',
     '--min-eth': 'minEth',
@@ -169,7 +164,10 @@ function parseArgs(argv) {
   // $UNSET --preflight-only` would otherwise store the option as the URL and
   // build and run a suite the operator asked only to preflight. A Set, so an
   // inherited name such as `constructor` stays a valid value.
-  const optionNames = new Set([...helpNames, ...Object.keys(booleanFlags), ...Object.keys(takesValue)]);
+  // The wallet reads its Epoch hosts from the config document, so a host given here would be preflighted while the
+  // wallet used another.
+  const retired = ['--epoch-url', '--epoch-positions-url'];
+  const optionNames = new Set([...helpNames, ...retired, ...Object.keys(booleanFlags), ...Object.keys(takesValue)]);
   // `--sepolia-key=<key>` names an option too, so it is never a value either:
   // whatever later refused or ran that value would print the key.
   const namesAnOption = token => optionNames.has(token.split('=', 1)[0]);
@@ -177,6 +175,9 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (helpNames.includes(arg)) return { help: true };
+    if (retired.includes(arg)) {
+      fail(`${arg} is gone: the wallet reads the Epoch hosts from the network's config document`);
+    }
     if (Object.hasOwn(booleanFlags, arg)) opts[booleanFlags[arg]] = true;
     else if (Object.hasOwn(takesValue, arg)) {
       const value = argv[++i];
@@ -194,9 +195,12 @@ function parseArgs(argv) {
   }
   // A flag is never '', so an empty URL here was exported empty and would be
   // probed and built in. After the loop, so a flag overrides it and -h still works.
-  if (opts.epochUrl === '') fail('EPOCH_ALLOCATOR_URL is set but empty');
-  if (opts.epochPositionsUrl === '') fail('EPOCH_POSITIONS_URL is set but empty');
   if (opts.sepoliaRpc === '') fail('E2E_SEPOLIA_RPC_URL is set but empty');
+  for (const name of ['EPOCH_ALLOCATOR_URL', 'EPOCH_POSITIONS_URL']) {
+    if (process.env[name] !== undefined) {
+      fail(`${name} is set, but the wallet reads the Epoch hosts from the network's config document: unset it`);
+    }
+  }
   return opts;
 }
 
@@ -348,6 +352,93 @@ async function rpc(url, method, params, timeoutMs = 20_000) {
   return body.result;
 }
 
+// ── config document ─────────────────────────────────────────────────────────
+
+/** What each probe group asks about, by the document field it comes from. */
+const DOCUMENT_FIELDS = { epoch: ['allocatorUrl', 'evmUsdc'], sepolia: ['evmUsdc', 'l1Bridge'] };
+const FIELD_PATHS = { allocatorUrl: 'epoch.allocatorUrl', evmUsdc: 'epoch.evmUsdc', l1Bridge: 'agglayer.l1Bridge' };
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
+
+const isRecord = value => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * Where the wallet this run builds reads its config: an E2E build takes MIDEN_REMOTE_CONFIG_URL when it is set,
+ * the published repo otherwise (src/lib/remote-config/source.ts).
+ */
+function configDocumentUrl(network) {
+  return `${(process.env.MIDEN_REMOTE_CONFIG_URL || PUBLISHED_CONFIG_URL).replace(/\/+$/, '')}/${network}.json`;
+}
+
+// A base URL as the wallet's parser accepts it (src/lib/remote-config/schema.ts), normalized as it does, or null.
+function baseUrl(value, allowLocalHttp) {
+  if (typeof value !== 'string') return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  const localHttp = allowLocalHttp && url.protocol === 'http:' && LOCAL_HTTP_HOSTS.includes(url.hostname);
+  if ((url.protocol !== 'https:' && !localHttp) || url.username || url.password || url.search || url.hash) return null;
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/**
+ * The values the `needs` probe groups ask about, from a config document checked as far as they use it: this network,
+ * a positive version, Sepolia, and each field present and well formed. Throws naming the first problem, so a
+ * preflight never passes on a document the wallet would not use.
+ */
+function configTargets(body, network, needs, { allowLocalHttp = false } = {}) {
+  if (!isRecord(body) || body.network !== network) throw new Error(`is not the ${network} config document`);
+  if (!Number.isSafeInteger(body.version) || body.version <= 0) throw new Error('has no positive version');
+  if (!isRecord(body.evm) || body.evm.chainId !== SEPOLIA_CHAIN_ID) {
+    throw new Error(`does not name Sepolia (${SEPOLIA_CHAIN_ID}) as evm.chainId`);
+  }
+  const epoch = isRecord(body.epoch) ? body.epoch : {};
+  const agglayer = isRecord(body.agglayer) ? body.agglayer : {};
+  const raw = { allocatorUrl: epoch.allocatorUrl, evmUsdc: epoch.evmUsdc, l1Bridge: agglayer.l1Bridge };
+  const targets = {};
+  for (const field of new Set(needs.flatMap(probe => DOCUMENT_FIELDS[probe] ?? []))) {
+    const value = raw[field];
+    if (value === undefined) throw new Error(`names no ${FIELD_PATHS[field]}`);
+    const read =
+      field === 'allocatorUrl'
+        ? baseUrl(value, allowLocalHttp)
+        : typeof value === 'string' && EVM_ADDRESS.test(value)
+          ? value
+          : null;
+    if (read === null) throw new Error(`has a malformed ${FIELD_PATHS[field]}`);
+    targets[field] = read;
+  }
+  return targets;
+}
+
+async function probeConfigDocument(network, needs) {
+  const url = configDocumentUrl(network);
+  let reply;
+  try {
+    reply = await getJson(url);
+  } catch (err) {
+    record(false, 'Config document', `${url} unreachable: ${err.message}`);
+    return null;
+  }
+  if (reply.status !== 200) {
+    record(false, 'Config document', `${url} answered HTTP ${reply.status}`);
+    return null;
+  }
+  try {
+    const targets = configTargets(reply.body, network, needs, {
+      allowLocalHttp: Boolean(process.env.MIDEN_REMOTE_CONFIG_URL)
+    });
+    record(true, 'Config document', `${url} version ${reply.body.version}`);
+    return targets;
+  } catch (err) {
+    record(false, 'Config document', `${url} ${err.message}`);
+    return null;
+  }
+}
+
 async function probeMidenNode(network) {
   const url = MIDEN_RPC[network];
   if (!url) return record(false, 'Miden RPC', `no endpoint known for network "${network}"`);
@@ -433,7 +524,7 @@ export function pricedAmountFrom(res) {
  * but nominal, which keeps the probe free of the SDK (whose ESM entry needs a
  * bundler) without weakening what is being asserted.
  */
-async function probeEpochQuote(epochUrl, faucetId) {
+async function probeEpochQuote(epochUrl, evmUsdc, faucetId) {
   // Loaded inside the try with every other failure mode: this is a deep subpath
   // of a sub-1.0 dependency, and a resolution failure here must read as one
   // failed check, not as an exception that kills the preflight before any
@@ -469,7 +560,7 @@ async function probeEpochQuote(epochUrl, faucetId) {
       mandate: {
         tokenIn: ZERO_ADDRESS,
         tokenInAmount: amountIn,
-        tokenOut: SEPOLIA_USDC,
+        tokenOut: evmUsdc,
         minTokenOut: '0',
         destinationChainId: String(SEPOLIA_CHAIN_ID),
         taskType: '0xb492b7f5', // keccak256('gettokenout').slice(0, 10)
@@ -600,15 +691,16 @@ async function probeSepolia(sepoliaRpc) {
 }
 
 /**
- * The three contracts the wallet hardcodes. On Anvil they are `anvil_setCode`
- * stubs; a real run needs the genuine deployments, and an empty address would
- * otherwise surface as an opaque revert deep inside a 15-minute test.
+ * The three contracts a run calls: the USDC and the AggLayer bridge the config
+ * document names, and the Compact the Epoch SDK pins. On Anvil they are
+ * `anvil_setCode` stubs; a real run needs the genuine deployments, and an empty
+ * address would otherwise surface as an opaque revert deep inside a 15-minute test.
  */
-async function probeSepoliaContracts(sepoliaRpc) {
+async function probeSepoliaContracts(sepoliaRpc, { evmUsdc, l1Bridge }) {
   const targets = [
-    ['USDC', SEPOLIA_USDC],
+    ['USDC', evmUsdc],
     ['The Compact', SEPOLIA_COMPACT],
-    ['AggLayer bridge', SEPOLIA_AGGLAYER_BRIDGE]
+    ['AggLayer bridge', l1Bridge]
   ];
   const sizes = [];
   for (const [name, address] of targets) {
@@ -624,7 +716,7 @@ async function probeSepoliaContracts(sepoliaRpc) {
   return record(true, 'Sepolia contracts', sizes.join(', '));
 }
 
-async function probeFundedKey(sepoliaRpc, privateKey, minEth) {
+async function probeFundedKey(sepoliaRpc, privateKey, minEth, evmUsdc) {
   let viem;
   let accounts;
   try {
@@ -662,10 +754,11 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth) {
   // mint its own - but no suite here signs on EVM, so minting during preflight
   // would be an external mutation with no consumer.
   // C-10: advisory. This can never gate a run, so it is a note(), not a record().
+  if (!evmUsdc) return note('Sepolia test USDC', 'not read: the config document named no USDC');
   try {
     const balance = BigInt(
       await rpc(sepoliaRpc, 'eth_call', [
-        { to: SEPOLIA_USDC, data: `0x70a08231${account.address.slice(2).padStart(64, '0')}` },
+        { to: evmUsdc, data: `0x70a08231${account.address.slice(2).padStart(64, '0')}` },
         'latest'
       ])
     );
@@ -741,10 +834,12 @@ async function main() {
   const { error, suite, grep } = resolveOperatorInput(opts);
   if (error !== undefined) fail(error);
 
+  const needs = suite.probes ?? [];
+  const needsDocument = needs.some(probe => Object.hasOwn(DOCUMENT_FIELDS, probe));
   console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
   console.log(`Network  ${opts.network}`);
-  if (suite.probes?.includes('epoch')) console.log(`Epoch    ${opts.epochUrl}`);
-  if (suite.probes?.includes('sepolia')) console.log(`Sepolia  ${opts.sepoliaRpc}`);
+  if (needsDocument) console.log(`Config   ${configDocumentUrl(opts.network)}`);
+  if (needs.includes('sepolia')) console.log(`Sepolia  ${opts.sepoliaRpc}`);
   console.log('');
   console.log('Preflight');
 
@@ -754,31 +849,34 @@ async function main() {
   await probeMidenNode(opts.network);
   await probeMidenFaucet(opts.network);
 
+  // What the probes ask about is what the wallet will use: the document it reads,
+  // never a copy kept here. Without a usable one, nothing it names is probed.
+  const targets = needsDocument ? await probeConfigDocument(opts.network, needs) : null;
+
   // Keyed on what the suite actually talks to, not on which Playwright config it
   // happens to share: both bridge routes use one config, but only the Epoch route
   // asks the solver anything.
-  const needs = suite.probes ?? [];
-  if (needs.includes('epoch')) {
-    await probeEpochHealth(opts.epochUrl);
+  if (targets && needs.includes('epoch')) {
+    await probeEpochHealth(targets.allocatorUrl);
     // The spec mints a throwaway faucet per run, so the probe asks about one too:
     // it must reflect what the suite will actually request, not a friendlier token.
-    await probeEpochQuote(opts.epochUrl, '0xabcdefabcdefabcdefabcdefabcdef');
+    await probeEpochQuote(targets.allocatorUrl, targets.evmUsdc, '0xabcdefabcdefabcdefabcdefabcdef');
   }
   if (needs.includes('sepolia')) {
     await probeSepolia(opts.sepoliaRpc);
-    await probeSepoliaContracts(opts.sepoliaRpc);
+    if (targets) await probeSepoliaContracts(opts.sepoliaRpc, targets);
   }
   if (needs.includes('guardian')) await probeGuardian(opts.network);
   // Only for a suite that actually talks to Sepolia: a key handed to a swap run
   // must not make Sepolia's availability decide whether that run happens.
   if (needs.includes('sepolia') && opts.sepoliaKey) {
-    await probeFundedKey(opts.sepoliaRpc, opts.sepoliaKey, opts.minEth);
+    await probeFundedKey(opts.sepoliaRpc, opts.sepoliaKey, opts.minEth, targets?.evmUsdc);
   }
 
   // Advisory, printed with `·` and never counted: these report services the
   // PRODUCT depends on and main CI never touches, but no suite here asks them
   // anything, so neither may decide whether a run happens.
-  if (needs.includes('epoch')) await probeEpochGasless(opts.epochUrl);
+  if (targets && needs.includes('epoch')) await probeEpochGasless(targets.allocatorUrl);
   if (needs.includes('dex')) await probeSwapQuoteService();
 
   const failed = results.filter(r => !r.ok);
@@ -798,17 +896,15 @@ async function main() {
     // it from the run's own environment record, so injecting it here would make
     // this table a second owner of the same fact. The table below stays because
     // probeGuardian reads it to decide what to probe.
-    EPOCH_ALLOCATOR_URL: opts.epochUrl,
-    EPOCH_POSITIONS_URL: opts.epochPositionsUrl,
     E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc,
     ...(opts.sepoliaKey ? { E2E_SEPOLIA_PRIVATE_KEY: opts.sepoliaKey } : {})
   };
 
   if (!opts.skipBuild) {
     console.log('Building the extension for a real-endpoint run…\n');
-    // The allocator URL is a bundler define, so pointing at a different Epoch
-    // host is a REBUILD, not a runtime switch. --skip-build is only safe when
-    // dist/ was produced with this same env.
+    // The wallet reads its Epoch hosts from the config document at runtime, but
+    // the network and MIDEN_REMOTE_CONFIG_URL are build defines: --skip-build is
+    // only safe when dist/ was produced with this same env.
     const code = await run('yarn', ['test:e2e:blockchain:build'], env);
     if (code !== 0) {
       console.error('\n✗ build failed - not running the suite.\n');
