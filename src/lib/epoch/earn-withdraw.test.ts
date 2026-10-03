@@ -10,7 +10,7 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
+import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -55,6 +55,7 @@ jest.mock('lib/remote-config/values', () => {
   const values = fixtures.remoteConfigValuesMock();
   // This suite's positions report a 6-decimal token.
   values.getEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
+  values.findEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
   return values;
 });
 interface MockLeg {
@@ -221,7 +222,7 @@ describe('gaslessEarnWithdrawalToMiden', () => {
   });
 
   it('withdraws only the token the config names, at its decimals', async () => {
-    jest.mocked(getEvmUsdc).mockReturnValueOnce({ ...TEST_EVM_USDC, decimals: 18 });
+    jest.mocked(findEvmUsdc).mockReturnValueOnce({ ...TEST_EVM_USDC, decimals: 18 });
     const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
 
     await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow(
@@ -234,6 +235,40 @@ describe('gaslessEarnWithdrawalToMiden', () => {
       )
     ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
     expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('withdraws at the position decimals while the token read has not succeeded, still only the configured token', async () => {
+    const unread = () => {
+      throw new Error('The bridge config has no usable EVM USDC.');
+    };
+    jest.mocked(getEvmUsdc).mockImplementation(unread);
+    jest.mocked(findEvmUsdc).mockReturnValue(null);
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+    try {
+      await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).resolves.toMatchObject({ txId: 'TX1' });
+      expect(deps.initiateRow).toHaveBeenCalledWith(
+        PREPARED_RECIPIENT,
+        10_000_000n,
+        EVM_OWNER,
+        MARKET_UID,
+        PREPARED_FAUCET,
+        '10',
+        'USDC',
+        expect.any(String),
+        expect.any(Number)
+      );
+      deps.initiateRow.mockClear();
+      await expect(
+        gaslessEarnWithdrawalToMiden(
+          { ...validArgs(), underlyingAddress: '0x3333333333333333333333333333333333333333' },
+          deps
+        )
+      ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
+      expect(deps.initiateRow).not.toHaveBeenCalled();
+    } finally {
+      jest.mocked(getEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+      jest.mocked(findEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+    }
   });
 
   it('refuses before creating any row while the config names no allocator', async () => {

@@ -21,7 +21,7 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
+import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc, getEvmUsdcAddress } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -153,8 +153,13 @@ export async function gaslessEarnWithdrawalToMiden(
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
-  const usdc = getEvmUsdc();
-  if (underlyingAddress.toLowerCase() !== usdc.address.toLowerCase() || args.underlyingDecimals !== usdc.decimals) {
+  // Withdraw is a recovery action: it needs the document's token, not a successful read of it. The token's decimals
+  // are checked when that read is known; otherwise the position's own stand.
+  const usdc = findEvmUsdc();
+  if (
+    underlyingAddress.toLowerCase() !== getEvmUsdcAddress().toLowerCase() ||
+    (usdc !== null && args.underlyingDecimals !== usdc.decimals)
+  ) {
     throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
   }
   const chainId = Number(args.marketUid.split(':')[1]);

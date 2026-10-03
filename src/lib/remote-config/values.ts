@@ -106,6 +106,19 @@ export function getEvmUsdc(): EvmUsdc {
   return getValue('EVM USDC', selectEvmUsdc);
 }
 
+/** The EVM USDC address from the document alone, checksummed: a recovery action never waits on the token's read. */
+export function getEvmUsdcAddress(): `0x${string}` {
+  return getValue('epoch.evmUsdc', s => {
+    const address = s.config?.epoch.evmUsdc;
+    return address ? getAddress(address) : null;
+  });
+}
+
+/** The EVM USDC with its symbol and decimals, or null while that read has not succeeded. */
+export function findEvmUsdc(): EvmUsdc | null {
+  return selectEvmUsdc(getBridgeConfigSnapshot());
+}
+
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
 }

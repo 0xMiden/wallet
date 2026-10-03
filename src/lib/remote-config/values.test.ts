@@ -13,7 +13,9 @@ import {
   getEpochAllocatorUrl,
   getEpochPositionsUrl,
   getEvmChainId,
+  findEvmUsdc,
   getEvmUsdc,
+  getEvmUsdcAddress,
   getMidenUsdc,
   selectEarnMarket,
   selectEvmUsdc,
@@ -174,6 +176,8 @@ describe('getters', () => {
     [getEvmChainId, 11155111],
     [getMidenUsdc, selectMidenUsdc(snapshot())],
     [getEvmUsdc, selectEvmUsdc(snapshot())],
+    [getEvmUsdcAddress, '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69'],
+    [findEvmUsdc, selectEvmUsdc(snapshot())],
     [getEarnMarket, selectEarnMarket(snapshot())],
     [getAgglayerMidenBridge, '0x3b66e20b5088f25133b69216484652'],
     [getAgglayerIndexerUrl, 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'],
@@ -193,6 +197,7 @@ describe('getters', () => {
     getEvmChainId,
     getMidenUsdc,
     getEvmUsdc,
+    getEvmUsdcAddress,
     getEarnMarket,
     getAgglayerMidenBridge,
     getAgglayerIndexerUrl,
@@ -202,6 +207,15 @@ describe('getters', () => {
   ])('%p throws while there is no accepted document', get => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
     expect(() => get()).toThrow(BridgeConfigUnavailableError);
+  });
+
+  it('name the EVM USDC from the document alone while its read has not succeeded', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ epoch: { evmUsdc: ERROR } }));
+    expect(getEvmUsdcAddress()).toBe('0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69');
+    expect(findEvmUsdc()).toBeNull();
+    expect(() => getEvmUsdc()).toThrow(BridgeConfigUnavailableError);
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(findEvmUsdc()).toBeNull();
   });
 
   it('need only their own derived read: bridge out the L1 network id, a deposit the rollup id', () => {
