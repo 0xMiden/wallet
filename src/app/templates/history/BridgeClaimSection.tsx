@@ -178,15 +178,18 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         setClaimable(deposit);
         if (status === 'pending' && entry.txId) {
           setStatus('ready');
+          setPinnedDepositCnt(deposit.deposit_cnt);
           await updateBridgeClaimStatus(
             entry.txId,
             'ready',
             { depositReady: true, agglayerDepositCnt: deposit.deposit_cnt },
             deposit.tx_hash
           );
+          return false;
         }
-        return false;
       }
+      // Whatever the claim status: a pin the address page contradicts (a reset indexer) would cost a failed GET and a
+      // warning on every tick.
       if (pinnedDepositCnt !== deposit.deposit_cnt) {
         setPinnedDepositCnt(deposit.deposit_cnt);
         if (entry.txId) await pinAgglayerDeposit(entry.txId, deposit.deposit_cnt);

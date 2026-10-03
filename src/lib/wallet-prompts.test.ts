@@ -2146,6 +2146,57 @@ describe('bridge prompts', () => {
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
+  // A reset indexer can leave a pin that names another exit, while the address page still finds this one. Re-pinning
+  // it ends the failed GET and the warning that pin cost on every tick (#1325). The real lookup, so the warning is
+  // the one the indexer's answers actually produce.
+  it('re-pins a ready row the address page found at another deposit, and the warning stops', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const status: typeof import('lib/agglayer/status') = jest.requireActual('lib/agglayer/status');
+    const mine = { network_id: 86, dest_net: 0, tx_hash: '0xexit', deposit_cnt: 16, ready_for_claim: true };
+    const sibling = { ...mine, tx_hash: '0xsibling', deposit_cnt: 5 };
+    const fetchBefore = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      writable: true,
+      value: async (url: string) => ({
+        ok: true,
+        json: async () =>
+          url.includes('/bridge?') ? { deposit: url.endsWith('deposit_cnt=5') ? sibling : mine } : { deposits: [mine] }
+      })
+    });
+    findExitDeposit.mockImplementation(status.findAgglayerExitDeposit);
+    const row = baseBridge({
+      id: 'agg-stale-pin',
+      extraInputs: {
+        provider: 'agglayer',
+        claimStatus: 'ready',
+        destinationAddress: '0xdest',
+        agglayerExitTxHash: '0xexit',
+        agglayerDepositCnt: 5
+      }
+    });
+    pinDeposit.mockImplementation(async (_id: string, agglayerDepositCnt: number) => {
+      row.extraInputs = { ...row.extraInputs, agglayerDepositCnt };
+    });
+    bridgeRows.push(row);
+
+    try {
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+    } finally {
+      if (fetchBefore) Object.defineProperty(globalThis, 'fetch', fetchBefore);
+      else Reflect.deleteProperty(globalThis, 'fetch');
+    }
+
+    expect(pinDeposit.mock.calls).toEqual([['agg-stale-pin', 16]]);
+    expect(findExitDeposit.mock.calls.map(call => call[2])).toEqual([5, 16]);
+    expect(warn.mock.calls.filter(([message]) => String(message).includes('no longer carries this exit'))).toHaveLength(
+      1
+    );
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('pins a deposit the indexer has filed but not readied, and only once', async () => {
     findExitDeposit.mockResolvedValue({ tx_hash: '0xexit', deposit_cnt: 17, ready_for_claim: false });
     const indexed = (id: string, pin?: number) =>

@@ -199,16 +199,16 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
     // A claim by anyone settles the row: the bridge's auto-claimer claims every exit minutes after it is ready.
     if (isAgglayerDepositClaimed(deposit)) {
       await updateBridgeClaimStatus(tx.id, 'claimed', agglayerClaimedFields(deposit), deposit.tx_hash);
-    } else if (isAgglayerDepositReady(deposit)) {
-      if (inputs.claimStatus === 'pending') {
-        await updateBridgeClaimStatus(
-          tx.id,
-          'ready',
-          { depositReady: true, agglayerDepositCnt: deposit.deposit_cnt },
-          deposit.tx_hash
-        );
-      }
+    } else if (isAgglayerDepositReady(deposit) && inputs.claimStatus === 'pending') {
+      await updateBridgeClaimStatus(
+        tx.id,
+        'ready',
+        { depositReady: true, agglayerDepositCnt: deposit.deposit_cnt },
+        deposit.tx_hash
+      );
     } else if (inputs.agglayerDepositCnt !== deposit.deposit_cnt) {
+      // Whatever the claim status: a pin the address page contradicts (a reset indexer) would cost a failed GET and
+      // a warning on every tick.
       await pinAgglayerDeposit(tx.id, deposit.deposit_cnt);
     }
     return;

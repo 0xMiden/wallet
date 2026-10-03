@@ -41,6 +41,8 @@ const mockFindExitDeposit = jest.fn(async (..._a: unknown[]): Promise<unknown> =
 const mockClaimAgglayer = jest.fn(async (..._a: unknown[]) => ({ wait: async () => undefined, hash: '0xclaimhash' }));
 // What each tracker poll resolved to: `true` stops the tracker, `false` keeps it polling.
 const mockTrackerPolls: Promise<boolean>[] = [];
+// The `poll` the panel last rendered, which the real tracker's ref calls on every later tick.
+let mockLatestTrackerPoll: (() => Promise<boolean>) | undefined;
 jest.mock('lib/agglayer', () => {
   const react = require('react');
   // The real deposit classifiers, so a fixture deposit is read exactly as the indexer's answer would be.
@@ -53,6 +55,7 @@ jest.mock('lib/agglayer', () => {
     isAgglayerDepositReady: status.isAgglayerDepositReady,
     // Drive the poll once so tests can surface a claimable deposit.
     useBridgeTracker: ({ active, poll }: { active: boolean; poll: () => Promise<boolean> }) => {
+      mockLatestTrackerPoll = poll;
       react.useEffect(() => {
         if (active) mockTrackerPolls.push(poll());
       }, [active]);
@@ -588,6 +591,48 @@ describe('BridgeClaimSection', () => {
       await expect(mockTrackerPolls[0]).resolves.toBe(false);
       expect(mockPinAgglayerDeposit).toHaveBeenCalledWith('tx-1', 9);
       expect(mockUpdateBridgeClaimStatus).not.toHaveBeenCalled();
+    });
+
+    // A reset indexer can leave a pin that names another exit, while the address page still finds this one. The next
+    // tick has to go to the deposit found, or every tick pays a failed GET and a warning (#1325).
+    describe('a pin the address page contradicts', () => {
+      const elsewhere = { ...READY, deposit_cnt: 16 };
+      const nextTick = () =>
+        act(async () => {
+          await mockLatestTrackerPoll?.();
+        });
+
+      it('is re-pinned on a ready row, and the next tick looks the deposit up there', async () => {
+        mockFindExitDeposit.mockResolvedValue(elsewhere);
+        renderSection({ entry: agglayer({ bridgeClaimStatus: 'ready', bridgeAgglayerDepositCnt: 5 }) });
+        await act(async () => {
+          await mockTrackerPolls[0];
+        });
+        expect(mockPinAgglayerDeposit).toHaveBeenCalledWith('tx-1', 16);
+
+        await nextTick();
+
+        expect(mockFindExitDeposit.mock.calls.map(call => call[2])).toEqual([5, 16]);
+      });
+
+      it('moves with the ready write of a pending row, and the next tick looks the deposit up there', async () => {
+        mockFindExitDeposit.mockResolvedValue(elsewhere);
+        renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending', bridgeAgglayerDepositCnt: 5 }) });
+        await act(async () => {
+          await mockTrackerPolls[0];
+        });
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+          'tx-1',
+          'ready',
+          { depositReady: true, agglayerDepositCnt: 16 },
+          '0xexit'
+        );
+
+        await nextTick();
+
+        expect(mockFindExitDeposit.mock.calls.map(call => call[2])).toEqual([5, 16]);
+        expect(mockPinAgglayerDeposit).not.toHaveBeenCalled();
+      });
     });
 
     it('looks nothing up and offers no claim for a row with no exit hash', () => {
