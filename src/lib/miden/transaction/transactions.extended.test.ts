@@ -1543,6 +1543,23 @@ describe('updateBridgeClaimStatus', () => {
     expect(row().transactionId).toBe('0xabc');
     expect(row().status).toBe(ITransactionStatus.Failed);
   });
+
+  it('promotes an Unconfirmed row to Completed on its own bound deposit, in one write (#1081)', async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
+    expect(mockedRepoWhere).toHaveBeenCalledTimes(1);
+    expect(row().status).toBe(ITransactionStatus.Completed);
+    expect(row().error).toBeUndefined();
+    expect(row().displayIcon).toBe('SEND');
+  });
+
+  it("leaves an Unconfirmed row Unconfirmed on an unbound write and on one whose route status is 'failed' (#1081)", async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true });
+    expect(row().status).toBe(ITransactionStatus.Unconfirmed);
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true, epochStatus: 'failed' }, '0xABC');
+    expect(row().status).toBe(ITransactionStatus.Unconfirmed);
+  });
 });
 
 describe('completeSwapTransaction', () => {

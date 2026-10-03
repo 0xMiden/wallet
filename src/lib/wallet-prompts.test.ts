@@ -2012,17 +2012,31 @@ describe('bridge prompts', () => {
     expect(findClaimableDeposit).not.toHaveBeenCalled();
   });
 
-  it('an Unconfirmed row is not polled (#1081)', async () => {
-    bridgeRows.push(
+  it('polls an Unconfirmed AggLayer row by its own bound id inside the 24-hour window from its stamp (#1081)', async () => {
+    findClaimableDeposit.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+      originTxHash === '0xid' ? { tx_hash: '0xID' } : null
+    );
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Initiated past the window, stamped Unconfirmed inside it: the window runs from the stamp.
+    const unconfirmed = (over: Partial<ITransaction>) =>
       baseBridge({
-        id: 'agg-unconfirmed',
         status: ITransactionStatus.Unconfirmed,
-        transactionId: '0xid',
-        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
-      })
+        initiatedAt: nowSec - 30 * 60 * 60,
+        completedAt: nowSec - 60 * 60,
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' },
+        ...over
+      });
+    bridgeRows.push(
+      unconfirmed({ id: 'agg-unconfirmed', transactionId: '0xid' }),
+      unconfirmed({ id: 'agg-unconfirmed-restored', transactionId: '0xrestored', restoredFromBackup: true }),
+      unconfirmed({ id: 'agg-unconfirmed-no-id' }),
+      unconfirmed({ id: 'agg-unconfirmed-stale', transactionId: '0xstale', completedAt: nowSec - 25 * 60 * 60 })
     );
     await reconcileBridgedSends();
-    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(findClaimableDeposit).toHaveBeenCalledWith('0xdest', '0xid');
+    expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
+    expect(updateClaimStatus).toHaveBeenCalledTimes(1);
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-unconfirmed', 'ready', { depositReady: true }, '0xID', '0xid');
   });
 
   // `pollBridgedSend` queries the allocator and writes back onto the row, so a

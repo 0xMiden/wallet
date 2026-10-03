@@ -1588,10 +1588,10 @@ export const bridgedSendLandedValues = (): Partial<ITransaction> => ({
  * looked one up bound to THIS row's `transactionId` (`findClaimableMidenToEvmDeposit`). When the
  * merged write proves this row's own Miden transaction landed - that hash matches
  * (`sameTxHash`), or the Epoch fill poll reports `epochStatus: 'confirmed'` - a row that is
- * Failed in the store is promoted to Completed in that same write, via `applyVerifiedLanding`
- * (#1250), so the evidence and the status can never be stored apart. A write whose merged route
- * status is itself 'failed' never promotes. `bindTransactionId` is the attempt id `pollBridgedSend` matched for a row
- * with none (#1081).
+ * Failed or Unconfirmed in the store is promoted to Completed in that same write, via
+ * `applyVerifiedLanding` (#1250, #1081), so the evidence and the status can never be stored apart.
+ * A write whose merged route status is itself 'failed' never promotes. `bindTransactionId` is the
+ * attempt id `pollBridgedSend` matched for a row with none (#1081).
  */
 export const updateBridgeClaimStatus = async (
   id: string,
@@ -1630,7 +1630,8 @@ export const updateBridgeClaimStatus = async (
       tx.transactionId !== undefined &&
       sameTxHash(boundDepositTxHash, tx.transactionId);
     const epochLanded = !routeFailed && merged.epochStatus === 'confirmed';
-    if (tx.status === ITransactionStatus.Failed && (agglayerLanded || epochLanded)) {
+    const landingUnknown = tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed;
+    if (landingUnknown && (agglayerLanded || epochLanded)) {
       applyVerifiedLanding(tx, bridgedSendLandedValues());
       landed = tx;
     }

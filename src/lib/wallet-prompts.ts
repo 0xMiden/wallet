@@ -154,9 +154,10 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (tx.type !== 'bridged-send') return;
   const failedAtSeconds = tx.completedAt ?? tx.initiatedAt;
   const ageMs = Date.now() - failedAtSeconds * 1000;
+  // An Unconfirmed row's landing is just as unknown, and its stamp is written the same way (#1081).
   const failedUnconfirmed =
-    tx.status === ITransactionStatus.Failed &&
-    isUnconfirmedFailure(tx) &&
+    (tx.status === ITransactionStatus.Unconfirmed ||
+      (tx.status === ITransactionStatus.Failed && isUnconfirmedFailure(tx))) &&
     ageMs >= 0 &&
     ageMs < FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS;
   if (tx.status !== ITransactionStatus.Completed && !failedUnconfirmed) return;
