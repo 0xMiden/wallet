@@ -2031,6 +2031,7 @@ describe('bridge prompts', () => {
     const restored = baseBridge({
       id: 'agg-restored',
       restoredFromBackup: true,
+      transactionId: '0xrestored',
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
 

@@ -540,7 +540,7 @@ describe('BridgeClaimSection', () => {
       mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
 
       renderSection({
-        entry: agglayer({ bridgeClaimStatus: 'pending', bridgeIntentNonce: 'nonce-1' }),
+        entry: agglayer({ bridgeClaimStatus: 'pending', bridgeIntentNonce: 'nonce-1', externalTxId: '0xrow-origin' }),
         restoredFromBackup: true
       });
 
