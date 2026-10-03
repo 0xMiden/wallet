@@ -132,7 +132,7 @@ describe('isAgglayerDepositClaimed', () => {
 
 /**
  * Live deposit 16 as the indexer serves it: a Miden exit filed under the rollup id (86) and already claimed by the
- * bridge's auto-claimer. Its `tx_hash` is the exit hash of the B2AGG note in the same fixture.
+ * bridge's auto-claimer. Its `tx_hash` is the exit hash the same fixture's recipient digest and assets hash to.
  */
 const deposit16 = fixture.vectors.find(vector => vector.depositCnt === 16);
 if (deposit16?.indexerDeposit === undefined) throw new Error('the fixture lost deposit 16');
