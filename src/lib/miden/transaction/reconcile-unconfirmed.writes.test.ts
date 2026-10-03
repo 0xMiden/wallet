@@ -4,7 +4,7 @@ import * as Repo from 'lib/miden/repo';
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import { AccountState, NodeReads } from './reconcile-reads';
 import { checkEvidenceForRetry, judgeAndWrite } from './reconcile-unconfirmed';
-import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
+import { INoteDeliveryState, ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
@@ -82,6 +82,7 @@ const unconfirmed = (overrides: Partial<ITransaction> = {}): ITransaction => ({
 
 const context = (reads: NodeReads) => ({ node: reads, nowSec: NOW, cadenceMs: 3_000 });
 const read = (id = 'tx-1') => Repo.transactions.where({ id }).first();
+const UNDELIVERED_SEND = 'Sent - the private note could not be delivered';
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -112,6 +113,38 @@ describe('the landed write (#1081)', () => {
     await Repo.transactions.put(unconfirmed({ noteType: 'private' }));
     await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
     expect((await read())?.noteDelivery).toBe('undelivered');
+  });
+
+  // A cancelled private send's pipeline runs on and relays its note, and the terminal guard keeps the row Failed:
+  // what the relay recorded is its own outcome and survives the landing, exactly as Retry's landed path keeps it.
+  it.each<[INoteDeliveryState | undefined, INoteDeliveryState, string]>([
+    [undefined, 'undelivered', UNDELIVERED_SEND],
+    ['undelivered', 'undelivered', UNDELIVERED_SEND],
+    ['relayed', 'relayed', 'Sent'],
+    ['pending', 'pending', 'Sent'],
+    ['confirmed', 'confirmed', 'Sent']
+  ])('a landed private send recorded as %s ends %s', async (recorded, delivery, label) => {
+    await Repo.transactions.put(
+      unconfirmed({ status: ITransactionStatus.Failed, noteType: 'private', noteDelivery: recorded })
+    );
+    await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+    expect(await read()).toMatchObject({
+      status: ITransactionStatus.Completed,
+      noteDelivery: delivery,
+      displayMessage: label
+    });
+  });
+
+  it('a landing the network check voids just before its write still reads as a landing, and writes nothing', async () => {
+    await Repo.transactions.put(unconfirmed());
+    const outcome = await judgeAndWrite(
+      'tx-1',
+      context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 }, headerAfter: OTHER }))
+    );
+    expect(outcome.kind).toBe('landing-pending');
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(row?.transactionId).toBeUndefined();
   });
 
   it('writes nothing when another row of the account gains an entry naming the note meanwhile, and never binds the stale id', async () => {
@@ -175,7 +208,7 @@ describe('the landed write (#1081)', () => {
           notes: { [NOTE]: 140 },
           during: async () => {
             await Repo.transactions.where({ id: 'tx-2' }).modify(row => {
-              row.status = ITransactionStatus.Queued;
+              row.status = ITransactionStatus.GeneratingTransaction;
             });
           }
         }
@@ -279,5 +312,14 @@ describe('checkEvidenceForRetry (#1081)', () => {
     await Repo.transactions.put(unconfirmed());
     const check = await checkEvidenceForRetry(unconfirmed(), { createReads: async () => node(tip, { notes }) });
     expect(check.kind).toBe(kind);
+  });
+
+  it('a landing whose write the network check voids -> landing-pending, never undecided', async () => {
+    await Repo.transactions.put(unconfirmed());
+    const check = await checkEvidenceForRetry(unconfirmed(), {
+      createReads: async () =>
+        node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 }, headerAfter: OTHER })
+    });
+    expect(check.kind).toBe('landing-pending');
   });
 });

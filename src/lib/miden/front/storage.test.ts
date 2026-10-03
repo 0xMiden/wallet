@@ -509,6 +509,23 @@ describe('storage utilities', () => {
       expect(ran).toBe(false);
     });
 
+    it('with Web Locks, a turn whose operation throws rejects with its error and frees the lock', async () => {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: new FakeLocks() });
+      await expect(
+        inVerdictTurn(
+          'row-1',
+          async () => {
+            throw new Error('boom');
+          },
+          { waitMs: 10_000 }
+        )
+      ).rejects.toThrow('boom');
+      await expect(inVerdictTurn('row-1', async () => 'free', { ifAvailable: true })).resolves.toEqual({
+        ran: true,
+        value: 'free'
+      });
+    });
+
     describe('without Web Locks', () => {
       beforeEach(() => {
         Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
@@ -540,25 +557,32 @@ describe('storage utilities', () => {
           },
           { waitMs: 10_000 }
         );
-        await flushPromises();
-        expect(order).toEqual(['pass:start', 'other']);
-        held.resolve();
+        try {
+          await flushPromises();
+          expect(order).toEqual(['pass:start', 'other']);
+        } finally {
+          held.resolve();
+        }
         await Promise.all([pass, retry, other]);
         expect(order).toEqual(['pass:start', 'other', 'pass:end', 'retry']);
       });
 
       it('ifAvailable reports a held row', async () => {
         const held = deferred<void>();
-        void inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
-        await flushPromises();
-        await expect(inVerdictTurn('row-1', async () => 'x', { ifAvailable: true })).resolves.toEqual({ ran: false });
-        held.resolve();
+        const holder = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+        try {
+          await flushPromises();
+          await expect(inVerdictTurn('row-1', async () => 'x', { ifAvailable: true })).resolves.toEqual({ ran: false });
+        } finally {
+          held.resolve();
+          await holder;
+        }
       });
 
       it('a waiter past 10 s gives up and never runs later', async () => {
         jest.useFakeTimers();
         const held = deferred<void>();
-        void inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+        const holder = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
         let ran = false;
         const waiter = inVerdictTurn(
           'row-1',
@@ -567,9 +591,13 @@ describe('storage utilities', () => {
           },
           { waitMs: 10_000 }
         );
-        await jest.advanceTimersByTimeAsync(10_001);
-        await expect(waiter).resolves.toEqual({ ran: false });
-        held.resolve();
+        try {
+          await jest.advanceTimersByTimeAsync(10_001);
+          await expect(waiter).resolves.toEqual({ ran: false });
+        } finally {
+          held.resolve();
+          await holder;
+        }
         await jest.advanceTimersByTimeAsync(10);
         expect(ran).toBe(false);
       });
@@ -577,13 +605,13 @@ describe('storage utilities', () => {
       it('a waiter that gave up passes its place on: the next one runs as soon as the holder ends', async () => {
         jest.useFakeTimers();
         const held = deferred<void>();
-        const holder = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
-        const waiter = inVerdictTurn('row-1', async () => 'second', { waitMs: 10_000 });
+        const holder = inVerdictTurn('row-3', () => held.promise, { waitMs: 10_000 });
+        const waiter = inVerdictTurn('row-3', async () => 'second', { waitMs: 10_000 });
         await jest.advanceTimersByTimeAsync(10_001);
         await expect(waiter).resolves.toEqual({ ran: false });
         let thirdRan = false;
         const third = inVerdictTurn(
-          'row-1',
+          'row-3',
           async () => {
             thirdRan = true;
             return 'third';
@@ -597,6 +625,24 @@ describe('storage utilities', () => {
           { ran: true, value: undefined },
           { ran: true, value: 'third' }
         ]);
+      });
+
+      it('a turn whose operation throws rejects with its error and frees the row', async () => {
+        const failed = inVerdictTurn(
+          'row-4',
+          async () => {
+            throw new Error('boom');
+          },
+          { waitMs: 1_000 }
+        );
+        const next = inVerdictTurn('row-4', async () => 'next', { waitMs: 1_000 });
+        await expect(failed).rejects.toThrow('boom');
+        await expect(next).resolves.toEqual({ ran: true, value: 'next' });
+        await flushPromises();
+        await expect(inVerdictTurn('row-4', async () => 'free', { ifAvailable: true })).resolves.toEqual({
+          ran: true,
+          value: 'free'
+        });
       });
     });
   });

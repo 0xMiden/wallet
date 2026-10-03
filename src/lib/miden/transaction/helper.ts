@@ -522,6 +522,19 @@ export const landedValueRowFields = (
 };
 
 /**
+ * The Completed fields for a row proven landed from node evidence alone, by Retry or the unconfirmed reconciler
+ * (#1233, #1081). A recorded 'pending', 'relayed' or 'confirmed' is the relay's own outcome (a cancelled pipeline runs
+ * on and relays) and is kept under the clean label; with none recorded, or an 'undelivered' one, it is derived again.
+ * Pass the row as the write finds it: the sweep or a cancelled pipeline can record an outcome during the node check.
+ */
+export const verifiedLandingRowFields = (
+  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>
+): { displayMessage: string; noteDelivery?: 'undelivered' } =>
+  tx.noteDelivery === undefined || tx.noteDelivery === 'undelivered'
+    ? landedValueRowFields(tx)
+    : { displayMessage: applyLandedDisplayMessage(tx) };
+
+/**
  * Reconcile a Failed row that the node says actually LANDED.
  *
  * Separate from {@link updateTransactionStatus} because that function's terminal

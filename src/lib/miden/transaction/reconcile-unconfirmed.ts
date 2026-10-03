@@ -6,7 +6,7 @@
 import * as Repo from 'lib/miden/repo';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
-import { applyVerifiedLanding, landedValueRowFields, reportVerifiedLanding } from './helper';
+import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields } from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, nowSeconds } from './verdict-rules';
@@ -122,7 +122,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
     applyVerifiedLanding(fresh, {
-      ...landedValueRowFields(fresh),
+      ...verifiedLandingRowFields(fresh),
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
       completedAt: fresh.completedAt
     });
@@ -201,12 +201,11 @@ export async function judgeAndWrite(rowId: string, context: JudgeContext): Promi
         (judged.result === 'landed' || judged.result === 'never-committed' || judged.result === 'unresolvable')
     )
   );
+  // A landing this call found but did not write still reads as one, so Retry refuses it rather than reach the
+  // acknowledgeable refusal a plain send could pay twice through.
+  const unsettled = judgement.landed !== undefined || judgement.landingHeld ? 'landing-pending' : 'pending';
   if (!(await networkStillMatches(context.node, decided))) {
-    return {
-      kind: judgement.landingHeld ? 'landing-pending' : 'pending',
-      judgement,
-      baseline: evidenceKey(judgement.judgedEntries)
-    };
+    return { kind: unsettled, judgement, baseline: evidenceKey(judgement.judgedEntries) };
   }
   const baseline = evidenceKey(applyEntryWrites(judgement.judgedEntries, judgement));
 
@@ -218,7 +217,7 @@ export async function judgeAndWrite(rowId: string, context: JudgeContext): Promi
     return { kind: 'never-committed', judgement, baseline };
   }
   await writeVerdicts(row.id, judgement);
-  return { kind: judgement.landingHeld ? 'landing-pending' : 'pending', judgement, baseline };
+  return { kind: unsettled, judgement, baseline };
 }
 
 export type RetryEvidenceCheck =

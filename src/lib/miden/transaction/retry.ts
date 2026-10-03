@@ -3,7 +3,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import { TRANSACTION_RETRY_UNSAFE_ERROR, isSubmitOutcomeUnknown } from './constants';
-import { applyLandedDisplayMessage, completeVerifiedLandedTransaction, landedValueRowFields } from './helper';
+import { completeVerifiedLandedTransaction, verifiedLandingRowFields } from './helper';
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
@@ -336,20 +336,12 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
-      // relays a private send's note, and with no delivery recorded that relay never ran. A
-      // recorded 'pending', 'relayed' or 'confirmed' is the relay's own outcome and is kept
-      // under the clean label; a recorded 'undelivered' is derived again. Judged on the row
-      // the write finds, since the sweep or a cancelled pipeline can record an outcome during
-      // the node check above.
+      // relays a private send's note, and with no delivery recorded that relay never ran.
       const completedAt = Math.floor(Date.now() / 1000);
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than
       // complete and the guard's only success path never once worked.
-      await completeVerifiedLandedTransaction(txId, fresh =>
-        fresh.noteDelivery === undefined || fresh.noteDelivery === 'undelivered'
-          ? { ...landedValueRowFields(fresh), completedAt }
-          : { displayMessage: applyLandedDisplayMessage(fresh), completedAt }
-      );
+      await completeVerifiedLandedTransaction(txId, fresh => ({ ...verifiedLandingRowFields(fresh), completedAt }));
       return;
     }
     // Not provably landed. For a row that executed, `'unknown'` means "we could
