@@ -122,8 +122,9 @@ export class FakeBridgeConfig {
   }
 
   /**
-   * Serve `document` as `/<document.network>.json`. A wallet accepts a replacement only at or above
-   * the version it already holds, so a test that changes a document mid-run raises its version.
+   * Serve `document` as `/<document.network>.json`. A wallet accepts a replacement only above the
+   * version it already holds (at that version, only the same document), so a test that changes a
+   * document mid-run raises its version.
    */
   setDocument(document: BridgeConfigDocument): void {
     this.documents.set(document.network, structuredClone(document));
