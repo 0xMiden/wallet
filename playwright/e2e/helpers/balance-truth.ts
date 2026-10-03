@@ -103,22 +103,29 @@ export async function vaultBalance(page: Page, symbol: string): Promise<bigint> 
     { wanted: symbol.toLowerCase() }
   );
 
-  // `balance` is a display float; recover base units via the token's own decimals.
-  // Rounding here is safe because we round a value the product itself derived from
-  // base units, and we assert the round-trip is exact.
   let total = 0n;
-  for (const t of raw) {
-    const scaled = t.balance * Math.pow(10, t.decimals);
-    const rounded = Math.round(scaled);
-    if (Math.abs(scaled - rounded) > 1e-6) {
-      throw new Error(
-        `vaultBalance(${symbol}): store balance ${t.balance} does not round-trip at ${t.decimals} decimals ` +
-          `(scaled=${scaled}). Refusing to assert on a lossy value.`
-      );
-    }
-    total += BigInt(rounded);
-  }
+  for (const t of raw) total += rowBaseUnits(`vaultBalance(${symbol})`, t.balance, t.decimals);
   return total;
+}
+
+/**
+ * Base units of one store row. `balance` is a display float; recover base units via the
+ * token's own decimals. Rounding here is safe because we round a value the product itself
+ * derived from base units, and we assert the round-trip is exact.
+ */
+function rowBaseUnits(label: string, balance: number, decimals: number): bigint {
+  const scaled = balance * Math.pow(10, decimals);
+  const rounded = Math.round(scaled);
+  if (!Number.isSafeInteger(rounded)) {
+    throw new Error(`${label}: base-unit balance is not a safe integer`);
+  }
+  if (Math.abs(scaled - rounded) > 1e-6) {
+    throw new Error(
+      `${label}: store balance ${balance} does not round-trip at ${decimals} decimals ` +
+        `(scaled=${scaled}). Refusing to assert on a lossy value.`
+    );
+  }
+  return BigInt(rounded);
 }
 
 /** Spendable base units for one full, canonical bech32 faucet id, independent of its symbol. */
@@ -153,18 +160,7 @@ export async function vaultBalanceByFaucetId(page: Page, faucetId: string): Prom
     if (!Number.isInteger(token.decimals) || token.decimals < 0) {
       throw new Error(`vaultBalanceByFaucetId(${faucetId}): missing or invalid token decimals`);
     }
-    const scaled = token.balance * Math.pow(10, token.decimals);
-    const rounded = Math.round(scaled);
-    if (!Number.isSafeInteger(rounded)) {
-      throw new Error(`vaultBalanceByFaucetId(${faucetId}): base-unit balance is not a safe integer`);
-    }
-    if (Math.abs(scaled - rounded) > 1e-6) {
-      throw new Error(
-        `vaultBalanceByFaucetId(${faucetId}): store balance ${token.balance} does not round-trip ` +
-          `at ${token.decimals} decimals (scaled=${scaled}). Refusing to assert on a lossy value.`
-      );
-    }
-    total += BigInt(rounded);
+    total += rowBaseUnits(`vaultBalanceByFaucetId(${faucetId})`, token.balance, token.decimals);
   }
   return total;
 }
@@ -321,23 +317,19 @@ export async function waitForVaultBalance(
   expected: bigint,
   opts: { timeoutMs?: number; decimals?: number } = {}
 ): Promise<void> {
-  const timeoutMs = opts.timeoutMs ?? 120_000;
-  const deadline = Date.now() + timeoutMs;
-  let last = -1n;
-  while (Date.now() < deadline) {
-    last = await vaultBalance(page, symbol);
-    if (last === expected) return;
-    await page.waitForTimeout(2_000);
-  }
-  const d = opts.decimals;
-  const fmt = (v: bigint) => (d == null ? v.toString() : `${fromBaseUnits(v, d)} (${v} base units)`);
-  const pending = await pendingNoteTotal(page, symbol).catch(() => -1n);
-  throw new Error(
-    `waitForVaultBalance(${symbol}) timed out after ${timeoutMs}ms.\n` +
-      `  expected vault: ${fmt(expected)}\n` +
-      `  actual vault:   ${fmt(last)}\n` +
-      `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
-      `  (a non-zero pending total with a short vault means the note was discovered but never consumed)`
+  return pollVaultBalance(
+    page,
+    `waitForVaultBalance(${symbol})`,
+    () => vaultBalance(page, symbol),
+    expected,
+    opts,
+    async () => {
+      const pending = await pendingNoteTotal(page, symbol).catch(() => -1n);
+      return (
+        `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
+        `  (a non-zero pending total with a short vault means the note was discovered but never consumed)`
+      );
+    }
   );
 }
 
@@ -346,23 +338,41 @@ export async function waitForVaultBalanceByFaucetId(
   page: Page,
   faucetId: string,
   expected: bigint,
-  opts: { timeoutMs?: number; decimals?: number } = {}
+  opts: { timeoutMs?: number } = {}
+): Promise<void> {
+  return pollVaultBalance(
+    page,
+    `waitForVaultBalanceByFaucetId(${faucetId})`,
+    () => vaultBalanceByFaucetId(page, faucetId),
+    expected,
+    opts
+  );
+}
+
+/** Re-read `read` every 2s until it equals `expected`, or throw with both amounts and `diagnose`'s lines. */
+async function pollVaultBalance(
+  page: Page,
+  label: string,
+  read: () => Promise<bigint>,
+  expected: bigint,
+  opts: { timeoutMs?: number; decimals?: number },
+  diagnose: () => Promise<string> = async () => ''
 ): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? 120_000;
   const deadline = Date.now() + timeoutMs;
   let last = -1n;
   while (Date.now() < deadline) {
-    last = await vaultBalanceByFaucetId(page, faucetId);
+    last = await read();
     if (last === expected) return;
     await page.waitForTimeout(2_000);
   }
-  const decimals = opts.decimals;
-  const fmt = (value: bigint) =>
-    decimals == null ? value.toString() : `${fromBaseUnits(value, decimals)} (${value} base units)`;
+  const d = opts.decimals;
+  const fmt = (v: bigint) => (d == null ? v.toString() : `${fromBaseUnits(v, d)} (${v} base units)`);
   throw new Error(
-    `waitForVaultBalanceByFaucetId(${faucetId}) timed out after ${timeoutMs}ms.\n` +
+    `${label} timed out after ${timeoutMs}ms.\n` +
       `  expected vault: ${fmt(expected)}\n` +
-      `  actual vault:   ${fmt(last)}\n`
+      `  actual vault:   ${fmt(last)}\n` +
+      (await diagnose())
   );
 }
 

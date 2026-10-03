@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import {
   vaultBalance,
   vaultBalanceByFaucetId,
+  waitForVaultBalance,
   waitForVaultBalanceByFaucetId,
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
@@ -59,6 +60,31 @@ it('excludes a foreign faucet', async () => {
 
 it('answers 0n for a symbol the wallet does not hold', async () => {
   await expect(vaultBalance(makePage(state), 'NOPE')).resolves.toBe(0n);
+});
+
+it('rejects a symbol balance whose base units exceed safe integer precision', async () => {
+  const unsafe = {
+    balances: {
+      account: [{ tokenId: 'faucet-on-row', balance: 9_007_199_254.740992, metadata: { symbol: 'TST', decimals: 6 } }]
+    }
+  };
+  await expect(vaultBalance(makePage(unsafe), 'TST')).rejects.toThrow('safe integer');
+});
+
+it('keeps the unconsumed-note diagnostic when a symbol balance never settles', async () => {
+  let now = 0;
+  const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+  const page = makePage(state);
+  page.waitForTimeout = async delay => {
+    now += delay;
+  };
+  try {
+    await expect(waitForVaultBalance(page, 'TST', 1n, { timeoutMs: 2_000 })).rejects.toThrow(
+      /actual vault:\s+1500000000\n {2}unconsumed notes for TST: 0 base units/
+    );
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 const feeFaucetId = 'mdev1aqq7uydvt3kd3uguak79c3y92y337l2v_qr7qqq9wr6w';
@@ -156,15 +182,23 @@ it('waits for the exact faucet balance rather than a same-symbol balance', async
     }
   };
   const page = makePage(balances);
-  page.waitForTimeout = async () => {
+  // The same-symbol foreign row already holds the target, so only a waiter that reads the requested faucet polls.
+  const poll = jest.fn(async () => {
     balances.balances.account[0]!.balance = 2;
-  };
+  });
+  page.waitForTimeout = poll;
   await expect(waitForVaultBalanceByFaucetId(page, feeFaucetId, 2_000_000n)).resolves.toBeUndefined();
+  expect(poll).toHaveBeenCalledTimes(1);
 });
 
-it('fails with expected and actual amounts when the faucet balance never settles', async () => {
+it('fails with expected and actual amounts when only a foreign faucet holds the target', async () => {
   const balances = {
-    balances: { account: [{ tokenId: feeFaucetId, balance: 1, metadata: { decimals: 6 } }] }
+    balances: {
+      account: [
+        { tokenId: feeFaucetId, balance: 1, metadata: { decimals: 6 } },
+        { tokenId: otherFaucetId, balance: 2, metadata: { decimals: 6 } }
+      ]
+    }
   };
   let now = 0;
   const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
