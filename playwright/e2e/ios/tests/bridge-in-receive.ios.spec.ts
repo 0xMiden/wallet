@@ -1,3 +1,5 @@
+import { parseUnits } from 'viem';
+
 import { expect, test } from '../fixtures/two-simulators';
 
 /**
@@ -15,9 +17,14 @@ import { expect, test } from '../fixtures/two-simulators';
 test.describe('Bridge-IN receive (AggLayer, real Miden receipt)', () => {
   test.describe.configure({ mode: 'serial' });
 
-  // Base units delivered by the solver == the tracking row's amount (the
-  // AggLayer matcher pairs on exact amount + sender + recipient).
-  const AMOUNT = 50_000_000_000;
+  // The tracking row records the deposit in wei, as the deposit screen does; the
+  // bridge delivers it scaled by its ETH faucet's registry scale
+  // (AGGLAYER_BRIDGE_NOTE_SCALE in src/lib/agglayer/constant.ts). If the two drift,
+  // the delivery stops matching and this spec fails.
+  const AGGLAYER_SCALE = 10n;
+  const SOURCE_AMOUNT = '0.1';
+  const TRACKED_WEI = parseUnits(SOURCE_AMOUNT, 18);
+  const DELIVERED = TRACKED_WEI / 10n ** AGGLAYER_SCALE;
 
   test('a delivered note is reconciled and the bridged-receive row reaches received', async ({
     walletA,
@@ -47,18 +54,18 @@ test.describe('Bridge-IN receive (AggLayer, real Miden receipt)', () => {
     await steps.step('create_tracking_row', async () => {
       bridgeReceiveTxId = await walletA.createBridgeReceive({
         accountId: addressA!,
-        amount: String(AMOUNT),
+        amount: TRACKED_WEI.toString(),
         faucetId: '',
         provider: 'agglayer',
         sourceAddress: '0x000000000000000000000000000000000000dEaD',
-        sourceAmount: '0.1',
+        sourceAmount: SOURCE_AMOUNT,
         sourceSymbol: 'ETH'
       });
       expect(bridgeReceiveTxId, 'bridged-receive txId').toBeTruthy();
     });
 
     await steps.step('solver_delivers_note', async () => {
-      await midenCli.mint(faucetHex!, addressA!, AMOUNT, 'public');
+      await midenCli.mint(faucetHex!, addressA!, DELIVERED, 'public');
       await midenCli.sync();
     });
 

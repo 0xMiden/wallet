@@ -36,11 +36,14 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
   const ANVIL_PORT = 8545;
   const CHAIN_ID = 11155111;
   // The amount input caps at 6 decimals (CurrencyInput decimalsLimit=6), so the
-  // smallest ETH deposit is 0.000001 → parseUnits(.,18) = 1e12 base units. The
-  // matching Miden note must be minted for exactly that, so the solver faucet
-  // needs max_supply > 1e12 (see FAUCET_MAX_SUPPLY below).
+  // smallest ETH deposit is 0.000001 → parseUnits(.,18) = 1e12 wei, which the row
+  // records. The bridge delivers it scaled by its ETH faucet's registry scale
+  // (AGGLAYER_BRIDGE_NOTE_SCALE in src/lib/agglayer/constant.ts), so the solver
+  // mints 1e12 / 1e10 = 100 units.
   const DEPOSIT_ETH = '0.000001';
-  const FAUCET_MAX_SUPPLY = 1_000_000_000_000_000n; // 1e15, ample headroom over the 1e12 note
+  // The wallet's AGGLAYER_BRIDGE_NOTE_SCALE; if the two drift, the delivery stops matching and this spec fails.
+  const AGGLAYER_SCALE = 10n;
+  const FAUCET_MAX_SUPPLY = 1_000_000_000_000_000n; // 1e15, ample headroom over the 100-unit note
 
   const BRIDGE_ASSET_ABI = [
     {
@@ -159,7 +162,7 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
       });
 
       await steps.step('solver_delivers_note', async () => {
-        await midenCli.mint(faucetHex, addressA, BigInt(rowAmount), 'public');
+        await midenCli.mint(faucetHex, addressA, BigInt(rowAmount) / 10n ** AGGLAYER_SCALE, 'public');
         await midenCli.sync();
       });
 
