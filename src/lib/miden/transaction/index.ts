@@ -91,8 +91,11 @@ import {
   landedTransactionIdFields,
   landedValueRowFields,
   type LandedWithoutResult,
+  markAttemptPreSubmitEnd,
   markMayHaveSubmitted,
+  pinGuardianCrossing,
   recordBridgeNoteLanded,
+  recordLeafEnd,
   recordSubmitCrossing,
   setTransactionStage,
   updateTransactionStatus
@@ -151,7 +154,9 @@ import {
   errorMessageParts,
   extractLanded,
   extractSdkErrorCode,
+  hasErrorBeforeSubmit,
   isApplyAfterSubmitError,
+  isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
   isPoisonedPipeline,
   isStaleInitialCommitmentError,
@@ -1766,18 +1771,18 @@ const generateTransactionWithProvider = async (
     case 'consume': {
       // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
       // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
-      const stamp = canAwaitVerdict(transaction)
-        ? stageStampFor(transaction.id, attemptContextOf(transaction))
-        : undefined;
-      result = await midenClientProxy.consumeNoteId(
-        transaction as ConsumeTransaction,
-        expirationDeltaBlocks(false),
-        signCallback,
-        stamp
+      const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.consumeNoteId(
+          transaction as ConsumeTransaction,
+          expirationDeltaBlocks(false),
+          signCallback,
+          attempt && stageStampFor(transaction.id, attempt)
+        )
       );
       break;
     }
-    case 'send':
+    case 'send': {
       // The staged send stamps `executing`/`proving`/`submitting` as it runs so the
       // generating-transaction screen can time the proof + submit steps (#524).
       // Those stamps are keyed by the ROW id, which the offscreen write DTO
@@ -1788,21 +1793,29 @@ const generateTransactionWithProvider = async (
       // matters because the SW build (`vite.background.config.ts`) is the ONE build
       // that defaults the flag ON — a stage callback that rode the inline leaf only
       // would silently lose the timings on Chrome, the primary platform.
-      result = await midenClientProxy.sendTransaction(
-        transaction as SendTransaction,
-        expirationDeltaBlocks(false),
-        signCallback,
-        stageStampFor(transaction.id, attemptContextOf(transaction))
+      const attempt = attemptContextOf(transaction);
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.sendTransaction(
+          transaction as SendTransaction,
+          expirationDeltaBlocks(false),
+          signCallback,
+          stageStampFor(transaction.id, attempt)
+        )
       );
       break;
-    case 'swap':
-      result = await midenClientProxy.swapTransaction(
-        transaction as SwapTransaction,
-        expirationDeltaBlocks(false),
-        signCallback,
-        stageStampFor(transaction.id, attemptContextOf(transaction))
+    }
+    case 'swap': {
+      const attempt = attemptContextOf(transaction);
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.swapTransaction(
+          transaction as SwapTransaction,
+          expirationDeltaBlocks(false),
+          signCallback,
+          stageStampFor(transaction.id, attempt)
+        )
       );
       break;
+    }
     case 'bridged-send':
     case 'earn-deposit':
       // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
@@ -1830,12 +1843,16 @@ const generateTransactionWithProvider = async (
         // same shape it would have built. Persisted because the commitment carries a fresh salt;
         // the annotation is idempotent.
         // An earn deposit and an Epoch bridge stay unstamped: their callers need a terminal answer (#1081).
-        result = await midenClientProxy.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes,
-          transaction.delegateTransaction,
-          signCallback,
-          canAwaitVerdict(transaction) ? stageStampFor(transaction.id, attemptContextOf(transaction)) : undefined
+        const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+        const requestBytes = transaction.requestBytes;
+        result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+          midenClientProxy.newTransaction(
+            transaction.accountId,
+            requestBytes,
+            transaction.delegateTransaction,
+            signCallback,
+            attempt && stageStampFor(transaction.id, attempt)
+          )
         );
       } else {
         result = await midenClientProxy.sendTransaction(
@@ -1858,12 +1875,15 @@ const generateTransactionWithProvider = async (
           t.requestBytes = executeBytes;
         });
       }
-      result = await midenClientProxy.newTransaction(
-        transaction.accountId,
-        executeBytes,
-        transaction.delegateTransaction,
-        signCallback,
-        stageStampFor(transaction.id, attemptContextOf(transaction))
+      const attempt = attemptContextOf(transaction);
+      result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
+        midenClientProxy.newTransaction(
+          transaction.accountId,
+          executeBytes,
+          transaction.delegateTransaction,
+          signCallback,
+          stageStampFor(transaction.id, attempt)
+        )
       );
       break;
     }
@@ -2331,6 +2351,38 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   isOffscreenAvailable() &&
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
+// Where the proxy runs a non-Guardian write: read per call, like the Guardian route above, so tests can toggle it.
+const writeLeafRunsOffscreen = (): boolean =>
+  process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' && isOffscreenAvailable();
+
+/**
+ * Run one attempt's write leaf (#1081). An offscreen leaf tags every error it raises before its submit call, so an
+ * untagged failure (a result that failed to decode after the dispatch resolved, a serialize after the submit) may
+ * have crossed and gets an evidence-less 'end' entry. An in-realm leaf writes its stamp before it submits, so its
+ * stamp-free failure provably did not cross. A kill and the indefinite outcome are recorded by their own routes.
+ */
+const runWriteLeaf = async <T>(
+  txId: string,
+  attempt: AttemptContext | undefined,
+  offscreen: boolean,
+  leaf: () => Promise<T>
+): Promise<T> => {
+  try {
+    return await leaf();
+  } catch (error) {
+    if (
+      attempt !== undefined &&
+      offscreen &&
+      !isKilledPipeline(error) &&
+      !isIndefiniteSubmitOutcomeError(error) &&
+      !hasErrorBeforeSubmit(error)
+    ) {
+      await recordLeafEnd(txId, attempt);
+    }
+    throw error;
+  }
+};
+
 /**
  * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
  * guardian answering, with a message the unreachability classifier recognizes.
@@ -2653,22 +2705,27 @@ const generateDirectSwitchGuardianTransaction = async (
   // pinned to the reference block the hot/cold signatures authorized
   // (protocol 0.16).
   await setTransactionStage(transaction.id, 'sending');
+  const attempt = attemptContextOf(transaction);
   let result: TransactionResult;
   if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
-    result = await dispatchGuardianPipeline(
-      transaction.accountId,
-      tr.serialize(),
-      transaction.delegateTransaction,
-      signCallback,
-      stageStampFor(transaction.id, attemptContextOf(transaction)),
-      chainAnchorB64
+    // Serialized outside the leaf: a request that cannot serialize never crossed, so it leaves no entry.
+    const requestBytes = tr.serialize();
+    result = await runWriteLeaf(transaction.id, attempt, true, () =>
+      dispatchGuardianPipeline(
+        transaction.accountId,
+        requestBytes,
+        transaction.delegateTransaction,
+        signCallback,
+        stageStampFor(transaction.id, attempt),
+        chainAnchorB64
+      )
     );
   } else {
     result = await runGuardianPipeline(
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id, attemptContextOf(transaction)),
+      stageStampFor(transaction.id, attempt),
       chainAnchorB64
     );
   }
@@ -3563,6 +3620,7 @@ const generateGuardianTransaction = async (
 
     await requireBridgeSubmitClaim(transaction);
     await setTransactionStage(transaction.id, 'sending');
+    const attempt = attemptContextOf(transaction, proposalResult.nonce);
     if (offscreenLeaf) {
       // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-
       // signed request crosses as bytes: its extended advice map — where the hot
@@ -3601,7 +3659,7 @@ const generateGuardianTransaction = async (
       // vault-slot rejection included. A guardian send with no recall window
       // takes `createSendProposal` and caches nothing, so it is left alone.
       if (transaction.requestBytes !== undefined) {
-        await markMayHaveSubmitted(transaction.id);
+        await pinGuardianCrossing(transaction.id, attempt);
       }
       // Serialized before the flag is set: a request that cannot serialize never reached the leaf.
       const requestBytes = tr.serialize();
@@ -3612,13 +3670,15 @@ const generateGuardianTransaction = async (
       // has usually advanced past it during the guardian HTTP roundtrips, and an
       // unanchored execute derives a different summary the collected signatures
       // no longer authorize ("transaction is unauthorized").
-      result = await dispatchGuardianPipeline(
-        transaction.accountId,
-        requestBytes,
-        transaction.delegateTransaction,
-        signCallback,
-        stampStage,
-        chainAnchorB64
+      result = await runWriteLeaf(transaction.id, attempt, true, () =>
+        dispatchGuardianPipeline(
+          transaction.accountId,
+          requestBytes,
+          transaction.delegateTransaction,
+          signCallback,
+          stampStage,
+          chainAnchorB64
+        )
       );
     } else {
       result = await runGuardianPipeline(
@@ -3644,6 +3704,11 @@ const generateGuardianTransaction = async (
       }`,
       { error }
     );
+    // The leaf proved this attempt ended before its submit (#1081): retire its pin, so the locked-sign and
+    // unauthorized requeues and the Failed tail all inherit it and it blocks no other row's notes.
+    if (hasErrorBeforeSubmit(error) && transaction.attemptId !== undefined) {
+      await markAttemptPreSubmitEnd(transaction.id, transaction.attemptId);
+    }
     if (isPoisonedPipeline(error)) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the

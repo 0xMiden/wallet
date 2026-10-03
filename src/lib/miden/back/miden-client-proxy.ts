@@ -32,6 +32,7 @@ import type {
 } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -467,6 +468,7 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     if (resp.errorLanded !== undefined) Object.assign(err, { landed: resp.errorLanded });
+    if (resp.errorBeforeSubmit === true) markErrorBeforeSubmit(err);
     op.reject(err);
   }
 }
@@ -555,7 +557,19 @@ async function dispatchOp(
   deadlineMs: number | null,
   critical: boolean
 ): Promise<string | null> {
-  await ensureOffscreenDocument();
+  // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
+  // deadline could later close the document under every write in flight (#1081).
+  try {
+    await ensureOffscreenDocument();
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
+  let argsB64: string[];
+  try {
+    argsB64 = args.map(encodeArg);
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
   return new Promise<string | null>((resolve, reject) => {
     // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
     // is armed at EXECUTION START via `markOpStarted` when the op wins the offscreen
@@ -586,7 +600,7 @@ async function dispatchOp(
       type: OFFSCREEN_CALL,
       op_id,
       method,
-      argsB64: args.map(encodeArg),
+      argsB64,
       deadline_ms: deadlineMs
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc

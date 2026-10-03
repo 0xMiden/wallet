@@ -1193,6 +1193,65 @@ describe('MidenClientInterface', () => {
     expect(executeRequest).toHaveBeenCalledTimes(1);
   });
 
+  it('tags a failure raised before markSubmitting, never one at or after it (#1081)', async () => {
+    mockStagedSdk();
+    const { hasErrorBeforeSubmit } = jest.requireActual('./sdk-error-code');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    // A delegated prove that fails, then a local re-prove that fails too: both before the submit.
+    const failing = stagedExecuteRequest(() => {
+      throw new Error('prover exploded');
+    });
+    const failingClient = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: failing.executeRequest } }) as any,
+      'net'
+    );
+    const proveError = await failingClient.newTransaction('acc-id', new Uint8Array([1]), true).catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(proveError)).toBe(true);
+    // A submit the node refuses: at the submit.
+    const refused = stagedExecuteRequest();
+    refused.submit.mockRejectedValue(new Error('node refused'));
+    const refusedClient = MidenClientInterface.fromClient(
+      buildFakeMidenClient({ transactions: { executeRequest: refused.executeRequest } }) as any,
+      'net'
+    );
+    const submitError = await refusedClient
+      .newTransaction('acc-id', new Uint8Array([1]), true)
+      .catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(submitError)).toBe(false);
+  });
+
+  it('tags a recall sync that fails before any request exists (#1081)', async () => {
+    mockStagedSdk();
+    const { hasErrorBeforeSubmit } = jest.requireActual('./sdk-error-code');
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const staged = stagedExecuteRequest();
+    const client = MidenClientInterface.fromClient(
+      buildFakeMidenClient({
+        transactions: { executeRequest: staged.executeRequest },
+        sync: jest.fn(async () => {
+          throw new Error('sync failed');
+        })
+      }) as any,
+      'net'
+    );
+    const error = await client
+      .sendTransaction(
+        {
+          accountId: 'acc-id',
+          amount: BigInt(1),
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public',
+          type: 'send',
+          extraInputs: { recallBlocks: 10 }
+        } as any,
+        600
+      )
+      .catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+    expect(staged.executeRequest).not.toHaveBeenCalled();
+  });
+
   it('consumeNoteId returns TransactionResult', async () => {
     const staged = stagedExecuteRequest();
     // `consume` set here because the override replaces the default `transactions` wholesale, and

@@ -78,7 +78,7 @@ import {
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { isApplyAfterSubmitError } from './sdk-error-code';
+import { isApplyAfterSubmitError, markErrorBeforeSubmit } from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
 import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
@@ -1517,8 +1517,13 @@ export class MidenClientInterface {
     // fail for days (#308).
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
-      const syncResult = await this.client.sync();
-      reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
+      try {
+        const syncResult = await this.client.sync();
+        reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
+      } catch (error) {
+        // Before any request exists, so the attempt provably never crossed (#1081).
+        throw markErrorBeforeSubmit(error);
+      }
     }
 
     return proveWithFallback(
@@ -2430,7 +2435,8 @@ export async function proveWithFallback<T>(
         if (fallbackErr instanceof Error && fallbackErr.cause === undefined) {
           fallbackErr.cause = err;
         }
-        throw fallbackErr;
+        // Every attempt marks its submit, so an error from one that never did is before its submit (#1081).
+        throw submitReached ? fallbackErr : markErrorBeforeSubmit(fallbackErr);
       }
     }
     // The non-delegated path failed and there is nothing to fall back to. Kept
@@ -2440,7 +2446,7 @@ export async function proveWithFallback<T>(
     reportProve({ startedAt, step: 'prove_local', error: err });
     // Not retryable (local prove, already-submitted attempt, or an
     // apply-after-submit failure): the original error propagates unchanged.
-    throw err;
+    throw submitReached ? err : markErrorBeforeSubmit(err);
   } finally {
     telemetryAttempt.end();
   }

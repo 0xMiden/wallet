@@ -3505,3 +3505,82 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     expect(__test.inFlightOpIds()).toEqual([op_id]);
   });
 });
+
+describe('the errorBeforeSubmit tag across the bus (#1081)', () => {
+  it('rebuilds a tagged reply as a tagged error, and an untagged one untagged', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'pre',
+      errorBeforeSubmit: true
+    }));
+    const tagged = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    expect(hasErrorBeforeSubmit(await tagged)).toBe(true);
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'post'
+    }));
+    const untagged = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    expect(hasErrorBeforeSubmit(await untagged)).toBe(false);
+  });
+
+  it('never tags a rebuilt eviction', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.runtime.sendMessage.mockImplementationOnce(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'evicted',
+      errorName: 'WasmClientPoisonedError',
+      errorBeforeSubmit: true
+    }));
+    const poisoned = __test.dispatchCritical('sendTransaction', [{}], null).promise.catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    expect(hasErrorBeforeSubmit(await poisoned)).toBe(false);
+  });
+
+  it('a document that cannot be opened fails tagged and registers nothing', async () => {
+    const { __test } = await loadProxy(true);
+    const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+    fakeChrome.offscreen.createDocument.mockRejectedValueOnce(new Error('cannot create the document'));
+    const failed = await __test.dispatchCritical('sendTransaction', [{}], 20).promise.catch((e: unknown) => e);
+    expect(hasErrorBeforeSubmit(failed)).toBe(true);
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(__test.inFlightSize()).toBe(0);
+  });
+
+  it('an argument that cannot be encoded fails tagged, registers nothing, and kills no concurrent write', async () => {
+    jest.useFakeTimers();
+    try {
+      const { __test } = await loadProxy(true);
+      const { hasErrorBeforeSubmit } = await import('lib/miden/sdk/sdk-error-code');
+      fakeChrome.runtime.sendMessage.mockImplementation(() => new Promise(() => {}));
+      const live = __test.dispatchCritical('sendTransaction', [{}], 60_000);
+      let liveSettled = false;
+      live.promise.then(
+        () => (liveSettled = true),
+        () => (liveSettled = true)
+      );
+      // The first dispatch opens the document and waits for its ready signal.
+      await jest.advanceTimersByTimeAsync(0);
+      fireReady();
+      await jest.advanceTimersByTimeAsync(0);
+      const failed = await __test
+        .dispatchCritical('sendTransaction', [{ amount: 1n }], 20)
+        .promise.catch((e: unknown) => e);
+      expect(hasErrorBeforeSubmit(failed)).toBe(true);
+      expect(__test.inFlightOpIds()).toEqual([live.op_id]);
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(liveSettled).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

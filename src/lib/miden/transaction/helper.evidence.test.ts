@@ -1,6 +1,12 @@
 import * as Repo from 'lib/miden/repo';
 
-import { recordSubmitCrossing, updateTransactionStatus } from './helper';
+import {
+  markAttemptPreSubmitEnd,
+  pinGuardianCrossing,
+  recordLeafEnd,
+  recordSubmitCrossing,
+  updateTransactionStatus
+} from './helper';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -76,5 +82,52 @@ describe('updateTransactionStatus keeps the live evidence (#1081)', () => {
       expect.objectContaining({ attemptId: 'a1', transactionId: hex(1) })
     ]);
     expect(row?.neverCommittedAt).toBe(5);
+  });
+});
+
+describe('the Guardian pin and its retirement (#1081)', () => {
+  it('pins the crossing per attempt and records that it raised the flag', async () => {
+    await Repo.transactions.put(generating());
+    await pinGuardianCrossing('tx-1', { attemptId: 'a1', fromExecute: true, guardianProposalNonce: 4 });
+    const row = await read();
+    expect(row?.mayHaveSubmitted).toBe(true);
+    expect(row?.submitEvidence?.[0]).toMatchObject({
+      source: 'pin',
+      raisedFlag: true,
+      guardianProposalNonce: 4,
+      fromExecute: true
+    });
+  });
+
+  it('retires the pin and clears only the flag the pin raised', async () => {
+    await Repo.transactions.put(generating());
+    await pinGuardianCrossing('tx-1', attempt);
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    const row = await read();
+    expect(row?.submitEvidence?.[0]?.preSubmitEnd).toBe(true);
+    expect(row?.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('never clears a flag an earlier crossing raised', async () => {
+    await Repo.transactions.put(generating({ mayHaveSubmitted: true }));
+    await pinGuardianCrossing('tx-1', attempt);
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    expect((await read())?.mayHaveSubmitted).toBe(true);
+  });
+
+  it('a late stamp may fill the retired entry but never clears its mark', async () => {
+    await Repo.transactions.put(generating());
+    await pinGuardianCrossing('tx-1', attempt);
+    await markAttemptPreSubmitEnd('tx-1', 'a1');
+    await recordSubmitCrossing('tx-1', { refBlock: 3 }, attempt);
+    expect((await read())?.submitEvidence?.[0]).toMatchObject({ preSubmitEnd: true, refBlock: 3 });
+  });
+
+  it('records an evidence-less end for an offscreen failure that cannot prove it came first', async () => {
+    await Repo.transactions.put(generating({ type: 'execute' }));
+    await recordLeafEnd('tx-1', { attemptId: 'a1', fromExecute: true });
+    expect((await read())?.submitEvidence).toEqual([
+      { attemptId: 'a1', capturedAt: expect.any(Number), source: 'end', fromExecute: true }
+    ]);
   });
 });

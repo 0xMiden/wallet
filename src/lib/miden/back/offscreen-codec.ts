@@ -166,7 +166,8 @@ export interface OffscreenCallRequest {
  * rebuilt error names the mechanism that actually fired rather than guessing.
  * `errorLanded` carries what an `ApplyAfterSubmitError` could read about the executed
  * transaction, its id and private output note count, so a landed row the service
- * worker completes still records both (#1233).
+ * worker completes still records both (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
+ * before its submit call (#1081).
  */
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
@@ -178,6 +179,7 @@ export type OffscreenCallResponse =
       errorLanded?: LandedTransaction;
       errorName?: string;
       errorReason?: string;
+      errorBeforeSubmit?: true;
     };
 
 /**

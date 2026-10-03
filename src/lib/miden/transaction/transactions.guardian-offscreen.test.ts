@@ -60,7 +60,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The distinctive co-signed-request bytes the mock `signAndCreateTransactionRequest`
@@ -2369,6 +2369,52 @@ describe('guardian leaf records the submit crossing', () => {
 
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
     expect(flagAtDispatch()).toBeUndefined();
+  });
+});
+
+/**
+ * Run the recallable Guardian send of the crossing tests above, offscreen, with `overrides` on its row, swallow the
+ * leaf's failure and return what the row stored about its attempt.
+ */
+async function runGuardianRowExpectingFailure(
+  overrides: Record<string, unknown>
+): Promise<Pick<ITransaction, 'submitEvidence' | 'mayHaveSubmitted'>> {
+  process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+  const id = 'pin-retire';
+  const row = {
+    type: 'send',
+    secondaryAccountId: 'r',
+    faucetId: 'f',
+    amount: '1',
+    extraInputs: { recallBlocks: 100 },
+    ...overrides
+  };
+  arrange(id, row);
+  await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never).catch(() => undefined);
+  expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+  const stored = txStore.find(r => r.id === id);
+  return {
+    submitEvidence: Array.isArray(stored?.submitEvidence) ? stored.submitEvidence : undefined,
+    mayHaveSubmitted: typeof stored?.mayHaveSubmitted === 'boolean' ? stored.mayHaveSubmitted : undefined
+  };
+}
+
+describe('the pin is per attempt and retires on a tagged failure (#1081)', () => {
+  it('a tagged failure marks the pin preSubmitEnd and clears the flag it raised', async () => {
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(
+      markErrorBeforeSubmit(new Error('transaction execution failed: transaction is unauthorized'))
+    );
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence).toEqual([expect.objectContaining({ source: 'pin', preSubmitEnd: true })]);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('an untagged failure keeps the pin and the flag', async () => {
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(new Error('guardianPipeline: result decode failed'));
+    const row = await runGuardianRowExpectingFailure({ type: 'send', requestBytes: new Uint8Array([1]) });
+    expect(row.submitEvidence?.[0]?.preSubmitEnd).toBeUndefined();
+    expect(row.mayHaveSubmitted).toBe(true);
   });
 });
 

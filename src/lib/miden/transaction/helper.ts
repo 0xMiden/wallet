@@ -660,6 +660,76 @@ export const recordSubmitCrossing = async (
 };
 
 /**
+ * The Guardian leaf's pre-dispatch pin, per attempt (#1081). A realm killed between submit and the replayed stamp
+ * leaves the row looking never-broadcast, so the crossing is pinned before dispatch. `raisedFlag` records that this
+ * pin, not an earlier crossing, set `mayHaveSubmitted`, which is what lets the leaf retire it.
+ */
+export const pinGuardianCrossing = async (id: string, attempt: AttemptContext): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    const raised = tx.mayHaveSubmitted !== true;
+    tx.mayHaveSubmitted = true;
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attempt.attemptId,
+      {
+        source: 'pin',
+        guardianProposalNonce: attempt.guardianProposalNonce,
+        fromExecute: attempt.fromExecute,
+        ...(raised ? { raisedFlag: true } : {})
+      },
+      nowSec
+    );
+  });
+};
+
+/**
+ * The attempt's leaf proved it ended before its submit call (#1081): its entry is ruled out everywhere, and the
+ * `mayHaveSubmitted` its pin raised is cleared, never one an earlier crossing raised. Never throws: it runs in the
+ * leaf's catch, whose own error is the one the row must record.
+ */
+export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
+      if (entry === undefined) return false;
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attemptId,
+        { source: entry.source, preSubmitEnd: true },
+        nowSec
+      );
+      if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
+      return undefined;
+    });
+  } catch (error) {
+    console.warn(`[submit-evidence] could not retire the pin of attempt ${attemptId} on ${id}`, error);
+  }
+};
+
+/**
+ * An offscreen leaf failed without proving it came before its submit (#1081), so the attempt gets an evidence-less
+ * entry: a run that submitted and then lost both its stamp and its result's decode is never invisible to the safe
+ * rule. Never throws, for the same reason as `markAttemptPreSubmitEnd`.
+ */
+export const recordLeafEnd = async (id: string, attempt: AttemptContext): Promise<void> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  try {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.submitEvidence = upsertEvidenceEntry(
+        tx.submitEvidence,
+        attempt.attemptId,
+        { source: 'end', fromExecute: attempt.fromExecute, guardianProposalNonce: attempt.guardianProposalNonce },
+        nowSec
+      );
+    });
+  } catch (error) {
+    console.warn(`[submit-evidence] could not record the end of attempt ${attempt.attemptId} on ${id}`, error);
+  }
+};
+
+/**
  * Claim the submit point of an Epoch bridged-send, in the same write that checks
  * the row is not Failed. A `markBridgedSendFailed` that already abandoned the
  * bridge stops the pipeline here (the claim returns false and writes nothing),

@@ -3113,10 +3113,90 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       const resp = sendResponse.mock.calls[0][0];
       expect(resp.ok).toBe(false);
       expect(resp.error).toMatch(/expiration delta/);
+      expect(resp.errorBeforeSubmit).toBe(true);
       const leaves: Record<string, jest.Mock> = {
         sendTransaction: G.__off.clientSendTransaction,
         swapTransaction: G.__off.clientSwapTransaction,
         consumeNoteId: G.__off.clientConsumeNoteId
+      };
+      expect(leaves[method]).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['sendTransaction', 'swapTransaction', 'consumeNoteId', 'newTransaction'])(
+    '%s: a result that cannot serialize after the submit replies untagged (#1081)',
+    async method => {
+      await loadModule();
+      const unserializable = {
+        serialize: () => {
+          throw new Error('serialize failed');
+        }
+      };
+      G.__off.clientSendTransaction = jest.fn(async () => unserializable);
+      G.__off.clientSwapTransaction = jest.fn(async () => unserializable);
+      G.__off.clientConsumeNoteId = jest.fn(async () => unserializable);
+      G.__off.clientNewTransaction = jest.fn(async () => unserializable);
+      const sendResponse = jest.fn();
+      const args: Record<string, unknown[]> = {
+        sendTransaction: [
+          {
+            accountId: 'a',
+            secondaryAccountId: 'b',
+            faucetId: 'f',
+            noteType: 'public',
+            amount: '1',
+            extraInputs: {},
+            expirationDelta: 600
+          }
+        ],
+        swapTransaction: [
+          {
+            accountId: 'a',
+            faucetId: 'f',
+            amount: '1',
+            extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' },
+            expirationDelta: 600
+          }
+        ],
+        consumeNoteId: [{ accountId: 'a', noteId: 'n', noteIds: ['n'], expirationDelta: 600 }],
+        newTransaction: ['a', new Uint8Array([1]), false]
+      };
+      capturedListener!(callReq({ method, argsB64: args[method]!.map(encodeArg) }), {}, sendResponse);
+      await flush();
+      expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+      expect(sendResponse.mock.calls[0][0].errorBeforeSubmit).toBeUndefined();
+    }
+  );
+
+  it.each(['sendTransaction', 'swapTransaction'])(
+    '%s: an amount that cannot decode replies tagged, before the leaf runs (#1081)',
+    async method => {
+      await loadModule();
+      const sendResponse = jest.fn();
+      const dtos: Record<string, object> = {
+        sendTransaction: {
+          accountId: 'a',
+          secondaryAccountId: 'b',
+          faucetId: 'f',
+          noteType: 'public',
+          amount: 'not-a-number',
+          extraInputs: {},
+          expirationDelta: 600
+        },
+        swapTransaction: {
+          accountId: 'a',
+          faucetId: 'f',
+          amount: '1',
+          extraInputs: { requestedFaucetId: 'g', requestedAmount: 'not-a-number' },
+          expirationDelta: 600
+        }
+      };
+      capturedListener!(callReq({ method, argsB64: [encodeArg(dtos[method])] }), {}, sendResponse);
+      await flush();
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+      const leaves: Record<string, jest.Mock> = {
+        sendTransaction: G.__off.clientSendTransaction,
+        swapTransaction: G.__off.clientSwapTransaction
       };
       expect(leaves[method]).not.toHaveBeenCalled();
     }
@@ -3951,6 +4031,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp).toMatchObject({ ok: false, error: 'node refused the proven transaction' });
     expect(resp.errorCode).toBeUndefined();
     expect(resp.errorName).toBeUndefined();
+    expect(resp.errorBeforeSubmit).toBeUndefined();
   });
 
   it('guardianPipeline: an apply error that cannot be stringified still replies with the apply-after-submit code (#1233)', async () => {
@@ -3999,6 +4080,17 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       {},
       sendResponse
     );
+
+  it('guardianPipeline: a failure before the submit call replies tagged (#1081)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      throw new Error('transaction execution failed: transaction is unauthorized');
+    });
+    const sendResponse = jest.fn();
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+  });
 
   it('guardianPipeline: the submitting stamp carries the evidence read before submit (#1081)', async () => {
     await loadModule();
