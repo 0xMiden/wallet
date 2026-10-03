@@ -90,7 +90,7 @@
   "earnSeeAll": "모두 보기",
   "earnNoActivePositionsTitle": "활성 포지션 없음",
   "earnNoActivePositionsBody": "아래 금고에 입금하여 보상을 받기 시작하세요.",
-  "earnVaultsTitle": "추천 금고",
+  "earnVaultsTitle": "이용 가능한 금고",
   "earnApyLabel": "APY",
   "earnVaultAssetOnNetwork": "$asset$ $network$에서",
   "earnCurrentPositionsTitle": "현재 포지션",
