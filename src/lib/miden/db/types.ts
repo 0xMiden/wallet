@@ -98,6 +98,21 @@ export type ITransactionType =
   | 'swap'
   | 'update-procedure-threshold';
 
+/** Each type's own display icon, as its class constructor below sets it: what a row shows when it is not failed. */
+export const ICON_BY_TYPE: Readonly<Record<ITransactionType, ITransactionIcon>> = {
+  send: 'SEND',
+  consume: 'RECEIVE',
+  execute: 'DEFAULT',
+  'bridged-send': 'SEND',
+  'bridged-receive': 'RECEIVE',
+  'earn-deposit': 'DEFAULT',
+  'earn-withdraw': 'DEFAULT',
+  'switch-guardian': 'DEFAULT',
+  'replace-hot-key': 'DEFAULT',
+  swap: 'SWAP',
+  'update-procedure-threshold': 'DEFAULT'
+};
+
 /**
  * Structural Guardian operations: they rewrite the account's own authorization rather
  * than move value. Activity draws them alike, and none of them is requeueable.

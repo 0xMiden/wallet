@@ -14,8 +14,10 @@ import { compareAccountIds } from '../activity/utils';
 import {
   hasLeftQueue,
   IBridgedSendExtraInputs,
+  ICON_BY_TYPE,
   INoteDeliveryState,
   ITransaction,
+  ITransactionIcon,
   ITransactionStage,
   ITransactionStatus,
   SubmitEvidenceFields,
@@ -529,10 +531,13 @@ export const landedValueRowFields = (
  */
 export const verifiedLandingRowFields = (
   tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>
-): { displayMessage: string; noteDelivery?: 'undelivered' } =>
-  tx.noteDelivery === undefined || tx.noteDelivery === 'undelivered'
+): { displayMessage: string; displayIcon: ITransactionIcon; noteDelivery?: 'undelivered' } => ({
+  // A Failed row carries the failed icon, which Activity draws for any status.
+  displayIcon: ICON_BY_TYPE[tx.type],
+  ...(tx.noteDelivery === undefined || tx.noteDelivery === 'undelivered'
     ? landedValueRowFields(tx)
-    : { displayMessage: applyLandedDisplayMessage(tx) };
+    : { displayMessage: applyLandedDisplayMessage(tx) })
+});
 
 /**
  * Reconcile a Failed row that the node says actually LANDED.
@@ -583,9 +588,10 @@ export const applyVerifiedLanding = (tx: ITransaction, otherValues: Partial<ITra
   tx.status = ITransactionStatus.Completed;
   tx.stage = 'complete';
   // The failure is no longer the row's story; leaving it behind renders a
-  // completed transaction with an error on it.
+  // completed transaction with an error on it, or with the failed icon.
   tx.error = undefined;
   tx.rawError = undefined;
+  if (tx.displayIcon === 'FAILED') tx.displayIcon = ICON_BY_TYPE[tx.type];
 };
 
 /**

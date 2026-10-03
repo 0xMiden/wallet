@@ -17,8 +17,8 @@ import { awaitingVerdict, evidenceKey, isUnresolvedEntry, keptCandidateHoldUntil
 import {
   IBridgeProvider,
   IBridgedSendExtraInputs,
+  ICON_BY_TYPE,
   ITransaction,
-  ITransactionIcon,
   ITransactionStage,
   ITransactionStatus,
   ITransactionType,
@@ -89,15 +89,6 @@ export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>)
   if (tx.type !== 'bridged-send') return undefined;
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
   return extra?.provider;
-};
-
-/** Pre-failure display icon per type (mirrors the Transaction subclass constructors). */
-const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
-  send: 'SEND',
-  consume: 'RECEIVE',
-  swap: 'SWAP',
-  'bridged-send': 'SEND',
-  execute: 'DEFAULT'
 };
 
 /**
@@ -540,7 +531,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan): Promise<RequeueWri
     dbTx.error = undefined;
     dbTx.rawError = undefined;
     dbTx.displayMessage = undefined;
-    dbTx.displayIcon = ICON_BY_TYPE[dbTx.type] ?? 'DEFAULT';
+    dbTx.displayIcon = ICON_BY_TYPE[dbTx.type];
     // The safe marker belongs to the attempts it judged; the evidence stays, so an earlier attempt can still land.
     dbTx.neverCommittedAt = undefined;
     // A proven row's attempts are all dead, so its send bytes may be rebuilt like a pre-submit failure's.

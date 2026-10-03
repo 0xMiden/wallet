@@ -1,7 +1,15 @@
 import * as Repo from 'lib/miden/repo';
 
-import { setTransactionStage, updateTransactionStatus, waitForTransactionCompletion } from './helper';
+import {
+  completeVerifiedLandedTransaction,
+  setTransactionStage,
+  updateTransactionStatus,
+  verifiedLandingRowFields,
+  waitForTransactionCompletion
+} from './helper';
 import { ITransaction, ITransactionStatus } from '../db/types';
+
+jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
 
 const unconfirmed = (overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'tx-u',
@@ -34,6 +42,20 @@ describe('Unconfirmed rows are past the pipeline (#1081)', () => {
     await Repo.transactions.put(unconfirmed());
     await setTransactionStage('tx-u', 'confirming');
     expect((await read())?.stage).toBe('sending');
+  });
+});
+
+describe('a row proven landed takes its type`s icon (#1081)', () => {
+  it('verifiedLandingRowFields carries it', () => {
+    expect(verifiedLandingRowFields({ type: 'swap', accountId: 'acct' })).toMatchObject({ displayIcon: 'SWAP' });
+  });
+
+  it('the landed write replaces a Failed row`s icon when its caller passes none', async () => {
+    await Repo.transactions.put(
+      unconfirmed({ type: 'consume', status: ITransactionStatus.Failed, displayIcon: 'FAILED' })
+    );
+    await completeVerifiedLandedTransaction('tx-u');
+    expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, displayIcon: 'RECEIVE' });
   });
 });
 

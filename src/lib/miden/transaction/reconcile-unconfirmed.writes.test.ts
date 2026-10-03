@@ -109,6 +109,16 @@ describe('the landed write (#1081)', () => {
     expect(reportOperation).toHaveBeenCalledWith({ operation: expect.any(String), result: 'completed' });
   });
 
+  it.each<[ITransaction['type'], ITransaction['displayIcon']]>([
+    ['send', 'SEND'],
+    ['swap', 'SWAP'],
+    ['execute', 'DEFAULT']
+  ])('a Failed %s that landed stops drawing as failed: it takes its type`s icon', async (type, icon) => {
+    await Repo.transactions.put(unconfirmed({ type, status: ITransactionStatus.Failed, displayIcon: 'FAILED' }));
+    await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
+    expect(await read()).toMatchObject({ status: ITransactionStatus.Completed, displayIcon: icon });
+  });
+
   it('marks a private send undelivered', async () => {
     await Repo.transactions.put(unconfirmed({ noteType: 'private' }));
     await judgeAndWrite('tx-1', context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } })));
