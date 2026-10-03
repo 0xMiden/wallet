@@ -24,6 +24,7 @@ import {
   completeConsumeTransaction,
   forceCaneclAllInProgressTransactions,
   initiateConsumeTransaction,
+  markAgglayerExitUnfiled,
   markBridgedSendFailed,
   pinAgglayerDeposit,
   recordAgglayerExitTxHash,
@@ -1661,6 +1662,40 @@ describe('recordAgglayerExitTxHash (#1325)', () => {
     pushRow(undefined);
     await recordAgglayerExitTxHash('bs-4', '0xexit');
     expect(extraInputs()).toBeUndefined();
+  });
+});
+
+describe('markAgglayerExitUnfiled (#1325)', () => {
+  const pushRow = (extraInputs: Record<string, unknown> | undefined) =>
+    txStore.push({ id: 'bs-5', type: 'bridged-send', status: ITransactionStatus.Completed, extraInputs });
+  const extraInputs = () => txStore.find(t => t.id === 'bs-5')!.extraInputs;
+
+  it('marks an unpinned Agglayer row', async () => {
+    pushRow({ provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHash: '0xexit' });
+    await markAgglayerExitUnfiled('bs-5');
+    expect(extraInputs()).toEqual({
+      provider: 'agglayer',
+      claimStatus: 'pending',
+      agglayerExitTxHash: '0xexit',
+      agglayerExitUnfiled: true
+    });
+  });
+
+  it.each([
+    ['a pinned Agglayer row', { provider: 'agglayer', claimStatus: 'pending', agglayerDepositCnt: 16 }],
+    ['an Epoch row', { provider: 'epoch', epochStatus: 'pending' }],
+    ['a row with no extraInputs', undefined]
+  ])('never marks %s', async (_label, recorded) => {
+    pushRow(recorded);
+    await markAgglayerExitUnfiled('bs-5');
+    expect(extraInputs()).toEqual(recorded);
+  });
+
+  it('never overwrites a mark already stored', async () => {
+    pushRow({ provider: 'agglayer', claimStatus: 'pending', agglayerExitUnfiled: true });
+    const stored = extraInputs();
+    await markAgglayerExitUnfiled('bs-5');
+    expect(extraInputs()).toBe(stored);
   });
 });
 

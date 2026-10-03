@@ -190,6 +190,11 @@ export interface IBridgedSendExtraInputs {
   agglayerExitTxHash?: string;
   /** agglayer: none of this row's bytes held its note, so it has no exit hash and is never looked up. */
   agglayerExitTxHashUnavailable?: true;
+  /**
+   * agglayer: a search of the address's whole history missed this row's exit, and the row was initiated before the
+   * indexer's renumbering (`MIDEN_CHAIN_ID_RENUMBERED_AT`), so it is never looked up again.
+   */
+  agglayerExitUnfiled?: true;
   /** agglayer: `deposit_cnt` of the bound exit deposit, pinned once the indexer first reports it. */
   agglayerDepositCnt?: number;
   /** epoch: solver/intent hash (informational). */

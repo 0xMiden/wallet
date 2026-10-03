@@ -64,9 +64,10 @@ jest.mock('lib/miden-chain/faucet-api', () => ({
 }));
 
 const bridgeRows: ITransaction[] = [];
-const findExitDeposit = jest.fn();
+const searchExitDeposit = jest.fn();
 const updateClaimStatus = jest.fn();
 const pinDeposit = jest.fn();
+const markUnfiled = jest.fn();
 const recordExitHash = jest.fn();
 const exitHashFromRowBytes = jest.fn();
 const sdkReady = jest.fn();
@@ -87,15 +88,16 @@ jest.mock('lib/agglayer', () => {
   const status = jest.requireActual('lib/agglayer/status');
   return {
     agglayerClaimedFields: status.agglayerClaimedFields,
-    findAgglayerExitDeposit: (...args: unknown[]) => findExitDeposit(...args),
     isAgglayerDepositClaimed: status.isAgglayerDepositClaimed,
     isAgglayerDepositReady: status.isAgglayerDepositReady,
-    isAgglayerExitUnfindable: status.isAgglayerExitUnfindable
+    isAgglayerExitUnfindable: status.isAgglayerExitUnfindable,
+    searchAgglayerExitDeposit: (...args: unknown[]) => searchExitDeposit(...args)
   };
 });
 jest.mock('lib/miden/transaction/complete', () => ({
   updateBridgeClaimStatus: (...args: unknown[]) => updateClaimStatus(...args),
   pinAgglayerDeposit: (...args: unknown[]) => pinDeposit(...args),
+  markAgglayerExitUnfiled: (...args: unknown[]) => markUnfiled(...args),
   recordAgglayerExitTxHash: (...args: unknown[]) => recordExitHash(...args),
   // The one shared source of the bridged-send landed display values (#1250) -
   // stubbed rather than the real function so this suite stays about
@@ -1849,13 +1851,16 @@ describe('bridge prompts', () => {
       extraInputs: { provider: 'epoch' },
       ...over
     }) as ITransaction;
+  // What the exit search answers when it finds `deposit`.
+  const found = (deposit: Record<string, unknown>) => ({ deposit, complete: true });
 
   beforeEach(() => {
     jest.clearAllMocks();
     bridgeRows.splice(0);
-    findExitDeposit.mockResolvedValue(undefined);
+    searchExitDeposit.mockResolvedValue({ deposit: null, complete: false });
     updateClaimStatus.mockResolvedValue(undefined);
     pinDeposit.mockResolvedValue(undefined);
+    markUnfiled.mockReset().mockResolvedValue(undefined);
     recordExitHash.mockReset().mockResolvedValue(undefined);
     exitHashFromRowBytes.mockReset();
     sdkReady.mockReset().mockResolvedValue(undefined);
@@ -1936,8 +1941,9 @@ describe('bridge prompts', () => {
     expect(active.map(tx => tx.id)).toEqual(['agg-bound']);
   });
 
-  // Before the renumbering the indexer filed exits under network 78, which it no longer serves, so a row from then
-  // that was never found under 86 can never be looked up. The auto-claimer claimed every network-78 exit (#1325).
+  // Before the renumbering the indexer filed exits under network 78, which it no longer serves, and the auto-claimer
+  // claimed every one. So a row from then is retired once a search of its address's whole history misses; a later
+  // row's exit may not be filed yet, so a miss never retires it (#1325).
   describe('a Slow bridge-out from before the indexer renumbering', () => {
     const slowRow = (id: string, initiatedAt: number, agglayerDepositCnt?: number) =>
       baseBridge({
@@ -1952,31 +1958,98 @@ describe('bridge prompts', () => {
         }
       });
 
-    it('is neither looked up nor prompted when it was never found under the new id', async () => {
+    it('is marked unfiled once a search of the whole history misses, then neither looked up nor prompted', async () => {
+      searchExitDeposit.mockResolvedValue({ deposit: null, complete: true });
+      // The store's write, applied to the row the next pass reads.
+      markUnfiled.mockImplementation(async (id: string) => {
+        const row = bridgeRows.find(tx => tx.id === id);
+        if (row) row.extraInputs = { ...row.extraInputs, agglayerExitUnfiled: true };
+      });
       bridgeRows.push(slowRow('agg-before', at(-1)));
 
       await reconcileBridgedSends();
 
-      expect(findExitDeposit).not.toHaveBeenCalled();
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined);
+      expect(markUnfiled.mock.calls).toEqual([['agg-before']]);
       expect(await fetchActiveBridgePrompts('acct-1')).toEqual([]);
+
+      searchExitDeposit.mockClear();
+      await reconcileBridgedSends();
+
+      expect(searchExitDeposit).not.toHaveBeenCalled();
     });
 
-    it('is still polled and prompted once it was pinned under the new id', async () => {
-      bridgeRows.push(slowRow('agg-before-pinned', at(-1), 16));
+    it.each([
+      ['a search cut short', slowRow('agg-before-cut-short', at(-1)), false],
+      ['a row pinned under the new id', slowRow('agg-before-pinned', at(-1), 16), true],
+      ['a row from the moment of the renumbering on', slowRow('agg-after', at(0)), true]
+    ])('marks nothing on a miss by %s, which stays polled and prompted', async (_label, row, complete) => {
+      searchExitDeposit.mockResolvedValue({ deposit: null, complete });
+      bridgeRows.push(row);
 
       await reconcileBridgedSends();
 
-      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', 16);
-      expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['agg-before-pinned']);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', row.extraInputs.agglayerDepositCnt);
+      expect(markUnfiled).not.toHaveBeenCalled();
+      expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual([row.id]);
     });
 
-    it('leaves a row from the moment of the renumbering on unaffected', async () => {
-      bridgeRows.push(slowRow('agg-after', at(0)));
+    // The real lookup against an indexer serving the address's history newest first, ten to a page.
+    const exitAt = (cnt: number) => ({
+      network_id: 86,
+      dest_net: 0,
+      tx_hash: `0x${cnt.toString(16).padStart(64, '0')}`,
+      deposit_cnt: cnt,
+      ready_for_claim: true,
+      claim_tx_hash: '0xauto'
+    });
+    const withIndexer = async (history: ReturnType<typeof exitAt>[], run: () => Promise<void>) => {
+      const fetchBefore = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+      Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        writable: true,
+        value: async (url: string) => {
+          const offset = Number(new URL(url).searchParams.get('offset'));
+          return {
+            ok: true,
+            json: async () => ({ deposits: history.slice(offset, offset + 10), total_cnt: String(history.length) })
+          };
+        }
+      });
+      try {
+        await run();
+      } finally {
+        if (fetchBefore) Object.defineProperty(globalThis, 'fetch', fetchBefore);
+        else Reflect.deleteProperty(globalThis, 'fetch');
+      }
+    };
 
-      await reconcileBridgedSends();
+    it('pins and settles a pre-cutoff row found on page 2', async () => {
+      const status: typeof import('lib/agglayer/status') = jest.requireActual('lib/agglayer/status');
+      searchExitDeposit.mockImplementation(status.searchAgglayerExitDeposit);
+      const mine = exitAt(9);
+      bridgeRows.push(
+        baseBridge({
+          id: 'agg-before-page-2',
+          initiatedAt: at(-1),
+          extraInputs: {
+            provider: 'agglayer',
+            claimStatus: 'pending',
+            destinationAddress: '0xdest',
+            agglayerExitTxHash: mine.tx_hash
+          }
+        })
+      );
 
-      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined);
-      expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['agg-after']);
+      await withIndexer([...Array.from({ length: 10 }, (_, i) => exitAt(10 + i)), mine], reconcileBridgedSends);
+
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', mine.tx_hash, undefined);
+      expect(updateClaimStatus).toHaveBeenCalledWith(
+        'agg-before-page-2',
+        'claimed',
+        { claimTxHash: '0xauto', agglayerDepositCnt: 9 },
+        mine.tx_hash
+      );
     });
   });
 
@@ -2038,7 +2111,7 @@ describe('bridge prompts', () => {
   });
 
   it('flips a pending AggLayer bridge to ready, pinned, once its own deposit is claimable', async () => {
-    findExitDeposit.mockResolvedValue({ tx_hash: '0xAAA1', deposit_cnt: 7, ready_for_claim: true });
+    searchExitDeposit.mockResolvedValue(found({ tx_hash: '0xAAA1', deposit_cnt: 7, ready_for_claim: true }));
     const claimable = baseBridge({
       id: 'agg-ready',
       extraInputs: {
@@ -2054,7 +2127,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(claimable, stillProving, notBridge);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledTimes(1);
+    expect(searchExitDeposit).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith(
       'agg-ready',
       'ready',
@@ -2079,7 +2152,7 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', 16);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', 16);
   });
 
   // The bridge's auto-claimer claims every exit minutes after it is ready, so a claim by anyone settles the row,
@@ -2087,12 +2160,14 @@ describe('bridge prompts', () => {
   it.each(['pending', 'ready', 'claiming', 'failed'])(
     'settles a %s row once its own deposit is claimed, with the indexer claim hash',
     async claimStatus => {
-      findExitDeposit.mockResolvedValue({
-        tx_hash: '0xexit',
-        deposit_cnt: 16,
-        ready_for_claim: true,
-        claim_tx_hash: '0xauto'
-      });
+      searchExitDeposit.mockResolvedValue(
+        found({
+          tx_hash: '0xexit',
+          deposit_cnt: 16,
+          ready_for_claim: true,
+          claim_tx_hash: '0xauto'
+        })
+      );
       bridgeRows.push(
         baseBridge({
           id: 'agg-auto-claimed',
@@ -2124,11 +2199,11 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).not.toHaveBeenCalled();
+    expect(searchExitDeposit).not.toHaveBeenCalled();
   });
 
   it('writes nothing for a ready row whose deposit is still unclaimed', async () => {
-    findExitDeposit.mockResolvedValue({ tx_hash: '0xexit', deposit_cnt: 16, ready_for_claim: true });
+    searchExitDeposit.mockResolvedValue(found({ tx_hash: '0xexit', deposit_cnt: 16, ready_for_claim: true }));
     bridgeRows.push(
       baseBridge({
         id: 'agg-ready-unclaimed',
@@ -2142,7 +2217,7 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledTimes(1);
+    expect(searchExitDeposit).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
@@ -2164,7 +2239,7 @@ describe('bridge prompts', () => {
           url.includes('/bridge?') ? { deposit: url.endsWith('deposit_cnt=5') ? sibling : mine } : { deposits: [mine] }
       })
     });
-    findExitDeposit.mockImplementation(status.findAgglayerExitDeposit);
+    searchExitDeposit.mockImplementation(status.searchAgglayerExitDeposit);
     const row = baseBridge({
       id: 'agg-stale-pin',
       extraInputs: {
@@ -2189,7 +2264,7 @@ describe('bridge prompts', () => {
     }
 
     expect(pinDeposit.mock.calls).toEqual([['agg-stale-pin', 16]]);
-    expect(findExitDeposit.mock.calls.map(call => call[2])).toEqual([5, 16]);
+    expect(searchExitDeposit.mock.calls.map(call => call[2])).toEqual([5, 16]);
     expect(warn.mock.calls.filter(([message]) => String(message).includes('no longer carries this exit'))).toHaveLength(
       1
     );
@@ -2198,7 +2273,7 @@ describe('bridge prompts', () => {
   });
 
   it('pins a deposit the indexer has filed but not readied, and only once', async () => {
-    findExitDeposit.mockResolvedValue({ tx_hash: '0xexit', deposit_cnt: 17, ready_for_claim: false });
+    searchExitDeposit.mockResolvedValue(found({ tx_hash: '0xexit', deposit_cnt: 17, ready_for_claim: false }));
     const indexed = (id: string, pin?: number) =>
       baseBridge({
         id,
@@ -2224,8 +2299,10 @@ describe('bridge prompts', () => {
     // deposit reports a bridge as claimed that was never claimed.
     // Deposit 41 belongs to row A. A lookup bound to anything but each row's own
     // exit hash would flip BOTH rows ready off this one deposit.
-    findExitDeposit.mockImplementation(async (_dest: unknown, exitTxHash: unknown) =>
-      exitTxHash === '0xrow-b-exit' ? null : { deposit_cnt: 41, tx_hash: '0xrow-a-exit', ready_for_claim: true }
+    searchExitDeposit.mockImplementation(async (_dest: unknown, exitTxHash: unknown) =>
+      exitTxHash === '0xrow-b-exit'
+        ? { deposit: null, complete: false }
+        : found({ deposit_cnt: 41, tx_hash: '0xrow-a-exit', ready_for_claim: true })
     );
 
     bridgeRows.push(
@@ -2276,7 +2353,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(restored);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).not.toHaveBeenCalled();
+    expect(searchExitDeposit).not.toHaveBeenCalled();
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
@@ -2294,7 +2371,7 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledTimes(1);
+    expect(searchExitDeposit).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).not.toHaveBeenCalled();
     expect(pinDeposit).not.toHaveBeenCalled();
   });
@@ -2394,7 +2471,7 @@ describe('bridge prompts', () => {
   // so the background poll settles it by the same bound evidence a Completed row
   // gets, rather than leaving it stuck until the user reopens the detail page.
   it('flips a Failed AggLayer bridge to ready once its OWN bound deposit is claimable', async () => {
-    findExitDeposit.mockResolvedValue({ tx_hash: '0xABC', deposit_cnt: 3, ready_for_claim: true });
+    searchExitDeposit.mockResolvedValue(found({ tx_hash: '0xABC', deposit_cnt: 3, ready_for_claim: true }));
     const unconfirmed = baseBridge({
       id: 'agg-failed-unconfirmed',
       status: ITransactionStatus.Failed,
@@ -2412,7 +2489,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(unconfirmed);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xabc', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xabc', undefined);
     expect(updateClaimStatus).toHaveBeenCalledWith(
       'agg-failed-unconfirmed',
       'ready',
@@ -2440,7 +2517,7 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined);
   });
 
   // Without its exit hash a row has nothing to bind a lookup to, and an unbound one could
@@ -2463,7 +2540,7 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).not.toHaveBeenCalled();
+    expect(searchExitDeposit).not.toHaveBeenCalled();
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
@@ -2514,7 +2591,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(definite);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).not.toHaveBeenCalled();
+    expect(searchExitDeposit).not.toHaveBeenCalled();
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
@@ -2522,7 +2599,7 @@ describe('bridge prompts', () => {
   // arriving, the way a Completed row can - so it has a terminal condition. Past it, the
   // row is left to the detail page's own on-demand tracker and fill poll (#1250).
   it('excludes a Failed AggLayer bridge whose 24-hour unconfirmed window has elapsed, but still polls one inside it', async () => {
-    findExitDeposit.mockResolvedValue({ tx_hash: '0xABC' });
+    searchExitDeposit.mockResolvedValue(found({ tx_hash: '0xABC' }));
     const stale = baseBridge({
       id: 'agg-failed-stale',
       status: ITransactionStatus.Failed,
@@ -2553,8 +2630,8 @@ describe('bridge prompts', () => {
     bridgeRows.push(stale, fresh);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale', undefined);
-    expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xfresh', undefined);
+    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xfresh', undefined);
   });
 
   it('does not fill-poll a Failed Epoch row whose 24-hour unconfirmed window has elapsed, but still polls one inside it', async () => {
@@ -2618,7 +2695,7 @@ describe('bridge prompts', () => {
   // `initiatedAt` alone, so a row initiated long ago that only just failed is not
   // excluded before its own 24-hour window has even started.
   it('looks up a Failed-unconfirmed Agglayer row by its completedAt, not its far-older initiatedAt, and fill-polls the same shape for Epoch', async () => {
-    findExitDeposit.mockResolvedValue({ tx_hash: '0xrecent' });
+    searchExitDeposit.mockResolvedValue(found({ tx_hash: '0xrecent' }));
     pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
     const now = Math.floor(Date.now() / 1000);
     const aggRecentFailure = baseBridge({
@@ -2652,7 +2729,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggRecentFailure, epochRecentFailure);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xrecent', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xrecent', undefined);
     expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-recent-failure' });
   });
 
@@ -2692,7 +2769,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggStaleFailure, epochStaleFailure);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale2', undefined);
+    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale2', undefined);
     expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
       destinationAddress: '0xdest',
       intentNonce: 'n-stale-completedat'
@@ -2737,7 +2814,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggFutureFailure, epochFutureFailure);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xfuture', undefined);
+    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xfuture', undefined);
     expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
       destinationAddress: '0xdest',
       intentNonce: 'n-future-failure'
@@ -2782,7 +2859,7 @@ describe('bridge prompts', () => {
     try {
       await reconcileBridgedSends();
 
-      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xfuture', undefined);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xfuture', undefined);
       expect(pollEpochIntentFill).toHaveBeenCalledWith({
         destinationAddress: '0xdest',
         intentNonce: 'n-future-failure'
@@ -2795,7 +2872,7 @@ describe('bridge prompts', () => {
   // F-051: the future-stamp check sits inside the failedUnconfirmed expression only,
   // so a Completed row keeps its unwindowed poll whatever its own completedAt says.
   it('still polls a Completed row whose completedAt is ahead of the clock', async () => {
-    findExitDeposit.mockResolvedValue({ tx_hash: '0xstillpolled' });
+    searchExitDeposit.mockResolvedValue(found({ tx_hash: '0xstillpolled' }));
     pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
     const now = Math.floor(Date.now() / 1000);
     const aggCompletedFuture = baseBridge({
@@ -2824,7 +2901,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggCompletedFuture, epochCompletedFuture);
     await reconcileBridgedSends();
 
-    expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xcompleted-future', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xcompleted-future', undefined);
     expect(pollEpochIntentFill).toHaveBeenCalledWith({
       destinationAddress: '0xdest',
       intentNonce: 'n-completed-future'
@@ -2932,12 +3009,14 @@ describe('bridge prompts', () => {
 
     it('binds a row in one labelled hold, and the same pass looks it up by the hash', async () => {
       exitHashFromRowBytes.mockReturnValue('0xbackfilled');
-      findExitDeposit.mockResolvedValue({
-        tx_hash: '0xbackfilled',
-        deposit_cnt: 16,
-        ready_for_claim: true,
-        claim_tx_hash: '0xauto'
-      });
+      searchExitDeposit.mockResolvedValue(
+        found({
+          tx_hash: '0xbackfilled',
+          deposit_cnt: 16,
+          ready_for_claim: true,
+          claim_tx_hash: '0xauto'
+        })
+      );
       const row = legacy('agg-legacy');
       bridgeRows.push(row);
 
@@ -2946,8 +3025,8 @@ describe('bridge prompts', () => {
       expect(exitHashFromRowBytes).toHaveBeenCalledWith(row);
       expect(wasmLockOptions).toEqual([{ label: 'agglayer-exit-backfill' }]);
       expect(recordExitHash).toHaveBeenCalledWith('agg-legacy', '0xbackfilled');
-      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xbackfilled', undefined);
-      expect(recordExitHash.mock.invocationCallOrder[0]).toBeLessThan(findExitDeposit.mock.invocationCallOrder[0]!);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xbackfilled', undefined);
+      expect(recordExitHash.mock.invocationCallOrder[0]).toBeLessThan(searchExitDeposit.mock.invocationCallOrder[0]!);
       expect(updateClaimStatus).toHaveBeenCalledWith(
         'agg-legacy',
         'claimed',
@@ -2963,7 +3042,7 @@ describe('bridge prompts', () => {
       await reconcileBridgedSends();
 
       expect(recordExitHash).toHaveBeenCalledWith('agg-no-note', undefined);
-      expect(findExitDeposit).not.toHaveBeenCalled();
+      expect(searchExitDeposit).not.toHaveBeenCalled();
     });
 
     it('loads nothing when no row needs it: restored, bound, marked and Epoch rows are skipped', async () => {
@@ -3016,8 +3095,8 @@ describe('bridge prompts', () => {
       await expect(reconcileBridgedSends()).resolves.toBeUndefined();
 
       expect(recordExitHash).toHaveBeenCalledWith('agg-b', '0xagg-b');
-      expect(findExitDeposit).toHaveBeenCalledTimes(1);
-      expect(findExitDeposit).toHaveBeenCalledWith('0xdest', '0xagg-b', undefined);
+      expect(searchExitDeposit).toHaveBeenCalledTimes(1);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xagg-b', undefined);
       expect(warn).toHaveBeenCalledWith(
         '[wallet-prompts] Agglayer exit back-fill write failed',
         'agg-a',

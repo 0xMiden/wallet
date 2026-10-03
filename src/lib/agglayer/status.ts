@@ -2,7 +2,7 @@ import type { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { EVM_AGGLAYER_NETWORK_ID } from './b2agg/constant';
-import { AGGLAYER_BRIDGE_API, MIDEN_CHAIN_ID, MIDEN_CHAIN_ID_RENUMBERED_AT } from './constant';
+import { AGGLAYER_BRIDGE_API, MIDEN_CHAIN_ID } from './constant';
 
 // A bridge indexer that accepts the connection then goes silent must not hang
 // the claim/poll flow forever; bound every AggLayer request, its body read
@@ -123,6 +123,20 @@ export async function fetchDeposits(destAddr: string, limit = 10): Promise<Aggla
   return data.deposits ?? [];
 }
 
+const AGGLAYER_DEPOSITS_PAGE_SIZE = 10;
+
+/** The page of deposits routed to `destAddr` that starts `offset` deposits back, newest first, and their total. */
+export async function fetchDepositsPage(
+  destAddr: string,
+  offset: number
+): Promise<{ deposits: AgglayerDeposit[]; total: number }> {
+  const data = await agglayerJson<BridgesResponse>(
+    `${AGGLAYER_BRIDGE_API}/${destAddr}?limit=${AGGLAYER_DEPOSITS_PAGE_SIZE}&offset=${offset}`,
+    'Agglayer bridge status'
+  );
+  return { deposits: data.deposits ?? [], total: Number(data.total_cnt) };
+}
+
 // The bridge-service merkle proof for a deposit, used to claim it on L1.
 export interface AgglayerMerkleProof {
   main_exit_root: string;
@@ -150,19 +164,15 @@ export const isMidenToEvmDeposit = (deposit: AgglayerDeposit): boolean =>
   deposit.network_id === MIDEN_CHAIN_ID && deposit.dest_net === EVM_AGGLAYER_NETWORK_ID;
 
 /**
- * A Slow bridge-out no lookup can ever find, so it is never polled, prompts nothing and offers no claim: its bytes
- * held no note, or it was initiated before the indexer's renumbering (`MIDEN_CHAIN_ID_RENUMBERED_AT`) and never
- * found under the new id. That exit is filed under network 78, which the indexer no longer serves; the bridge's
- * auto-claimer claimed every network-78 exit, so its funds arrived (#1325). A pin means it was found under the new
- * id, so a pinned row keeps polling whenever it was initiated.
+ * A Slow bridge-out no lookup can ever find, so it is never polled, prompts nothing and offers no claim. Only its
+ * stored marks say so: its bytes held no note (`agglayerExitTxHashUnavailable`), or a search of its address's whole
+ * history missed an exit filed before the indexer's renumbering (`agglayerExitUnfiled`, #1325).
  */
 export function isAgglayerExitUnfindable(
-  inputs: Pick<IBridgedSendExtraInputs, 'provider' | 'agglayerExitTxHashUnavailable' | 'agglayerDepositCnt'>,
-  initiatedAt: number
+  inputs: Pick<IBridgedSendExtraInputs, 'provider' | 'agglayerExitTxHashUnavailable' | 'agglayerExitUnfiled'>
 ): boolean {
   if (inputs.provider !== 'agglayer') return false;
-  if (inputs.agglayerExitTxHashUnavailable) return true;
-  return inputs.agglayerDepositCnt === undefined && initiatedAt < MIDEN_CHAIN_ID_RENUMBERED_AT;
+  return inputs.agglayerExitTxHashUnavailable === true || inputs.agglayerExitUnfiled === true;
 }
 
 interface DepositResponse {
@@ -178,9 +188,22 @@ export async function fetchMidenToEvmDeposit(depositCnt: number): Promise<Agglay
   return data.deposit;
 }
 
+/** Pages of an address's history, ten deposits each, that one search for an unpinned exit reads at most. */
+export const AGGLAYER_EXIT_SEARCH_MAX_PAGES = 10;
+
+// Exits whose address history this realm has searched past the first page. An exit the indexer has not filed yet is
+// looked up every 8 s by the background poll and the open detail page, so later lookups read the first page only.
+const exitHistoriesSearched = new Set<string>();
+
+/** What a search for one exit found. A miss is `complete` only when it read the address's whole history. */
+export interface AgglayerExitSearch {
+  deposit: AgglayerDeposit | null;
+  complete: boolean;
+}
+
 /**
- * This row's own exit deposit, in any state (indexed, ready or claimed), or null. Callers classify it with
- * `isAgglayerDepositReady` and `isAgglayerDepositClaimed`.
+ * This row's own exit deposit, in any state (indexed, ready or claimed), or null, and whether a miss covered the
+ * address's whole history. Callers classify the deposit with `isAgglayerDepositReady` and `isAgglayerDepositClaimed`.
  *
  * Bound to the row by `exitTxHash`, the indexer's `tx_hash` for the B2AGG note the row built
  * (`lib/agglayer/b2agg/exit-hash.ts`). The caller claims whatever comes back, and settles its own row on a claim
@@ -188,29 +211,51 @@ export async function fetchMidenToEvmDeposit(depositCnt: number): Promise<Agglay
  * claim. Nothing unbound is ever answered.
  *
  * `depositCnt` is the row's pin: one GET for that deposit, kept only while it still carries this exit, so a
- * renumbered or reset indexer, or a failed GET, falls back to the address's ten newest deposits.
+ * renumbered or reset indexer, or a failed GET, falls back to the address's history. That reads the ten newest
+ * deposits, then, once per exit per realm session, pages back through older ones up to
+ * `AGGLAYER_EXIT_SEARCH_MAX_PAGES`.
  */
-export async function findAgglayerExitDeposit(
+export async function searchAgglayerExitDeposit(
   l1Dest: string,
   exitTxHash: string,
   depositCnt?: number
-): Promise<AgglayerDeposit | null> {
+): Promise<AgglayerExitSearch> {
   const isThisExit = (deposit: AgglayerDeposit) =>
     isMidenToEvmDeposit(deposit) && sameTxHash(deposit.tx_hash, exitTxHash);
   if (depositCnt !== undefined) {
     try {
       const pinned = await fetchMidenToEvmDeposit(depositCnt);
-      if (isThisExit(pinned)) return pinned;
+      if (isThisExit(pinned)) return { deposit: pinned, complete: true };
       console.warn('[agglayer] the pinned deposit no longer carries this exit; looking it up by address', {
         depositCnt,
         exitTxHash
       });
     } catch {
-      // Not found, or the indexer is down; the address page below answers either way.
+      // Not found, or the indexer is down; the address history below answers either way.
     }
   }
-  const deposits = await fetchDeposits(l1Dest);
-  return deposits.find(isThisExit) ?? null;
+  for (let page = 0; page < AGGLAYER_EXIT_SEARCH_MAX_PAGES; page++) {
+    if (page === 1) {
+      if (exitHistoriesSearched.has(exitTxHash)) break;
+      exitHistoriesSearched.add(exitTxHash);
+    }
+    const offset = page * AGGLAYER_DEPOSITS_PAGE_SIZE;
+    const { deposits, total } = await fetchDepositsPage(l1Dest, offset);
+    const deposit = deposits.find(isThisExit);
+    if (deposit) return { deposit, complete: true };
+    if (offset + deposits.length >= total) return { deposit: null, complete: true };
+    if (deposits.length === 0) break;
+  }
+  return { deposit: null, complete: false };
+}
+
+/** `searchAgglayerExitDeposit`'s deposit, for a caller that never retires a row on a miss. */
+export async function findAgglayerExitDeposit(
+  l1Dest: string,
+  exitTxHash: string,
+  depositCnt?: number
+): Promise<AgglayerDeposit | null> {
+  return (await searchAgglayerExitDeposit(l1Dest, exitTxHash, depositCnt)).deposit;
 }
 
 // Fetch the merkle proof for a deposit (net_id is the deposit's `network_id`).

@@ -4,12 +4,13 @@ import BigNumber from 'bignumber.js';
 
 import {
   agglayerClaimedFields,
-  findAgglayerExitDeposit,
   isAgglayerDepositClaimed,
   isAgglayerDepositReady,
-  isAgglayerExitUnfindable
+  isAgglayerExitUnfindable,
+  searchAgglayerExitDeposit
 } from 'lib/agglayer';
 import { agglayerExitTxHashFromRowBytes } from 'lib/agglayer/b2agg/exit-hash';
+import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import {
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
@@ -27,6 +28,7 @@ import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { tokenQuote } from 'lib/miden/swap/tokens';
 import {
   bridgedSendLandedValues,
+  markAgglayerExitUnfiled,
   pinAgglayerDeposit,
   recordAgglayerExitTxHash,
   updateBridgeClaimStatus
@@ -130,7 +132,7 @@ function isBridgePromptActive(tx: ITransaction): boolean {
   const inputs: IBridgedSendExtraInputs = tx.extraInputs;
   if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
   // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
-  if (isAgglayerExitUnfindable(inputs, tx.initiatedAt)) return false;
+  if (isAgglayerExitUnfindable(inputs)) return false;
   return inputs.claimStatus !== 'claimed' && inputs.claimStatus !== 'failed';
 }
 
@@ -189,12 +191,24 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
       inputs.claimStatus === 'claimed' ||
       !inputs.destinationAddress ||
       !exitTxHash ||
-      isAgglayerExitUnfindable(inputs, tx.initiatedAt)
+      isAgglayerExitUnfindable(inputs)
     ) {
       return;
     }
-    const deposit = await findAgglayerExitDeposit(inputs.destinationAddress, exitTxHash, inputs.agglayerDepositCnt);
-    if (!deposit) return;
+    const { deposit, complete } = await searchAgglayerExitDeposit(
+      inputs.destinationAddress,
+      exitTxHash,
+      inputs.agglayerDepositCnt
+    );
+    if (!deposit) {
+      // An exit filed before the renumbering is under network 78, which the indexer no longer serves; the bridge's
+      // auto-claimer claimed every one, so its funds arrived. Only a miss over the whole history retires the row:
+      // a later row's exit may not be filed yet.
+      if (complete && inputs.agglayerDepositCnt === undefined && tx.initiatedAt < MIDEN_CHAIN_ID_RENUMBERED_AT) {
+        await markAgglayerExitUnfiled(tx.id);
+      }
+      return;
+    }
     // Every claim-status write carries the deposit's own tx_hash, so a Failed row is promoted by the first (#1250).
     // A claim by anyone settles the row: the bridge's auto-claimer claims every exit minutes after it is ready.
     if (isAgglayerDepositClaimed(deposit)) {

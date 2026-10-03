@@ -431,7 +431,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeSubmitClaimed: bridge?.submitClaimed,
           bridgeAgglayerExitTxHash: bridge?.agglayerExitTxHash,
           bridgeAgglayerDepositCnt: bridge?.agglayerDepositCnt,
-          bridgeAgglayerExitUnfindable: bridge !== undefined && isAgglayerExitUnfindable(bridge, tx.initiatedAt),
+          bridgeAgglayerExitUnfindable: bridge !== undefined && isAgglayerExitUnfindable(bridge),
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,

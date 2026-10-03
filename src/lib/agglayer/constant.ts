@@ -7,7 +7,8 @@ export const BRIDGE_ASSET_ABI = [
 // also the `network_id` the bridge indexer files every Miden -> EVM exit under.
 export const MIDEN_CHAIN_ID = 86;
 // When the indexer renumbered Miden's exits from network 78 to MIDEN_CHAIN_ID, in unix seconds like a row's
-// `initiatedAt`. It serves nothing under 78 any more, so an exit filed before this can never be looked up (#1325).
+// `initiatedAt`. It serves nothing under 78 any more, so it gates only one thing: an unpinned row initiated before
+// this whose exit a search of its address's whole history missed is retired (#1325); a later row never is.
 // The issue's evidence dates the switch only to the day (the last network-78 claim is on 2026-09-08), so this is
 // the start of that day, UTC: a row from later that day is still polled rather than retired while it might settle.
 export const MIDEN_CHAIN_ID_RENUMBERED_AT = Date.parse('2026-09-08T00:00:00Z') / 1000;

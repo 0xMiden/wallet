@@ -1,6 +1,6 @@
 import fixture from './b2agg/exit-hash.vectors.json';
-import { MIDEN_CHAIN_ID_RENUMBERED_AT } from './constant';
 import {
+  AGGLAYER_EXIT_SEARCH_MAX_PAGES,
   AgglayerDeposit,
   agglayerClaimedFields,
   fetchDeposits,
@@ -8,7 +8,8 @@ import {
   findAgglayerExitDeposit,
   isAgglayerDepositClaimed,
   isAgglayerDepositReady,
-  isAgglayerExitUnfindable
+  isAgglayerExitUnfindable,
+  searchAgglayerExitDeposit
 } from './status';
 
 const fetchMock = jest.fn();
@@ -217,6 +218,59 @@ describe('findAgglayerExitDeposit (#1325)', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
+
+  // The address's history newest first, ten to a page, as `/bridges/<address>?limit=10&offset=<n>` serves it.
+  const serveHistory = (history: AgglayerDeposit[]) =>
+    fetchMock.mockImplementation(async (url: string) => {
+      const offset = Number(new URL(url).searchParams.get('offset'));
+      return {
+        ok: true,
+        json: async () => ({ deposits: history.slice(offset, offset + 10), total_cnt: String(history.length) })
+      };
+    });
+  const offsetsRead = () => fetchMock.mock.calls.map(([url]) => Number(new URL(url).searchParams.get('offset')));
+  // Exit `cnt` to the same address. A search past the first page is once per exit per session, so each test looks
+  // up its own.
+  const exitAt = (cnt: number): AgglayerDeposit => ({
+    ...LIVE_16,
+    deposit_cnt: cnt,
+    tx_hash: `0x${cnt.toString(16).padStart(64, '0')}`
+  });
+  const exitsFrom = (first: number, count: number) => Array.from({ length: count }, (_, i) => exitAt(first + i));
+
+  it('finds an unpinned exit on page 2 behind ten newer deposits', async () => {
+    serveHistory([...exitsFrom(110, 10), exitAt(100)]);
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(100).tx_hash)).toEqual(exitAt(100));
+    expect(offsetsRead()).toEqual([0, 10]);
+  });
+
+  it('searches past the first page once per exit: a second lookup in the session reads one page', async () => {
+    serveHistory(exitsFrom(210, 25));
+
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(200).tx_hash)).toEqual({
+      deposit: null,
+      complete: true
+    });
+    expect(offsetsRead()).toEqual([0, 10, 20]);
+
+    fetchMock.mockClear();
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(200).tx_hash)).toEqual({
+      deposit: null,
+      complete: false
+    });
+    expect(offsetsRead()).toEqual([0]);
+  });
+
+  it('reports a search the page cap stopped as incomplete', async () => {
+    serveHistory(exitsFrom(310, AGGLAYER_EXIT_SEARCH_MAX_PAGES * 10 + 1));
+
+    expect(await searchAgglayerExitDeposit(LIVE_16.dest_addr, exitAt(300).tx_hash)).toEqual({
+      deposit: null,
+      complete: false
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(AGGLAYER_EXIT_SEARCH_MAX_PAGES);
+  });
 });
 
 describe('agglayerClaimedFields (#1325)', () => {
@@ -232,32 +286,21 @@ describe('agglayerClaimedFields (#1325)', () => {
   });
 });
 
-// Before the renumbering the indexer filed Miden exits under network 78, which it no longer serves (#1325).
+// Only the row's stored marks retire it, never its initiation date (#1325).
 describe('isAgglayerExitUnfindable (#1325)', () => {
-  const BEFORE = MIDEN_CHAIN_ID_RENUMBERED_AT - 1;
-
   it('retires a row whose bytes held no note', () => {
-    expect(
-      isAgglayerExitUnfindable(
-        { provider: 'agglayer', agglayerExitTxHashUnavailable: true },
-        MIDEN_CHAIN_ID_RENUMBERED_AT
-      )
-    ).toBe(true);
+    expect(isAgglayerExitUnfindable({ provider: 'agglayer', agglayerExitTxHashUnavailable: true })).toBe(true);
   });
 
-  it('retires a row from before the renumbering that was never found under the new id', () => {
-    expect(isAgglayerExitUnfindable({ provider: 'agglayer' }, BEFORE)).toBe(true);
+  it('retires a row whose exit a search of the whole history missed', () => {
+    expect(isAgglayerExitUnfindable({ provider: 'agglayer', agglayerExitUnfiled: true })).toBe(true);
   });
 
-  it('keeps a row from before the renumbering that was pinned under the new id', () => {
-    expect(isAgglayerExitUnfindable({ provider: 'agglayer', agglayerDepositCnt: 16 }, BEFORE)).toBe(false);
-  });
-
-  it('keeps a row from the moment of the renumbering on', () => {
-    expect(isAgglayerExitUnfindable({ provider: 'agglayer' }, MIDEN_CHAIN_ID_RENUMBERED_AT)).toBe(false);
+  it('keeps a row with neither mark', () => {
+    expect(isAgglayerExitUnfindable({ provider: 'agglayer' })).toBe(false);
   });
 
   it('never retires an Epoch row, which has no exit', () => {
-    expect(isAgglayerExitUnfindable({ provider: 'epoch' }, BEFORE)).toBe(false);
+    expect(isAgglayerExitUnfindable({ provider: 'epoch', agglayerExitUnfiled: true })).toBe(false);
   });
 });

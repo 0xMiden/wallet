@@ -1675,6 +1675,18 @@ export const recordAgglayerExitTxHash = async (id: string, exitTxHash: string | 
 };
 
 /**
+ * Retire an Agglayer row whose exit a search of its address's whole history missed (`agglayerExitUnfiled`). Only an
+ * unpinned row: a pin means the indexer filed its exit. The first mark stands.
+ */
+export const markAgglayerExitUnfiled = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    if (ei?.provider !== 'agglayer' || ei.agglayerDepositCnt !== undefined || ei.agglayerExitUnfiled) return;
+    tx.extraInputs = { ...ei, agglayerExitUnfiled: true };
+  });
+};
+
+/**
  * A `bridged-send` (Epoch) row reaches Completed / 'Bridged to EVM' the instant
  * its P2IDE note commits — but the SDK submits the intent to the allocator AFTER
  * that, so a post-commit rejection (reclaim window, solver liquidity, quote

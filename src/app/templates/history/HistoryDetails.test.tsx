@@ -3391,8 +3391,8 @@ describe('HistoryDetails', () => {
       });
     });
 
-    // Filed under the indexer's old network id, which it no longer serves, so no lookup can find it (#1325).
-    describe('a Slow bridge-out never found under the new network id', () => {
+    // Only the row's stored marks retire it, never its initiation date (#1325).
+    describe('bridgeAgglayerExitUnfindable', () => {
       const slow = {
         provider: 'agglayer',
         destinationAddress: '0xdest',
@@ -3400,15 +3400,19 @@ describe('HistoryDetails', () => {
         claimStatus: 'pending'
       };
 
-      it('is unfindable when it was initiated before the renumbering', async () => {
-        setMockRow({ ...bridgedSendTx, initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT - 1, extraInputs: slow });
+      it('follows a stored unfiled mark, whenever the row was initiated', async () => {
+        setMockRow({
+          ...bridgedSendTx,
+          initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT,
+          extraInputs: { ...slow, agglayerExitUnfiled: true }
+        });
         await renderAndLoad({ transactionId: 'bridge-out' });
 
         expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({ bridgeAgglayerExitUnfindable: true });
       });
 
-      it('is still findable from the moment of the renumbering on', async () => {
-        setMockRow({ ...bridgedSendTx, initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT, extraInputs: slow });
+      it('keeps an unmarked row findable although it was initiated before the renumbering', async () => {
+        setMockRow({ ...bridgedSendTx, initiatedAt: MIDEN_CHAIN_ID_RENUMBERED_AT - 1, extraInputs: slow });
         await renderAndLoad({ transactionId: 'bridge-out' });
 
         expect(mockBridgeClaimSection.mock.lastCall![0].entry).toMatchObject({ bridgeAgglayerExitUnfindable: false });
