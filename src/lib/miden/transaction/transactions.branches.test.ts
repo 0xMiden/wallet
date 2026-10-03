@@ -1481,6 +1481,72 @@ describe('generateTransactionsLoop error paths', () => {
     ]);
   });
 
+  // The Unconfirmed write's terminal-row branch is for the indefinite outcome on a row that can await a verdict;
+  // any other cancelled row keeps exactly what its cancel wrote.
+  const cancelMidLeafThenThrow = (id: string, error: Error): (() => Record<string, unknown>) => {
+    let afterCancel: Record<string, unknown> = {};
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        await cancelTransactionById(id, USER_CANCELLED_TRANSACTION_REASON);
+        const row = txStore[0]!;
+        afterCancel = {
+          ...row,
+          submitEvidence: row.submitEvidence?.map((entry: Record<string, unknown>) => ({ ...entry })),
+          extraInputs: row.extraInputs && { ...row.extraInputs }
+        };
+        throw error;
+      }
+      return fn();
+    });
+    return () => afterCancel;
+  };
+
+  it('a cancelled send whose submit fails with any other error keeps what its cancel wrote (#1081)', async () => {
+    const afterCancel = cancelMidLeafThenThrow(
+      'tx-cancelled-other',
+      new Error('failed to submit proven transaction: the node rejected the transaction')
+    );
+    txStore.push({
+      id: 'tx-cancelled-other',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(afterCancel()).toMatchObject({
+      status: ITransactionStatus.Failed,
+      cancelledInFlightAt: expect.any(Number)
+    });
+    expect(txStore[0]).toEqual(afterCancel());
+  });
+
+  it('a cancelled row that cannot await a verdict keeps what its cancel wrote on the indefinite outcome (#1081)', async () => {
+    const afterCancel = cancelMidLeafThenThrow(
+      'tx-cancelled-earn',
+      new Error(
+        `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may or ` +
+          'may not have accepted it; nothing was recorded locally'
+      )
+    );
+    // An Earn deposit's caller needs a terminal answer, so it never awaits a verdict.
+    txStore.push({
+      id: 'tx-cancelled-earn',
+      type: 'earn-deposit',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      requestBytes: new Uint8Array([1]),
+      extraInputs: { recallBlocks: 25 }
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(afterCancel()).toMatchObject({ status: ITransactionStatus.Failed });
+    expect(txStore[0]).toEqual(afterCancel());
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Unconfirmed);
+  });
+
   // The row left the queue as Unconfirmed while its leaf was failing: only the reconciler moves it now (#1081).
   const failLeafAfterRowLeftAsUnconfirmed = (error: Error) => {
     let callCount = 0;
