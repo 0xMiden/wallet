@@ -1,3 +1,5 @@
+import isEqual from 'fast-deep-equal';
+
 import { inStorageTurn, putToStorage } from 'lib/miden/front/storage';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
 import { fetchBoundedJson, readTimestampedEntry } from 'lib/remote-json';
@@ -96,8 +98,8 @@ export async function readStoredBridgeConfig(network: string): Promise<StoredBri
 
 /**
  * Fetches, validates, enforces the floor, stores. Rejects on any failure. Nothing is stored unless the document validates
- * and is at or above the floor; the floor is raised before the document is written, so a failed document write can leave
- * only a raised floor.
+ * and is at or above the floor, and at the version of the stored document is that document; the floor is raised before
+ * the document is written, so a failed document write can leave only a raised floor.
  */
 export async function fetchAndStoreBridgeConfig(network: string): Promise<StoredBridgeConfig> {
   const body = await fetchBoundedJson(deps.fetch, bridgeConfigUrl(network), {
@@ -109,10 +111,18 @@ export async function fetchAndStoreBridgeConfig(network: string): Promise<Stored
   // One turn across every extension surface. Without it, two realms accepting at once both read the old floor, and
   // the older document, landing last, lowers the floor and replaces the newer one.
   return inStorageTurn(BRIDGE_CONFIG_FLOOR_KEY, async () => {
-    const floors = readFloors((await deps.read([BRIDGE_CONFIG_FLOOR_KEY]))[BRIDGE_CONFIG_FLOOR_KEY]);
+    const stored = await deps.read([BRIDGE_CONFIG_FLOOR_KEY, bridgeConfigCacheKey(network)]);
+    const floors = readFloors(stored[BRIDGE_CONFIG_FLOOR_KEY]);
     const floor = floors[network] ?? 0;
     if (config.version < floor) {
       throw new Error(`the ${network} bridge config version ${config.version} is below the accepted ${floor}`);
+    }
+    // A derivation is bound to its document by version, so one version names one document. With none stored (a reset
+    // keeps the floor and wipes the document) the version is open again.
+    const entry = readTimestampedEntry(stored[bridgeConfigCacheKey(network)]);
+    const accepted = entry ? parseBridgeConfig(entry.body, network, parseOptions()) : null;
+    if (entry && accepted?.version === config.version && !isEqual(entry.body, body)) {
+      throw new Error(`the ${network} bridge config version ${config.version} differs from the accepted document`);
     }
     if (config.version > floor) await deps.write(BRIDGE_CONFIG_FLOOR_KEY, { ...floors, [network]: config.version });
     const fetchedAt = deps.now();

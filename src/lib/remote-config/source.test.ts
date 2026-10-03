@@ -119,6 +119,24 @@ describe('fetchAndStoreBridgeConfig', () => {
     expect(storage.set.mock.calls).toEqual([[{ [KEY]: { fetchedAt: NOW, body: doc(3) } }]]);
   });
 
+  it('refuses a different document at the accepted version and keeps the stored one', async () => {
+    setup();
+    fetchMock.mockResolvedValue(response(doc(3)));
+    await fetchAndStoreBridgeConfig('testnet');
+    storage.set.mockClear();
+    fetchMock.mockResolvedValue(response(doc(3, { epoch: { allocatorUrl: 'https://other.example' } })));
+    await expect(fetchAndStoreBridgeConfig('testnet')).rejects.toThrow('differs from the accepted');
+    expect(storage.set).not.toHaveBeenCalled();
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: doc(3) });
+  });
+
+  it('accepts the accepted document again', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1, body: doc(3) }, [FLOOR]: { testnet: 3 } });
+    fetchMock.mockResolvedValue(response(doc(3)));
+    await expect(fetchAndStoreBridgeConfig('testnet')).resolves.toEqual({ config: parsed(3), fetchedAt: NOW });
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: doc(3) });
+  });
+
   it('refuses a document below the floor and stores nothing', async () => {
     setup({ [FLOOR]: { testnet: 4 } });
     fetchMock.mockResolvedValue(response(doc(3)));
