@@ -1452,7 +1452,7 @@ describe('updateBridgeClaimStatus', () => {
     });
   const row = () => txStore.find(t => t.id === 'bs-1')!;
 
-  it("promotes to Completed when 'ready' is bound to this row's own transaction hash, clearing error/rawError", async () => {
+  it("promotes to Completed when 'ready' is bound to this row's own exit hash, clearing error/rawError", async () => {
     pushFailedBridgedSend();
     await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
     expect(row().status).toBe(ITransactionStatus.Completed);
@@ -1462,7 +1462,7 @@ describe('updateBridgeClaimStatus', () => {
     expect(row().displayIcon).toBe('SEND');
   });
 
-  it("promotes to Completed when 'claimed' is bound to this row's own transaction hash", async () => {
+  it("promotes to Completed when 'claimed' is bound to this row's own exit hash", async () => {
     pushFailedBridgedSend();
     await updateBridgeClaimStatus('bs-1', 'claimed', { claimTxHash: '0xclaim' }, '0xABC');
     expect(row().status).toBe(ITransactionStatus.Completed);
