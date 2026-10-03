@@ -32,6 +32,7 @@ import {
   recordOutOfBandEnd,
   updateTransactionStatus
 } from './helper';
+import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -39,7 +40,12 @@ import {
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, hasLeftQueue, ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
-import { isKilledPipeline, isPoisonedPipeline } from '../sdk/sdk-error-code';
+import {
+  indefiniteSubmitTransactionId,
+  isIndefiniteSubmitOutcomeError,
+  isKilledPipeline,
+  isPoisonedPipeline
+} from '../sdk/sdk-error-code';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -47,6 +53,38 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
+
+/**
+ * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
+ * and the untouched thrown text. Shared by `cancelTransaction` and the Unconfirmed write so one failure never reads
+ * two ways (#1081).
+ */
+const describeFailure = (
+  transaction: Pick<ITransaction, 'delegateTransaction'>,
+  error: unknown,
+  existing: ITransaction | undefined
+): { displayError: string; rawError: string } => {
+  // The stage the tx died in (persisted by setTransactionStage) disambiguates
+  // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
+  const failedStage = existing?.stage;
+  const rawError = formatRawTransactionError(error);
+  // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
+  // withhold the may-have-submitted crossing, re-derived HERE from the row the caller
+  // already read, so the message and the crossing can never disagree: hedging "left in an
+  // unknown state, check your activity" on a row whose Retry is provably safe is a
+  // falsehood that costs the user the retry.
+  const abandonedPreWrite =
+    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
+  // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
+  // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
+  // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
+  // claim read as a completed failure instead of not confirmed.
+  const displayError =
+    typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
+      ? error
+      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  return { displayError, rawError };
+};
 
 /**
  * Returns whether the row was actually failed. `false` means a concurrent writer
@@ -90,25 +128,8 @@ export const cancelTransaction = async (
     return false;
   }
 
-  // The stage the tx died in (persisted by setTransactionStage) disambiguates
-  // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
   const failedStage = existing?.stage;
-  const rawError = formatRawTransactionError(error);
-  // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
-  // withhold the may-have-submitted crossing, re-derived HERE from the row this function
-  // already read, so the message and the crossing can never disagree: hedging "left in an
-  // unknown state, check your activity" on a row whose Retry is provably safe is a
-  // falsehood that costs the user the retry.
-  const abandonedPreWrite =
-    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
-  // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
-  // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
-  // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
-  // claim read as a completed failure instead of not confirmed.
-  const displayError =
-    typeof error === 'string' && (isWalletFailureReason(error) || isUnconfirmedFailureReason(error))
-      ? error
-      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  const { displayError, rawError } = describeFailure(transaction, error, existing);
   const nodeDiscarded = isGuardianWriteDiscardedError(error);
   let applied = false;
   let racedTerminal = false;
@@ -228,6 +249,53 @@ export const cancelTransaction = async (
 };
 
 /**
+ * Enter `Unconfirmed` (#1081): the submit came back without a definite outcome, so the row waits for the node's
+ * verdict instead of failing. One `modify`, applied only while the row is still GeneratingTransaction (the race
+ * `cancelTransaction` describes); a row already terminal keeps its state and only gains the attempt's entry. Raises
+ * the not-confirmed notice and an `errored` report, as the Failed write does for an unconfirmed row today.
+ */
+export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknown): Promise<void> => {
+  const existing = await Repo.transactions.where({ id: tx.id }).first();
+  const { displayError, rawError } = describeFailure(tx, error, existing);
+  const transactionId = indefiniteSubmitTransactionId(error);
+  const nowSec = Math.floor(Date.now() / 1000);
+  let entered = false;
+  await Repo.transactions.where({ id: tx.id }).modify(row => {
+    const attemptId = row.attemptId ?? tx.attemptId;
+    if (attemptId !== undefined) {
+      row.submitEvidence = upsertEvidenceEntry(
+        row.submitEvidence,
+        attemptId,
+        {
+          source: 'error-text',
+          evidence: transactionId === undefined ? undefined : { transactionId },
+          fromExecute: row.type === 'execute'
+        },
+        nowSec
+      );
+    }
+    if (row.status !== ITransactionStatus.GeneratingTransaction) return attemptId === undefined ? false : undefined;
+    row.status = ITransactionStatus.Unconfirmed;
+    row.completedAt = nowSec;
+    row.mayHaveSubmitted = true;
+    row.error = displayError;
+    if (displayError !== rawError) row.rawError = rawError;
+    row.cancelledInFlightAt = undefined;
+    entered = true;
+    return undefined;
+  });
+  if (!entered) return;
+  notifyBackgroundTransactionNotConfirmed();
+  reportOperation({
+    operation: operationOfType(tx.type),
+    result: 'errored',
+    durationMs: elapsedMsSince(existing?.initiatedAt ?? tx.initiatedAt),
+    errorKind: classifyError(rawError),
+    step: stepOfStage(existing?.stage)
+  });
+};
+
+/**
  * Fail a row from OUTSIDE its pipeline, noting that the pipeline is still
  * running and may yet submit.
  *
@@ -327,6 +395,12 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
 export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
+  // An unknown submit outcome waits for the node's verdict instead of failing (#1081). Only an eligible row: the
+  // rest keep today's Failed tail and #1250's derived label. A kill never classifies here (see the classifier).
+  if (isIndefiniteSubmitOutcomeError(error) && canAwaitVerdict(tx)) {
+    await markTransactionUnconfirmed(tx, error);
+    return;
+  }
   // A lock-recovery eviction (issue #775) is treated like an offscreen
   // wedge-kill: the pipeline was ABANDONED, not stopped — it may still reach
   // submit — so the crossing must be recorded, never cleared. EXCEPT where the

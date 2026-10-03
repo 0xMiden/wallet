@@ -1209,9 +1209,13 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     }
   });
 
-  it('stops re-arming the wake once the row leaves Queued', async () => {
+  it.each([
+    ['Completed', ITransactionStatus.Completed],
+    ['Unconfirmed', ITransactionStatus.Unconfirmed]
+  ])('stops re-arming the wake once the row leaves Queued as %s', async (_label, leftAs) => {
     // The re-arm chain has to end on its own. A row the user cancelled, or one a
-    // later cycle completed, must not keep a timer alive behind it.
+    // later cycle completed, must not keep a timer alive behind it. Nor one waiting
+    // for the node's verdict: no driver can move it, only the reconciler (#1081).
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockPlatformIsExtension = false;
     jest.useFakeTimers();
@@ -1234,7 +1238,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       expect(jest.getTimerCount()).toBeGreaterThan(0);
 
       const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-stop') as Record<string, unknown>;
-      stored.status = ITransactionStatus.Completed;
+      stored.status = leftAs;
       await jest.advanceTimersByTimeAsync(60_000);
 
       expect(jest.getTimerCount()).toBe(0);

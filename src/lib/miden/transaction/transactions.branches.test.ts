@@ -1440,9 +1440,44 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'acc-1'
     });
     await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
-    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Queued);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(txStore[0]!.mayHaveSubmitted).toBe(true);
     expect(txStore[0]!.nextEligibleAt).toBeUndefined();
     sdk.withWasmClientLock = origLock;
+  });
+
+  // The row left the queue as Unconfirmed while its leaf was failing: only the reconciler moves it now (#1081).
+  const failLeafAfterRowLeftAsUnconfirmed = (error: Error) => {
+    let callCount = 0;
+    lockSdk.withWasmClientLock = jest.fn(async (fn: () => unknown) => {
+      callCount++;
+      if (callCount >= 2) {
+        txStore[0]!.status = ITransactionStatus.Unconfirmed;
+        throw error;
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-left-unconfirmed',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+  };
+
+  it('leaves an Unconfirmed row alone on the apply-after-submit error (#1081)', async () => {
+    failLeafAfterRowLeftAsUnconfirmed(new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE));
+    // The completion write throws on a row that left the queue, and this catch is the loop's own.
+    await expect(generateTransactionsLoop(dummySign, true, stubGuardianProvider)).resolves.toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  it('records no kill end on a row that left the queue as Unconfirmed (#1081)', async () => {
+    failLeafAfterRowLeftAsUnconfirmed(new WasmClientPoisonedError('watchdog'));
+    expect(await generateTransactionsLoop(dummySign, true, stubGuardianProvider)).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(txStore[0]!.submitEvidence ?? []).not.toContainEqual(expect.objectContaining({ endedBy: 'kill' }));
   });
 
   it('leaves a Guardian tx Queued (not Failed) when the wallet is locked at consume time (#313)', async () => {

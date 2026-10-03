@@ -5621,6 +5621,34 @@ describe('generateTransaction — Guardian routing', () => {
       }
     });
 
+    it('a send whose inline submit came back without a definite outcome waits as Unconfirmed (#1081)', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        mockGetOrCreateMultisigService.mockResolvedValue(busyService());
+        const client = makeClientApi(makeResult());
+        client.transactions.submitProven.mockRejectedValueOnce(
+          new Error(
+            `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may ` +
+              'or may not have accepted it; nothing was recorded locally'
+          )
+        );
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('indefinite-submit-unconfirmed', SEND);
+
+        await run(row);
+
+        expect(stored(row.id).status).toBe(ITransactionStatus.Unconfirmed);
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    });
+
     describe('a candidate whose abandon failed (#1317)', () => {
       const RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TIMEOUT_MS;
       // A send whose execute fails before its submit, so the catch abandons its candidate (nonce 8).
