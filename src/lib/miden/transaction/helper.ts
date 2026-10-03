@@ -905,13 +905,13 @@ export const markCancelledInFlight = async (id: string) => {
  * possible. Called from the pipeline's own catch, and what lets a genuine execute
  * or prove failure rebuild its request rather than replaying a bad one.
  *
- * On the guardian paths a submit that HAD happened is recorded on
- * `mayHaveSubmitted` by the leaf before it submitted, so the guard holds on that
- * instead and clearing this loses nothing. A plain send stamps nothing, so
- * clearing genuinely returns it to "no evidence either way" — correct for the
+ * A submit that HAD happened is on the attempt's evidence entry (#1081): an
+ * in-realm leaf writes its 'submitting' stamp before it submits, and an offscreen
+ * failure that cannot prove it came before its submit gets an evidence-less 'end'
+ * entry (`runWriteLeaf`). So clearing this loses nothing, and a run that failed
+ * before its submit returns to "no evidence either way", which is correct for the
  * failures that reach here (the pipeline stopped, and the aborted-op case is
- * routed to the flag instead), but not a claim that a crossing was recorded
- * elsewhere. See `cancelTransactionAfterPipelineStopped`.
+ * routed to the flag instead). See `cancelTransactionAfterPipelineStopped`.
  */
 export const clearCancelledInFlight = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {

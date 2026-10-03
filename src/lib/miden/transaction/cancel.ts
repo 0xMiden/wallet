@@ -320,13 +320,12 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
  * window and then expires — see its docstring for why a sticky flag here was
  * wrong.
  *
- * Read that scope literally. A send from a NON-guardian account stamps nothing at
- * all: its leaf calls straight through to the proxy, and the row it leaves behind
- * is frozen at the 'sending' its pipeline stamped once at pickup. For those rows
- * this marker is not a supplement to a recorded crossing, it is the only signal
- * there is, which is why `requeueFailedTransaction` refuses on it rather than
- * merely holding bytes, and why the residual gap documented there is the shape it
- * is.
+ * Read that scope literally. Every leaf of a row that can await a verdict stamps
+ * its crossing with the attempt's evidence (#1081), but an offscreen stamp is
+ * replayed late and can be lost with its realm, so until it lands this marker is
+ * the only signal there is, which is why `requeueFailedTransaction` refuses on it
+ * rather than merely holding bytes. The cancel also ends the attempt's entry
+ * (`recordOutOfBandEnd`), which is what liveness reads for a swap or an execute.
  *
  * Deliberately NOT used by the pipeline's own catch handlers, which instead
  * CLEAR the marker: by the time those run the pipeline has stopped. That
@@ -353,14 +352,12 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * submit is no longer merely possible — resolve the in-flight marker a
  * concurrent Cancel may have left, and let the request be rebuilt.
  *
- * Safe on the guardian paths because the ordering there is one-way: those leaves
- * stamp `mayHaveSubmitted` before they submit, so any attempt that got that far
- * is already recorded on a field this does not touch.
- *
- * A plain send has no such stamp — it is not that the marker is redundant there,
- * it is that nothing else exists — so clearing it returns the row to "no evidence
- * either way", which is what lets the vault-slot failure rebuild and is also the
- * limit `requeueFailedTransaction` documents.
+ * Safe because the ordering is one-way: every leaf of a row that can await a
+ * verdict records its crossing on the attempt's evidence entry before it submits,
+ * or, offscreen, gets an 'end' entry for a failure it cannot place before its
+ * submit (#1081), so any attempt that got that far is on a field this does not
+ * touch. A run that failed earlier returns to "no evidence either way", which is
+ * what lets the vault-slot failure rebuild.
  *
  * With ONE exception, and it is the reason this takes the error rather than just
  * the row. An offscreen wedge-kill does not report a failure — it destroys the
@@ -577,11 +574,11 @@ export const cancelStuckTransactions = async () => {
     // for: reaped, still submitting, and retried as though nothing had been sent.
     //
     // Skipping it was safe only under a second claim (that a submit this row DID
-    // reach is on `mayHaveSubmitted`), and that one holds for the guardian leaves
-    // but not for a plain send, which stamps nothing (see
-    // `cancelTransactionAfterPipelineStopped`). Marking costs little now that the
-    // marker expires and is scoped to rows with something to protect: Retry waits
-    // out the window instead of being refused for good.
+    // reach is already recorded), and an offscreen stamp is replayed late and can
+    // be lost with its realm, so the claim fails exactly when the reaper fires.
+    // Marking costs little now that the marker expires and is scoped to rows with
+    // something to protect: Retry waits out the window instead of being refused for
+    // good. The attempt's out-of-band end is recorded before it (#1081).
     .map(async tx => cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR));
 
   await Promise.all(cancelTransactionUpdates);
@@ -861,18 +858,16 @@ export type SendLandedVerdict = 'landed' | 'unknown';
  * freshest node state; a sync failure falls back to the last-synced record, except
  * a watchdog eviction, which reads nothing and gives `'unknown'` (`syncBeforeVerdict`).
  *
- * COVERAGE LIMIT — read before relying on this as the only double-send guard.
+ * COVERAGE LIMIT - read before relying on this as the only double-send guard.
  * `ITransaction.transactionId` is written only by the completion handlers in
- * `complete.ts` (the success path), by `updateBridgedReceivePhase`, and by the
- * landed arms of a failed apply after submit (#1233). A row
- * failed by a route that killed it from OUTSIDE its own write pipeline — the
- * stuck reaper, the cold-start sweep, an offscreen deadline kill, a user Cancel
- * mid-flight — therefore arrives here with no id at all and short-circuits to
- * `'unknown'`, i.e. this check is INERT on exactly the rows whose submit outcome
- * is in doubt. Stamping the id pre-submit is not currently possible under
- * `MIDEN_USE_OFFSCREEN_CLIENT`: the write runs in the offscreen realm and its
- * DTOs carry no row id. `isSubmitOutcomeUnknown` (constants.ts) is what closes
- * that gap, by refusing the retry outright for the rebuilt-request types.
+ * `complete.ts` (the success path), by `updateBridgedReceivePhase`, by the
+ * landed arms of a failed apply after submit (#1233), and by the reconciler's
+ * landed write (#1081). A row failed from OUTSIDE its own write pipeline
+ * therefore arrives here with no id and short-circuits to `'unknown'`. The id its
+ * attempt submitted is on the attempt's evidence entry instead (`submitEvidence`,
+ * recorded at the stamped crossing), where the reconciler and Retry's tap-time
+ * check judge it against the node; `isSubmitOutcomeUnknown` (constants.ts) still
+ * refuses the retry of a rebuilt-request type that neither can prove.
  */
 export const verifySendLanded = async (tx: { id: string; transactionId?: string }): Promise<SendLandedVerdict> => {
   if (!tx.transactionId) return 'unknown';

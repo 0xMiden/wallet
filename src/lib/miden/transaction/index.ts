@@ -3833,13 +3833,11 @@ const generateGuardianTransaction = async (
     // The landed shape proves the submit resolved (#1233): the node has the write, so this
     // candidate WILL land. Abandoning it anyway asks the guardian to discard a delta the chain is
     // about to consume; on slow inclusion the guardian finalizes that, drops the landed delta and
-    // releases the account onto stale state for up to a minute. Only a failure that cannot show
-    // the submit resolved abandons, and not every one of those: a row that can await a verdict keeps
-    // its candidate for the node's verdict after a kill or a failure after this attempt's crossing
-    // (#1081), so there only a failure provably before the submit abandons (a canonicalization
-    // refusal among them), while a row that cannot await one abandons after a kill, a pre-submit
-    // error or a canonicalization refusal alike. Both leaves wrap every post-submit failure as the
-    // apply-after-submit error.
+    // releases the account onto stale state for up to a minute. A failure that cannot show the
+    // submit resolved abandons unless the candidate was kept above: after a poison kill on any
+    // row, and on a row that awaits a verdict after any kill or once the attempt may have crossed
+    // its submit (#1081). Both leaves wrap every post-submit failure as the apply-after-submit
+    // error.
     const submitResolved = isApplyAfterSubmitError(error);
     // The node has the write, so its candidate is on the Guardian now: the next proposal's gate asks about it (#312).
     if (submitResolved) recordLeftCandidate(transaction, service, proposalResult, proposalStamps);

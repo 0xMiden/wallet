@@ -771,18 +771,14 @@ export interface ITransaction {
    *
    * `mayHaveSubmitted` records a crossing that HAPPENED. This records that we
    * do not yet know whether one will: the cancel marks the row but does not
-   * abort the work, so the pipeline runs on and may still submit. The GUARDIAN
-   * leaves stamp `mayHaveSubmitted` before submitting and their writes go through
-   * a terminal row, so a crossing that occurs there IS recorded — but only from
-   * the moment the leaf reaches it. Between the cancel and that stamp the row
-   * looks pre-submit, and a retry in that window would rebuild the request and pay
-   * twice. This field covers exactly that gap.
-   *
-   * For a send from a non-guardian account there is no such stamp to supplement:
-   * that leaf calls through to the proxy without recording anything, and the row
-   * stays at the 'sending' its pipeline set once at pickup. This field is then the
-   * only evidence that exists, which is why the retry guard refuses on it outright
-   * rather than merely declining to rebuild.
+   * abort the work, so the pipeline runs on and may still submit. Every leaf of a
+   * row that can await a verdict records its crossing at its 'submitting' stamp,
+   * with the attempt's evidence (`recordSubmitCrossing`, #1081), but only from the
+   * moment the stamp lands, and an offscreen stamp is replayed late or lost with
+   * its realm. Between the cancel and that stamp the row looks pre-submit, and a
+   * retry in that window would rebuild the request and pay twice. This field
+   * covers that gap for a send; for a swap or an execute, the out-of-band end the
+   * cancel records on the attempt's entry (`endedBy`) covers it.
    *
    * It has to expire, which is why it is a timestamp rather than a boolean. The
    * first version of this guard was a sticky flag, and a sticky "maybe" is

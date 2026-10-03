@@ -872,11 +872,11 @@ type OffscreenSwapDto = {
  * balance for the whole (multi-second) op and block the reverse-IPC sign handler
  * that must run SW-side mid-op (design §7.1).
  *
- * `onStage` (optional) is the write's per-step stage stamp (PR #524). The two
- * pipelines that drive execute → prove → submit as distinct stages supply one — the
- * non-guardian send and the guardian leaf; the other writes (`consumeNoteId`,
- * `swapTransaction`, `newTransaction`) take no stage callback, so they leave it
- * undefined and register nothing.
+ * `onStage` (optional) is the write's per-step stage stamp (PR #524). Every write
+ * that can cross its submit supplies one (#1081): the send, consume, swap and
+ * execute leaves and the guardian leaf. Its 'submitting' stamp carries the
+ * attempt's submit evidence, which `handleOffscreenStageEvent` forwards with
+ * `reliable: false`. A write called without one registers nothing.
  */
 async function dispatchOffscreenWrite(
   method: string,

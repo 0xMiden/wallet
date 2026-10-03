@@ -184,31 +184,32 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * real double-send of the user's funds. Guardian sends/swaps are `send`/`swap`
  * rows too, and each retry builds a fresh proposal, so they are covered here.
  *
- * `bridged-send` (Agglayer) and `execute` are excluded: both replay the
- * `requestBytes` persisted on the row, so a duplicate submit re-creates the
- * IDENTICAL note and the node rejects it rather than moving funds twice.
+ * `bridged-send` (Agglayer) is excluded: it replays the `requestBytes` persisted
+ * on the row, whose output notes are fixed and which runs no custom script, so a
+ * duplicate submit re-creates the IDENTICAL note and the node rejects it. An
+ * `execute` is excluded from the rebuild but not from the doubt: `newTransaction`
+ * re-executes its request against the account's current state, so a script that
+ * reads the vault can pay a different amount, and an execute that may have
+ * submitted meets the acknowledgeable refusal on its own rule
+ * (`executeMayHaveSubmitted`, #1081).
  * (`consume` is excluded for the same reason its Retry needs no node check - its
  * input note's nullifier makes a duplicate unusable.)
  *
  * Why these need a guard beyond `verifySendLanded`: that check is keyed on
- * `ITransaction.transactionId`, whose writers are the completion handlers in
- * `complete.ts` - the SUCCESS path - `updateBridgedReceivePhase`, and the landed
- * arms, which record the id a failed apply after submit carried (#1233). A row
- * that failed before any of them ran therefore reaches Retry with
- * `transactionId === undefined`, where
- * `verifySendLanded` short-circuits to `'unknown'` and the resubmit would proceed
- * unguarded. Stamping the id pre-submit is not available today: under
- * `MIDEN_USE_OFFSCREEN_CLIENT` the write runs in the offscreen realm, whose DTOs
- * deliberately do not carry the row id (the op_id is the whole correspondence),
- * so there is nothing there to stamp it onto. So the guard falls back to the one
- * durable in-realm fact that IS on the row - did it ever leave the queue - and
- * refuses the replay whenever the answer is yes (`isSubmitOutcomeUnknown`).
+ * `ITransaction.transactionId`, which is written only once a row landed. A row
+ * that failed before that reaches Retry with `transactionId === undefined`, where
+ * `verifySendLanded` short-circuits to `'unknown'`. The id the attempt submitted is
+ * recorded at the stamped crossing instead, on the attempt's evidence entry, and
+ * Retry's tap-time check judges it against the node (#1081). An attempt that check
+ * cannot prove falls back to the one durable fact that IS on the row - did it ever
+ * leave the queue - and the replay is refused whenever the answer is yes
+ * (`isSubmitOutcomeUnknown`).
  *
  * That is deliberately conservative: it also refuses a send that failed provably
  * pre-submit (say, insufficient funds during execute), because nothing durable
  * distinguishes that from a submit whose reply was lost. Which is why the refusal
  * is acknowledgeable rather than final - the user can tell the two apart from
- * their own balance, so see `RetryOptions.acknowledgeUnverifiedSend`.
+ * their own balance, so see `RetryOptions.acknowledged`.
  */
 const REBUILT_REQUEST_TYPES: ITransactionType[] = ['send', 'swap'];
 
@@ -222,11 +223,10 @@ const REBUILT_REQUEST_TYPES: ITransactionType[] = ['send', 'swap'];
  *
  * Deliberately excludes 'sending', which is NOT pre-submit despite sitting
  * before the submit stamps in the stage list. It is stamped at pickup
- * (`generateTransaction`) and again just before the guardian leaf runs, and only
- * the INLINE leaf then narrows it: `runGuardianPipeline` stamps
- * 'executing'/'proving'/'submitting' as it goes, but `dispatchGuardianPipeline`
- * takes no stage callback at all, so the offscreen leaf runs
- * execute → prove → submit → apply with the row frozen at 'sending'. Offscreen
+ * (`generateTransaction`) and again just before the guardian leaf runs. The
+ * inline leaf narrows it as it goes; the offscreen leaf takes `stageStampFor` too,
+ * but its stamps are replayed late and are unreliable (`reliable: false`, #1081),
+ * so a realm torn down mid-op can leave the row at 'sending' after a submit. Offscreen
  * routing is the DEFAULT (`MIDEN_USE_OFFSCREEN_CLIENT` defaults to 'true') and
  * `send` is offscreen-routable, so on the shipping path a submit that landed
  * before the realm was torn down leaves exactly this stage. The sibling requeue
