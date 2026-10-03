@@ -162,6 +162,23 @@ describe('findAgglayerExitDeposit (#1325)', () => {
     expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16)).toEqual(LIVE_16);
   });
 
+  // The indexer varies the casing and `0x` prefixing of its hashes (`sameTxHash`), and the stored exit hash is
+  // viem's lowercase output.
+  const SHOUTED_16: AgglayerDeposit = { ...LIVE_16, tx_hash: LIVE_16.tx_hash.replace(/^0x/, '').toUpperCase() };
+
+  it('finds its deposit on the address page whatever the casing and prefixing of its tx_hash', async () => {
+    serve({ page: [SIBLING, SHOUTED_16] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16)).toEqual(SHOUTED_16);
+  });
+
+  it('keeps its pinned deposit whatever the casing and prefixing of its tx_hash', async () => {
+    serve({ pinned: SHOUTED_16, page: [] });
+
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16)).toEqual(SHOUTED_16);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['bound for another network (dest_net 1)', { dest_net: 1 }],
     ['not filed as a Miden exit (network_id 0)', { network_id: 0 }]
