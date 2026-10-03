@@ -108,6 +108,17 @@ describe('the pass (#1081)', () => {
     clock = NOW_MS + 16_000;
     await reconcileUnconfirmedTransactions({ storage, createReads, now });
     expect(storage.data[SCHEDULE_KEY]).toEqual({ r: { nextCheckAt: NOW_MS + 16_000 + 30_000, step: 2 } });
+    clock = NOW_MS + 46_000;
+    await reconcileUnconfirmedTransactions({ storage, createReads, now });
+    expect(storage.data[SCHEDULE_KEY]).toEqual({ r: { nextCheckAt: NOW_MS + 46_000 + 60_000, step: 3 } });
+  });
+
+  // Uncapped, step 8 waits 3840 s, which isDue reads as a clock stepped back: the row would be judged every pass.
+  it('caps the pending backoff at 300 s', async () => {
+    await Repo.transactions.put(row('r'));
+    const storage = memoryStorage({ [SCHEDULE_KEY]: { r: { nextCheckAt: NOW_MS - 1, step: 8 } } });
+    await reconcileUnconfirmedTransactions({ storage, createReads: async () => pendingNode(), now });
+    expect(storage.data[SCHEDULE_KEY]).toEqual({ r: { nextCheckAt: NOW_MS + 300_000, step: 9 } });
   });
 
   it('waits an hour between checks of a row more than a day old', async () => {
@@ -154,6 +165,71 @@ describe('the pass (#1081)', () => {
     const storage = memoryStorage();
     await reconcileUnconfirmedTransactions({ storage, createReads: async () => pendingNode(), now });
     expect(storage.data[SCHEDULE_KEY]).toEqual({ c: { nextCheckAt: NOW_MS + 15_000, step: 1 } });
+  });
+
+  // Only reads can use the binding budget the fast lane exists for, and an entry on another network gets none.
+  it('backs off an entry on another network instead of watching its nullifier', async () => {
+    await Repo.transactions.put(
+      row('c', {
+        type: 'consume',
+        submitEvidence: [
+          entry({ outputNoteIds: [], nullifiers: [hex(30)], expirationBlock: 700, otherNetworkSince: NOW - 100 })
+        ]
+      })
+    );
+    const storage = memoryStorage();
+    const otherNetwork: NodeReads = { ...pendingNode(), blockCommitment: async () => hex(99) };
+    await reconcileUnconfirmedTransactions({ storage, createReads: async () => otherNetwork, now });
+    expect(storage.data[SCHEDULE_KEY]).toEqual({ c: { nextCheckAt: NOW_MS + 15_000, step: 1 } });
+    clock = NOW_MS + 16_000;
+    await reconcileUnconfirmedTransactions({ storage, createReads: async () => otherNetwork, now });
+    expect(storage.data[SCHEDULE_KEY]).toEqual({ c: { nextCheckAt: NOW_MS + 16_000 + 30_000, step: 2 } });
+  });
+
+  // A header the node cannot return (a reset chain still short of refBlock) never sets otherNetworkSince.
+  it('watches a nullifier whose tip is unknown only for the hour after its crossing', async () => {
+    const watched = { outputNoteIds: [], nullifiers: [hex(30)], expirationBlock: 700 };
+    await Repo.transactions.bulkPut([
+      row('fresh', { type: 'consume', submitEvidence: [entry(watched)] }),
+      row('old', {
+        type: 'consume',
+        accountId: 'mtst1other',
+        submitEvidence: [entry({ ...watched, capturedAt: NOW - 3601 })]
+      })
+    ]);
+    const storage = memoryStorage();
+    const noHeader: NodeReads = { ...pendingNode(), blockCommitment: async () => undefined };
+    await reconcileUnconfirmedTransactions({ storage, createReads: async () => noHeader, now });
+    expect(storage.data[SCHEDULE_KEY]).toEqual({
+      fresh: { nextCheckAt: NOW_MS + 5_000, step: 0 },
+      old: { nextCheckAt: NOW_MS + 15_000, step: 1 }
+    });
+  });
+
+  it.each<[string, Partial<ISubmitEvidence>]>([
+    ['a verdict', { verdict: 'unresolvable' }],
+    ['a pre-submit end', { preSubmitEnd: true }]
+  ])('never watches a nullifier entry that carries %s', async (_label, ended) => {
+    await Repo.transactions.put(
+      row('r', {
+        submitEvidence: [
+          entry({ outputNoteIds: [], nullifiers: [hex(30)], ...ended }),
+          entry({ attemptId: 'a2', transactionId: hex(3) })
+        ]
+      })
+    );
+    const storage = memoryStorage();
+    await reconcileUnconfirmedTransactions({ storage, createReads: async () => pendingNode(), now });
+    expect(storage.data[SCHEDULE_KEY]).toEqual({ r: { nextCheckAt: NOW_MS + 15_000, step: 1 } });
+  });
+
+  // Mobile fires a pass on every 3 s sync.
+  it('writes nothing when no row was due', async () => {
+    await Repo.transactions.put(row('r'));
+    const storage = memoryStorage({ [SCHEDULE_KEY]: { r: { nextCheckAt: NOW_MS + 10_000, step: 1 } } });
+    const set = jest.spyOn(storage, 'set');
+    await reconcileUnconfirmedTransactions({ storage, createReads: async () => pendingNode(), now });
+    expect(set).not.toHaveBeenCalled();
   });
 
   it('drops a row that left the set, and a row a final verdict settled', async () => {
@@ -207,9 +283,9 @@ describe('the pass (#1081)', () => {
     expect(storage.data[SCHEDULE_KEY]).toEqual({ first: { nextCheckAt: NOW_MS + 15_000, step: 1 } });
   });
 
-  it('a row whose judgement throws neither rejects nor stops the others', async () => {
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
-    await Repo.transactions.bulkPut([row('first'), row('second', { accountId: 'mtst1other' })]);
+  it('a row whose judgement throws backs off like an undecided one, and stops no other row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await Repo.transactions.bulkPut([row('first'), row('second', { accountId: 'mtst1other' }), row('third')]);
     const storage = memoryStorage();
     const node: NodeReads = {
       ...pendingNode(),
@@ -221,7 +297,14 @@ describe('the pass (#1081)', () => {
     await expect(
       reconcileUnconfirmedTransactions({ storage, createReads: async () => node, now })
     ).resolves.toBeUndefined();
-    expect(storage.data[SCHEDULE_KEY]).toEqual({ second: { nextCheckAt: NOW_MS + 15_000, step: 1 } });
+    const firstCheck = { nextCheckAt: NOW_MS + 15_000, step: 1 };
+    expect(storage.data[SCHEDULE_KEY]).toEqual({ first: firstCheck, second: firstCheck, third: firstCheck });
+    expect(warn).toHaveBeenCalledTimes(1);
+    clock = NOW_MS + 16_000;
+    await reconcileUnconfirmedTransactions({ storage, createReads: async () => node, now });
+    const secondCheck = { nextCheckAt: NOW_MS + 16_000 + 30_000, step: 2 };
+    expect(storage.data[SCHEDULE_KEY]).toEqual({ first: secondCheck, second: secondCheck, third: secondCheck });
+    expect(warn).toHaveBeenCalledTimes(2);
     jest.restoreAllMocks();
   });
 

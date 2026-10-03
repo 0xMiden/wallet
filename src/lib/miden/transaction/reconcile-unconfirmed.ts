@@ -11,7 +11,7 @@ import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields } from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
-import { awaitingVerdict, evidenceKey, nowSeconds } from './verdict-rules';
+import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
@@ -295,14 +295,19 @@ export const parseSchedule = (value: unknown): Schedule => {
 export const isDue = (entry: ScheduleEntry | undefined, nowMs: number): boolean =>
   entry === undefined || entry.nextCheckAt <= nowMs || entry.nextCheckAt - nowMs > STALE_ROW_INTERVAL_MS;
 
+/**
+ * Only an entry the pass reads can use the binding budget, so one on another network is not watched. A tip the pass
+ * could not read (a reset chain still short of refBlock never answers the network check) ends the watch as if E had
+ * no X: an hour after the crossing.
+ */
 const watchesNullifier = (entries: readonly ISubmitEvidence[], tipBlock: number | undefined, nowSec: number): boolean =>
   entries.some(
     entry =>
-      entry.verdict === undefined &&
-      entry.preSubmitEnd !== true &&
-      (entry.nullifiers?.length ?? 0) > 0 &&
-      (entry.expirationBlock !== undefined
-        ? tipBlock === undefined || tipBlock <= entry.expirationBlock
+      isCheckable(entry, nowSec) &&
+      entry.otherNetworkSince === undefined &&
+      entry.nullifiers.length > 0 &&
+      (entry.expirationBlock !== undefined && tipBlock !== undefined
+        ? tipBlock <= entry.expirationBlock
         : nowSec - entry.capturedAt < NULLIFIER_WATCH_SEC)
   );
 
@@ -360,6 +365,7 @@ async function runPass(deps: ReconcileDeps): Promise<void> {
     const due = rows.filter(row => isDue(schedule[row.id], startedMs));
     if (due.length > 0) {
       const node = await (deps.createReads ?? createNodeReads)();
+      const failures: Record<string, unknown> = {};
       for (const row of due) {
         try {
           const turn = await inVerdictTurn(
@@ -382,9 +388,12 @@ async function runPass(deps: ReconcileDeps): Promise<void> {
             delete schedule[row.id];
           }
         } catch (error) {
-          console.warn(`[reconcile] could not judge transaction ${row.id}`, error);
+          // No reachable read throws, so this is a fault: it backs off like a pass with no verdict, never every lap.
+          schedule[row.id] = nextScheduleEntry(schedule[row.id], row, [], undefined, now(), observedCadenceMs());
+          failures[row.id] = error;
         }
       }
+      if (Object.keys(failures).length > 0) console.warn('[reconcile] could not judge these transactions', failures);
     }
     if (JSON.stringify(raw) !== JSON.stringify(schedule)) await storage.set({ [SCHEDULE_KEY]: schedule });
   } catch (error) {
