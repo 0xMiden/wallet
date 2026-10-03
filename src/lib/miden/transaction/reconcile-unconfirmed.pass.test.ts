@@ -9,6 +9,7 @@ import {
   reconcileUnconfirmedTransactions,
   SCHEDULE_KEY
 } from './reconcile-unconfirmed';
+import { GUARDIAN_PENDING_HOLD_SEC, keptCandidateHoldUntil } from './verdict-rules';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 
 jest.mock('../sdk/helpers', () => ({
@@ -520,6 +521,71 @@ describe('releasing a kept Guardian candidate (#1081)', () => {
       release: { abandon }
     });
     expect(abandon).toHaveBeenCalledTimes(1);
+    expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBe(true);
+  });
+
+  it('an abandoned answer is what ends Retry`s hold: the clear removes the mark the hold reads', async () => {
+    await Repo.transactions.put(keptRow());
+    const before = await stored();
+    expect(before && keptCandidateHoldUntil(before, NOW)).toBe(NOW - 60 + GUARDIAN_PENDING_HOLD_SEC);
+    const { release } = releaseAnswering(['abandoned']);
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release
+    });
+    const after = await stored();
+    expect(after && keptCandidateHoldUntil(after, NOW)).toBeUndefined();
+  });
+
+  it.each<[string, Partial<ISubmitEvidence>]>([
+    ['its nonce', { guardianProposalNonce: 10 }],
+    ['its attempt', { attemptId: 'a2' }]
+  ])('clears nothing when the entry changed %s before the Guardian answered', async (_label, changed) => {
+    await Repo.transactions.put(keptRow());
+    const status = jest.fn(async (_timeoutMs: number): Promise<AbandonStatus> => 'abandoned');
+    const abandon = jest.fn(async (_accountId: string, _nonce: number, _attemptId: string) => {
+      // Another write moved the kept entry on between the pass's judgement and the clear.
+      await Repo.transactions.where({ id: 'g' }).modify(row => {
+        row.submitEvidence = (row.submitEvidence ?? []).map(entry => ({ ...entry, ...changed }));
+      });
+      return { status };
+    });
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep,
+      release: { abandon }
+    });
+    expect(status).toHaveBeenCalledTimes(1);
+    expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBe(true);
+  });
+
+  it('a sleep that overshoots the bound ends the poll with no read past it', async () => {
+    await Repo.transactions.put(keptRow());
+    const { release, status } = releaseAnswering([]);
+    let sleeps = 0;
+    const lateTimer = async (ms: number) => {
+      sleeps += 1;
+      // The second timer fires 70 s late, past the 60 s bound.
+      const took = sleeps === 2 ? 70_000 : ms;
+      clock += took;
+      mono += took;
+    };
+    await reconcileUnconfirmedTransactions({
+      storage: memoryStorage(),
+      createReads: async () => deadNode(),
+      now,
+      nowMono,
+      sleep: lateTimer,
+      release
+    });
+    expect(status.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([57_000]);
     expect((await stored())?.submitEvidence?.[0]?.candidateKept).toBe(true);
   });
 
