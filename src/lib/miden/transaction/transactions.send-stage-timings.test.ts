@@ -72,9 +72,14 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   clearGuardianServiceFor: jest.fn()
 }));
 
-jest.mock('lib/miden/guardian', () => ({
-  MultisigService: { buildColdMultisigService: jest.fn() }
-}));
+jest.mock('lib/miden/guardian', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+  return {
+    GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    MultisigService: { buildColdMultisigService: jest.fn() }
+  };
+});
 
 // The inline SW client leaf. After #260 nothing on the non-guardian send path may
 // reach it directly — the proxy owns that branch — so its spy must stay untouched.

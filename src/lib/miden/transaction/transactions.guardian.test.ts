@@ -15,10 +15,16 @@ import { NoteType, TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { GUARDIAN_CANDIDATE_HOLD_MS, PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
 import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
-import { clearGuardianAccountLocks, getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
+import {
+  clearGuardianAccountLocks,
+  getGuardianCandidate,
+  type GuardianCandidate,
+  recordGuardianCandidate
+} from 'lib/miden/guardian/serialize';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
@@ -59,8 +65,10 @@ import {
   LANDED_CONFIRM_POLL_MS,
   markBridgedSendFailed
 } from './index';
+import { OperationAbortedError } from '../back/offscreen-codec';
 import {
   ConsumeTransaction,
+  ITransactionStage,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
@@ -152,11 +160,16 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 }));
 
 const mockBuildColdMultisigService = jest.fn();
-jest.mock('lib/miden/guardian', () => ({
-  MultisigService: {
-    buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a)
-  }
-}));
+jest.mock('lib/miden/guardian', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/guardian')>('lib/miden/guardian');
+  return {
+    GUARDIAN_CANDIDATE_HOLD_MS: actual.GUARDIAN_CANDIDATE_HOLD_MS,
+    PRIOR_CANDIDATE_CHECK_TIMEOUT_MS: actual.PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+    MultisigService: {
+      buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a)
+    }
+  };
+});
 
 // The rotation mints its hot key in the transaction layer (#904).
 const mockGenerateHotKey = jest.fn(async () => ({
@@ -343,6 +356,18 @@ jest.mock('../sdk/native-prover-mobile', () => ({
   buildNativeProverCallback: jest.fn(() => async () => new Uint8Array())
 }));
 
+// The offscreen leaf, reached only while a test turns the offscreen client on; the proxy's own reads stay inline,
+// since it reads the flag once, at load.
+const mockDispatchGuardianPipeline = jest.fn();
+jest.mock('../back/miden-client-proxy', () => ({
+  ...jest.requireActual('../back/miden-client-proxy'),
+  dispatchGuardianPipeline: (...a: unknown[]) => mockDispatchGuardianPipeline(...a)
+}));
+jest.mock('../back/offscreen-prover', () => ({
+  ...jest.requireActual('../back/offscreen-prover'),
+  isOffscreenAvailable: () => process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true'
+}));
+
 // isMobile is toggled per-test (default false = the desktop/extension env the
 // rest of the suite assumes). Only `isMobile` is overridden; every other
 // platform predicate keeps its real (jsdom = false) behavior. It must be a
@@ -457,6 +482,22 @@ const makeSuffixGuardianProvider = () => ({
 
 // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
 afterEach(() => clearGuardianAccountLocks());
+
+let testStartedAt = 0;
+beforeEach(() => {
+  testStartedAt = Date.now();
+});
+// A record's two proposal stamps (#1317), whatever their values.
+const STAMPS = { proposedAt: expect.any(Number), proposedAtMono: expect.any(Number) };
+// The stamps of a record a test seeds, as if its candidate were proposed just now.
+const proposedNow = () => ({ proposedAt: Date.now(), proposedAtMono: performance.now() });
+// The account's record carries an abandon mark on a candidate proposed during this test (#1317).
+const expectAbandonMark = (accountId: string, candidate: { endpoint: string; nonce: number }) => {
+  const record = getGuardianCandidate(accountId);
+  expect(record).toEqual({ ...candidate, ...STAMPS, abandon: true });
+  expect(record?.proposedAt).toBeGreaterThanOrEqual(testStartedAt);
+  expect(record?.proposedAt).toBeLessThanOrEqual(Date.now());
+};
 
 describe('initiateSwitchGuardianTransaction', () => {
   beforeEach(() => {
@@ -5115,7 +5156,7 @@ describe('generateTransaction — Guardian routing', () => {
         jest.useFakeTimers();
         try {
           // A trailing slash on the recorded spelling: the gate compares Guardians canonically.
-          recordGuardianCandidate('guardian-acc', { endpoint: `${GUARDIAN}/`, nonce: 7 });
+          recordGuardianCandidate('guardian-acc', { endpoint: `${GUARDIAN}/`, nonce: 7, ...proposedNow() });
           const service = busyService();
           mockGetOrCreateMultisigService.mockResolvedValue(service);
           arrangeClient();
@@ -5127,7 +5168,7 @@ describe('generateTransaction — Guardian routing', () => {
           expect(service[creator]).not.toHaveBeenCalled();
           expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
           // Kept, so the next attempt asks again.
-          expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: `${GUARDIAN}/`, nonce: 7 });
+          expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: `${GUARDIAN}/`, nonce: 7, ...STAMPS });
         } finally {
           jest.useRealTimers();
         }
@@ -5135,7 +5176,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     it('proposes once the prior candidate settled, from a pickup that cleared the busy mark, and records its own', async () => {
-      recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7 });
+      recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow() });
       const service = busyService();
       mockGetOrCreateMultisigService.mockResolvedValue(service);
       arrangeClient();
@@ -5159,13 +5200,13 @@ describe('generateTransaction — Guardian routing', () => {
       expect(rowAtProposal.guardianBusy).toBeUndefined();
       expect(stored(row.id).status).toBe(ITransactionStatus.Completed);
       // The write that just landed is what the next proposal on the account asks about.
-      expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8 });
+      expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
     });
 
     it('lets the proposal decide when the Guardian gives no answer, and keeps the record for the next attempt', async () => {
       jest.useFakeTimers();
       try {
-        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7 });
+        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow() });
         const service = busyService();
         service.priorCandidateState.mockResolvedValue('unknown');
         service.createSendProposal.mockRejectedValue(PENDING_DELTA_409);
@@ -5177,7 +5218,7 @@ describe('generateTransaction — Guardian routing', () => {
 
         expect(service.createSendProposal).toHaveBeenCalledTimes(1);
         expect(stored(row.id).guardianBusy).toBe(true);
-        expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 7 });
+        expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 7, ...STAMPS });
       } finally {
         jest.useRealTimers();
       }
@@ -5186,7 +5227,7 @@ describe('generateTransaction — Guardian routing', () => {
     it('drops a record left on another Guardian without asking, since the account switched', async () => {
       jest.useFakeTimers();
       try {
-        recordGuardianCandidate('guardian-acc', { endpoint: 'https://previous.guardian', nonce: 7 });
+        recordGuardianCandidate('guardian-acc', { endpoint: 'https://previous.guardian', nonce: 7, ...proposedNow() });
         const service = busyService();
         service.createSendProposal.mockRejectedValue(PENDING_DELTA_409);
         mockGetOrCreateMultisigService.mockResolvedValue(service);
@@ -5205,7 +5246,7 @@ describe('generateTransaction — Guardian routing', () => {
     it('a candidate recorded for another account never gates this one', async () => {
       jest.useFakeTimers();
       try {
-        recordGuardianCandidate('other-acc', { endpoint: GUARDIAN, nonce: 7 });
+        recordGuardianCandidate('other-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow() });
         const service = busyService();
         service.createSendProposal.mockRejectedValue(PENDING_DELTA_409);
         mockGetOrCreateMultisigService.mockResolvedValue(service);
@@ -5215,7 +5256,7 @@ describe('generateTransaction — Guardian routing', () => {
 
         expect(service.priorCandidateState).not.toHaveBeenCalled();
         expect(service.createSendProposal).toHaveBeenCalledTimes(1);
-        expect(getGuardianCandidate('other-acc')).toEqual({ endpoint: GUARDIAN, nonce: 7 });
+        expect(getGuardianCandidate('other-acc')).toEqual({ endpoint: GUARDIAN, nonce: 7, ...STAMPS });
       } finally {
         jest.useRealTimers();
       }
@@ -5230,7 +5271,7 @@ describe('generateTransaction — Guardian routing', () => {
 
       await run(queueRow('composite-first', { ...SEND, accountId: 'guardian-acc_suffix' }));
       expect(stored('composite-first').status).toBe(ITransactionStatus.Completed);
-      expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8 });
+      expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
 
       service.priorCandidateState.mockResolvedValue('candidate');
       await run(queueRow('composite-second', { ...SEND, accountId: 'guardian-acc_suffix' }));
@@ -5241,7 +5282,7 @@ describe('generateTransaction — Guardian routing', () => {
     it('forgets a settled candidate even when the proposal it lets through then meets a 409', async () => {
       jest.useFakeTimers();
       try {
-        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7 });
+        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow() });
         const service = busyService();
         service.priorCandidateState.mockResolvedValue('settled');
         service.createSendProposal.mockRejectedValue(PENDING_DELTA_409);
@@ -5452,7 +5493,7 @@ describe('generateTransaction — Guardian routing', () => {
       jest.useFakeTimers();
       try {
         // A still-settling record the gate would refuse on: the rotation must not consult it.
-        recordGuardianCandidate('acc-1', { endpoint: GUARDIAN, nonce: 3 });
+        recordGuardianCandidate('acc-1', { endpoint: GUARDIAN, nonce: 3, ...proposedNow() });
         const createProposal = proposalFor();
         createProposal.mockRejectedValueOnce(PENDING_DELTA_409);
         const { tx, row, provider } = arrangeRotation(createProposal);
@@ -5469,7 +5510,7 @@ describe('generateTransaction — Guardian routing', () => {
         expect(row()?.status).toBe(ITransactionStatus.Completed);
         expect(createProposal).toHaveBeenCalledTimes(2);
         expect(row()?.guardianBusy).toBeUndefined();
-        expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: GUARDIAN, nonce: 7 });
+        expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: GUARDIAN, nonce: 7, ...STAMPS });
       } finally {
         jest.useRealTimers();
       }
@@ -5492,7 +5533,7 @@ describe('generateTransaction — Guardian routing', () => {
       await run(row);
 
       expect(stored(row.id).status).toBe(ITransactionStatus.Completed);
-      expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8 });
+      expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
     });
 
     it('a write that failed before its submit resolved leaves no candidate to ask about', async () => {
@@ -5515,6 +5556,655 @@ describe('generateTransaction — Guardian routing', () => {
       expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
       expect(service.abandonCandidate).toHaveBeenCalledWith(8);
       expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+    });
+
+    describe('a candidate whose abandon failed (#1317)', () => {
+      const RETRY_WINDOW_MS = GUARDIAN_CANDIDATE_HOLD_MS - GUARDIAN_REQUEST_TIMEOUT_MS;
+      // A send whose execute fails before its submit, so the catch abandons its candidate (nonce 8).
+      const arrangeFailureBeforeSubmit = (service: ReturnType<typeof busyService>, executeError: unknown) => {
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const client = makeClientApi(makeResult());
+        client.transactions.executeRequest.mockRejectedValueOnce(executeError);
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+      };
+
+      it('a write that failed before its submit and could not abandon its candidate records the abandon', async () => {
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+        arrangeFailureBeforeSubmit(service, new Error('failed to execute transaction: kernel assertion'));
+        const row = queueRow('abandon-failed-before-submit', SEND);
+
+        await run(row);
+
+        expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+      });
+
+      it('a killed pipeline whose abandon fails leaves no mark, so the next send does not retry it', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        arrangeFailureBeforeSubmit(service, new OperationAbortedError('op-7', 'deadline'));
+
+        await run(queueRow('killed-abandon-failed', SEND));
+
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+
+        await run(queueRow('killed-next-send', SEND));
+
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+      });
+
+      it("a failure after the leaf reported the 'submitting' stage whose abandon fails leaves no mark", async () => {
+        // The node may have the write, so its candidate must not be retracted later.
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        const client = makeClientApi(makeResult());
+        client.transactions.submitProven.mockRejectedValueOnce(
+          new Error('failed to submit proven transaction: connection reset')
+        );
+        mockGetMidenClient.mockResolvedValue({
+          getAccount: jest.fn(async () => undefined),
+          syncState: jest.fn(async () => {}),
+          client
+        });
+        const row = queueRow('submitting-abandon-failed', SEND);
+
+        await run(row);
+
+        expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
+        expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+      });
+
+      const executeError = new Error('failed to execute transaction: kernel assertion');
+      it.each([
+        [
+          'off',
+          'still records the mark, and the next send retries it',
+          () => {},
+          0,
+          () => expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 }),
+          2
+        ],
+        [
+          'on',
+          'leaves no mark, since an offscreen attempt never marks',
+          () => {
+            process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+            mockDispatchGuardianPipeline.mockRejectedValueOnce(executeError);
+          },
+          1,
+          () => expect(getGuardianCandidate('guardian-acc')).toBeUndefined(),
+          1
+        ]
+      ])(
+        'an execute carrying request bytes, so stamped as maybe submitted, that fails before its submit with the offscreen client %s %s',
+        async (flag, _outcome, arrangeLeaf, dispatches, expectMark, abandons) => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          jest.spyOn(console, 'error').mockImplementation(() => {});
+          try {
+            const service = busyService();
+            service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+            arrangeFailureBeforeSubmit(service, executeError);
+            arrangeLeaf();
+            const row = queueRow(`bytes-execute-abandon-failed-${flag}`, { ...EXECUTE, mayHaveSubmitted: true });
+
+            await run(row);
+
+            expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(dispatches);
+            expect(stored(row.id).status).toBe(ITransactionStatus.Failed);
+            expect(stored(row.id).mayHaveSubmitted).toBe(true);
+            expectMark();
+
+            await run(queueRow(`bytes-execute-next-send-${flag}`, SEND));
+
+            expect(service.abandonCandidate).toHaveBeenCalledTimes(abandons);
+            expect(service.abandonCandidate).toHaveBeenLastCalledWith(8);
+          } finally {
+            delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+          }
+        }
+      );
+
+      it.each([
+        ['drops its stamp', async (_onStage: (stage: ITransactionStage) => Promise<void>) => {}],
+        ["reports 'submitting'", async (onStage: (stage: ITransactionStage) => Promise<void>) => onStage('submitting')]
+      ])(
+        'an offscreen attempt whose leaf %s before a submit failure and whose abandon fails leaves no mark, so the next send does not retry it',
+        async (_label, stamp) => {
+          // Its stamps are fire-and-forget events that can be dropped or arrive after the reply, so they prove nothing.
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          jest.spyOn(console, 'error').mockImplementation(() => {});
+          try {
+            process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+            const service = busyService();
+            service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+            mockGetOrCreateMultisigService.mockResolvedValue(service);
+            arrangeClient();
+            mockDispatchGuardianPipeline.mockImplementationOnce(
+              async (
+                _accountId: unknown,
+                _requestBytes: unknown,
+                _delegate: unknown,
+                _sign: unknown,
+                onStage: (stage: ITransactionStage) => Promise<void>
+              ) => {
+                await stamp(onStage);
+                throw new Error('failed to submit proven transaction: connection reset');
+              }
+            );
+
+            await run(queueRow('offscreen-submit-abandon-failed', SEND));
+
+            expect(service.abandonCandidate).toHaveBeenCalledWith(8);
+            expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+
+            mockDispatchGuardianPipeline.mockResolvedValueOnce(makeResult());
+            await run(queueRow('offscreen-next-send', SEND));
+
+            expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(2);
+            expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+          } finally {
+            delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+          }
+        }
+      );
+
+      it('an offscreen-routed send whose hot co-sign fails and whose abandon fails records the abandon, and the next send retries it', async () => {
+        // Its request never reached the offscreen leaf, so the failure provably preceded the submit.
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+          const service = busyService();
+          service.signAndCreateTransactionRequest.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          arrangeClient();
+
+          await run(queueRow('offscreen-cosign-abandon-failed', SEND));
+
+          expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+          expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+
+          mockDispatchGuardianPipeline.mockResolvedValueOnce(makeResult());
+          await run(queueRow('offscreen-cosign-next-send', SEND));
+
+          expect(service.abandonCandidate).toHaveBeenCalledTimes(2);
+          expect(service.abandonCandidate).toHaveBeenLastCalledWith(8);
+        } finally {
+          delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+        }
+      });
+
+      it('an offscreen-routed send whose request fails to serialize and whose abandon fails records the abandon', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+          const service = busyService();
+          service.signAndCreateTransactionRequest.mockResolvedValueOnce({
+            serialize: () => {
+              throw new Error('failed to serialize the transaction request');
+            },
+            authArg: () => undefined
+          });
+          service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          arrangeClient();
+
+          await run(queueRow('offscreen-serialize-abandon-failed', SEND));
+
+          expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+          expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+        } finally {
+          delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+        }
+      });
+
+      it('an evicted pipeline abandons nothing and records no abandon, since its transaction may still land', async () => {
+        const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+        arrangeFailureBeforeSubmit(service, new WasmClientPoisonedError('watchdog'));
+
+        await run(queueRow('evicted-before-submit', SEND)).catch(() => {});
+
+        expect(service.abandonCandidate).not.toHaveBeenCalled();
+        expect(getGuardianCandidate('guardian-acc')).toBeUndefined();
+      });
+
+      it.each(gatedTypes)(
+        'a %s retries the abandon before the settlement gate, which requeues while the Guardian quarantines it',
+        async (type, extra, creator) => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          jest.useFakeTimers();
+          try {
+            // A trailing slash on the recorded spelling: the retry compares Guardians canonically, as the gate does.
+            recordGuardianCandidate('guardian-acc', {
+              endpoint: `${GUARDIAN}/`,
+              nonce: 7,
+              ...proposedNow(),
+              abandon: true
+            });
+            const service = busyService();
+            mockGetOrCreateMultisigService.mockResolvedValue(service);
+            arrangeClient();
+            const row = queueRow(`release-${type}`, extra);
+
+            await run(row);
+
+            expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+            expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+            expect(service.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+              service.priorCandidateState.mock.invocationCallOrder[0]!
+            );
+            expect(service[creator]).not.toHaveBeenCalled();
+            expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
+            // Taken, so the record turns plain and only the gate waits on it.
+            expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: `${GUARDIAN}/`, nonce: 7, ...STAMPS });
+          } finally {
+            jest.useRealTimers();
+          }
+        }
+      );
+
+      it('a send proposes once the abandoned candidate has settled, without abandoning it again', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow(), abandon: true });
+        const service = busyService();
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        arrangeClient();
+        const row = queueRow('release-two-cycles', SEND);
+
+        await run(row);
+        expect(stored(row.id).guardianBusy).toBe(true);
+
+        service.priorCandidateState.mockResolvedValue('settled');
+        await run({ ...stored(row.id) });
+
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+        expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+        expect(stored(row.id).status).toBe(ITransactionStatus.Completed);
+        expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
+      });
+
+      it('a retried abandon that fails again keeps the record, and the proposal still decides', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.useFakeTimers();
+        try {
+          const mark: GuardianCandidate = { endpoint: GUARDIAN, nonce: 7, ...proposedNow(), abandon: true };
+          recordGuardianCandidate('guardian-acc', mark);
+          const service = busyService();
+          service.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+          service.priorCandidateState.mockResolvedValue('unknown');
+          service.createSendProposal.mockRejectedValue(PENDING_DELTA_409);
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          arrangeClient();
+          const row = queueRow('release-fails-again', SEND);
+
+          await runPastInlineRetry(row);
+
+          expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+          expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+          expect(stored(row.id).guardianBusy).toBe(true);
+          expect(getGuardianCandidate('guardian-acc')).toEqual(mark);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('an abandon refused because the write landed is cleared by the gate, and the send proposes', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow(), abandon: true });
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValue({ status: 409, code: 'candidate_landed' });
+        service.priorCandidateState.mockResolvedValue('settled');
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        arrangeClient();
+        const row = queueRow('release-refused-landed', SEND);
+
+        await run(row);
+
+        expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+        expect(service.priorCandidateState).toHaveBeenCalledWith(7);
+        expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+        expect(stored(row.id).status).toBe(ITransactionStatus.Completed);
+        expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
+      });
+
+      it('a rotation drops an abandon record left on another Guardian without abandoning it', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        recordGuardianCandidate('acc-1', {
+          endpoint: 'https://previous.guardian',
+          nonce: 3,
+          ...proposedNow(),
+          abandon: true
+        });
+        const createProposal = proposalFor();
+        createProposal.mockRejectedValue(new Error('proposal refused'));
+        const { tx, coldService, provider } = arrangeRotation(createProposal);
+
+        await generateTransaction(
+          tx,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          provider
+        );
+
+        expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+        expect(createProposal).toHaveBeenCalledTimes(1);
+        expect(getGuardianCandidate('acc-1')).toBeUndefined();
+      });
+
+      it('a rotation retries the abandon before its proposal and waits out the quarantine in process', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.useFakeTimers();
+        try {
+          recordGuardianCandidate('acc-1', { endpoint: GUARDIAN, nonce: 3, ...proposedNow(), abandon: true });
+          const createProposal = proposalFor();
+          createProposal.mockRejectedValueOnce(PENDING_DELTA_409);
+          const { tx, row, coldService, provider } = arrangeRotation(createProposal);
+
+          const rotation = generateTransaction(
+            tx,
+            jest.fn(async () => new Uint8Array([1])),
+            false,
+            provider
+          );
+          await jest.runAllTimersAsync();
+          await rotation;
+
+          expect(coldService.abandonCandidate).toHaveBeenCalledTimes(1);
+          expect(coldService.abandonCandidate).toHaveBeenCalledWith(3);
+          expect(coldService.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+            createProposal.mock.invocationCallOrder[0]!
+          );
+          expect(createProposal).toHaveBeenCalledTimes(2);
+          expect(row()?.status).toBe(ITransactionStatus.Completed);
+          expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: GUARDIAN, nonce: 7, ...STAMPS });
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('a threshold update retries the abandon before its proposal', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        recordGuardianCandidate('acc-1', { endpoint: GUARDIAN, nonce: 3, ...proposedNow(), abandon: true });
+        const coldService = {
+          guardianEndpoint: GUARDIAN,
+          createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => {
+            throw new Error('proposal refused');
+          }),
+          abandonCandidate: jest.fn(async (_nonce: number) => {})
+        };
+        mockBuildColdMultisigService.mockResolvedValue(coldService);
+        mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+        mockGetMidenClient.mockResolvedValue({
+          syncState: jest.fn(async () => {}),
+          getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'acc-1' }) })),
+          client: makeClientApi(makeResult())
+        });
+        const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+        txStore.push({ ...tx });
+
+        await generateTransaction(
+          tx,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          makeGuardianProvider(true)
+        );
+
+        expect(coldService.abandonCandidate).toHaveBeenCalledWith(3);
+        expect(coldService.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+          coldService.createUpdateProcedureThresholdProposal.mock.invocationCallOrder[0]!
+        );
+        expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: GUARDIAN, nonce: 3, ...STAMPS });
+      });
+
+      it('an Agglayer bridged-send retries the abandon before its proposal, without the gate', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow(), abandon: true });
+        const service = busyService();
+        service.createCustomProposal.mockRejectedValue(new Error('proposal refused'));
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        arrangeClient();
+        const row = queueRow('release-bridged-send', {
+          type: 'bridged-send',
+          amount: 1000n,
+          faucetId: 'faucet',
+          requestBytes: new Uint8Array([81]),
+          extraInputs: {
+            provider: 'agglayer',
+            destinationAddress: '0xevm',
+            destinationNetwork: 0,
+            sourceFaucetId: 'faucet',
+            claimStatus: 'pending'
+          }
+        });
+
+        await run(row);
+
+        expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+        expect(service.abandonCandidate.mock.invocationCallOrder[0]!).toBeLessThan(
+          service.createCustomProposal.mock.invocationCallOrder[0]!
+        );
+        expect(service.priorCandidateState).not.toHaveBeenCalled();
+      });
+
+      it('gives up on a retried abandon the Guardian never answers at the prior-candidate check bound, then the gate decides', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.useFakeTimers();
+        try {
+          const mark: GuardianCandidate = { endpoint: GUARDIAN, nonce: 7, ...proposedNow(), abandon: true };
+          recordGuardianCandidate('guardian-acc', mark);
+          const service = busyService();
+          service.abandonCandidate.mockImplementation(() => new Promise<void>(() => {}));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          arrangeClient();
+          const row = queueRow('release-silent', SEND);
+
+          let settled = false;
+          const pending = run(row).then(() => {
+            settled = true;
+          });
+          await jest.advanceTimersByTimeAsync(PRIOR_CANDIDATE_CHECK_TIMEOUT_MS - 1);
+          expect(service.abandonCandidate).toHaveBeenCalledWith(7);
+          expect(service.priorCandidateState).not.toHaveBeenCalled();
+          expect(settled).toBe(false);
+
+          await jest.advanceTimersByTimeAsync(1);
+          expect(service.priorCandidateState).toHaveBeenCalledWith(7);
+          await pending;
+
+          expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
+          expect(getGuardianCandidate('guardian-acc')).toEqual(mark);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it.each([
+        [
+          'retries the abandon at the last millisecond of the retry window, counted from the proposal',
+          RETRY_WINDOW_MS - 1,
+          2
+        ],
+        [
+          'ages a mark out at the end of the retry window, one request timeout before the hold ends: no abandon, and the gate reads the plain record',
+          RETRY_WINDOW_MS,
+          1
+        ]
+      ])('%s', async (_title, age, abandons) => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.useFakeTimers();
+        try {
+          const service = busyService();
+          service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          arrangeFailureBeforeSubmit(service, new Error('failed to execute transaction: kernel assertion'));
+          await run(queueRow(`aged-failed-${age}`, SEND));
+          expect(getGuardianCandidate('guardian-acc')).toEqual({
+            endpoint: GUARDIAN,
+            nonce: 8,
+            proposedAt: Date.now(),
+            proposedAtMono: performance.now(),
+            abandon: true
+          });
+
+          // Wall clock, not running time: the Guardian's hold runs on while a mobile app is frozen.
+          jest.setSystemTime(Date.now() + age);
+          const row = queueRow(`aged-release-${age}`, SEND);
+          await run(row);
+
+          expect(service.abandonCandidate).toHaveBeenCalledTimes(abandons);
+          expect(service.priorCandidateState).toHaveBeenCalledWith(8);
+          expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
+          expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('counts the retry window from the proposal, so a write that failed only after a long prove is not retried', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.useFakeTimers();
+        try {
+          const service = busyService();
+          service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+          mockGetOrCreateMultisigService.mockResolvedValue(service);
+          const client = makeClientApi(makeResult());
+          client.transactions.executeRequest.mockImplementationOnce(async () => {
+            // The window runs out inside the leaf: after the proposal, before the failed abandon.
+            jest.setSystemTime(Date.now() + RETRY_WINDOW_MS);
+            throw new Error('failed to execute transaction: kernel assertion');
+          });
+          mockGetMidenClient.mockResolvedValue({
+            getAccount: jest.fn(async () => undefined),
+            syncState: jest.fn(async () => {}),
+            client
+          });
+          await run(queueRow('slow-leaf-failed', SEND));
+
+          const row = queueRow('slow-leaf-release', SEND);
+          await run(row);
+
+          expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+          expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
+          expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it.each([
+        ['to inside the window', RETRY_WINDOW_MS / 2],
+        ['to before the proposal', RETRY_WINDOW_MS + 1_000]
+      ])(
+        'a wall clock set back %s cannot reopen a retry window the monotonic clock has closed',
+        async (_to, setBack) => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          jest.spyOn(console, 'error').mockImplementation(() => {});
+          jest.useFakeTimers();
+          try {
+            const service = busyService();
+            service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+            arrangeFailureBeforeSubmit(service, new Error('failed to execute transaction: kernel assertion'));
+            await run(queueRow(`set-back-failed-${setBack}`, SEND));
+
+            // Both clocks run to the window's end, then the wall clock alone is set back.
+            jest.advanceTimersByTime(RETRY_WINDOW_MS);
+            jest.setSystemTime(Date.now() - setBack);
+            const row = queueRow(`set-back-release-${setBack}`, SEND);
+            await run(row);
+
+            expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+            expectBusyRequeue(stored(row.id), { cooldownSec: 15, streak: 1 });
+            expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 8, ...STAMPS });
+          } finally {
+            jest.useRealTimers();
+          }
+        }
+      );
+
+      it('keys the abandon record by the canonical account id, so the next write finds it', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const service = busyService();
+        service.abandonCandidate.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        arrangeFailureBeforeSubmit(service, new Error('failed to execute transaction: kernel assertion'));
+        await run(queueRow('composite-abandon-failed', { ...SEND, accountId: 'guardian-acc_suffix' }));
+        expectAbandonMark('guardian-acc', { endpoint: GUARDIAN, nonce: 8 });
+
+        const row = queueRow('composite-release', { ...SEND, accountId: 'guardian-acc_suffix' });
+        await run(row);
+
+        expect(service.abandonCandidate).toHaveBeenCalledTimes(2);
+        expect(service.abandonCandidate).toHaveBeenLastCalledWith(8);
+        expect(service.createSendProposal).toHaveBeenCalledTimes(1);
+        expect(stored(row.id).guardianBusy).toBe(true);
+      });
+
+      it('an accepted abandon leaves alone a record a later write made meanwhile', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 7, ...proposedNow(), abandon: true });
+        const service = busyService();
+        service.abandonCandidate.mockImplementation(async () => {
+          recordGuardianCandidate('guardian-acc', { endpoint: GUARDIAN, nonce: 9, ...proposedNow() });
+        });
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        arrangeClient();
+        const row = queueRow('release-replaced-meanwhile', SEND);
+
+        await run(row);
+
+        expect(service.priorCandidateState).toHaveBeenCalledWith(9);
+        expect(stored(row.id).guardianBusy).toBe(true);
+        expect(getGuardianCandidate('guardian-acc')).toEqual({ endpoint: GUARDIAN, nonce: 9, ...STAMPS });
+      });
+
+      it('a switch whose retried abandon fails as unreachable still proposes, and never switches directly', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const mark: GuardianCandidate = { endpoint: GUARDIAN, nonce: 5, ...proposedNow(), abandon: true };
+        recordGuardianCandidate('guardian-acc', mark);
+        const service = {
+          guardianEndpoint: GUARDIAN,
+          abandonCandidate: jest.fn(async (_nonce: number) => {
+            throw new TypeError('Failed to fetch');
+          }),
+          createSwitchGuardianProposal: jest.fn(async (_endpoint: string) => {
+            throw new Error('proposal refused');
+          }),
+          sync: jest.fn(async () => {})
+        };
+        mockGetOrCreateMultisigService.mockResolvedValue(service);
+        arrangeClient();
+        const row = queueRow('release-switch', {
+          type: 'switch-guardian',
+          extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+        });
+
+        await run(row);
+
+        expect(service.abandonCandidate).toHaveBeenCalledWith(5);
+        expect(service.createSwitchGuardianProposal).toHaveBeenCalledTimes(1);
+        expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+        expect(getGuardianCandidate('guardian-acc')).toEqual(mark);
+      });
     });
   });
 
@@ -7113,6 +7803,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     const multisigService = {
+      guardianEndpoint: 'https://old.guardian',
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch', nonce: 33 },
         newEndpoint: 'https://new.guardian'
@@ -7160,6 +7851,8 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.abandonCandidate).toHaveBeenCalledWith(33);
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
     expect(txStore.find(r => r.id === txId)!.status).toBe(ITransactionStatus.Completed);
+    // The account's next proposal retries it, or drops it unasked once the switch has moved the account (#1317).
+    expectAbandonMark('guardian-acc', { endpoint: 'https://old.guardian', nonce: 33 });
   });
 
   // A commit wait that fails without a verdict is resolved by ASKING THE CHAIN
@@ -7860,6 +8553,25 @@ describe('generateTransaction — Guardian routing', () => {
     expect(swapHotKey).not.toHaveBeenCalled();
     expect(row()?.status).toBe(ITransactionStatus.Failed);
     expect(row()?.error).toMatch(/did not land: the node discarded it/);
+    expect(getGuardianCandidate('acc-1')).toEqual({ endpoint: 'https://old.guardian', nonce: 7, ...STAMPS });
+  });
+
+  it('Guardian replace-hot-key: a discarded rotation whose abandon fails records the abandon for the next proposal (#1317)', async () => {
+    const { tx, row, coldService, provider } = arrangeRotation(proposalFor(), timedOutCommitWait());
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+    coldService.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await generateTransaction(
+      tx,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider
+    );
+
+    expect(coldService.abandonCandidate).toHaveBeenCalledWith(7);
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+    expectAbandonMark('acc-1', { endpoint: 'https://old.guardian', nonce: 7 });
   });
 
   // swapHotKey deletes the old hot key and its native wrapper, so a rotation that may never land
@@ -8238,6 +8950,7 @@ describe('generateTransaction — Guardian routing', () => {
   const arrangeLandedRotation = () => {
     const txId = 'replace-apply-fail-suffix';
     const coldService = {
+      guardianEndpoint: 'https://old.guardian',
       createReplaceHotKeyProposal: jest.fn(async () => ({ id: 'prop-replace', nonce: 3 })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -8463,6 +9176,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     const finalizeGuardianSwitch = jest.fn(async () => {});
     const service = {
+      guardianEndpoint: 'https://old.guardian',
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-switch', nonce: 41 },
         newEndpoint: 'https://new.guardian'
@@ -8527,6 +9241,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
     return {
       run,
+      service,
       finalizeGuardianSwitch,
       setGuardianEndpoint,
       row: () => txStore.find(r => r.id === txId) as Record<string, unknown>
@@ -8591,6 +9306,24 @@ describe('generateTransaction — Guardian routing', () => {
 
     expect(row().status).toBe(ITransactionStatus.Failed);
     expect(row().error).toMatch(/: Guardian switch exec-tx-hash did not land: the node discarded it\.$/);
+    // The account's next proposal retries it (#1317).
+    expectAbandonMark('guardian-acc', { endpoint: 'https://old.guardian', nonce: 41 });
+  });
+
+  it('flags the recorded candidate of a discarded switch whose outgoing service cannot be rebuilt (#1317)', async () => {
+    const abandonCandidate = jest.fn(async (_nonce: number) => {});
+    const { run, row, service } = startDiscardedLandedSwitch('switch-discarded-outgoing-offline', abandonCandidate);
+    // The outgoing guardian goes offline once it holds the delta, so the reconcile cannot rebuild its service.
+    service.pushSwitchDeltaBounded.mockImplementation(async (): Promise<'pushed'> => {
+      mockGetOrCreateMultisigService.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      return 'pushed';
+    });
+    await run;
+
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    expect(row().status).toBe(ITransactionStatus.Failed);
+    expect(row().error).toMatch(/: Guardian switch exec-tx-hash did not land: the node discarded it\.$/);
+    expectAbandonMark('guardian-acc', { endpoint: 'https://old.guardian', nonce: 41 });
   });
 
   it('bounds the abandon of a discarded switch by the outgoing deadline', async () => {
@@ -8784,6 +9517,7 @@ describe('generateTransaction — Guardian routing', () => {
   // service backs the proposal; the reconcile builds none.
   const arrangeLandedThreshold = (apply: Parameters<typeof makeClientApi>[1]) => {
     const coldService = {
+      guardianEndpoint: 'https://old.guardian',
       createUpdateProcedureThresholdProposal: jest.fn(async (_procedure: string, _threshold: number) => ({
         id: 'prop-upt',
         nonce: 9
@@ -9007,6 +9741,40 @@ describe('generateTransaction — Guardian routing', () => {
       expect(type === 'replace-hot-key' && describeRotationFailure(row() as never, null).unconfirmed).toBe(false);
     }
   );
+
+  it.each(landedStructuralArrangements)(
+    '$type landed: a discard whose abandon cannot build its cold service flags the recorded candidate for abandon (#1317)',
+    async ({ arrange, nonce }) => {
+      const { run, row, coldService } = arrange();
+      mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+      // The proposal's build succeeds; the abandon's build (the second) fails as it does offline.
+      mockBuildColdMultisigService
+        .mockResolvedValueOnce(coldService)
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await run();
+
+      expect(coldService.abandonCandidate).not.toHaveBeenCalled();
+      expect(row()?.status).toBe(ITransactionStatus.Failed);
+      expectAbandonMark('acc-1', { endpoint: 'https://old.guardian', nonce });
+    }
+  );
+
+  it('replace-hot-key landed: a discarded rotation whose abandon fails records the abandon for the next proposal (#1317)', async () => {
+    const { run, row, coldService } = arrangeLandedRotation();
+    coldService.abandonCandidate.mockRejectedValue(new TypeError('Failed to fetch'));
+    mockDidDirectSwitchLand.mockResolvedValueOnce(false);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await run();
+
+    expect(coldService.abandonCandidate).toHaveBeenCalledWith(3);
+    expect(row()?.status).toBe(ITransactionStatus.Failed);
+    expectAbandonMark('acc-1', { endpoint: 'https://old.guardian', nonce: 3 });
+  });
 
   // When the record gives no verdict, the node's commitment for the account confirms a landed write
   // equal to the executed transaction's final one (#1233). The poll runs on timers, so these drive it.

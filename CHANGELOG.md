@@ -60,6 +60,7 @@
 
 ### Fixes
 
+- [FIX][all] When a Guardian transaction fails and the Guardian cannot be reached to release it, the account's next send, claim, swap or other Guardian transaction asks the Guardian to release it first, so it waits under a minute instead of about ten minutes for the Guardian's hold to expire (#1317).
 - [FIX][mobile] The 2-minute delegated-prove deadline and the 5-minute WASM lock watchdog count only time the app could run, and a remote prove that a background stretch cut off is sent to the remote prover again instead of being proved on the device (#473).
 - [FIX][mobile] A wallet that unlocks with biometrics asks for Face ID or fingerprint to confirm each send, swap, earn deposit and dApp transaction, and the Guardian rotation review labels its hot key by how it is actually protected (#1308)
 - [FIX][all] A wallet creation or seed-less Guardian import that fails part way no longer leaves behind the vault-key protector it wrote, or a complete wallet that the next start opens on Unlock: like a failed restore, it leaves no wallet (#946).
