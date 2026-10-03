@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
+import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
@@ -379,6 +380,20 @@ it('groups notes from the same faucet and keeps them queued if the worker wake-u
   expect(result.current.items.map(item => item.status)).toEqual(['claiming', 'claiming']);
   expect(log).toHaveBeenCalled();
   log.mockRestore();
+});
+
+it('queues each Agglayer bridge delivery in a consume of its own', async () => {
+  const first = { ...note, id: 'bridge-1', senderAddress: AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID };
+  const second = { ...note, id: 'bridge-2', senderAddress: AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID };
+  mockClaim.safeClaimableNotes = [first, second];
+  const { result } = renderHook(() => useActivityClaims());
+
+  await act(async () => {
+    await result.current.acceptMany([first, second]);
+  });
+  expect(mockQueueMany).toHaveBeenCalledTimes(2);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], false, true);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], false, true);
 });
 
 it('queues only failed notes when a batch also contains unknown and checking notes', async () => {

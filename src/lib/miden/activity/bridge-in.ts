@@ -179,6 +179,12 @@ export function agglayerDeliveredAmount(trackedWei: bigint): bigint {
   return trackedWei / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE);
 }
 
+/** Whether a note comes from the AggLayer bridge sender. Never true while no sender is configured. */
+export function isAgglayerBridgeDelivery(senderAccountId: string): boolean {
+  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
+  return !!configuredSender && compareAccountIds(configuredSender, senderAccountId);
+}
+
 /**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
  * The fixed sender is authoritative; amount + recipient prevent two deposits
@@ -193,8 +199,7 @@ export async function takeAgglayerBridgeInInfo(args: {
   senderAccountId: string;
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
-  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
-  if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
+  if (!isAgglayerBridgeDelivery(args.senderAccountId)) return undefined;
 
   // A `ready` tracker is never polled again, so the reconciler's timeout never fails it; a tracker whose delivery came
   // long ago would otherwise take the next deposit of the same amount.
