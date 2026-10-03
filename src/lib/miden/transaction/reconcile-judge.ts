@@ -162,8 +162,13 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     };
   }
   const otherNetworkSince = entry.otherNetworkSince === undefined ? undefined : null;
+  // The node's "not found at block N" answer is absence only for an attempt that deploys the account. For any other
+  // it contradicts the entry's own pre-state, and row 4 would unlock Retry on it, so it counts as a failed read.
+  const deploys = entry.initialNonce === '0';
+  const usable = (read: AccountRead): AccountRead =>
+    read.ok && read.state.notFound === true && !deploys ? { ok: false, pruned: false, timedOut: false } : read;
 
-  const tipRead = await context.tip();
+  const tipRead = usable(await context.tip());
   if (!tipRead.ok) return noRead();
   const tip = tipRead.state;
   const moved = entry.finalCommitment !== entry.initialCommitment;
@@ -197,7 +202,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     const budget = bindingBudgetMs(tip.blockNum, spend.height, reads.cadenceMs);
     if (budget <= 0) bindingLost = true;
     else {
-      const read = await reads.node.account(row.accountId, spend.height, budget);
+      const read = usable(await reads.node.account(row.accountId, spend.height, budget));
       if (read.ok) {
         atSpend = read.state;
         accountReads.push(read.state);
@@ -223,7 +228,7 @@ async function judgeEntry(entry: ProvableEvidence, context: EntryContext): Promi
     const block = expiration !== undefined && tip.blockNum >= expiration ? expiration : entry.refBlock;
     const budget = bindingBudgetMs(tip.blockNum, block, reads.cadenceMs);
     if (budget > 0) {
-      const read = await reads.node.account(row.accountId, block, budget);
+      const read = usable(await reads.node.account(row.accountId, block, budget));
       if (read.ok) accountReads.push(read.state);
       // A pruned block, or a read that ran out the time the budget allowed, is no time left: it only withholds a
       // proof. Any other failure is retried next pass, except beside a candidate note: the read cannot change its

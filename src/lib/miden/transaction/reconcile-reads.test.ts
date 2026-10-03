@@ -15,7 +15,10 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(async () => {}),
   getRpcEndpoint: jest.fn(() => 'endpoint')
 }));
-jest.mock('../sdk/helpers', () => ({ accountRefToSdk: (id: string) => ({ id }) }));
+jest.mock('../sdk/helpers', () => ({
+  accountRefToSdk: (id: string) => ({ id }),
+  canonicalWalletAccountId: (id: string) => id
+}));
 let mockRpcUrl = 'https://rpc.a';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => mockRpcUrl }));
 
@@ -89,14 +92,26 @@ describe('createNodeReads (#1081)', () => {
   });
 
   // A public account's read asks the node for its details, and the node answers an absent one with an error.
-  it('reads an account the node reports not found at a block as absent at that block', async () => {
+  it('reads an account the node reports not found at a block as absent at that block, and says so', async () => {
     const reads = await createNodeReads();
     mockClient.getAccountProof.mockRejectedValueOnce(
       new Error(`grpc request failed for get_account: account ${ACCOUNT_HEX} not found at block 123`)
     );
-    expect(await reads.account('acct', 123, 15_000)).toEqual({ ok: true, state: { blockNum: 123 } });
+    expect(await reads.account(ACCOUNT_HEX, 123, 15_000)).toEqual({
+      ok: true,
+      state: { blockNum: 123, notFound: true }
+    });
     mockClient.getAccountProof.mockRejectedValueOnce(new Error('block 123 has been pruned'));
-    expect(await reads.account('acct', 123, 15_000)).toEqual({ ok: false, pruned: true, timedOut: false });
+    expect(await reads.account(ACCOUNT_HEX, 123, 15_000)).toEqual({ ok: false, pruned: true, timedOut: false });
+  });
+
+  it('reads a not-found answer that names another account as a failed read', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const reads = await createNodeReads();
+    mockClient.getAccountProof.mockRejectedValueOnce(
+      new Error(`grpc request failed for get_account: account 0x${'cd'.repeat(15)} not found at block 123`)
+    );
+    expect(await reads.account(ACCOUNT_HEX, 123, 15_000)).toEqual({ ok: false, pruned: false, timedOut: false });
   });
 
   it('dates each note by its inclusion block, keyed by its lower-cased id; a missing note is just absent', async () => {
@@ -199,7 +214,10 @@ describe('the observed cadence (#1081)', () => {
         cause: new Error(`account ${ACCOUNT_HEX} not found at block 100`)
       })
     );
-    expect(await reads.account('acct', undefined, 15_000)).toEqual({ ok: true, state: { blockNum: 100 } });
+    expect(await reads.account(ACCOUNT_HEX, undefined, 15_000)).toEqual({
+      ok: true,
+      state: { blockNum: 100, notFound: true }
+    });
     now.mockReturnValueOnce(7_000);
     mockClient.getAccountProof.mockResolvedValueOnce(proof(102, UPPER));
     await reads.account('acct', undefined, 15_000);

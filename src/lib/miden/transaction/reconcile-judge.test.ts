@@ -325,6 +325,40 @@ describe('row 4: the account still at E.initial (or absent) at a block at or pas
   });
 });
 
+describe('the node`s "account not found at block N" answer', () => {
+  const deploy = () => row('t', { submitEvidence: [entry({ initialNonce: '0' })] });
+
+  it('proves a deploy`s expiry from the tip', async () => {
+    expect(await resultOf(deploy(), { tip: { blockNum: 750, notFound: true } })).toBe('never-committed');
+  });
+
+  it('is a failed read for an attempt that does not deploy the account, so it proves no expiry', async () => {
+    expect(await resultOf(row('t'), { tip: { blockNum: 750, notFound: true } })).toBe('no-read');
+  });
+
+  it('is a failed read at the one-off read too', async () => {
+    const fake = (target: ITransaction) =>
+      resultOf(target, {
+        tip: { blockNum: 720, commitment: OTHER, nonce: '7' },
+        history: { 700: { blockNum: 700, notFound: true } }
+      });
+    expect(await fake(row('t'))).toBe('no-read');
+    expect(await fake(deploy())).toBe('never-committed');
+  });
+
+  it('is a failed read at the binding read too', async () => {
+    const consume = (initialNonce: string) =>
+      row('t', { type: 'consume', submitEvidence: [consumeEntry({ initialNonce, expirationBlock: undefined })] });
+    const fake: FakeChain = {
+      tip: { blockNum: 160, commitment: OTHER },
+      spent: { [NULLIFIER]: 150 },
+      history: { 150: { blockNum: 150, notFound: true } }
+    };
+    expect(await resultOf(consume('5'), fake)).toBe('no-read');
+    expect(await resultOf(consume('0'), fake)).toBe('pending');
+  });
+});
+
 describe('row 5: nonce E.initialNonce + 1 with another commitment', () => {
   it.each<[string, string, AccountState]>([
     ['nonce + 1, another commitment', 'never-committed', { blockNum: 150, commitment: OTHER, nonce: '6' }],

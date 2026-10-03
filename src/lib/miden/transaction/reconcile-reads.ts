@@ -9,7 +9,7 @@ import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { RpcTimeoutError, withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
-import { accountRefToSdk } from '../sdk/helpers';
+import { accountRefToSdk, canonicalWalletAccountId } from '../sdk/helpers';
 import { errorMessageParts } from '../sdk/sdk-error-code';
 import { normalizeHex } from '../sdk/submit-evidence';
 
@@ -25,6 +25,8 @@ export interface AccountState {
   commitment?: string;
   /** Decimal; only when the proof carries a header, which private accounts (Guardian ones among them) never do. */
   nonce?: string;
+  /** The absence came from the node's "not found at block N" answer rather than a non-inclusion witness. */
+  notFound?: boolean;
 }
 
 /** A failed read says whether the node pruned that block, and whether the read ran out its own timeout. */
@@ -66,12 +68,14 @@ export const __resetCadenceForTests = (): void => {
   cadenceMs = undefined;
 };
 
-const NOT_FOUND_AT_BLOCK = /\baccount \S+ not found at block (\d+)\b/;
+const NOT_FOUND_AT_BLOCK = /\baccount (\S+) not found at block (\d+)\b/;
 
-const absentAtBlock = (parts: readonly string[]): number | undefined => {
+/** The block a "not found" answer names, only when it names `accountId`: one about another account says nothing. */
+const absentAtBlock = (parts: readonly string[], accountId: string): number | undefined => {
+  const wanted = normalizeHex(canonicalWalletAccountId(accountId));
   for (const part of parts) {
-    const block = NOT_FOUND_AT_BLOCK.exec(part)?.[1];
-    if (block !== undefined) return Number(block);
+    const [, id, block] = NOT_FOUND_AT_BLOCK.exec(part) ?? [];
+    if (id !== undefined && block !== undefined && normalizeHex(id) === wanted) return Number(block);
   }
   return undefined;
 };
@@ -121,13 +125,13 @@ export async function createNodeReads(): Promise<NodeReads> {
         const pruned = parts.some(part => /has been pruned/i.test(part));
         // A public account's read asks for its details, and the node answers an account with no header row at or
         // before N with "account <id> not found at block N" instead of a non-inclusion witness. Node 0.16 never prunes
-        // header rows, so that answer proves the account absent at N.
-        const absentAt = pruned ? undefined : absentAtBlock(parts);
+        // header rows, so that answer proves the account absent at N; the judge takes it only for a deploy.
+        const absentAt = pruned ? undefined : absentAtBlock(parts, accountId);
         if (absentAt === undefined) {
           console.warn(`[reconcile] could not read account ${accountId} at block ${atBlock ?? 'tip'}`, error);
           return { ok: false, pruned, timedOut: error instanceof RpcTimeoutError };
         }
-        state = { blockNum: absentAt };
+        state = { blockNum: absentAt, notFound: true };
       }
       // A wall clock can step back between two reads; the monotonic one cannot.
       if (atBlock === undefined) observeTip(state.blockNum, performance.now(), scope);
