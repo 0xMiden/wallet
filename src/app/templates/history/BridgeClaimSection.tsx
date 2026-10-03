@@ -88,6 +88,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   const destination = entry.bridgeDestinationAddress ?? '';
   const [status, setStatus] = useState<IBridgeClaimStatus>(entry.bridgeClaimStatus ?? 'not-applicable');
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
+  // This panel's own claim, not the row's `claiming`: a page that died mid-claim (the extension popup closes when
+  // focus moves to the EVM wallet) leaves the row `claiming` with nothing in flight, and its deposit stays claimable.
+  const [claimInFlight, setClaimInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentBlock, setCurrentBlock] = useState<number | null>(null);
   const [reclaiming, setReclaiming] = useState(false);
@@ -231,29 +234,34 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     if (!claimable || !evmProvider || !entry.txId || !exitTxHash || restoredFromBackup) return;
     hapticMedium();
     setError(null);
+    setClaimInFlight(true);
     setStatus('claiming');
     const pin = { agglayerDepositCnt: claimable.deposit_cnt };
-    await updateBridgeClaimStatus(entry.txId, 'claiming', pin, claimable.tx_hash);
     try {
-      const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider, network: 'sepolia' });
-      await tx.wait();
-      setStatus('claimed');
-      await updateBridgeClaimStatus(entry.txId, 'claimed', { ...pin, claimTxHash: tx.hash }, claimable.tx_hash);
-      setClaimable(null);
-    } catch (err) {
-      // The bridge's auto-claimer may have claimed the deposit first, and then this claim reverts. The deposit is
-      // claimed either way, so the row settles instead of failing. A failed re-check counts as not claimed.
-      const settled = await findAgglayerExitDeposit(destination, exitTxHash, claimable.deposit_cnt).catch(() => null);
-      if (settled && isAgglayerDepositClaimed(settled)) {
+      await updateBridgeClaimStatus(entry.txId, 'claiming', pin, claimable.tx_hash);
+      try {
+        const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider, network: 'sepolia' });
+        await tx.wait();
         setStatus('claimed');
+        await updateBridgeClaimStatus(entry.txId, 'claimed', { ...pin, claimTxHash: tx.hash }, claimable.tx_hash);
         setClaimable(null);
-        await updateBridgeClaimStatus(entry.txId, 'claimed', agglayerClaimedFields(settled), settled.tx_hash);
-        return;
+      } catch (err) {
+        // The bridge's auto-claimer may have claimed the deposit first, and then this claim reverts. The deposit is
+        // claimed either way, so the row settles instead of failing. A failed re-check counts as not claimed.
+        const settled = await findAgglayerExitDeposit(destination, exitTxHash, claimable.deposit_cnt).catch(() => null);
+        if (settled && isAgglayerDepositClaimed(settled)) {
+          setStatus('claimed');
+          setClaimable(null);
+          await updateBridgeClaimStatus(entry.txId, 'claimed', agglayerClaimedFields(settled), settled.tx_hash);
+          return;
+        }
+        console.error('[bridge-claim] claim failed', err);
+        setStatus('failed');
+        await updateBridgeClaimStatus(entry.txId, 'failed');
+        setError(err instanceof Error ? err.message : 'Claim failed');
       }
-      console.error('[bridge-claim] claim failed', err);
-      setStatus('failed');
-      await updateBridgeClaimStatus(entry.txId, 'failed');
-      setError(err instanceof Error ? err.message : 'Claim failed');
+    } finally {
+      setClaimInFlight(false);
     }
   }, [claimable, evmProvider, entry.txId, exitTxHash, destination, restoredFromBackup]);
 
@@ -353,8 +361,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
               ) : !connectedMatchesDestination ? (
                 <p className="text-xs text-ink/60">{t('connectDestinationWalletToClaim')}</p>
               ) : (
-                <Button size="sm" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
-                  {status === 'claiming' ? t('claiming') : !claimable ? t('claimPending') : t('claimAsset')}
+                <Button size="sm" onClick={handleClaim} disabled={!claimable || claimInFlight}>
+                  {claimInFlight ? t('claiming') : !claimable ? t('claimPending') : t('claimAsset')}
                 </Button>
               )}
             </div>

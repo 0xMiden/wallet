@@ -475,6 +475,39 @@ describe('BridgeClaimSection', () => {
       expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument();
     });
 
+    // The extension popup closes whenever focus moves to the EVM wallet, so a claim can die with its page and leave
+    // the row `claiming` with nothing in flight. The deposit is still unclaimed, so it stays claimable.
+    it('offers Claim on a row a closed page left claiming once its deposit is ready and unclaimed', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindExitDeposit.mockResolvedValueOnce(READY);
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'claiming' }) });
+
+      expect(await screen.findByRole('button', { name: 't:claimAsset' })).toBeEnabled();
+    });
+
+    it('ignores a second tap while its own claim is in flight', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindExitDeposit.mockResolvedValueOnce(READY);
+      let finishClaim: (() => void) | undefined;
+      mockClaimAgglayer.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishClaim = () => resolve({ wait: async () => undefined, hash: '0xclaimhash' });
+          })
+      );
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalledTimes(1));
+
+      const inFlight = screen.getByRole('button', { name: 't:claiming' });
+      expect(inFlight).toBeDisabled();
+      fireEvent.click(inFlight);
+      expect(mockClaimAgglayer).toHaveBeenCalledTimes(1);
+
+      await act(async () => finishClaim?.());
+      expect(await screen.findByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    });
+
     it('surfaces an error when the claim fails and the deposit is still unclaimed', async () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindExitDeposit.mockResolvedValueOnce(READY).mockResolvedValueOnce(READY);
@@ -483,6 +516,17 @@ describe('BridgeClaimSection', () => {
       fireEvent.click(await screen.findByText('t:claimAsset'));
       expect(await screen.findByText('claim boom')).toBeInTheDocument();
       expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'failed');
+    });
+
+    it('offers Claim again once its own claim has failed', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindExitDeposit.mockResolvedValueOnce(READY).mockResolvedValueOnce(READY);
+      mockClaimAgglayer.mockRejectedValueOnce(new Error('claim boom'));
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      expect(await screen.findByText('claim boom')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 't:claimAsset' })).toBeEnabled();
     });
 
     it('surfaces the claim error when the re-check cannot reach the indexer', async () => {
