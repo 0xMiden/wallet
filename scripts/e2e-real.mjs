@@ -18,7 +18,7 @@
  * underneath it is the easy part.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -357,10 +357,17 @@ async function rpc(url, method, params, timeoutMs = 20_000) {
 /** What each probe group asks about, by the document field it comes from. */
 const DOCUMENT_FIELDS = { epoch: ['allocatorUrl', 'evmUsdc'], sepolia: ['evmUsdc', 'l1Bridge'] };
 const FIELD_PATHS = { allocatorUrl: 'epoch.allocatorUrl', evmUsdc: 'epoch.evmUsdc', l1Bridge: 'agglayer.l1Bridge' };
-const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
-const isRecord = value => typeof value === 'object' && value !== null && !Array.isArray(value);
+// Reads `{ body, network, allowLocalHttp }` on stdin and prints what the wallet's parser makes of the body.
+const PARSE_SCRIPT = `
+const { parseBridgeConfig } = require('./src/lib/remote-config/schema.ts');
+let input = '';
+process.stdin.on('data', chunk => (input += chunk));
+process.stdin.on('end', () => {
+  const { body, network, allowLocalHttp } = JSON.parse(input);
+  process.stdout.write(JSON.stringify(parseBridgeConfig(body, network, { allowLocalHttp })));
+});
+`;
 
 /**
  * Where the wallet this run builds reads its config: an E2E build takes MIDEN_REMOTE_CONFIG_URL when it is set,
@@ -370,46 +377,49 @@ function configDocumentUrl(network) {
   return `${(process.env.MIDEN_REMOTE_CONFIG_URL || PUBLISHED_CONFIG_URL).replace(/\/+$/, '')}/${network}.json`;
 }
 
-// A base URL as the wallet's parser accepts it (src/lib/remote-config/schema.ts), normalized as it does, or null.
-function baseUrl(value, allowLocalHttp) {
-  if (typeof value !== 'string') return null;
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
+/**
+ * The document as the wallet's own parser reads it (src/lib/remote-config/schema.ts), or null where the wallet refuses
+ * it, so the preflight never judges a document by rules of its own. The parser is TypeScript, so a child process runs
+ * it through ts-node, transpiling only.
+ */
+function parseLikeTheWallet(body, network, allowLocalHttp) {
+  const res = spawnSync(process.execPath, ['-r', 'ts-node/register', '-e', PARSE_SCRIPT], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    input: JSON.stringify({ body, network, allowLocalHttp }),
+    env: {
+      ...process.env,
+      NODE_PATH: 'src',
+      TS_NODE_TRANSPILE_ONLY: '1',
+      TS_NODE_COMPILER_OPTIONS: '{"module":"commonjs","moduleResolution":"node"}'
+    },
+    timeout: 60_000
+  });
+  if (res.status !== 0) {
+    throw new Error(`could not be parsed: ${res.error?.message ?? res.stderr.trim().split('\n')[0]}`);
   }
-  const localHttp = allowLocalHttp && url.protocol === 'http:' && LOCAL_HTTP_HOSTS.includes(url.hostname);
-  if ((url.protocol !== 'https:' && !localHttp) || url.username || url.password || url.search || url.hash) return null;
-  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  return JSON.parse(res.stdout);
 }
 
 /**
- * The values the `needs` probe groups ask about, from a config document checked as far as they use it: this network,
- * a positive version, Sepolia, and each field present and well formed. Throws naming the first problem, so a
- * preflight never passes on a document the wallet would not use.
+ * The values the `needs` probe groups ask about, from a document the wallet's parser accepted: Sepolia, and each
+ * field present. Throws naming the first problem. EVM addresses come back checksummed, as the wallet's getters send
+ * them; the parser lowercases them.
  */
-function configTargets(body, network, needs, { allowLocalHttp = false } = {}) {
-  if (!isRecord(body) || body.network !== network) throw new Error(`is not the ${network} config document`);
-  if (!Number.isSafeInteger(body.version) || body.version <= 0) throw new Error('has no positive version');
-  if (!isRecord(body.evm) || body.evm.chainId !== SEPOLIA_CHAIN_ID) {
+function configTargets(config, needs, getAddress) {
+  if (config.evm.chainId !== SEPOLIA_CHAIN_ID) {
     throw new Error(`does not name Sepolia (${SEPOLIA_CHAIN_ID}) as evm.chainId`);
   }
-  const epoch = isRecord(body.epoch) ? body.epoch : {};
-  const agglayer = isRecord(body.agglayer) ? body.agglayer : {};
-  const raw = { allocatorUrl: epoch.allocatorUrl, evmUsdc: epoch.evmUsdc, l1Bridge: agglayer.l1Bridge };
+  const read = {
+    allocatorUrl: config.epoch.allocatorUrl,
+    evmUsdc: config.epoch.evmUsdc,
+    l1Bridge: config.agglayer.l1Bridge
+  };
   const targets = {};
   for (const field of new Set(needs.flatMap(probe => DOCUMENT_FIELDS[probe] ?? []))) {
-    const value = raw[field];
+    const value = read[field];
     if (value === undefined) throw new Error(`names no ${FIELD_PATHS[field]}`);
-    const read =
-      field === 'allocatorUrl'
-        ? baseUrl(value, allowLocalHttp)
-        : typeof value === 'string' && EVM_ADDRESS.test(value)
-          ? value
-          : null;
-    if (read === null) throw new Error(`has a malformed ${FIELD_PATHS[field]}`);
-    targets[field] = read;
+    targets[field] = field === 'allocatorUrl' ? value : getAddress(value);
   }
   return targets;
 }
@@ -428,10 +438,12 @@ async function probeConfigDocument(network, needs) {
     return null;
   }
   try {
-    const targets = configTargets(reply.body, network, needs, {
-      allowLocalHttp: Boolean(process.env.MIDEN_REMOTE_CONFIG_URL)
-    });
-    record(true, 'Config document', `${url} version ${reply.body.version}`);
+    // The wallet takes local http only from a document an E2E build serves itself (src/lib/remote-config/source.ts).
+    const config = parseLikeTheWallet(reply.body, network, Boolean(process.env.MIDEN_REMOTE_CONFIG_URL));
+    if (config === null) throw new Error('is a document the wallet refuses');
+    const { getAddress } = await import('viem');
+    const targets = configTargets(config, needs, getAddress);
+    record(true, 'Config document', `${url} version ${config.version}`);
     return targets;
   } catch (err) {
     record(false, 'Config document', `${url} ${err.message}`);

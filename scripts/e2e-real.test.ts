@@ -15,6 +15,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { getAddress } from 'viem';
+
 import { SUITES, composeGrep, pricedAmountFrom, resolveOperatorInput, run, suiteRetries } from './e2e-real.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -463,8 +465,10 @@ describe('the preflight reads what it probes from the network config document', 
     const res = preflight('bridge-out-epoch');
     expect(res.requests).toContain(`${ALLOCATOR}/health`);
     expect(res.requests).toContain(`${ALLOCATOR}/checkIfDepositNeeded`);
-    expect(res.requests).toContain(`eth_getCode ["${EVM_USDC}","latest"]`);
-    expect(res.requests).toContain(`eth_getCode ["${L1_BRIDGE}","latest"]`);
+    // Checksummed, as the wallet's getters send them: its parser lowercases every address.
+    expect(res.requests).toContain(`eth_getCode ["${getAddress(EVM_USDC)}","latest"]`);
+    expect(res.requests).toContain(`eth_getCode ["${getAddress(L1_BRIDGE)}","latest"]`);
+    expect(res.requests).toContain(`"tokenOut":"${getAddress(EVM_USDC)}"`);
     expect(res.requests).toContain(`${ALLOCATOR}/gasless-status`);
     expect(res.requests).toContain(PUBLISHED);
     expect(res.output).toContain(`Config   ${PUBLISHED}`);
@@ -473,7 +477,7 @@ describe('the preflight reads what it probes from the network config document', 
 
   it("reads a funded key's test USDC at the USDC the document names", () => {
     const res = preflight('bridge-out-epoch', DOCUMENT, { E2E_SEPOLIA_PRIVATE_KEY: FUNDED_KEY });
-    expect(res.requests).toContain(`eth_call [{"to":"${EVM_USDC}"`);
+    expect(res.requests).toContain(`eth_call [{"to":"${getAddress(EVM_USDC)}"`);
     expect(res.status).toBe(0);
   }, 35_000);
 
@@ -507,6 +511,30 @@ describe('the preflight reads what it probes from the network config document', 
     },
     35_000
   );
+
+  it.each([
+    ['a positions host that is not a URL', { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, positionsUrl: 42 } }],
+    ['a malformed Miden bridge', { ...DOCUMENT, agglayer: { ...DOCUMENT.agglayer, midenBridge: '0x1234' } }],
+    ['a switch that is not a boolean', { ...DOCUMENT, features: { ...DOCUMENT.features, earn: 'true' } }]
+  ])(
+    'fails the preflight on a document the wallet refuses for %s, a field no probe reads, and probes nothing',
+    (_label, served) => {
+      const res = preflight('bridge-out-epoch', served);
+      expect(res.status).toBe(1);
+      expect(res.output).toContain('Config document');
+      expect(res.requests).not.toContain('/health');
+      expect(res.requests).not.toContain('/checkIfDepositNeeded');
+      expect(res.requests).not.toContain('eth_getCode');
+    },
+    35_000
+  );
+
+  it('passes a document that leaves a switch out, which the wallet reads as off', () => {
+    const { bridgeOut: _left, ...features } = DOCUMENT.features;
+    const res = preflight('bridge-out-epoch', { ...DOCUMENT, features });
+    expect(res.status).toBe(0);
+    expect(res.requests).toContain(`${ALLOCATOR}/health`);
+  }, 35_000);
 
   it('reads the served document the E2E build reads when MIDEN_REMOTE_CONFIG_URL is set', () => {
     const served = { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, allocatorUrl: 'http://127.0.0.1:8548' } };

@@ -1,7 +1,8 @@
 /**
  * Test-only: e2e-real.test.ts preloads this with `node --import`, so a preflight runs against canned answers and
  * never the network. E2E_REAL_FETCH_STUB carries `{ document, log }`: the config document to serve as
- * `<network>.json`, and a file each request is appended to (`<url>`, or `<url> <method> <params>` for JSON-RPC).
+ * `<network>.json`, and a file each request is appended to (`<url>`, `<url> <body>` for any other request with a body,
+ * or `<url> <method> <params>` for JSON-RPC).
  */
 import { appendFileSync } from 'node:fs';
 
@@ -19,7 +20,8 @@ const RPC_RESULTS = {
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input);
   const call = typeof init.body === 'string' && init.body.includes('"jsonrpc"') ? JSON.parse(init.body) : null;
-  appendFileSync(log, call ? `${url} ${call.method} ${JSON.stringify(call.params)}\n` : `${url}\n`);
+  const body = typeof init.body === 'string' ? ` ${init.body}` : '';
+  appendFileSync(log, call ? `${url} ${call.method} ${JSON.stringify(call.params)}\n` : `${url}${body}\n`);
   if (call) return json({ jsonrpc: '2.0', id: call.id, result: RPC_RESULTS[call.method] });
   if (url.endsWith('.json')) return json(document);
   if (url.endsWith('/health')) return json({ status: 'healthy', allocatorAddresses: { 999999999: '0xa110c' } });
