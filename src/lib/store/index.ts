@@ -17,6 +17,7 @@ import {
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
+import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
@@ -848,6 +849,13 @@ export const useWalletStore = create<WalletStore>()(
     }
   }))
 );
+
+// The switch changes what the price helpers return for the same tokenPrices, so a memo or selector
+// keyed on tokenPrices would keep its old figure. The same prices as a new object make each recompute;
+// nothing is refetched.
+subscribeNominalUnquotedPrice(() => {
+  useWalletStore.setState(state => ({ tokenPrices: { ...state.tokenPrices } }));
+});
 
 // Export the intercom getter for use in sync hook
 export { getIntercom };

@@ -1104,6 +1104,7 @@
   "devEndpointExplorer": "Explorer URL'si",
   "devEndpointGuardian": "guardian'a özel URL",
   "devAllowNoGuardian": "İlk katılımda 'Veli yok' seçeneğine izin ver",
+  "devNominalUnquotedPrice": "Tırnak işareti kullanılmayan tokenlerin değerini 1 $ olarak belirleyin (sadece test ağları için)",
   "devEndpointChecking": "Kontrol ediliyor…",
   "devEndpointReachable": "Sunucuya erişim sağlanıyor",
   "devEndpointNoResponse": "Yanıt yok",

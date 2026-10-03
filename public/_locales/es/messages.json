@@ -4832,6 +4832,10 @@
     "message": "Permitir la opción \"Sin tutor\" en la incorporación",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devNominalUnquotedPrice": {
+    "message": "Valor de los tokens sin cotizar: 1 $ (solo redes de prueba)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
+  },
   "devEndpointChecking": {
     "message": "Comprobando…",
     "englishSource": "Checking…"

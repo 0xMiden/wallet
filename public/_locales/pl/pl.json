@@ -1104,6 +1104,7 @@
   "devEndpointExplorer": "Adres URL przeglądarki Explorer",
   "devEndpointGuardian": "Niestandardowy adres URL guardian",
   "devAllowNoGuardian": "Zezwól na opcję „Brak opiekuna” podczas wdrażania",
+  "devNominalUnquotedPrice": "Wartość tokenów bez cudzysłowów wynosi 1 USD (tylko sieci testowe)",
   "devEndpointChecking": "Sprawdzam…",
   "devEndpointReachable": "Serwer jest dostępny",
   "devEndpointNoResponse": "Brak odpowiedzi",

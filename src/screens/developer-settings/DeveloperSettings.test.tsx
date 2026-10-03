@@ -955,6 +955,16 @@ describe('DeveloperSettings — allowNoGuardian', () => {
     expect(screen.getByTestId('checkbox')).toHaveAttribute('data-checked', 'false');
   });
 
+  // The indicator is aria-hidden, so the row itself has to carry the state.
+  it('reports the no-guardian state on the row', () => {
+    render(<DeveloperSettings />);
+    const row = screen.getByTestId('dev-allow-no-guardian');
+    expect(row).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(row);
+    expect(row).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('persists allowNoGuardian=true when toggled on and saved', async () => {
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByTestId('dev-allow-no-guardian'));

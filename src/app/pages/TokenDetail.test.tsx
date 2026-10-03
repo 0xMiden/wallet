@@ -6,6 +6,7 @@ import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
@@ -75,6 +76,11 @@ jest.mock('lib/prices', () => ({
   quotedPrice: jest.requireActual('lib/prices/binance').quotedPrice,
   fetchKlineData: (...args: unknown[]) => mockFetchKlineData(...args)
 }));
+
+// The figures under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 // `useRetryableSWR(key, fetcher, opts)` — invoke the fetcher (so the inline
 // `() => fetchKlineData(symbol, timeframe)` closure is covered) then return the
@@ -363,6 +369,47 @@ describe('TokenDetail', () => {
     const hero = screen.getByTestId('token-detail-hero');
     expect(within(hero).getByText('12.50')).toBeInTheDocument();
     expect(hero.querySelector('p')).toHaveTextContent('\u2014');
+  });
+
+  // IETH is priced at ETH, which never takes the nominal rate, so its line waits on the feed.
+  it('shows the placeholder dash in the fiat line off mainnet while prices have not loaded, for a listed token', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      renderPage({
+        balances: [{ tokenId: TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }],
+        tokenPrices: {}
+      });
+
+      const hero = screen.getByTestId('token-detail-hero');
+      expect(within(hero).getByText('0.38')).toBeInTheDocument();
+      expect(hero.querySelector('p')).toHaveTextContent('\u2014');
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
+  });
+
+  // E2E builds price the fixture symbol TST by symbol, and the feed never lists it, so with the
+  // switch on it takes the nominal rate: a dollar figure, with no market to chart.
+  it('shows the nominal fiat line and no price section off mainnet for the E2E fixture token', () => {
+    const previousE2e = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    try {
+      renderPage(
+        {
+          balances: [{ tokenId: 'mtst1fixture', balance: 12.5, metadata: { symbol: 'TST' } }],
+          tokenPrices: { ETH: { price: 2000, change24h: 0, percentageChange24h: 0 } }
+        },
+        'mtst1fixture'
+      );
+
+      expect(within(screen.getByTestId('token-detail-hero')).getByText('$12.50')).toBeInTheDocument();
+      expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+      if (previousE2e === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = previousE2e;
+    }
   });
 
   it('draws the shared Hero: the 88px logo circle, the amount as the value and the fiat line muted', () => {
