@@ -1380,7 +1380,7 @@ async function importDAppPrivateNote(note: string): Promise<string> {
     return await withUnlocked(async () =>
       withWasmClientLock(async hold => {
         const noteAsUint8Array = b64ToU8(note);
-        const noteId = await midenClientProxy.importNoteBytes(noteAsUint8Array);
+        const noteId = await midenClientProxy.importNoteBytes(noteAsUint8Array, hold);
         // Between the import and its sync: an eviction while the import was
         // parked leaves it unknown whether the note landed, and the sync below
         // would borrow a client a successor now owns. The poison throw routes

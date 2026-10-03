@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
@@ -9,6 +10,7 @@ import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -63,6 +65,7 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 // stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => 'https://rpc.review.example',
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -168,6 +171,14 @@ jest.mock('components/Button', () => ({
 
 jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
+}));
+
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
+}));
+
+jest.mock('lib/agglayer/allowed-faucets', () => ({
+  isAgglayerFaucetAllowed: jest.fn()
 }));
 
 jest.mock('lib/agglayer/b2agg', () => ({
@@ -355,6 +366,7 @@ beforeEach(() => {
   stringToBigIntMock.mockReturnValue(12345n);
   initiateMock.mockResolvedValue('tx-abc');
   initiateB2AggBridgeMock.mockResolvedValue('tx-bridge');
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
   bridgeEpochSendMock.mockResolvedValue({ txId: 'tx-epoch' });
   dateTimeToRecallBlocksMock.mockReturnValue(999);
   isExtensionMock.mockReturnValue(false);
@@ -693,7 +705,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
@@ -875,6 +887,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
+    expect(isAgglayerFaucetAllowed).toHaveBeenCalledWith('tok1', 'https://rpc.review.example');
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 12345n,
@@ -883,6 +896,34 @@ describe('ReviewTransaction — onSubmit', () => {
         senderPublicKey: 'pubkey-1'
       })
     );
+  });
+
+  it('refuses a Slow bridge-out of a token the registry does not list (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(false);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('agglayerTokenUnsupported');
+  });
+
+  it('refuses a Slow bridge-out when the registry cannot be read (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockRejectedValue(new Error('registry down'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('registry down');
   });
 
   it('uses strict authentication before building an Agglayer bridge request', async () => {
@@ -1002,7 +1043,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1152,6 +1193,28 @@ describe('ReviewTransaction — onSubmit', () => {
     confirmMock.mockResolvedValue(true);
     await clickSubmit();
     expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms with the shared hardware-only protector probe', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', probeHardwareProtector);
+  });
+
+  it("shows the review screen's own error, and sends nothing, when the protector probe rejects", async () => {
+    setValidRoute();
+    confirmMock.mockRejectedValue(new Error('protector check failed'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('protector check failed');
   });
 
   it('logs and resets when transaction creation throws', async () => {

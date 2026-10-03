@@ -1,8 +1,14 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
-import { isOperationAbortedError } from '../back/offscreen-codec';
-import { IBridgedSendExtraInputs, ITransaction, ITransactionStage, ITransactionStatus } from '../db/types';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import {
+  IBridgedSendExtraInputs,
+  ITransaction,
+  ITransactionStage,
+  ITransactionStatus,
+  STRUCTURAL_GUARDIAN_TYPES
+} from '../db/types';
+import { causeChain, isKilledPipeline } from '../sdk/sdk-error-code';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -140,6 +146,7 @@ export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED
  * rotation moves no asset, so a fee shortfall is a definite failure, not an unknown outcome.
  * False whenever {@link isBridgeRouteFailedRow} holds too: a bridged-send its own route
  * evidence (the allocator or the fill poll) reports failed is settled by that, not unknown.
+ * And whenever {@link isNodeDiscardedRow} holds: a structural write the node discarded never lands.
  */
 export function isUnconfirmedFailure(
   row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
@@ -150,6 +157,7 @@ export function isUnconfirmedFailure(
   if (isVaultShortfallRow(row)) return false;
   // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
   if (isBridgeRouteFailedRow(row)) return false;
+  if (isNodeDiscardedRow(row)) return false;
   const reason = row.rawError ?? row.error;
   return (
     row.mayHaveSubmitted === true ||
@@ -232,16 +240,23 @@ export function formatRawTransactionError(error: unknown): string {
   // whose only identifying detail lives one or two links down; without this a
   // guardian send failure reads as "uncaught realm error" and names neither the
   // call that trapped nor the reason.
-  const seen = new Set<unknown>();
   const parts: string[] = [];
-  let current: unknown = error;
-  while (current instanceof Error && !seen.has(current) && parts.length < 5) {
-    seen.add(current);
-    parts.push(`${current.name}: ${current.message}`);
-    current = (current as { cause?: unknown }).cause;
-  }
-  if (current !== undefined && !(current instanceof Error) && parts.length < 5) {
-    parts.push(String(current));
+  for (const link of causeChain(error)) {
+    if (parts.length >= 5) break;
+    let isError = false;
+    // Guarded like the walk: `name` and `message` can be accessors, and this runs on the failure path, where a throw
+    // loses the failure being recorded.
+    try {
+      if (link instanceof Error) {
+        isError = true;
+        parts.push(`${link.name}: ${link.message}`);
+      } else if (link !== undefined) {
+        parts.push(String(link));
+      }
+    } catch {
+      // An unreadable link costs its own text, not the links below it.
+    }
+    if (!isError) break;
   }
   return parts.join(' <- caused by ');
 }
@@ -367,6 +382,20 @@ export function isBridgeRouteFailedRow(
   return extraInputs?.epochStatus === 'failed';
 }
 
+/**
+ * True for a Failed structural Guardian row (`STRUCTURAL_GUARDIAN_TYPES`) the node discarded:
+ * `extraInputs.nodeDiscarded`, which `cancelTransaction` writes in the write that fails the row when
+ * the error is the node's discard (#1233). A set `mayHaveSubmitted` does not make such a row unknown:
+ * the write did submit, but a discarded write never lands.
+ */
+export function isNodeDiscardedRow(
+  row: Pick<ITransaction, 'type' | 'status'> & Partial<Pick<ITransaction, 'extraInputs'>>
+): boolean {
+  if (row.status !== ITransactionStatus.Failed || !STRUCTURAL_GUARDIAN_TYPES.includes(row.type)) return false;
+  const extraInputs: { nodeDiscarded?: boolean } | undefined = row.extraInputs;
+  return extraInputs?.nodeDiscarded === true;
+}
+
 /** A consume for an account whose everyday key is not active yet, other than the gate's own claim (#805). */
 export const ROTATION_PENDING_CONSUME_ERROR =
   "This account's everyday key has to be activated before it can claim transfers. Open the wallet to finish " +
@@ -404,10 +433,18 @@ export const GUARDIAN_UNREACHABLE_ERROR =
  * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
  * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
  * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
- * the requeue arm and the classifier both ask this rather than the transport verdict alone.
+ * the requeue arm and the classifier both ask this rather than the transport verdict alone. A killed pipeline anywhere
+ * in the cause chain is never an outage; otherwise a Guardian request timeout anywhere in the chain always is, ahead of
+ * the kernel-failure exclusions, because a cut-off request carries no answer and so no kernel failure.
  */
 export function isGuardianOutage(error: unknown): boolean {
   if (error instanceof RotationGateConsumeRefusal) return false;
+  // A killed pipeline stays a kill at any depth: a requeue would re-broadcast it and the copy would say it was not
+  // sent (#1313).
+  if (isKilledPipeline(error)) return false;
+  // The fetch boundary's cut-off is the Guardian not answering wherever a caller wrapped it, which the message check
+  // below cannot see.
+  if (isGuardianRequestTimeout(error)) return true;
   if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
   const raw = formatRawTransactionError(error);
   return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
@@ -429,7 +466,8 @@ function classifyTransactionError(
   // `mayHaveSubmitted` for both — so leaving abort out put "No funds moved — please
   // try again" on the very row whose Retry then refuses with "may already have been
   // submitted". Two contradictory statements about the same money, from one error.
-  if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) {
+  // Both read the whole cause chain, so a kill a caller wrapped is still one (#1313).
+  if (isKilledPipeline(error)) {
     return abandonedPreWrite === true
       ? TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
       : TRANSACTION_ENGINE_RECOVERED_ERROR;

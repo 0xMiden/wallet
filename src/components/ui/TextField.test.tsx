@@ -27,6 +27,19 @@ describe('TextField — exports & defaults', () => {
 });
 
 describe('TextField — label association', () => {
+  it('draws a 13px muted label by default', () => {
+    render(<TextField label="Address" value="" onChange={jest.fn()} />);
+    expect(screen.getByText('Address')).toHaveClass('text-label', 'text-muted');
+  });
+
+  it('draws the label as the 16px section title with labelSize="md", still associated to the field', () => {
+    render(<TextField label="Address" labelSize="md" value="" onChange={jest.fn()} />);
+    const label = screen.getByText('Address');
+    expect(label).toHaveClass('text-row-title', 'text-muted');
+    expect(label).not.toHaveClass('text-label');
+    expect(screen.getByLabelText('Address').tagName).toBe('INPUT');
+  });
+
   it('associates the label with the field via htmlFor/id, so it is queryable by accessible name', () => {
     render(<TextField label="Address" value="" onChange={jest.fn()} />);
     const field = screen.getByLabelText('Address');
@@ -306,6 +319,13 @@ describe('TextField — secret', () => {
     fireEvent.change(field, { target: { value: '' } });
     fireEvent.blur(field);
     expect(cover()).toBeNull();
+  });
+
+  it('frosts the cover with a plain 8px blur, prefixed and not, so older WebViews still blur the secret', () => {
+    render(<TextField secret value="my private key" onChange={jest.fn()} />);
+
+    expect(cover()).toHaveClass('[backdrop-filter:blur(8px)]', '[-webkit-backdrop-filter:blur(8px)]');
+    expect(cover()).not.toHaveClass('backdrop-blur-sm');
   });
 
   describe('once revealed', () => {

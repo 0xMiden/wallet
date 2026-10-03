@@ -149,6 +149,12 @@ function parseArgs(argv) {
     headed: false,
     grep: undefined
   };
+  const helpNames = ['-h', '--help'];
+  const booleanFlags = {
+    '--preflight-only': 'preflightOnly',
+    '--skip-build': 'skipBuild',
+    '--headed': 'headed'
+  };
   const takesValue = {
     '--suite': 'suite',
     '--network': 'network',
@@ -159,18 +165,38 @@ function parseArgs(argv) {
     '--min-eth': 'minEth',
     '--grep': 'grep'
   };
+  // A flag never takes another option as its value: `--epoch-positions-url
+  // $UNSET --preflight-only` would otherwise store the option as the URL and
+  // build and run a suite the operator asked only to preflight. A Set, so an
+  // inherited name such as `constructor` stays a valid value.
+  const optionNames = new Set([...helpNames, ...Object.keys(booleanFlags), ...Object.keys(takesValue)]);
+  // `--sepolia-key=<key>` names an option too, so it is never a value either:
+  // whatever later refused or ran that value would print the key.
+  const namesAnOption = token => optionNames.has(token.split('=', 1)[0]);
+  const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '-h' || arg === '--help') return { help: true };
-    if (arg === '--preflight-only') opts.preflightOnly = true;
-    else if (arg === '--skip-build') opts.skipBuild = true;
-    else if (arg === '--headed') opts.headed = true;
-    else if (takesValue[arg]) {
+    if (helpNames.includes(arg)) return { help: true };
+    if (Object.hasOwn(booleanFlags, arg)) opts[booleanFlags[arg]] = true;
+    else if (Object.hasOwn(takesValue, arg)) {
       const value = argv[++i];
-      if (value === undefined) fail(`${arg} needs a value`);
+      // A quoted unset variable arrives as '': `--grep "$UNSET"` would otherwise
+      // drop the operator's narrowing and widen a real-money run.
+      if (value === undefined || value === '' || namesAnOption(value)) fail(`${arg} needs a value`);
+      // A later --grep or --suite would silently replace the operator's narrowing
+      // and widen a real-money run. Neither refusal prints a value.
+      if (seen.has(arg)) fail(`${arg} given more than once`);
+      seen.add(arg);
       opts[takesValue[arg]] = value;
+    } else if (arg.includes('=')) {
+      fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
     } else fail(`unknown argument: ${arg}`);
   }
+  // A flag is never '', so an empty URL here was exported empty and would be
+  // probed and built in. After the loop, so a flag overrides it and -h still works.
+  if (opts.epochUrl === '') fail('EPOCH_ALLOCATOR_URL is set but empty');
+  if (opts.epochPositionsUrl === '') fail('EPOCH_POSITIONS_URL is set but empty');
+  if (opts.sepoliaRpc === '') fail('E2E_SEPOLIA_RPC_URL is set but empty');
   return opts;
 }
 
@@ -191,12 +217,64 @@ export function suiteRetries(suite) {
  * passed as separate flags: the suite's filter would be discarded without a
  * word, and a narrowing flag would silently widen the run onto specs that spend
  * real money. Lookaheads match anywhere in the title, which is what each pattern
- * did on its own.
+ * did on its own. Each pattern is grouped so the `.*` reaches every alternative:
+ * without the group, (?=.*a|b) tests b only where the match starts.
+ *
+ * Each given pattern must compile on its own, or this throws: one that does not
+ * can close the group it is spliced into, and `x))|((` then composes into a
+ * valid pattern with an empty alternative that matches every title.
  */
 export function composeGrep(suiteGrep, userGrep) {
+  assertRegExp(suiteGrep, "the suite's grep");
+  assertRegExp(userGrep, '--grep');
   if (!suiteGrep) return userGrep;
   if (!userGrep) return suiteGrep;
-  return `(?=.*${suiteGrep})(?=.*${userGrep})`;
+  return `(?=.*(?:${suiteGrep}))(?=.*(?:${userGrep}))`;
+}
+
+function assertRegExp(pattern, label) {
+  if (!pattern) return;
+  try {
+    new RegExp(pattern);
+  } catch (error) {
+    throw new Error(`${label} is not a valid regular expression: ${pattern} - ${error.message}`);
+  }
+}
+
+/**
+ * Check parsed operator input in the order main() refuses it. Returns `{ error }`
+ * with the refusal, or `{ suite, grep }`: the suite's record and its grep
+ * composed with the operator's.
+ *
+ * Names are looked up as own properties, so `toString` or `constructor` is
+ * refused as unknown instead of resolving to what Object.prototype carries.
+ */
+export function resolveOperatorInput(opts) {
+  if (!opts.suite) return { error: `--suite is required. One of: ${Object.keys(SUITES).join(', ')}${USAGE}` };
+  if (!Object.hasOwn(SUITES, opts.suite)) {
+    return { error: `unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}` };
+  }
+  const suite = SUITES[opts.suite];
+  if (!Object.hasOwn(MIDEN_RPC, opts.network)) {
+    return { error: `--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}` };
+  }
+  let grep;
+  try {
+    grep = composeGrep(suite.grep, opts.grep);
+  } catch (error) {
+    return { error: error.message };
+  }
+  if (!/^\d+(\.\d+)?$/.test(opts.minEth)) {
+    return { error: `--min-eth must be a plain non-negative decimal amount of ether, got "${opts.minEth}"` };
+  }
+  // The key itself is never echoed.
+  if (suite.probes?.includes('sepolia') && opts.sepoliaKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(opts.sepoliaKey)) {
+    return {
+      error:
+        'the Sepolia key (--sepolia-key or E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
+    };
+  }
+  return { suite, grep };
 }
 
 function fail(message) {
@@ -657,10 +735,11 @@ async function main() {
     console.log(USAGE);
     return 0;
   }
-  if (!opts.suite) fail(`--suite is required. One of: ${Object.keys(SUITES).join(', ')}${USAGE}`);
-  const suite = SUITES[opts.suite];
-  if (!suite) fail(`unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}`);
-  if (!MIDEN_RPC[opts.network]) fail(`--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}`);
+  // Every refusal of operator input happens here, before the banner: one found
+  // later is never reached under --preflight-only, and otherwise costs the probes
+  // and a build first. probeFundedKey keeps its own checks as a backstop.
+  const { error, suite, grep } = resolveOperatorInput(opts);
+  if (error !== undefined) fail(error);
 
   console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
   console.log(`Network  ${opts.network}`);
@@ -743,7 +822,6 @@ async function main() {
   // the suite's - and `--suite bridge-out-agglayer --grep 'Fast Epoch'` would
   // then run the real-money Epoch spec the suite exists to exclude. Lookaheads
   // are how two patterns become one that requires both.
-  const grep = composeGrep(suite.grep, opts.grep);
   if (grep) args.push('--grep', grep);
   if (suite.grepInvert) args.push('--grep-invert', suite.grepInvert);
   if (opts.headed) args.push('--headed');

@@ -40,5 +40,16 @@ export function createPersistedSetting<T extends string>(key: string, allowed: r
     return useSyncExternalStore(subscribe, get);
   }
 
+  // Every extension window shares this storage but hears only its own writes, so another window's
+  // change of this key, or a clear (key null), arrives as a storage event. The device's value then
+  // replaces one held after a failed write.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', event => {
+      if (event.key !== null && event.key !== key) return;
+      unsaved = undefined;
+      notify();
+    });
+  }
+
   return { get, set, subscribe, useValue };
 }

@@ -536,7 +536,7 @@ export const importAllNotes = async () => {
           try {
             const byteArray = new Uint8Array(Buffer.from(note.bytes, 'base64'));
             inFlight.note = note;
-            await midenClientProxy.importNoteBytes(byteArray);
+            await midenClientProxy.importNoteBytes(byteArray, hold);
             // Success: the note is intentionally NOT pushed to `retry`, so it drops
             // out of the queue.
             imported.add(note);

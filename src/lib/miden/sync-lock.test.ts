@@ -28,9 +28,13 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({
 }));
 
 import { __resetRecoveryCooldownForTests, getCurrentWasmLockHold, isWasmClientBusy } from 'lib/miden/sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  WASM_LOCK_WATCHDOG_MS,
+  WasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
 
-import { syncUnderBoundedLock } from './sync-lock';
+import { syncBeforeVerdict, syncUnderBoundedLock } from './sync-lock';
 
 /**
  * Attach the rejection expectation NOW — so the eviction's rejection always has
@@ -125,4 +129,57 @@ describe('syncUnderBoundedLock (#777)', () => {
     // A failure must still hand the lock back — the pipeline's next step takes it.
     expect(isWasmClientBusy()).toBe(false);
   });
+});
+
+// The one place the verdict helpers' eviction rule lives: true reads the record, false is no verdict.
+describe('syncBeforeVerdict (#1233)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.clearAllMocks();
+    mockSyncState.mockResolvedValue(undefined);
+    __resetRecoveryCooldownForTests();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('syncBeforeVerdict syncs in a labelled hold at the sync ceiling and reads after it (#1233)', async () => {
+    let holdSeen: ReturnType<typeof getCurrentWasmLockHold> | undefined;
+    mockSyncState.mockImplementationOnce(async () => {
+      holdSeen = getCurrentWasmLockHold();
+    });
+
+    await expect(syncBeforeVerdict('send-verdict-sync', 'reading the test record')).resolves.toBe(true);
+
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    expect({ watchdogMs: holdSeen?.normalCeilingMs, label: holdSeen?.label }).toEqual({
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'send-verdict-sync'
+    });
+  });
+
+  it('syncBeforeVerdict gives no verdict after a watchdog eviction (#1233)', async () => {
+    mockSyncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(syncBeforeVerdict('send-verdict-sync', 'reading the test record')).resolves.toBe(false);
+
+    warn.mockRestore();
+  });
+
+  it.each([
+    ['sync unreachable', new Error('sync unreachable')],
+    ['realm-error', new WasmClientPoisonedError('realm-error')]
+  ])(
+    'syncBeforeVerdict still reads after a sync that fails without a watchdog eviction (%s) (#1233)',
+    async (_label, syncError) => {
+      mockSyncState.mockRejectedValueOnce(syncError);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(syncBeforeVerdict('send-verdict-sync', 'reading the test record')).resolves.toBe(true);
+
+      warn.mockRestore();
+    }
+  );
 });

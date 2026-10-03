@@ -201,6 +201,19 @@ describe('transaction models', () => {
     expect(tx.initiatedAt).toEqual(expect.any(Number));
   });
 
+  it("records an Epoch bridge note's reclaim height and id from its send params (#1250)", () => {
+    const tx = new BridgedSendTransaction('acc', 1n, '0xdest', 11155111, 'epoch', 'faucet', new Uint8Array([1]), true, {
+      recipientId: 'allocator',
+      noteType: NoteTypeEnum.Public,
+      recallBlocks: 2016,
+      reclaimHeight: 3016,
+      reclaimNoteId: 'note-stamped'
+    });
+
+    expect(tx.extraInputs).toMatchObject({ recallBlocks: 2016, reclaimHeight: 3016, reclaimNoteId: 'note-stamped' });
+    expect(tx.outputNoteIds).toBeUndefined();
+  });
+
   it('creates earn withdrawals as completed tracking-only rows', () => {
     const tx = new EarnWithdrawTransaction(
       'miden-account',

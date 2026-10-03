@@ -55,6 +55,8 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  *                             more; no later tick can change that, so stop asking.
  *  - `refused-transiently`  - could not tell (unreadable account/commitment); no
  *                             guardian traffic happened, so retry later for free.
+ *                             Also a push whose finish found the account's key moved
+ *                             on: a later rotation owns the pointer, so nothing is spent.
  *  - `evicted`              - the WASM client was evicted AFTER `/configure` was
  *                             issued. A SEPARATE outcome rather than one of the
  *                             three above, because it is the only one that is not a

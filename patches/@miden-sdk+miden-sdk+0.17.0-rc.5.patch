@@ -1,0 +1,582 @@
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js b/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/st/Cargo-BqHjosIU.js
+@@ -25585,7 +25585,79 @@
+     const ptr0 = passStringToWasm0(log_level, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+     const len0 = WASM_VECTOR_LEN;
+     wasm.setupLogging(ptr0, len0);
++}
++
++// BEGIN note-relay-fetch
++/**
++ * Let Rust retire a relay outbox entry when SendNoteWithProof (SDK 0.17) proves the transport
++ * already has it. The 0.17 transport stores a duplicate as `AlreadyPresent` and answers OK
++ * ("A retry with the same note ID keeps the first envelope", note_transport.proto), so this
++ * guards a transport that still answers a duplicate with the old error.
++ * Inlined into the SDK glue by scripts/generate-note-relay-patch.mjs, including classic workers.
++ */
++async function normalizeNoteRelayFetch(request, options, pendingResponse) {
++  const response = await pendingResponse;
++  try {
++    const method = options?.method ?? request.method ?? 'GET';
++    const url = typeof request === 'string' ? request : (request.url ?? request.href);
++    if (
++      method.toUpperCase() !== 'POST' ||
++      !new URL(url).pathname.endsWith('/miden.note_transport.v1.NoteTransportService/SendNoteWithProof') ||
++      response.status !== 200 ||
++      !/^application\/grpc-web(?:\+proto)?(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
++    ) {
++      return response;
++    }
++
++    // The transport sends an error as headers only, and tonic takes a header status without
++    // reading the body, so neither does this.
++    const status = response.headers.get('grpc-status');
++    if (status !== '6' && status !== '13') return response;
++    const raw = response.headers.get('grpc-message') ?? '';
++    let message = null;
++    try {
++      message = decodeURIComponent(raw);
++    } catch {
++      // Reported below with the raw text.
++    }
++    // `notes.id` is the only unique note key (`seq` is the row id), so only a violation that
++    // names it proves this note is stored.
++    const duplicate =
++      message !== null &&
++      (status === '6' ||
++        /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
++          message
++        ));
++    if (!duplicate) {
++      // The outbox resends this on every sync, so a changed transport message shows up here.
++      console.warn('[noteRelay] SendNote rejection left for the outbox to retry', { status, message: raw });
++      return response;
++    }
++    console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
++
++    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.
++    const ack = new Uint8Array(26);
++    ack[5] = 128;
++    ack[9] = 16;
++    ack.set(new TextEncoder().encode('grpc-status: 0\r\n'), 10);
++    const headers = new Headers(response.headers);
++    headers.set('content-type', 'application/grpc-web+proto');
++    headers.set('grpc-status', '0');
++    for (const key of [
++      'grpc-message',
++      'grpc-status-details-bin',
++      'content-length',
++      'content-encoding',
++      'grpc-encoding'
++    ]) {
++      headers.delete(key);
++    }
++    return new Response(ack, { status: response.status, statusText: response.statusText, headers });
++  } catch {
++    return response;
++  }
+ }
++// END note-relay-fetch
+ 
+ function __wbg_get_imports() {
+     const import0 = {
+@@ -25938,11 +26010,11 @@
+             return ret;
+         },
+         __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
+-            const ret = arg0.fetch(arg1, arg2);
++            const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));
+             return ret;
+         },
+         __wbg_fetch_da370f859548acb0: function(arg0, arg1) {
+-            const ret = fetch(arg0, arg1);
++            const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));
+             return ret;
+         },
+         __wbg_fetchedaccount_new: function(arg0) {
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/Cargo-BqHjosIU-CroBL_Mt.js
+@@ -25585,7 +25585,79 @@
+     const ptr0 = passStringToWasm0(log_level, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+     const len0 = WASM_VECTOR_LEN;
+     wasm.setupLogging(ptr0, len0);
++}
++
++// BEGIN note-relay-fetch
++/**
++ * Let Rust retire a relay outbox entry when SendNoteWithProof (SDK 0.17) proves the transport
++ * already has it. The 0.17 transport stores a duplicate as `AlreadyPresent` and answers OK
++ * ("A retry with the same note ID keeps the first envelope", note_transport.proto), so this
++ * guards a transport that still answers a duplicate with the old error.
++ * Inlined into the SDK glue by scripts/generate-note-relay-patch.mjs, including classic workers.
++ */
++async function normalizeNoteRelayFetch(request, options, pendingResponse) {
++  const response = await pendingResponse;
++  try {
++    const method = options?.method ?? request.method ?? 'GET';
++    const url = typeof request === 'string' ? request : (request.url ?? request.href);
++    if (
++      method.toUpperCase() !== 'POST' ||
++      !new URL(url).pathname.endsWith('/miden.note_transport.v1.NoteTransportService/SendNoteWithProof') ||
++      response.status !== 200 ||
++      !/^application\/grpc-web(?:\+proto)?(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
++    ) {
++      return response;
++    }
++
++    // The transport sends an error as headers only, and tonic takes a header status without
++    // reading the body, so neither does this.
++    const status = response.headers.get('grpc-status');
++    if (status !== '6' && status !== '13') return response;
++    const raw = response.headers.get('grpc-message') ?? '';
++    let message = null;
++    try {
++      message = decodeURIComponent(raw);
++    } catch {
++      // Reported below with the raw text.
++    }
++    // `notes.id` is the only unique note key (`seq` is the row id), so only a violation that
++    // names it proves this note is stored.
++    const duplicate =
++      message !== null &&
++      (status === '6' ||
++        /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
++          message
++        ));
++    if (!duplicate) {
++      // The outbox resends this on every sync, so a changed transport message shows up here.
++      console.warn('[noteRelay] SendNote rejection left for the outbox to retry', { status, message: raw });
++      return response;
++    }
++    console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
++
++    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.
++    const ack = new Uint8Array(26);
++    ack[5] = 128;
++    ack[9] = 16;
++    ack.set(new TextEncoder().encode('grpc-status: 0\r\n'), 10);
++    const headers = new Headers(response.headers);
++    headers.set('content-type', 'application/grpc-web+proto');
++    headers.set('grpc-status', '0');
++    for (const key of [
++      'grpc-message',
++      'grpc-status-details-bin',
++      'content-length',
++      'content-encoding',
++      'grpc-encoding'
++    ]) {
++      headers.delete(key);
++    }
++    return new Response(ack, { status: response.status, statusText: response.statusText, headers });
++  } catch {
++    return response;
++  }
+ }
++// END note-relay-fetch
+ 
+ function __wbg_get_imports() {
+     const import0 = {
+@@ -25938,11 +26010,11 @@
+             return ret;
+         },
+         __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
+-            const ret = arg0.fetch(arg1, arg2);
++            const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));
+             return ret;
+         },
+         __wbg_fetch_da370f859548acb0: function(arg0, arg1) {
+-            const ret = fetch(arg0, arg1);
++            const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));
+             return ret;
+         },
+         __wbg_fetchedaccount_new: function(arg0) {
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/st/workers/web-client-methods-worker.js
+@@ -26248,7 +26248,79 @@
+     const ptr0 = passStringToWasm0(log_level, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+     const len0 = WASM_VECTOR_LEN;
+     wasm.setupLogging(ptr0, len0);
++}
++
++// BEGIN note-relay-fetch
++/**
++ * Let Rust retire a relay outbox entry when SendNoteWithProof (SDK 0.17) proves the transport
++ * already has it. The 0.17 transport stores a duplicate as `AlreadyPresent` and answers OK
++ * ("A retry with the same note ID keeps the first envelope", note_transport.proto), so this
++ * guards a transport that still answers a duplicate with the old error.
++ * Inlined into the SDK glue by scripts/generate-note-relay-patch.mjs, including classic workers.
++ */
++async function normalizeNoteRelayFetch(request, options, pendingResponse) {
++  const response = await pendingResponse;
++  try {
++    const method = options?.method ?? request.method ?? 'GET';
++    const url = typeof request === 'string' ? request : (request.url ?? request.href);
++    if (
++      method.toUpperCase() !== 'POST' ||
++      !new URL(url).pathname.endsWith('/miden.note_transport.v1.NoteTransportService/SendNoteWithProof') ||
++      response.status !== 200 ||
++      !/^application\/grpc-web(?:\+proto)?(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
++    ) {
++      return response;
++    }
++
++    // The transport sends an error as headers only, and tonic takes a header status without
++    // reading the body, so neither does this.
++    const status = response.headers.get('grpc-status');
++    if (status !== '6' && status !== '13') return response;
++    const raw = response.headers.get('grpc-message') ?? '';
++    let message = null;
++    try {
++      message = decodeURIComponent(raw);
++    } catch {
++      // Reported below with the raw text.
++    }
++    // `notes.id` is the only unique note key (`seq` is the row id), so only a violation that
++    // names it proves this note is stored.
++    const duplicate =
++      message !== null &&
++      (status === '6' ||
++        /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
++          message
++        ));
++    if (!duplicate) {
++      // The outbox resends this on every sync, so a changed transport message shows up here.
++      console.warn('[noteRelay] SendNote rejection left for the outbox to retry', { status, message: raw });
++      return response;
++    }
++    console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
++
++    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.
++    const ack = new Uint8Array(26);
++    ack[5] = 128;
++    ack[9] = 16;
++    ack.set(new TextEncoder().encode('grpc-status: 0\r\n'), 10);
++    const headers = new Headers(response.headers);
++    headers.set('content-type', 'application/grpc-web+proto');
++    headers.set('grpc-status', '0');
++    for (const key of [
++      'grpc-message',
++      'grpc-status-details-bin',
++      'content-length',
++      'content-encoding',
++      'grpc-encoding'
++    ]) {
++      headers.delete(key);
++    }
++    return new Response(ack, { status: response.status, statusText: response.statusText, headers });
++  } catch {
++    return response;
++  }
+ }
++// END note-relay-fetch
+ 
+ function __wbg_get_imports() {
+     const import0 = {
+@@ -26601,11 +26673,11 @@
+             return ret;
+         },
+         __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
+-            const ret = arg0.fetch(arg1, arg2);
++            const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));
+             return ret;
+         },
+         __wbg_fetch_da370f859548acb0: function(arg0, arg1) {
+-            const ret = fetch(arg0, arg1);
++            const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));
+             return ret;
+         },
+         __wbg_fetchedaccount_new: function(arg0) {
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/Cargo-fKgKofVd.js
+@@ -25795,7 +25795,79 @@
+  */
+ function wbg_rayon_start_worker(receiver) {
+     wasm.wbg_rayon_start_worker(receiver);
++}
++
++// BEGIN note-relay-fetch
++/**
++ * Let Rust retire a relay outbox entry when SendNoteWithProof (SDK 0.17) proves the transport
++ * already has it. The 0.17 transport stores a duplicate as `AlreadyPresent` and answers OK
++ * ("A retry with the same note ID keeps the first envelope", note_transport.proto), so this
++ * guards a transport that still answers a duplicate with the old error.
++ * Inlined into the SDK glue by scripts/generate-note-relay-patch.mjs, including classic workers.
++ */
++async function normalizeNoteRelayFetch(request, options, pendingResponse) {
++  const response = await pendingResponse;
++  try {
++    const method = options?.method ?? request.method ?? 'GET';
++    const url = typeof request === 'string' ? request : (request.url ?? request.href);
++    if (
++      method.toUpperCase() !== 'POST' ||
++      !new URL(url).pathname.endsWith('/miden.note_transport.v1.NoteTransportService/SendNoteWithProof') ||
++      response.status !== 200 ||
++      !/^application\/grpc-web(?:\+proto)?(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
++    ) {
++      return response;
++    }
++
++    // The transport sends an error as headers only, and tonic takes a header status without
++    // reading the body, so neither does this.
++    const status = response.headers.get('grpc-status');
++    if (status !== '6' && status !== '13') return response;
++    const raw = response.headers.get('grpc-message') ?? '';
++    let message = null;
++    try {
++      message = decodeURIComponent(raw);
++    } catch {
++      // Reported below with the raw text.
++    }
++    // `notes.id` is the only unique note key (`seq` is the row id), so only a violation that
++    // names it proves this note is stored.
++    const duplicate =
++      message !== null &&
++      (status === '6' ||
++        /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
++          message
++        ));
++    if (!duplicate) {
++      // The outbox resends this on every sync, so a changed transport message shows up here.
++      console.warn('[noteRelay] SendNote rejection left for the outbox to retry', { status, message: raw });
++      return response;
++    }
++    console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
++
++    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.
++    const ack = new Uint8Array(26);
++    ack[5] = 128;
++    ack[9] = 16;
++    ack.set(new TextEncoder().encode('grpc-status: 0\r\n'), 10);
++    const headers = new Headers(response.headers);
++    headers.set('content-type', 'application/grpc-web+proto');
++    headers.set('grpc-status', '0');
++    for (const key of [
++      'grpc-message',
++      'grpc-status-details-bin',
++      'content-length',
++      'content-encoding',
++      'grpc-encoding'
++    ]) {
++      headers.delete(key);
++    }
++    return new Response(ack, { status: response.status, statusText: response.statusText, headers });
++  } catch {
++    return response;
++  }
+ }
++// END note-relay-fetch
+ 
+ function __wbg_get_imports(memory) {
+     const import0 = {
+@@ -26171,11 +26243,11 @@
+             return ret;
+         },
+         __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
+-            const ret = arg0.fetch(arg1, arg2);
++            const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));
+             return ret;
+         },
+         __wbg_fetch_da370f859548acb0: function(arg0, arg1) {
+-            const ret = fetch(arg0, arg1);
++            const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));
+             return ret;
+         },
+         __wbg_fetchedaccount_new: function(arg0) {
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/Cargo-fKgKofVd-vtQz3W02.js
+@@ -25795,7 +25795,79 @@
+  */
+ function wbg_rayon_start_worker(receiver) {
+     wasm.wbg_rayon_start_worker(receiver);
++}
++
++// BEGIN note-relay-fetch
++/**
++ * Let Rust retire a relay outbox entry when SendNoteWithProof (SDK 0.17) proves the transport
++ * already has it. The 0.17 transport stores a duplicate as `AlreadyPresent` and answers OK
++ * ("A retry with the same note ID keeps the first envelope", note_transport.proto), so this
++ * guards a transport that still answers a duplicate with the old error.
++ * Inlined into the SDK glue by scripts/generate-note-relay-patch.mjs, including classic workers.
++ */
++async function normalizeNoteRelayFetch(request, options, pendingResponse) {
++  const response = await pendingResponse;
++  try {
++    const method = options?.method ?? request.method ?? 'GET';
++    const url = typeof request === 'string' ? request : (request.url ?? request.href);
++    if (
++      method.toUpperCase() !== 'POST' ||
++      !new URL(url).pathname.endsWith('/miden.note_transport.v1.NoteTransportService/SendNoteWithProof') ||
++      response.status !== 200 ||
++      !/^application\/grpc-web(?:\+proto)?(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
++    ) {
++      return response;
++    }
++
++    // The transport sends an error as headers only, and tonic takes a header status without
++    // reading the body, so neither does this.
++    const status = response.headers.get('grpc-status');
++    if (status !== '6' && status !== '13') return response;
++    const raw = response.headers.get('grpc-message') ?? '';
++    let message = null;
++    try {
++      message = decodeURIComponent(raw);
++    } catch {
++      // Reported below with the raw text.
++    }
++    // `notes.id` is the only unique note key (`seq` is the row id), so only a violation that
++    // names it proves this note is stored.
++    const duplicate =
++      message !== null &&
++      (status === '6' ||
++        /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
++          message
++        ));
++    if (!duplicate) {
++      // The outbox resends this on every sync, so a changed transport message shows up here.
++      console.warn('[noteRelay] SendNote rejection left for the outbox to retry', { status, message: raw });
++      return response;
++    }
++    console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
++
++    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.
++    const ack = new Uint8Array(26);
++    ack[5] = 128;
++    ack[9] = 16;
++    ack.set(new TextEncoder().encode('grpc-status: 0\r\n'), 10);
++    const headers = new Headers(response.headers);
++    headers.set('content-type', 'application/grpc-web+proto');
++    headers.set('grpc-status', '0');
++    for (const key of [
++      'grpc-message',
++      'grpc-status-details-bin',
++      'content-length',
++      'content-encoding',
++      'grpc-encoding'
++    ]) {
++      headers.delete(key);
++    }
++    return new Response(ack, { status: response.status, statusText: response.statusText, headers });
++  } catch {
++    return response;
++  }
+ }
++// END note-relay-fetch
+ 
+ function __wbg_get_imports(memory) {
+     const import0 = {
+@@ -26171,11 +26243,11 @@
+             return ret;
+         },
+         __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
+-            const ret = arg0.fetch(arg1, arg2);
++            const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));
+             return ret;
+         },
+         __wbg_fetch_da370f859548acb0: function(arg0, arg1) {
+-            const ret = fetch(arg0, arg1);
++            const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));
+             return ret;
+         },
+         __wbg_fetchedaccount_new: function(arg0) {
+diff --git a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js
+--- a/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js
++++ b/node_modules/@miden-sdk/miden-sdk/dist/mt/workers/web-client-methods-worker.js
+@@ -26458,7 +26458,79 @@
+  */
+ function wbg_rayon_start_worker(receiver) {
+     wasm.wbg_rayon_start_worker(receiver);
++}
++
++// BEGIN note-relay-fetch
++/**
++ * Let Rust retire a relay outbox entry when SendNoteWithProof (SDK 0.17) proves the transport
++ * already has it. The 0.17 transport stores a duplicate as `AlreadyPresent` and answers OK
++ * ("A retry with the same note ID keeps the first envelope", note_transport.proto), so this
++ * guards a transport that still answers a duplicate with the old error.
++ * Inlined into the SDK glue by scripts/generate-note-relay-patch.mjs, including classic workers.
++ */
++async function normalizeNoteRelayFetch(request, options, pendingResponse) {
++  const response = await pendingResponse;
++  try {
++    const method = options?.method ?? request.method ?? 'GET';
++    const url = typeof request === 'string' ? request : (request.url ?? request.href);
++    if (
++      method.toUpperCase() !== 'POST' ||
++      !new URL(url).pathname.endsWith('/miden.note_transport.v1.NoteTransportService/SendNoteWithProof') ||
++      response.status !== 200 ||
++      !/^application\/grpc-web(?:\+proto)?(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
++    ) {
++      return response;
++    }
++
++    // The transport sends an error as headers only, and tonic takes a header status without
++    // reading the body, so neither does this.
++    const status = response.headers.get('grpc-status');
++    if (status !== '6' && status !== '13') return response;
++    const raw = response.headers.get('grpc-message') ?? '';
++    let message = null;
++    try {
++      message = decodeURIComponent(raw);
++    } catch {
++      // Reported below with the raw text.
++    }
++    // `notes.id` is the only unique note key (`seq` is the row id), so only a violation that
++    // names it proves this note is stored.
++    const duplicate =
++      message !== null &&
++      (status === '6' ||
++        /^Failed to store note: ConstraintViolation\("(?:Unique constraint violation: )?UNIQUE constraint failed: notes\.id"\)$/.test(
++          message
++        ));
++    if (!duplicate) {
++      // The outbox resends this on every sync, so a changed transport message shows up here.
++      console.warn('[noteRelay] SendNote rejection left for the outbox to retry', { status, message: raw });
++      return response;
++    }
++    console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
++
++    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.
++    const ack = new Uint8Array(26);
++    ack[5] = 128;
++    ack[9] = 16;
++    ack.set(new TextEncoder().encode('grpc-status: 0\r\n'), 10);
++    const headers = new Headers(response.headers);
++    headers.set('content-type', 'application/grpc-web+proto');
++    headers.set('grpc-status', '0');
++    for (const key of [
++      'grpc-message',
++      'grpc-status-details-bin',
++      'content-length',
++      'content-encoding',
++      'grpc-encoding'
++    ]) {
++      headers.delete(key);
++    }
++    return new Response(ack, { status: response.status, statusText: response.statusText, headers });
++  } catch {
++    return response;
++  }
+ }
++// END note-relay-fetch
+ 
+ function __wbg_get_imports(memory) {
+     const import0 = {
+@@ -26834,11 +26906,11 @@
+             return ret;
+         },
+         __wbg_fetch_c97461e1e8f610cd: function(arg0, arg1, arg2) {
+-            const ret = arg0.fetch(arg1, arg2);
++            const ret = normalizeNoteRelayFetch(arg1, arg2, arg0.fetch(arg1, arg2));
+             return ret;
+         },
+         __wbg_fetch_da370f859548acb0: function(arg0, arg1) {
+-            const ret = fetch(arg0, arg1);
++            const ret = normalizeNoteRelayFetch(arg0, arg1, fetch(arg0, arg1));
+             return ret;
+         },
+         __wbg_fetchedaccount_new: function(arg0) {

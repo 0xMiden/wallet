@@ -35,6 +35,7 @@ import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
+import { isNominalQuote } from 'lib/prices/binance';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
@@ -58,6 +59,11 @@ const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
 // follows the token rather than a hex literal.
 const CHART_CONFIG = { price: { color: 'var(--accent-primary)' } };
 const CHART_STROKE = 'var(--color-price)';
+
+// The fewest decimals the unit price shows, by price symbol. A stablecoin moves in its fourth to
+// sixth decimal, which three would round away (#1239).
+const PRICE_MINIMUM_DECIMALS: Record<string, number> = { USDC: 6 };
+const DEFAULT_PRICE_MINIMUM_DECIMALS = 3;
 
 function formatTooltipTime(timestamp: number, tf: Timeframe): string {
   const date = new Date(timestamp);
@@ -84,8 +90,9 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
   const balance = balances ? (token?.balance ?? 0) : null;
-  // The quote of the symbol the feed prices this token under (IETH at ETH). A token without one
-  // has no dollar figure and no price section, never its token count at $1 a unit.
+  // The quote of the symbol the feed prices this token under (IETH at ETH), or the nominal $1 a
+  // unit `quotedPrice` gives a token the feed does not quote while the switch is on. A token
+  // without one has no dollar figure and no price section.
   const priceSymbol = priceSymbolFor(tokenId, symbol);
   const quote = quotedPrice(tokenPrices, priceSymbol);
   const fiatValue = balance === null || !quote ? null : balance * quote.price;
@@ -128,7 +135,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             }
             subtitle={
               // The dash while prices load; no line once they have and none quotes this token.
-              scaleIsKnown && (quote || !pricesLoaded(tokenPrices)) ? (
+              scaleIsKnown && (quote || !pricesLoaded(tokenPrices, [priceSymbol])) ? (
                 <AnimatedNumber
                   value={fiatValue}
                   format={value => `$${formatFiat(value)}`}
@@ -178,7 +185,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </Button>
           </div>
 
-          {quote && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
+          {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
+          {quote && !isNominalQuote(quote) && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
 
           <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
 
@@ -236,10 +244,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   const yDomain: [number, number] = [minVal - padding, maxVal + padding];
 
   const change = priceChange(priceInfo.change24h);
-  // Three decimals is the price line's own shape (`toAdaptiveFixed(price, 3)`), pinned to the
-  // destination so a count does not change how many it shows on the way. Built once per render,
-  // not per frame; the format closure below only calls it.
-  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, 3);
+  // Pinned to the destination so the count keeps one shape.
+  const minimumFormatDecimals = PRICE_MINIMUM_DECIMALS[symbol] ?? DEFAULT_PRICE_MINIMUM_DECIMALS;
+  const formatAdaptivePrice = adaptiveFormatterFor(priceInfo.price, minimumFormatDecimals);
   const formatPrice = (value: number) => `$${formatAdaptivePrice(value)}`;
 
   // Sits on `page`, not a `Card`: the chart reads better at the full content width than inset in a
@@ -284,7 +291,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-xl bg-ink px-2 py-1 text-xs text-page">
-                      <div className="text-badge">${toAdaptiveFixed(point.value)}</div>
+                      <div className="text-badge">${toAdaptiveFixed(point.value, minimumFormatDecimals)}</div>
                       {point.time && <div>{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );

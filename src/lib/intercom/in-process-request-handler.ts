@@ -218,7 +218,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     }
 
     case WalletMessageType.SwapHotKeyRequest: {
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };

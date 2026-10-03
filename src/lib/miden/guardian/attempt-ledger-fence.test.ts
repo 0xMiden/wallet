@@ -168,6 +168,16 @@ const ALLOWED: Record<string, string[]> = {
     // itself is `pendingRotationRecheckLedger`; this only remembers that one ran dry, and it
     // clears when the row resolves.
     'pendingRotationExhaustedOwner',
+    // The pending-activation finisher (#1233). `pendingActivationState` is the cadence of a check
+    // with no end - a capped backoff stamped on every exit, with only a heal counting - so it is a
+    // schedule, like drift's `nextDriftProbeAt`, not a budget that runs dry. `refusedActivations`
+    // latches the Failed-row set a permanent refusal answered until the rows change.
+    // `activationPushes` is a push count against the operator and row set the last due lap saw,
+    // restarted by any change of either, a return included: a keyed ledger keeps the spent budget
+    // of a subject it saw before, so it cannot express that restart.
+    'activationPushes',
+    'pendingActivationState',
+    'refusedActivations',
     'syncedGuardianEndpoint',
     'unrepairableAccounts'
   ],
@@ -182,16 +192,30 @@ const ALLOWED: Record<string, string[]> = {
   // Telemetry for the shadow dispatcher: a monotonic tally with no cap, no
   // cooldown and no effect on what runs. Nothing reads it to decide anything.
   'src/lib/miden/back/guardian-recovery-dispatcher.ts': ['divergenceCounts'],
-  // A one-shot latch, not a budget: at most one recovery attempt per backend
-  // lifetime, released only where the run never got its turn. No cap curve and
-  // no settle stamp, so the ledger would describe it worse than the Set does.
-  'src/lib/miden/back/guardian-recovery.ts': ['startedRecoveries'],
+  // A reservation per account, not a budget: in flight, kept by a finished run, or released where
+  // the run never got its turn or a lock lands on a failed one (#1304), so at most one recovery
+  // attempt per unlock or backend lifetime. No cap curve and no settle stamp, so the ledger would
+  // describe it worse than the Map does.
+  'src/lib/miden/back/guardian-recovery.ts': ['reservations'],
+  // Which history sources already counted a failure this session (#902), so a deferral restart
+  // cannot count one session twice. The caps themselves are persisted on each source's checkpoint;
+  // these only dedupe within a session and are cleared when it ends.
+  'src/lib/miden/back/guardian-history-recovery.ts': [
+    'abortedDecodeHistorySources',
+    'deferredFailureHistorySources',
+    'invalidDataHistorySources',
+    'unsupportedHistorySources'
+  ],
   // Session allowlist, plus one hold per in-flight probe. The hold is removed
-  // when that probe settles, so it is not a retry budget.
-  'src/lib/miden/guardian/native-http.ts': ['guardianOrigins', 'probeHolds'],
+  // when that probe settles, so it is not a retry budget. `NULL_BODY_STATUSES`
+  // is a constant table of HTTP statuses the fetch boundary answers with no body.
+  'src/lib/miden/guardian/native-http.ts': ['guardianOrigins', 'NULL_BODY_STATUSES', 'probeHolds'],
   // One promise chain per account, which serializes that account's guardian
-  // transactions: ordering, not retry state.
-  'src/lib/miden/guardian/serialize.ts': ['guardianTxChains']
+  // transactions: ordering, not retry state. `guardianCandidates` is the one
+  // candidate a write left on its Guardian, which the next proposal asks about
+  // (#312) and whose failed abandon it retries (#1317): a record of the last
+  // write, replaced by the next one, with no cap and no cooldown.
+  'src/lib/miden/guardian/serialize.ts': ['guardianCandidates', 'guardianTxChains']
 };
 
 describe('guardian repair modules hold no hand-rolled retry ledgers', () => {

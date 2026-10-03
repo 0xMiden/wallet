@@ -13,7 +13,12 @@
  *   - the creation-block search's bounds
  */
 
+import type { WasmLockHold } from './miden-client';
+
 type RecoveryClientInterface = import('./miden-client-interface').MidenClientInterface;
+
+/** Never the mutex owner, so a catch handed it can never retire anything. */
+const NO_HOLD = {} as unknown as WasmLockHold;
 
 const NOTE_TAG = { tag: 'note-tag' };
 
@@ -108,7 +113,12 @@ async function loadClient(): Promise<RecoveryClientInterface> {
       }),
       unauthenticated: jest.fn(note => ({ note, authenticated: false }))
     },
-    NoteFile: { fromInputNote: jest.fn(inputNote => ({ file: inputNote })) }
+    NoteFile: {
+      fromInputNote: jest.fn(inputNote => ({ file: inputNote })),
+      deserialize: jest.fn(() => ({ kind: 'notefile' })),
+      fromExpectedNote: jest.fn()
+    },
+    NoteDetails: jest.fn()
   }));
   jest.doMock('lib/miden-chain/effective-endpoints', () => ({
     getEffectiveNetworkName: () => 'testnet',
@@ -131,6 +141,24 @@ async function loadClient(): Promise<RecoveryClientInterface> {
     { notes: { import: noteImport, fetchPrivate: jest.fn(async () => undefined) } },
     'testnet'
   ]);
+}
+
+/**
+ * The client under test beside the real lock from the same registry. The lock's own singleton is a fake whose marking
+ * and free are recorded, so a retire through a hold of that lock is observable.
+ */
+async function lockedClient() {
+  const client = await loadClient();
+  const lock = await import('./miden-client');
+  const { MidenClientInterface } = await import('./miden-client-interface');
+  const singletonFree = jest.fn();
+  const singletonMarkPoisoned = jest.fn();
+  jest
+    .spyOn(MidenClientInterface, 'create')
+    .mockImplementation(
+      async () => ({ free: singletonFree, markPoisoned: singletonMarkPoisoned }) as unknown as RecoveryClientInterface
+    );
+  return { client, lock, wasm: jest.requireMock('@miden-sdk/miden-sdk/lazy'), singletonFree, singletonMarkPoisoned };
 }
 
 describe('Guardian pending-note recovery (SDK surface)', () => {
@@ -252,6 +280,17 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       });
     });
 
+    it('rethrows a trap from a note import for its lock to retire, importing nothing after it', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a'), committedNote('b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a'), fetchedNote('b')]);
+      noteImport.mockRejectedValueOnce(trap);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).rejects.toBe(trap);
+      expect(noteImport).toHaveBeenCalledTimes(1);
+    });
+
     it('reports saturation without importing when a wide range holds too many matches', async () => {
       // Importing a prefix would hold the WASM mutex for the prefix and then be
       // redone by the halves anyway.
@@ -367,7 +406,9 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockResolvedValue([fetchedNote('note-2'), fetchedNote('note-1')]);
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])])).resolves.toEqual({
+      await expect(
+        client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])], NO_HOLD)
+      ).resolves.toEqual({
         imported: 2,
         failures: 0
       });
@@ -386,7 +427,9 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockResolvedValue([fetchedNote('note-1')]);
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([1])])).resolves.toEqual({
+      await expect(
+        client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([1])], NO_HOLD)
+      ).resolves.toEqual({
         imported: 1,
         failures: 0
       });
@@ -398,7 +441,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockResolvedValue([]);
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])])).resolves.toEqual({
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])], NO_HOLD)).resolves.toEqual({
         imported: 1,
         failures: 0
       });
@@ -410,7 +453,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       fakeRpc.getNotesById.mockRejectedValue(new Error('node unreachable'));
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])])).resolves.toEqual({
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])], NO_HOLD)).resolves.toEqual({
         imported: 1,
         failures: 0
       });
@@ -423,7 +466,9 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
         throw new Error('corrupt note bytes');
       });
 
-      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])])).resolves.toEqual({
+      await expect(
+        client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])], NO_HOLD)
+      ).resolves.toEqual({
         imported: 1,
         failures: 1
       });
@@ -433,8 +478,189 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
     it('makes no proof call at all for an empty batch', async () => {
       const client = await loadClient();
 
-      await expect(client.importRecoveryNoteBytes([])).resolves.toEqual({ imported: 0, failures: 0 });
+      await expect(client.importRecoveryNoteBytes([], NO_HOLD)).resolves.toEqual({ imported: 0, failures: 0 });
       expect(fakeRpc.getNotesById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a trap caught under the lock', () => {
+    type Locked = Awaited<ReturnType<typeof lockedClient>>;
+    type Arrange = (error: unknown, wasm: Locked['wasm']) => void;
+
+    /** Runs `call` under the real lock, its rejection turned into its outcome so only a catch's own retire marks. */
+    async function underLock(call: (locked: Locked, hold: WasmLockHold) => Promise<unknown>, arrange: Arrange) {
+      const locked = await lockedClient();
+      const { WasmClientPoisonedError } = await import('./wasm-client-poison');
+      const listener = jest.fn();
+      locked.lock.onWasmClientPoisoned(listener);
+      const before = await locked.lock.getMidenClient();
+      return {
+        ...locked,
+        WasmClientPoisonedError,
+        listener,
+        before,
+        run: async (error: unknown, catchInside = true) => {
+          arrange(error, locked.wasm);
+          return locked.lock.withWasmClientLock(async hold => {
+            await locked.lock.getMidenClient();
+            const outcome = call(locked, hold);
+            return catchInside ? outcome.catch((reason: unknown) => reason) : outcome;
+          });
+        }
+      };
+    }
+
+    async function expectRetiredOnce(state: Awaited<ReturnType<typeof underLock>>) {
+      expect(state.singletonMarkPoisoned).toHaveBeenCalledTimes(1);
+      expect(state.listener).toHaveBeenCalledTimes(1);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(state.singletonFree).toHaveBeenCalledTimes(1);
+      expect(await state.lock.getMidenClient()).not.toBe(state.before);
+    }
+
+    async function expectNothingMarked(state: Awaited<ReturnType<typeof underLock>>) {
+      expect(state.singletonMarkPoisoned).not.toHaveBeenCalled();
+      expect(state.listener).not.toHaveBeenCalled();
+      expect(await state.lock.getMidenClient()).toBe(state.before);
+    }
+
+    const importBatch = ({ client }: Locked, hold: WasmLockHold) =>
+      client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])], hold);
+
+    const recoverySites: Array<[string, Arrange, () => void]> = [
+      [
+        'a note deserialize',
+        (error, wasm) => {
+          wasm.Note.deserialize.mockImplementation((bytes: Uint8Array) => {
+            if (bytes[0] === 2) throw error;
+            return { id: () => noteIdHandle(`note-${bytes[0]}`) };
+          });
+        },
+        () => {
+          expect(fakeRpc.getNotesById).not.toHaveBeenCalled();
+          expect(noteImport).not.toHaveBeenCalled();
+        }
+      ],
+      [
+        'the proof lookup',
+        error => {
+          fakeRpc.getNotesById.mockRejectedValue(error);
+        },
+        () => expect(noteImport).not.toHaveBeenCalled()
+      ],
+      [
+        'a note import',
+        error => {
+          noteImport.mockRejectedValueOnce(error);
+        },
+        () => expect(noteImport).toHaveBeenCalledTimes(1)
+      ]
+    ];
+
+    it.each(recoverySites)(
+      'importRecoveryNoteBytes retires a trap from %s through its hold and stops',
+      async (_site, arrange, nothingAfter) => {
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const state = await underLock(importBatch, arrange);
+        expect(await state.run(trap)).toBe(trap);
+        nothingAfter();
+        await expectRetiredOnce(state);
+      }
+    );
+
+    it.each(recoverySites)(
+      'importRecoveryNoteBytes passes an eviction from %s through without a retire and stops',
+      async (_site, arrange, nothingAfter) => {
+        const state = await underLock(importBatch, arrange);
+        const evicted = new state.WasmClientPoisonedError('realm-error');
+        expect(await state.run(evicted)).toBe(evicted);
+        nothingAfter();
+        await expectNothingMarked(state);
+      }
+    );
+
+    it('a trap importRecoveryNoteBytes retired and rethrew is not retired again by its lock', async () => {
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      const state = await underLock(importBatch, recoverySites[0]![1]);
+      await expect(state.run(trap, false)).rejects.toBe(trap);
+      expect(state.singletonMarkPoisoned).toHaveBeenCalledTimes(1);
+      expect(state.listener).toHaveBeenCalledTimes(1);
+    });
+
+    const importOne = ({ client }: Locked, hold: WasmLockHold) => client.importNoteBytes(new Uint8Array([1]), hold);
+    const notANoteFile = (wasm: Locked['wasm']) =>
+      wasm.NoteFile.deserialize.mockImplementation(() => {
+        throw new Error('not a NoteFile');
+      });
+
+    it.each<[string, Arrange, number, number]>([
+      [
+        'the NoteFile deserialize',
+        (error, wasm) => {
+          wasm.NoteFile.deserialize.mockImplementation(() => {
+            throw error;
+          });
+        },
+        0,
+        0
+      ],
+      [
+        'the Note deserialize fallback',
+        (error, wasm) => {
+          notANoteFile(wasm);
+          wasm.Note.deserialize.mockImplementation(() => {
+            throw error;
+          });
+        },
+        1,
+        0
+      ],
+      [
+        "the fallback's conversion",
+        (error, wasm) => {
+          notANoteFile(wasm);
+          wasm.Note.deserialize.mockImplementation(() => ({
+            assets: () => 'assets',
+            recipient: () => 'recipient',
+            metadata: () => ({ tag: () => 'tag' })
+          }));
+          wasm.NoteFile.fromExpectedNote.mockImplementation(() => {
+            throw error;
+          });
+        },
+        1,
+        0
+      ],
+      [
+        'the notes import',
+        error => {
+          noteImport.mockRejectedValueOnce(error);
+        },
+        0,
+        1
+      ]
+    ])(
+      'importNoteBytes retires a trap from %s through its hold and rethrows it',
+      async (_site, arrange, noteDeserializes, imports) => {
+        const trap = new WebAssembly.RuntimeError('unreachable');
+        const state = await underLock(importOne, arrange);
+        expect(await state.run(trap)).toBe(trap);
+        expect(state.wasm.Note.deserialize).toHaveBeenCalledTimes(noteDeserializes);
+        expect(noteImport).toHaveBeenCalledTimes(imports);
+        await expectRetiredOnce(state);
+      }
+    );
+
+    it('importNoteBytes passes an eviction from the NoteFile deserialize through with no fallback', async () => {
+      const state = await underLock(importOne, (error, wasm) => {
+        wasm.NoteFile.deserialize.mockImplementation(() => {
+          throw error;
+        });
+      });
+      const evicted = new state.WasmClientPoisonedError('realm-error');
+      expect(await state.run(evicted)).toBe(evicted);
+      expect(state.wasm.Note.deserialize).not.toHaveBeenCalled();
+      await expectNothingMarked(state);
     });
   });
 
