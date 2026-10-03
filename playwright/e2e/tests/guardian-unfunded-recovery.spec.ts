@@ -1,6 +1,6 @@
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
-import { vaultBalance } from '../helpers/balance-truth';
+import { vaultBalanceByFaucetId, walletDiscoveredNativeFaucetId } from '../helpers/balance-truth';
 import { readTransactionRows } from '../helpers/history';
 import { FUNDING_MIDEN } from '../helpers/miden-cli';
 import { PUBLIC_FAUCET_GRANT, publicFaucetApiUrl } from '../helpers/public-faucet';
@@ -122,10 +122,16 @@ test.describe('Guardian recovery - unfunded account', () => {
           ? PUBLIC_FAUCET_GRANT
           : BigInt(FUNDING_MIDEN);
         const floor = funded - 2n * FEE_RESERVE_MULTIPLE * BASE_FEE;
+        // The note pays in the chain's fee asset, whose symbol the chain chooses (USDCX on devnet), so read it by id.
+        const feeFaucetId = await walletDiscoveredNativeFaucetId(walletB.page);
+        expect(
+          feeFaucetId,
+          'wallet B never discovered the chain fee faucet, so its fees cannot be measured'
+        ).not.toBeNull();
         await expect
-          .poll(() => vaultBalance(walletB.page, 'MIDEN'), { timeout: 120_000 })
+          .poll(() => vaultBalanceByFaucetId(walletB.page, feeFaucetId!), { timeout: 120_000 })
           .toBeGreaterThanOrEqual(floor);
-        expect(await vaultBalance(walletB.page, 'MIDEN')).toBeLessThan(funded);
+        expect(await vaultBalanceByFaucetId(walletB.page, feeFaucetId!)).toBeLessThan(funded);
       },
       { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
     );

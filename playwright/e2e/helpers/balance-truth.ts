@@ -389,6 +389,25 @@ async function failedRowSummary(sender: Page): Promise<string> {
 }
 
 /**
+ * The value the wallet cached under `prefix` (a cache name and its current version), or `null`.
+ *
+ * The wallet writes one entry per (RPC URL, network) scope and keeps the others, so two current-version
+ * entries mean the profile has seen two chains: refuse rather than let key order pick one. Entries under an
+ * older version are ignored.
+ */
+async function walletCacheEntry(page: Page, prefix: string): Promise<unknown> {
+  return page.evaluate(async wanted => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (globalThis as any).chrome;
+    if (!c?.storage?.local) return null;
+    const all = await c.storage.local.get(null);
+    const keys = Object.keys(all).filter(k => k.startsWith(wanted));
+    if (keys.length > 1) throw new Error(`ambiguous wallet cache, one entry per profile expected: ${keys.join(', ')}`);
+    return keys.length === 0 ? null : all[keys[0]!];
+  }, prefix);
+}
+
+/**
  * The chain's `verification_base_fee` as the WALLET discovered it, or `null` if the
  * wallet has not discovered it.
  *
@@ -402,15 +421,8 @@ async function failedRowSummary(sender: Page): Promise<string> {
  * `null` is a wallet that does not know. Callers must not collapse them.
  */
 export async function walletDiscoveredBaseFee(page: Page): Promise<number | null> {
-  return page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const c = (globalThis as any).chrome;
-    if (!c?.storage?.local) return null;
-    const all = await c.storage.local.get(null);
-    const key = Object.keys(all).find(k => k.startsWith('native_asset_fee:'));
-    const v = key === undefined ? null : all[key];
-    return typeof v === 'number' ? v : null;
-  });
+  const v = await walletCacheEntry(page, 'native_asset_fee:v1:');
+  return typeof v === 'number' ? v : null;
 }
 
 /**
@@ -422,15 +434,8 @@ export async function walletDiscoveredBaseFee(page: Page): Promise<number | null
  * wallet that knows the faucet perfectly well.
  */
 export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string | null> {
-  return page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const c = (globalThis as any).chrome;
-    if (!c?.storage?.local) return null;
-    const all = await c.storage.local.get(null);
-    const key = Object.keys(all).find(k => k.startsWith('native_asset_id:'));
-    const v = key === undefined ? null : all[key];
-    return typeof v === 'string' ? v : null;
-  });
+  const v = await walletCacheEntry(page, 'native_asset_id:v4:');
+  return typeof v === 'string' ? v : null;
 }
 
 /**

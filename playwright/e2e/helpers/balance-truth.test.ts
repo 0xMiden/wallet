@@ -1,6 +1,12 @@
 import type { Page } from '@playwright/test';
 
-import { vaultBalance, vaultBalanceByFaucetId, waitForVaultBalanceByFaucetId } from './balance-truth';
+import {
+  vaultBalance,
+  vaultBalanceByFaucetId,
+  waitForVaultBalanceByFaucetId,
+  walletDiscoveredBaseFee,
+  walletDiscoveredNativeFaucetId
+} from './balance-truth';
 
 /**
  * Drives the real `page.evaluate` callback against a fake store. The fixture's second row is the
@@ -173,4 +179,52 @@ it('fails with expected and actual amounts when the faucet balance never settles
   } finally {
     clock.mockRestore();
   }
+});
+
+/** A page whose extension storage holds `entries`, in insertion order, the order `Object.keys` reports. */
+function cachePage(entries: Record<string, unknown>): Page {
+  return {
+    evaluate: async <Arg>(fn: (arg: Arg) => unknown, arg: Arg) => {
+      const previous = Reflect.get(globalThis, 'chrome');
+      Reflect.set(globalThis, 'chrome', { storage: { local: { get: async () => ({ ...entries }) } } });
+      try {
+        return await fn(arg);
+      } finally {
+        Reflect.set(globalThis, 'chrome', previous);
+      }
+    }
+  } as unknown as Page;
+}
+
+describe.each([
+  {
+    name: 'walletDiscoveredNativeFaucetId',
+    read: walletDiscoveredNativeFaucetId,
+    stale: 'native_asset_id:v3:https://rpc.devnet.miden.io',
+    current: 'native_asset_id:v4:https://rpc.devnet.miden.io|devnet',
+    otherScope: 'native_asset_id:v4:https://rpc.testnet.miden.io|testnet',
+    value: feeFaucetId,
+    staleValue: otherFaucetId
+  },
+  {
+    name: 'walletDiscoveredBaseFee',
+    read: walletDiscoveredBaseFee,
+    stale: 'native_asset_fee:v0:https://rpc.devnet.miden.io',
+    current: 'native_asset_fee:v1:https://rpc.devnet.miden.io|devnet',
+    otherScope: 'native_asset_fee:v1:https://rpc.testnet.miden.io|testnet',
+    value: 10_000,
+    staleValue: 250
+  }
+])('$name', ({ read, stale, current, otherScope, value, staleValue }) => {
+  it('returns the current-version entry, not a stale one stored before it', async () => {
+    await expect(read(cachePage({ [stale]: staleValue, [current]: value }))).resolves.toBe(value);
+  });
+
+  it('refuses two current-version scopes instead of letting key order pick one', async () => {
+    await expect(read(cachePage({ [current]: value, [otherScope]: staleValue }))).rejects.toThrow('ambiguous');
+  });
+
+  it('answers null when the wallet has not discovered it', async () => {
+    await expect(read(cachePage({ [stale]: staleValue }))).resolves.toBeNull();
+  });
 });
