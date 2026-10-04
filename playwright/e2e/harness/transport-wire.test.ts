@@ -160,6 +160,8 @@ describe('decodeSendNoteBody', () => {
     expect(note).not.toHaveProperty('inclusionBlockNum');
   });
 
+  // A row whose bad bytes come first leaves nothing parsed, so it passes with or without
+  // the completeness guards; the rows whose bad bytes FOLLOW a valid field are what pin them.
   const malformedProofs: [string, Uint8Array, { noteId?: string; inclusionBlockNum?: number }][] = [
     [
       'a 31-byte note id',
@@ -181,7 +183,22 @@ describe('decodeSendNoteBody', () => {
       concat(lenField(1, lenField(1, word(NOTE_ID))), lenField(2, varintField(1, BLOCK))),
       { noteId: EXPECTED_NOTE_ID }
     ],
-    ['a proof whose own bytes do not parse', Uint8Array.from([0x0a, 0x05, 0x01]), {}]
+    ['a proof whose own bytes do not parse', Uint8Array.from([0x0a, 0x05, 0x01]), {}],
+    [
+      'a valid note id and block followed by a truncated field',
+      concat(lenField(1, lenField(1, word(NOTE_ID))), lenField(2, blockNumber(BLOCK)), [0x22, 0x05, 0x01]),
+      {}
+    ],
+    [
+      'a note id whose valid Word is followed by a truncated field',
+      concat(lenField(1, concat(lenField(1, word(NOTE_ID)), [0x0a, 0x05])), lenField(2, blockNumber(BLOCK))),
+      { inclusionBlockNum: BLOCK }
+    ],
+    [
+      'a valid note id repeated as a varint',
+      concat(lenField(1, lenField(1, word(NOTE_ID))), varintField(1, 7), lenField(2, blockNumber(BLOCK))),
+      { inclusionBlockNum: BLOCK }
+    ]
   ];
 
   it.each(malformedProofs)('keeps the note but drops what %s cost it', (_, proof, kept) => {
@@ -195,6 +212,13 @@ describe('decodeSendNoteBody', () => {
 
   it.each([31, 33, 0])('drops a note whose details commitment Word is %i bytes', length => {
     const request = sendNoteWithProofRequest(new Uint8Array(length).fill(0x11), TAG, inclusionProof(NOTE_ID, 1));
+
+    expect(decodeSendNoteBody(frame(request))).toEqual([]);
+  });
+
+  it('drops a note whose details commitment Word has a truncated field after its 32 bytes', () => {
+    const badHeader = concat(lenField(1, metadata(TAG)), lenField(2, concat(word(COMMITMENT), [0x0a, 0x05])));
+    const request = concat(lenField(1, lenField(1, badHeader)), lenField(2, inclusionProof(NOTE_ID, BLOCK)));
 
     expect(decodeSendNoteBody(frame(request))).toEqual([]);
   });
