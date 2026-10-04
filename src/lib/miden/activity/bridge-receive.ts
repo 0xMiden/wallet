@@ -4,11 +4,9 @@ import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
-import { registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
+import { BRIDGE_RECEIVE_MAX_AGE_MS, registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
 import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
 import { updateBridgedReceivePhase } from '../transaction/complete';
-
-const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const SUBMISSION_LOCK = 'bridge-receive-submission';
 

@@ -80,14 +80,16 @@ export function OrphanedTransactionRecovery(): null {
         //
         // Deliberately no auto-retry, for the same reason the SW sweep has none:
         // if `submit()` landed before the kill, the tx IS on chain. The row is
-        // marked Failed with "Interrupted — check your activity after it syncs",
-        // and `isRequeueableTransaction` keeps the REBUILT-REQUEST types (send and
-        // swap) out of the manual Retry path too, since replaying one of those
-        // builds a new note with a new serial and would move the funds twice.
-        // `consume`, `execute` and an Agglayer `bridged-send` stay retryable on
-        // purpose: each replays an identical request — a spent nullifier or the
-        // persisted `requestBytes` — which the node rejects rather than duplicates.
-        // See REBUILT_REQUEST_TYPES in lib/miden/transaction/retry.ts.
+        // marked Failed, and `requeueFailedTransaction` refuses a manual Retry on
+        // `send` or `swap` outright while a submit cannot be ruled out, since
+        // replaying one of those builds a new note with a new serial and would
+        // move the funds twice. `consume`, a nullifier-listing `execute`, and an
+        // Agglayer `bridged-send` stay retryable on purpose: each replays an
+        // identical request - a spent nullifier or the persisted `requestBytes` -
+        // which the node rejects rather than duplicates. An `execute` that lists
+        // none is refused the same way once it may have submitted
+        // (`executeMayHaveSubmitted`, #1081), and requeued otherwise. See
+        // REBUILT_REQUEST_TYPES in lib/miden/transaction/retry.ts.
         await failInterruptedTransactions();
         if (disposed) return;
 

@@ -46,6 +46,7 @@ const mockGetAllUncompletedTransactions = jest.fn();
 const mockCancelStuckTransactions = jest.fn();
 const mockNextQueuedWakeDelayMs = jest.fn();
 const mockIsQueuedRowReady = jest.fn();
+const mockGuardianCandidateRelease = jest.fn();
 
 // Indirection so a test can simulate the Vite SW build's async-init window
 // (`safeGenerateTransactionsLoop` not yet a function) by setting this to
@@ -66,7 +67,13 @@ jest.mock('lib/miden/transaction', () => ({
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
   cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args),
   nextQueuedWakeDelayMs: (...args: unknown[]) => mockNextQueuedWakeDelayMs(...args),
-  isQueuedRowReady: (...args: unknown[]) => mockIsQueuedRowReady(...args)
+  isQueuedRowReady: (...args: unknown[]) => mockIsQueuedRowReady(...args),
+  guardianCandidateRelease: (...args: unknown[]) => mockGuardianCandidateRelease(...args)
+}));
+
+const mockReconcileUnconfirmedTransactions = jest.fn();
+jest.mock('lib/miden/transaction/reconcile-unconfirmed', () => ({
+  reconcileUnconfirmedTransactions: (...args: unknown[]) => mockReconcileUnconfirmedTransactions(...args)
 }));
 
 const mockDbOpen = jest.fn();
@@ -886,5 +893,20 @@ describe('the wait between passes (#1266)', () => {
     await jest.advanceTimersByTimeAsync(1);
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
     await run;
+  });
+});
+
+describe('reconcileUnconfirmedInWorker (#1081)', () => {
+  it("runs the reconciler pass with a release built on the service worker's vault provider", async () => {
+    const release = { abandon: jest.fn() };
+    mockGuardianCandidateRelease.mockReturnValue(release);
+    mockReconcileUnconfirmedTransactions.mockResolvedValue(undefined);
+    const mod = await import('./transaction-processor');
+
+    await mod.reconcileUnconfirmedInWorker();
+
+    expect(mockGuardianCandidateRelease).toHaveBeenCalledWith(mod.vaultGuardianProvider);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledTimes(1);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledWith({ release });
   });
 });

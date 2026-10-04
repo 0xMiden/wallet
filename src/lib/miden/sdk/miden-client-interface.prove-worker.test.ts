@@ -167,7 +167,10 @@ function installMocks(
     accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
     canonicalWalletAccountId: (id: string) => `sdk-${id}`,
     buildSendTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })),
-    buildPswapCreateRequest: jest.fn(() => ({ pswapRequest: true }))
+    buildPswapCreateRequest: jest.fn(() => ({ pswapRequest: true })),
+    buildConsumeTransactionRequest: jest.fn((_notes: unknown[], _expirationDelta: number) => ({
+      serialize: () => new Uint8Array([3, 3])
+    }))
   }));
   jest.doMock('lib/miden/activity/connectivity-state', () => ({
     markConnectivityIssue: jest.fn(),
@@ -474,15 +477,15 @@ const consumeTx = (delegateTransaction: boolean) =>
   new ConsumeTransaction('acct', [note('n1'), note('n2')], delegateTransaction);
 
 describe('consume (site 7)', () => {
-  it('a local attempt builds the SDK consume request, executes it and proves in the worker', async () => {
+  it('a local attempt builds the consume request, executes it and proves in the worker', async () => {
     const harness = buildHarness();
     const { client, withWasmClientLock } = await load(harness);
     const returned = await withWasmClientLock(async () => client.consumeNoteId(consumeTx(false)));
 
     expect(harness.inner.getInputNote.mock.calls.map(call => call[0])).toEqual(['n1', 'n2']);
-    const [notes, account] = harness.inner.newConsumeTransactionRequest.mock.calls[0] ?? [];
-    expect(notes).toEqual([{ note: 'n1' }, { note: 'n2' }]);
-    expect(String(account)).toBe('sdk-acct');
+    const { buildConsumeTransactionRequest } = jest.requireMock('./helpers');
+    expect(buildConsumeTransactionRequest).toHaveBeenCalledWith([{ note: 'n1' }, { note: 'n2' }], 600);
+    expect(harness.inner.newConsumeTransactionRequest).not.toHaveBeenCalled();
     expect(harness.executeRequest).toHaveBeenCalledWith('sdk-acct', { requestBytes: [3, 3] });
     expectWorkerProved(harness);
     expect(returned).toBe(harness.result);

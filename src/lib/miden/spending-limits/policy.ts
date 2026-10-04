@@ -26,11 +26,13 @@ const OUTGOING_TYPES: ReadonlySet<ITransactionType> = new Set([
 ]);
 // Failed rows stay reserved because a local failure can happen after submission;
 // reconciliation, not optimistic exclusion, is the safe authority on whether value moved.
+// An Unconfirmed row stays reserved for the same reason, and a proven-safe one like every Failed row (#1081).
 const INCLUDED_STATUSES: ReadonlySet<ITransactionStatus> = new Set([
   ITransactionStatus.Queued,
   ITransactionStatus.GeneratingTransaction,
   ITransactionStatus.Completed,
-  ITransactionStatus.Failed
+  ITransactionStatus.Failed,
+  ITransactionStatus.Unconfirmed
 ]);
 
 export interface ProposedSpend {

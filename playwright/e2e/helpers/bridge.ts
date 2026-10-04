@@ -288,6 +288,8 @@ export interface BridgedSendRow {
   displayMessage?: string;
   transactionId?: string;
   outputNoteIds?: string[];
+  /** The request the row was queued with, as plain numbers: `page.evaluate` hands back JSON-safe values only. */
+  requestBytes?: number[];
   extraInputs?: {
     intentNonce?: string;
     outputAmount?: string;
@@ -296,6 +298,8 @@ export interface BridgedSendRow {
     provider?: string;
     /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
     claimStatus?: string;
+    /** AggLayer: the indexer tx_hash of the row's exit, stored when the B2AGG note is built. */
+    agglayerExitTxHash?: string;
   };
 }
 
@@ -388,12 +392,14 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
         error?: string;
         rawError?: string;
         outputNoteIds?: string[];
+        requestBytes?: Uint8Array;
         extraInputs?: {
           intentNonce?: string;
           outputAmount?: string;
           evmTxHash?: string;
           provider?: string;
           claimStatus?: string;
+          agglayerExitTxHash?: string;
         };
       }> = await new Promise((res, rej) => {
         const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
@@ -409,6 +415,7 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
           error: t.error,
           rawError: t.rawError,
           outputNoteIds: t.outputNoteIds,
+          requestBytes: t.requestBytes instanceof Uint8Array ? Array.from(t.requestBytes) : undefined,
           extraInputs: t.extraInputs
         }));
     } finally {

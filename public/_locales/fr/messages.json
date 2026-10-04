@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Coffres-forts à la une",
-    "englishSource": "Featured Vaults"
+    "message": "Coffres-forts disponibles",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -623,8 +623,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "Le portefeuille n’a pas pu confirmer si cette transaction a bien été effectuée. Elle pourrait encore arriver ; vérifiez donc votre solde une fois le portefeuille synchronisé avant de l’envoyer à nouveau.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "Le portefeuille n’a pas pu confirmer si cette opération a abouti. Elle pourrait encore se terminer ; vérifiez donc le portefeuille après sa synchronisation avant de réessayer.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "Le portefeuille n’a pas pu déterminer si cette opération a abouti et ne la vérifie pas. Vérifiez le portefeuille avant de réessayer.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "Cette opération a été restaurée à partir d’une sauvegarde ; le portefeuille ne peut donc pas vérifier si elle a abouti ni la réessayer. Vérifiez le portefeuille avant de répéter l’opération.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Afficher l'erreur complète",
@@ -4076,8 +4084,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "Le portefeuille n’a pas pu confirmer si une transaction avait bien été effectuée. Ouvrez le portefeuille avant de la renvoyer.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "Le portefeuille n’a pas pu confirmer si une transaction a bien été effectuée. Ouvrez le portefeuille avant de réessayer.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Appuyez ici pour l'accepter",

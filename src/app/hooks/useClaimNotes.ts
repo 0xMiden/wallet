@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
-import { getFailedTransactions, verifyStuckTransactionsFromNode } from 'lib/miden/activity';
+import {
+  getFailedTransactions,
+  getUnconfirmedTransactions,
+  isFailedClaim,
+  verifyStuckTransactionsFromNode
+} from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
 import { ClaimableNoteWithMetadata, useClaimableNotes } from 'lib/miden/front/claimable-notes';
@@ -139,9 +144,10 @@ export function useClaimNotes(): ClaimNotesState {
     const invalidIds = new Set<string>();
 
     try {
-      const failedTxs = await getFailedTransactions();
-      for (const tx of failedTxs) {
-        if (tx.type !== 'consume') continue;
+      // A failed claim's notes are open to a fresh claim, Failed or Unconfirmed; a claim that holds them is not (#1081).
+      const claimRows = [...(await getFailedTransactions()), ...(await getUnconfirmedTransactions())];
+      for (const tx of claimRows) {
+        if (!isFailedClaim(tx)) continue;
         for (const failedNoteId of tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) {
           retriableIds.add(failedNoteId);
         }

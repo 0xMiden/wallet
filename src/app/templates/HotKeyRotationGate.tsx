@@ -148,6 +148,7 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
           .modify(r => {
             r.status = ITransactionStatus.Queued;
             r.processingStartedAt = undefined;
+            r.attemptId = undefined;
             r.requeueStreak = undefined;
           });
       });

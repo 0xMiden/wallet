@@ -8,10 +8,12 @@ import * as Repo from 'lib/miden/repo';
 import {
   cancelStuckTransactions,
   getAllUncompletedTransactions,
+  guardianCandidateRelease,
   isQueuedRowReady,
   nextQueuedWakeDelayMs,
   safeGenerateTransactionsLoop
 } from 'lib/miden/transaction';
+import { reconcileUnconfirmedTransactions } from 'lib/miden/transaction/reconcile-unconfirmed';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 
@@ -160,6 +162,10 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     );
   }
 };
+
+/** The service worker's reconciler pass (#1081), releasing kept Guardian candidates through the vault. */
+export const reconcileUnconfirmedInWorker = (): Promise<void> =>
+  reconcileUnconfirmedTransactions({ release: guardianCandidateRelease(vaultGuardianProvider) });
 
 /**
  * Start processing queued transactions, in the service worker and, off the

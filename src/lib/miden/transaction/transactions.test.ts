@@ -1,4 +1,5 @@
 import { ITransactionStatus, Transaction } from '../db/types';
+import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { NoteTypeEnum } from '../types';
@@ -202,7 +203,9 @@ describe('transactions utilities', () => {
 
       mockTransactionsFilter
         .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(completedTxs) })
-        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(failedTxs) });
+        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(failedTxs) })
+        // The Unconfirmed read (#1081).
+        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([]) });
 
       const result = await getCompletedTransactions('acc-1', undefined, undefined, true);
 
@@ -238,9 +241,11 @@ describe('transactions utilities', () => {
       mockTransactionsWhere
         // 1) cancelTransactionById's own lookup
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
-        // 2) cancelTransaction's finalized-guard lookup (non-finalized → falls through)
+        // 2) recordOutOfBandEnd's guarded write, before the cancel (#1081)
+        .mockReturnValueOnce({ modify: jest.fn() })
+        // 3) cancelTransaction's finalized-guard lookup (non-finalized → falls through)
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(undefined) })
-        // 3) cancelTransaction's actual .modify()
+        // 4) cancelTransaction's actual .modify()
         .mockReturnValueOnce({ modify: mockModify });
 
       await cancelTransactionById('tx-1', 'Test cancellation');
@@ -440,7 +445,11 @@ describe('transactions utilities', () => {
       );
     });
 
-    it('refuses to overwrite a row that went terminal between the read and the write', async () => {
+    it.each<[string, Record<string, unknown>]>([
+      ['Failed', { status: ITransactionStatus.Failed, error: 'Transaction expired', displayIcon: 'FAILED' }],
+      // Its pipeline has stopped and only the reconciler's writers move it (#1081).
+      ['Unconfirmed', { status: ITransactionStatus.Unconfirmed, stage: 'sending' }]
+    ])('refuses to overwrite a row that went %s between the read and the write', async (_label, landed) => {
       // The read above and the write below are separate Dexie transactions, and
       // the terminal writer is no longer always inside the loop lock: the requeue
       // wake's ceiling can fail a stale row from outside it. Lose that race
@@ -453,9 +462,7 @@ describe('transactions utilities', () => {
       let callbackResult: unknown;
       mockTransactionsWhere.mockReturnValueOnce({
         modify: jest.fn(async (cb: (t: Record<string, unknown>) => unknown) => {
-          row.status = ITransactionStatus.Failed;
-          row.error = 'Transaction expired';
-          row.displayIcon = 'FAILED';
+          Object.assign(row, landed);
           callbackResult = cb(row);
         })
       });
@@ -463,8 +470,7 @@ describe('transactions utilities', () => {
       await expect(updateTransactionStatus('tx-1', ITransactionStatus.Completed, {})).rejects.toThrow(
         'Transaction already in a finalized state'
       );
-      expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.displayIcon).toBe('FAILED');
+      expect(row).toEqual({ id: 'tx-1', ...landed });
       // `false`, not a bare `return`: Dexie only skips the put on that exact
       // value, so a bare return would re-put the clone and fire a `liveQuery`
       // event for a write that changed nothing. Invisible in the field
@@ -622,6 +628,31 @@ describe('transactions utilities', () => {
         // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
         [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
         authorization
+      );
+    });
+
+    it('stores the Agglayer exit hash on the bridged-send row it queues (#1325)', async () => {
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        0,
+        'agglayer',
+        new Uint8Array([1]),
+        true,
+        undefined,
+        undefined,
+        '0xexit'
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'bridged-send',
+          extraInputs: expect.objectContaining({ claimStatus: 'pending', agglayerExitTxHash: '0xexit' })
+        }),
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        undefined
       );
     });
 
@@ -1145,6 +1176,11 @@ describe('transactions utilities', () => {
     });
   });
 
+  // Dexie skips the put when a modify callback returns `false`, which is how the out-of-band end's write (#1081)
+  // declines a row with no attempt, so these sweeps count the writes that applied rather than the calls.
+  const appliedWrites = (modify: jest.Mock): number =>
+    modify.mock.results.filter(result => result.value !== false).length;
+
   describe('cancelStuckTransactions', () => {
     it('cancels transactions that exceed MAX_WAIT_BEFORE_CANCEL', async () => {
       const nowInSeconds = Math.floor(Date.now() / 1000);
@@ -1165,13 +1201,13 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([stuckTx, recentTx])
       });
 
-      const mockModify = jest.fn();
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn({}));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
       // Should only cancel the stuck transaction
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
     });
 
     it('does nothing when no transactions are stuck', async () => {
@@ -1196,12 +1232,12 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([crashedTx])
       });
 
-      const mockModify = jest.fn();
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn({}));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
     });
 
     /** Runs cancelStuckTransactions against one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */
@@ -1280,12 +1316,12 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([orphan])
       });
       const dbTx: any = { transactionId: 'preexisting-should-not-be-touched' };
-      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      const mockModify = jest.fn((fn: (t: any) => unknown) => fn(dbTx));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await failInterruptedTransactions();
 
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
       expect(dbTx.status).toBe(ITransactionStatus.Failed);
       expect(dbTx.displayMessage).toMatch(/interrupted/i);
       // We do NOT resubmit, so cancelTransaction must not stamp or alter an on-chain tx id.
@@ -1325,9 +1361,8 @@ describe('transactions utilities', () => {
       const modifiedIds: string[] = [];
       mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
         first: jest.fn().mockResolvedValue(undefined),
-        modify: jest.fn(async (fn: (t: any) => void) => {
-          modifiedIds.push(id);
-          fn({});
+        modify: jest.fn(async (fn: (t: any) => unknown) => {
+          if (fn({}) !== false) modifiedIds.push(id);
         })
       }));
 
@@ -1357,9 +1392,8 @@ describe('transactions utilities', () => {
       const modifiedIds: string[] = [];
       mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
         first: jest.fn().mockResolvedValue(undefined),
-        modify: jest.fn(async (fn: (t: any) => void) => {
-          modifiedIds.push(id);
-          fn({});
+        modify: jest.fn(async (fn: (t: any) => unknown) => {
+          if (fn({}) !== false) modifiedIds.push(id);
         })
       }));
       // The cutoff is when the module loaded, not when the sweep runs.
@@ -1415,7 +1449,8 @@ describe('transactions utilities', () => {
         processingStartedAt: SESSION_STARTED_AT - 1
       };
       mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([gen]) });
-      const mockModify = jest.fn();
+      const raced: Record<string, unknown> = { id: 'raced', status: ITransactionStatus.Completed };
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn(raced));
       // The row was marked Completed after the snapshot → cancelTransaction's finalized
       // guard must block the downgrade so the on-chain-landed tx isn't flipped to Failed.
       mockTransactionsWhere.mockReturnValue({
@@ -1425,7 +1460,10 @@ describe('transactions utilities', () => {
 
       await failInterruptedTransactions();
 
-      expect(mockModify).not.toHaveBeenCalled();
+      // Only the out-of-band end's write runs, and declines: the cancel stops at its read (#1081).
+      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(0);
+      expect(raced).toEqual({ id: 'raced', status: ITransactionStatus.Completed });
     });
 
     it('keeps the interrupted error (not a prover-failure) for a tx interrupted mid-prove', async () => {
@@ -1661,6 +1699,97 @@ describe('transactions utilities', () => {
       expect(syncIdx).toBeGreaterThanOrEqual(0);
       expect(syncIdx).toBeLessThan(lastStatusIdx);
       expect(mockSyncState).toHaveBeenCalled();
+    });
+
+    describe('the in-realm submit crossing (#1081)', () => {
+      const guardianProvider = {
+        getAccounts: async () => [],
+        getPublicKeyForCommitment: async () => '',
+        signWord: async () => ''
+      };
+      const send = {
+        id: 'tx-cross',
+        type: 'send',
+        accountId: 'acc-1',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: BigInt(1),
+        delegateTransaction: true
+      };
+
+      // A stored row whose write fails when `fails` says so, and an in-realm leaf that stamps each stage before its
+      // submit the way the interface does, passing `submitting` as its 'submitting' detail.
+      const arrange = (fails: (draft: Record<string, unknown>, stored: Record<string, unknown>) => boolean) => {
+        const stored: Record<string, unknown> = { ...send, status: ITransactionStatus.Queued };
+        mockTransactionsWhere.mockReturnValue({
+          first: jest.fn(async () => stored),
+          modify: jest.fn(async (fn: (draft: Record<string, unknown>) => unknown) => {
+            const stamps = stored.stageTimestamps;
+            const draft = { ...stored, ...(typeof stamps === 'object' ? { stageTimestamps: { ...stamps } } : {}) };
+            if (fn(draft) === false) return;
+            if (fails(draft, stored)) throw new Error('QuotaExceededError');
+            Object.assign(stored, draft);
+          })
+        });
+        const submit = jest.fn();
+        const leaf = (submitting: { reliable?: boolean }) =>
+          mockGetMidenClient.mockResolvedValue({
+            syncState: mockSyncState,
+            sendTransaction: jest.fn(
+              async (_tx: unknown, onStage?: (stage: string, detail?: object) => Promise<void>) => {
+                await onStage?.('executing');
+                await onStage?.('proving');
+                await onStage?.('submitting', submitting);
+                submit();
+                throw new Error('stopped after the submit');
+              }
+            )
+          });
+        return { stored, submit, leaf };
+      };
+      const run = () =>
+        generateTransaction({ ...send } as never, jest.fn(), false, guardianProvider).catch((error: unknown) => error);
+
+      it('an in-realm send whose crossing write rejects never calls submit and fails pre-submit', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { stored, submit, leaf } = arrange(
+          (draft, before) => draft.mayHaveSubmitted === true && before.mayHaveSubmitted !== true
+        );
+        leaf({});
+
+        const error = await run();
+
+        expect(submit).not.toHaveBeenCalled();
+        expect(hasErrorBeforeSubmit(error)).toBe(true);
+        expect(stored.mayHaveSubmitted).toBeUndefined();
+        warn.mockRestore();
+      });
+
+      it("a failed 'proving' stamp still continues to the submit", async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { stored, submit, leaf } = arrange(draft => draft.stage === 'proving');
+        leaf({});
+
+        await run();
+
+        expect(submit).toHaveBeenCalledTimes(1);
+        expect(stored.stageTimestamps).not.toHaveProperty('proving');
+        expect(stored.mayHaveSubmitted).toBe(true);
+        warn.mockRestore();
+      });
+
+      it("a replayed 'submitting' stamp whose crossing write rejects still continues to the submit", async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { submit, leaf } = arrange(
+          (draft, before) => draft.mayHaveSubmitted === true && before.mayHaveSubmitted !== true
+        );
+        leaf({ reliable: false });
+
+        await run();
+
+        expect(submit).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+      });
     });
   });
 });

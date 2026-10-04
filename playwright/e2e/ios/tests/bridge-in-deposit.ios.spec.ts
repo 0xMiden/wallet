@@ -1,5 +1,6 @@
 import { decodeFunctionData, parseUnits, zeroAddress } from 'viem';
 
+import { AGGLAYER_BRIDGE_NOTE_SCALE } from '../../../../src/lib/agglayer/constant';
 import { expect, test } from '../fixtures/two-simulators';
 import { AnvilInstance } from '../helpers/anvil';
 import {
@@ -24,7 +25,7 @@ import { WcCounterparty } from '../helpers/wc-counterparty';
  *      wallet to sign; the counterparty signs + broadcasts to Anvil; the app
  *      waits for the (real) receipt → phase `delivering`.
  *   4. Real Miden receipt: the miden-client CLI (AggLayer "solver") delivers a
- *      matching-amount note; the wallet's real sync + Claim-All consumes it and
+ *      note of the scaled amount the bridge would (wei / 10^10); the wallet's real sync + Claim-All consumes it and
  *      the real reconciler tags it "Bridged from EVM" → phase `received`.
  *
  * Requires the app to be built with `E2E_EVM_RPC_URL=http://127.0.0.1:8545` so
@@ -36,11 +37,12 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
   const ANVIL_PORT = 8545;
   const CHAIN_ID = 11155111;
   // The amount input caps at 6 decimals (CurrencyInput decimalsLimit=6), so the
-  // smallest ETH deposit is 0.000001 → parseUnits(.,18) = 1e12 base units. The
-  // matching Miden note must be minted for exactly that, so the solver faucet
-  // needs max_supply > 1e12 (see FAUCET_MAX_SUPPLY below).
+  // smallest ETH deposit is 0.000001 → parseUnits(.,18) = 1e12 wei, which the row
+  // records. The bridge delivers it scaled by its ETH faucet's registry scale
+  // (AGGLAYER_BRIDGE_NOTE_SCALE in src/lib/agglayer/constant.ts), so the solver
+  // mints 1e12 / 1e10 = 100 units.
   const DEPOSIT_ETH = '0.000001';
-  const FAUCET_MAX_SUPPLY = 1_000_000_000_000_000n; // 1e15, ample headroom over the 1e12 note
+  const FAUCET_MAX_SUPPLY = 1_000_000_000_000_000n; // 1e15, ample headroom over the 100-unit note
 
   const BRIDGE_ASSET_ABI = [
     {
@@ -159,7 +161,12 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
       });
 
       await steps.step('solver_delivers_note', async () => {
-        await midenCli.mint(faucetHex, addressA, BigInt(rowAmount), 'public');
+        await midenCli.mint(
+          faucetHex,
+          addressA,
+          BigInt(rowAmount) / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE),
+          'public'
+        );
         await midenCli.sync();
       });
 

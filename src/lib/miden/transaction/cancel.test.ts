@@ -57,7 +57,9 @@ jest.mock('./helper', () => ({
   updateTransactionStatus: jest.fn(),
   markMayHaveSubmitted: jest.fn(),
   markCancelledInFlight: jest.fn(),
-  clearCancelledInFlight: jest.fn()
+  clearCancelledInFlight: jest.fn(),
+  recordKillEnd: jest.fn(async () => {}),
+  recordOutOfBandEnd: jest.fn(async () => {})
 }));
 jest.mock('../sdk/miden-client', () => ({ withWasmClientLock: jest.fn() }));
 
@@ -128,6 +130,18 @@ describe('cancelTransaction background notification', () => {
     expect(mockRows.get('tx-1')?.status).toBe(ITransactionStatus.Failed);
     expect(notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
     expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+  });
+
+  it('leaves a row that turned Unconfirmed between the read and the write, announcing nothing (#1081)', async () => {
+    // The read saw it in flight; a cancel, reaper or verifier holding no loop lock must not settle the unknown outcome.
+    const tx = inFlight('tx-1');
+    mockRaceRow = { id: 'tx-1', row: { ...mockRows.get('tx-1'), status: ITransactionStatus.Unconfirmed } };
+
+    await expect(cancelTransaction(tx, new Error('x'))).resolves.toBe(false);
+
+    expect(mockRows.get('tx-1')?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+    expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
   });
 
   it.each([

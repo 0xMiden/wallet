@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 
 import type { IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
@@ -98,7 +99,9 @@ jest.mock('./TransactionIcon', () => ({
 }));
 
 jest.mock('./TransactionFailureCard', () => ({
-  TransactionFailureCard: () => <div data-testid="failure-card" />
+  TransactionFailureCard: ({ isUnconfirmed, hintKey }: { isUnconfirmed?: boolean; hintKey?: string }) => (
+    <div data-testid="failure-card" data-unconfirmed={String(Boolean(isUnconfirmed))} data-hint-key={hintKey} />
+  )
 }));
 
 jest.mock('./transactionUtils', () => ({
@@ -437,6 +440,24 @@ describe('SwapDetail explorer links', () => {
     renderDetail({ settledTransactions: [consume()] });
 
     expect(consumeLink()).toBeNull();
+  });
+});
+
+describe('SwapDetail failure card', () => {
+  it('explains an Unconfirmed swap with the hint its entry carries (#1081)', () => {
+    renderDetail({
+      entry: {
+        ...entry,
+        status: ITransactionStatus.Unconfirmed,
+        errorMessage: 'boom',
+        isUnconfirmed: true,
+        notConfirmedHint: 'transactionUndeterminedHint'
+      }
+    });
+
+    const card = screen.getByTestId('failure-card');
+    expect(card).toHaveAttribute('data-unconfirmed', 'true');
+    expect(card).toHaveAttribute('data-hint-key', 'transactionUndeterminedHint');
   });
 });
 

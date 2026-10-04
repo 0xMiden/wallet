@@ -12,6 +12,7 @@ import type { PendingActivityItem } from './PendingActivityCard';
 
 const mockAccept = jest.fn();
 const mockAcceptMany = jest.fn();
+const mockRetryHeld = jest.fn();
 const mockHide = jest.fn();
 const mockRestore = jest.fn();
 const mockConfirm = jest.fn();
@@ -52,6 +53,7 @@ jest.mock('app/hooks/useActivityClaims', () => ({
     isLoadingNotes: mockState.isLoadingNotes,
     accept: mockAccept,
     acceptMany: mockAcceptMany,
+    retryHeld: mockRetryHeld,
     account: { publicKey: 'account', guardianNoteRecoveryPending: mockRecoveryPending }
   })
 }));
@@ -465,6 +467,19 @@ it('folds the details of a transfer waiting on a decision, and drops the card on
   // other settled transaction.
   expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="third"]')).toBeNull();
   delete claimed.txId;
+});
+
+it("hands a held claim's Retry to the claims hook (#1081)", () => {
+  const [first, ...rest] = mockItems;
+  if (!first) throw new Error('Missing note fixture');
+  const held: PendingActivityItem = { ...first, status: 'claiming', txId: 'tx-held', held: true };
+  mockState.items = [held, ...rest];
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]');
+  if (!(card instanceof HTMLElement)) throw new Error('Missing card first');
+  fireEvent.click(within(card).getByRole('button', { name: 'retry' }));
+  expect(mockRetryHeld).toHaveBeenCalledWith(held);
+  expect(mockAccept).not.toHaveBeenCalled();
 });
 
 it('lists only unclaimed notes under the pending filter', () => {
