@@ -807,6 +807,8 @@
   "fast": "快速",
   "slow": "緩慢",
   "unavailable": "不可用",
+  "bridgeFeatureUnavailableTitle": "暫時無法使用",
+  "bridgeFeatureUnavailableBody": "此外部服務目前暫停運作。請稍後再試。",
   "agglayerCheckingToken": "檢查此代幣是否支援「慢速」路徑……",
   "agglayerTokenUnsupported": "此代幣不支援「慢速」路徑。",
   "agglayerTokenCheckFailed": "無法驗證此代幣。請返回並重新嘗試。",

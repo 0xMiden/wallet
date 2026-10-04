@@ -3536,6 +3536,14 @@
     "message": "利用不可",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "一時的に利用不可",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "この外部サービスは現在利用できません。後ほど再度お試しください。",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "このトークンが「Slowルート」に対応しているかどうかを確認中…",
     "englishSource": "Checking whether this token supports the Slow route…"

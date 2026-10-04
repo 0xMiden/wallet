@@ -807,6 +807,8 @@
   "fast": "Hızlı",
   "slow": "Yavaş",
   "unavailable": "Kullanılamıyor",
+  "bridgeFeatureUnavailableTitle": "Geçici olarak kullanılamıyor",
+  "bridgeFeatureUnavailableBody": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
   "agglayerCheckingToken": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
   "agglayerTokenUnsupported": "Bu token, Slow rotasını desteklemez.",
   "agglayerTokenCheckFailed": "Bu jetonu doğrulayamadım. Geri dönün ve tekrar deneyin.",
