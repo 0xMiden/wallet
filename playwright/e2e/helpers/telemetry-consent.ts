@@ -85,7 +85,7 @@ export const TELEMETRY_CONSENT_TIMEOUT_MS = 5_000;
 /**
  * Ceiling for the decline click. Deliberately not the caller's `timeoutMs`: by
  * then the prompt has been SEEN, so the click acts on an element already on
- * screen. Keeping it separate lets `timeoutMs` mean exactly one thing — how
+ * screen. Keeping it separate lets `timeoutMs` mean exactly one thing: how
  * long the prompt has to show up.
  */
 const CONSENT_CLICK_TIMEOUT_MS = 5_000;
