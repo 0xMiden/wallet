@@ -31,7 +31,9 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   // deposit form: the connect step is part of funding, and dropping out of it is
   // exactly the abandonment worth seeing.
   const reportDeposit = useFundTelemetry();
-  const bridgeIn = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn']);
+  const walletReady = connected && address && currentMidenAccount;
+  // A ready wallet hands the page to the deposit screen, which holds for the route cards it greys out.
+  const bridgeIn = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn'], { hold: !walletReady });
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -71,7 +73,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
     }
   }, [connect, disconnect, nativeReown, useNativeReownWallet]);
 
-  if (connected && address && currentMidenAccount) {
+  if (walletReady) {
     return (
       <EvmBridgeDepositScreen
         evmAddress={address}

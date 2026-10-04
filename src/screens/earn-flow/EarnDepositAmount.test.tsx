@@ -130,9 +130,13 @@ jest.mock('lib/epoch', () => ({
 // The deposit collateral comes from the bridge config (an E2E run's injected faucet first).
 let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
 let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+const mockFeatureAvailability = jest.fn(
+  (feature: string, _options?: { hold?: boolean }): FeatureAvailability =>
+    feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' }
+);
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useBridgeConfigSnapshot: () => ({}),
-  useFeatureAvailability: (feature: string) => (feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' })
+  useFeatureAvailability: (feature: string, options?: { hold?: boolean }) => mockFeatureAvailability(feature, options)
 }));
 jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
 
@@ -346,6 +350,27 @@ describe('EarnDepositAmount after a failed load', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnVaultLoadError');
     expect(screen.getByRole('alert')).not.toHaveTextContent('earnPositionsLoadError');
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
+  });
+});
+
+// The fast poll is held only for a greyed-out Continue, which the pending and vault-less failed branches never draw.
+describe('EarnDepositAmount fast-poll hold', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each<[string, string, { isLoading: boolean; error?: string; loadError?: string }, boolean]>([
+    ['a loaded vault', FOUND_VAULT.id, { isLoading: false }, true],
+    ['a vault kept over a failed load', FOUND_VAULT.id, { isLoading: false, error: 'boom', loadError: 'boom' }, true],
+    ['a first load in flight', 'no-such-vault', { isLoading: true }, false],
+    ['a failed load with no vault', 'no-such-vault', { isLoading: false, error: 'boom', loadError: 'boom' }, false]
+  ])('asks for it only where it draws the notice: %s', (_state, vaultId, loadState, hold) => {
+    mockLoadState = loadState;
+    mockEarnDeposit = { state: 'unavailable', reason: 'not-deployed', detail: 'evmUsdc has no code' };
+    render(<EarnDepositAmount vaultId={vaultId} />);
+
+    expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
+    expect(mockFeatureAvailability).toHaveBeenLastCalledWith('earnDeposit', { hold });
   });
 });
 

@@ -161,15 +161,20 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 const mockIsMobile = jest.fn(() => false);
+const mockIsExtension = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
-  isExtension: () => false
+  isExtension: () => mockIsExtension()
 }));
 
 let mockCrossChain: FeatureAvailability = { state: 'available' };
-jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useAnyFeatureAvailability: (features: readonly string[]) =>
+const mockAnyFeatureAvailability = jest.fn(
+  (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
     features.join() === 'fastBridgeIn,bridgeIn' ? mockCrossChain : { state: 'loading' }
+);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
+    mockAnyFeatureAvailability(features, options)
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -198,6 +203,7 @@ jest.mock('utils/string', () => ({
 // checks the carousel case sets this to another page for itself.
 beforeEach(() => {
   mockPathname = '/receive';
+  mockIsExtension.mockReturnValue(false);
 });
 
 describe('Receive - Address', () => {
@@ -362,6 +368,19 @@ describe('Receive - Address', () => {
       fireEvent.click(crossChain);
     });
     expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  // The fast poll is held only for a greyed-out Cross Chain tile, and the extension draws none.
+  it.each([
+    ['off the extension', false, true],
+    ['on the extension', true, false]
+  ])('asks for the fast-poll hold exactly where it draws Cross Chain: %s', async (_where, extension, hold) => {
+    mockIsExtension.mockReturnValue(extension);
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]') !== null).toBe(hold);
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold });
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

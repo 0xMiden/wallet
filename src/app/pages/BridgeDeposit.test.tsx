@@ -45,9 +45,13 @@ jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
 let mockBridgeIn: FeatureAvailability = { state: 'available' };
-jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useAnyFeatureAvailability: (features: readonly string[]) =>
+const mockAnyFeatureAvailability = jest.fn(
+  (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
     features.join() === 'fastBridgeIn,bridgeIn' ? mockBridgeIn : { state: 'loading' }
+);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
+    mockAnyFeatureAvailability(features, options)
 }));
 
 jest.mock('components/ui/Button', () => ({
@@ -134,6 +138,20 @@ describe('BridgeDeposit (#875)', () => {
 
     expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  // The connected branch hands the page to the deposit screen, which holds for its own greyed-out routes.
+  it.each([
+    ['while no wallet is connected', false, true],
+    ['once a wallet is connected', true, false]
+  ])('asks for the fast-poll hold only where it draws the notice: %s', (_when, connected, hold) => {
+    mockConnection = connected ? { address: '0xabc', connected: true } : { address: undefined, connected: false };
+    mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
+
+    render(<BridgeDeposit />);
+
+    expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold });
   });
 
   it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {

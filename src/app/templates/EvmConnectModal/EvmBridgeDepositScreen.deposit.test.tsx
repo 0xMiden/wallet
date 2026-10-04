@@ -56,6 +56,10 @@ const publishSnapshot = (next: MockSnapshot) => {
   mockSnapshotListeners.forEach(listener => listener());
 };
 let mockAvailability: Partial<Record<BridgeFeature, FeatureAvailability>> = {};
+const mockFeatureAvailability = jest.fn(
+  (feature: BridgeFeature, _options?: { hold?: boolean }): FeatureAvailability =>
+    mockAvailability[feature] ?? { state: 'available' }
+);
 jest.mock('lib/remote-config/use-feature-availability', () => {
   const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
   const subscribe = (listener: () => void) => {
@@ -66,7 +70,8 @@ jest.mock('lib/remote-config/use-feature-availability', () => {
   };
   return {
     useBridgeConfigSnapshot: () => useSyncExternalStore(subscribe, () => mockSnapshot),
-    useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
+    useFeatureAvailability: (feature: BridgeFeature, options?: { hold?: boolean }) =>
+      mockFeatureAvailability(feature, options)
   };
 });
 // The suite's Miden account is no real address; the Slow route only needs its EVM form to exist.
@@ -941,6 +946,24 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await reach();
 
     expect(screen.queryByTestId('confirm-deposit')).not.toBeInTheDocument();
+  });
+
+  // The fast poll is held only for a greyed-out route card, which the status page never draws.
+  it('asks for the fast-poll hold on every step but the status page', async () => {
+    mockAvailability = { fastBridgeIn: { state: 'unavailable', reason: 'service-down', detail: 'down' } };
+    const lastHold = (feature: BridgeFeature) =>
+      mockFeatureAvailability.mock.calls.filter(([called]) => called === feature).at(-1)?.[1];
+    renderScreen();
+
+    await reachReview();
+    expect(lastHold('fastBridgeIn')).toEqual({ hold: true });
+    expect(lastHold('bridgeIn')).toEqual({ hold: true });
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+    expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
+    expect(lastHold('fastBridgeIn')).toEqual({ hold: false });
+    expect(lastHold('bridgeIn')).toEqual({ hold: false });
   });
 
   it('starts every case from an idle epoch store', () => {

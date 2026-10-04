@@ -230,7 +230,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
 
   const showCrossChain = !isExtension();
   // Cross Chain opens either bridge-in route, so it stays enabled while one of them can start.
-  const crossChain = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn']);
+  const crossChain = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn'], { hold: showCrossChain });
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:

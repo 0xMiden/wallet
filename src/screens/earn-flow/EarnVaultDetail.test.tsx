@@ -29,8 +29,12 @@ jest.mock('react-i18next', () => ({
 }));
 
 let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+const mockFeatureAvailability = jest.fn(
+  (feature: string, _options?: { hold?: boolean }): FeatureAvailability =>
+    feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' }
+);
 jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useFeatureAvailability: (feature: string) => (feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' })
+  useFeatureAvailability: (feature: string, options?: { hold?: boolean }) => mockFeatureAvailability(feature, options)
 }));
 
 // Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
@@ -426,6 +430,28 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();
     expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+});
+
+// The fast poll is held only for a greyed-out Deposit, which the pending and vault-less failed branches never draw.
+describe('EarnVaultDetail fast-poll hold', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+    mockEarnDeposit = { state: 'available' };
+  });
+
+  it.each<[string, string, { isLoading: boolean; error?: string; loadError?: string }, boolean]>([
+    ['a loaded vault', 'v-audited', { isLoading: false }, true],
+    ['a vault kept over a failed load', 'v-audited', { isLoading: false, error: 'boom', loadError: 'boom' }, true],
+    ['a first load in flight', 'does-not-exist', { isLoading: true }, false],
+    ['a failed load with no vault', 'does-not-exist', { isLoading: false, error: 'boom', loadError: 'boom' }, false]
+  ])('asks for it only where it draws the notice: %s', (_state, vaultId, loadState, hold) => {
+    mockLoadState = loadState;
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId={vaultId} />);
+
+    expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
+    expect(mockFeatureAvailability).toHaveBeenLastCalledWith('earnDeposit', { hold });
   });
 });
 

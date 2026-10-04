@@ -152,6 +152,30 @@ describe('useFeatureAvailability', () => {
     unmount();
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
+
+  // A caller that renders no greyed-out control for it asks for no hold.
+  it('holds nothing for a caller that asks for no hold, until it asks', () => {
+    answer({ earnDeposit: DOWN });
+    let hold = false;
+    const { result, rerender } = renderHook(() => useFeatureAvailability('earnDeposit', { hold }), {
+      wrapper: Wrapper
+    });
+    expect(result.current).toEqual(DOWN);
+    expect(mockHold).not.toHaveBeenCalled();
+
+    hold = true;
+    rerender();
+    expect(mockHold).toHaveBeenCalledTimes(1);
+    hold = false;
+    rerender();
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds by default', () => {
+    answer({ earnDeposit: DOWN });
+    renderHook(() => useFeatureAvailability('earnDeposit', {}), { wrapper: Wrapper });
+    expect(mockHold).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('useAnyFeatureAvailability', () => {
@@ -173,5 +197,12 @@ describe('useAnyFeatureAvailability', () => {
     publish(snapshotOn('testnet'));
     expect(result.current).toEqual(OFF);
     expect(mockHold).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds nothing for a caller that asks for no hold', () => {
+    answer({ fastBridgeIn: OFF, bridgeIn: DOWN });
+    const { result } = renderHook(() => useAnyFeatureAvailability(both, { hold: false }), { wrapper: Wrapper });
+    expect(result.current).toEqual(OFF);
+    expect(mockHold).not.toHaveBeenCalled();
   });
 });

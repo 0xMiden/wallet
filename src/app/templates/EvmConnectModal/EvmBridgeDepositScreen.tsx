@@ -264,8 +264,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   );
   // A token not named yet while the snapshot loads is a wait, not a failure.
   const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
-  const fastAvailability = useFeatureAvailability('fastBridgeIn');
-  const slowAvailability = useFeatureAvailability('bridgeIn');
+  // The status page is the one step that leads to no route card these grey out.
+  const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
+  const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead });
+  const slowAvailability = useFeatureAvailability('bridgeIn', { hold: routesAhead });
 
   const selectedBalance = token === 'ETH' ? ethBalance : usdcBalance;
   // Only USDC on the Fast (Epoch) route is quotable today; ETH-fast wraps to WETH

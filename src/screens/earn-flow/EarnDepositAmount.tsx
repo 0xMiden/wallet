@@ -58,7 +58,8 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
-  const earnDeposit = useFeatureAvailability('earnDeposit');
+  // Neither the pending nor the vault-less failed branch draws the amount step or its notice.
+  const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !((loadFailed && !found) || pending) });
   // Epoch Earn is USDC-only, in the collateral the config names (an E2E run's injected faucet first). Balance rows
   // use bech32 faucet ids while the config uses hex, so compare their normalized account ids.
   const depositBalance = useMemo(

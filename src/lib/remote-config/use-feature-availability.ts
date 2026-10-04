@@ -29,19 +29,30 @@ function useAvailabilityInputs(): { snapshot: BridgeConfigSnapshot; overrides: E
   return { snapshot, overrides };
 }
 
+export interface FeatureAvailabilityOptions {
+  /**
+   * Whether the caller draws the control or notice this availability greys out, and so holds the 60 s fast poll
+   * while it reads unavailable. Defaults to true; a branch that draws neither passes false.
+   */
+  hold?: boolean;
+}
+
 // A greyed-out control on the page the user is looking at holds the 60 s cadence, whatever greyed it, so it recovers
 // within about a minute. Loading never holds; the first load is already in flight.
-function useFastPollWhileUnavailable(availability: FeatureAvailability): void {
+function useFastPollWhileUnavailable(availability: FeatureAvailability, hold: boolean): void {
   const pageActive = usePageActive();
   const unavailable = availability.state === 'unavailable';
-  useEffect(() => (unavailable && pageActive ? holdFastPoll() : undefined), [unavailable, pageActive]);
+  useEffect(() => (hold && unavailable && pageActive ? holdFastPoll() : undefined), [hold, unavailable, pageActive]);
 }
 
 /** The availability of the feature a control starts. */
-export function useFeatureAvailability(feature: BridgeFeature): FeatureAvailability {
+export function useFeatureAvailability(
+  feature: BridgeFeature,
+  { hold = true }: FeatureAvailabilityOptions = {}
+): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
   const availability = featureAvailability(feature, snapshot, overrides);
-  useFastPollWhileUnavailable(availability);
+  useFastPollWhileUnavailable(availability, hold);
   return availability;
 }
 
@@ -49,13 +60,16 @@ export function useFeatureAvailability(feature: BridgeFeature): FeatureAvailabil
  * One control that opens a choice of features, such as Receive's Cross Chain (Fast or Slow bridge-in): available
  * while any is; else loading while any is; else the first one's reason.
  */
-export function useAnyFeatureAvailability(features: readonly [BridgeFeature, ...BridgeFeature[]]): FeatureAvailability {
+export function useAnyFeatureAvailability(
+  features: readonly [BridgeFeature, ...BridgeFeature[]],
+  { hold = true }: FeatureAvailabilityOptions = {}
+): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
   const [first, ...rest] = features;
   const head = featureAvailability(first, snapshot, overrides);
   const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides))];
   const available = all.some(candidate => candidate.state === 'available');
   const availability = available ? AVAILABLE : (all.find(candidate => candidate.state === 'loading') ?? head);
-  useFastPollWhileUnavailable(availability);
+  useFastPollWhileUnavailable(availability, hold);
   return availability;
 }

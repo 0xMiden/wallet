@@ -28,7 +28,8 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
   const found = useMemo(() => vaults.find(item => item.id === vaultId), [vaults, vaultId]);
   const vault = useMemo(() => found ?? placeholderVault(), [found]);
   const { loadFailed, pending } = earnItemLoadState(found, { isLoading, error: loadError });
-  const earnDeposit = useFeatureAvailability('earnDeposit');
+  // Neither the pending nor the vault-less failed branch draws the Deposit control or its notice.
+  const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !((loadFailed && !found) || pending) });
 
   return (
     // The shared pushed-page frame: the header, a body whose sections sit 20px apart, and the CTA
