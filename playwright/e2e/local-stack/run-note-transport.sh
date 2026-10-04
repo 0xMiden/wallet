@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Run the note-transport service on 127.0.0.1:57292 against the local test node.
 #
-# Since rust-sdk v0.17.0-rc.3 the transport is the node repo's own `miden-note-transport`
-# (gRPC `miden.note_transport.v1.NoteTransportService`), installed by start-test-node.sh with
-# the other node binaries, so it is always the build the node and the SDK agree on. The
-# standalone note-transport-service repo this used to clone never moved to Miden 0.17: it
-# rejects a 0.17 note header and does not serve the path the 0.17 SDK calls.
+# Since rust-sdk v0.17.0-rc.3 the transport is the node repo's own `miden-note-transport`,
+# installed by start-test-node.sh with the other node binaries, so it is always the build the
+# node and the SDK agree on. Since rc.4 it serves gRPC
+# `miden.note_transport.v1.NoteTransportService`. The standalone note-transport-service repo
+# this used to clone never moved to Miden 0.17: it rejects a 0.17 note header and does not
+# serve the path the 0.17 SDK calls.
 #
 # Starts it through the rust-sdk clone's own start-note-transport-bg.sh, which bootstraps an
 # empty database, waits for the port, and logs next to the node logs (dumped on failure by
