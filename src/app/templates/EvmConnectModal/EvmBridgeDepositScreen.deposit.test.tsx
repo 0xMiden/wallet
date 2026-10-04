@@ -155,18 +155,26 @@ jest.mock('lib/walletconnect/config', () => ({
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
+    token,
+    amount,
     error,
     onAmountChange,
     onContinue,
-    onSelectToken
+    onSelectToken,
+    onSwitch
   }: {
+    token: { name: string };
+    amount: string;
     error?: string;
     onAmountChange: (value?: string) => void;
     onContinue: () => void;
     onSelectToken: () => void;
+    onSwitch: () => void;
   }) => (
     <div>
       <span data-testid="form-error">{error}</span>
+      <span data-testid="form-amount">{amount}</span>
+      <span data-testid="form-token">{token.name}</span>
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
         amount
       </button>
@@ -178,6 +186,9 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       </button>
       <button data-testid="open-token-drawer" onClick={onSelectToken}>
         token
+      </button>
+      <button data-testid="switch-wallet" onClick={onSwitch}>
+        switch
       </button>
       <button data-testid="continue" onClick={onContinue}>
         continue
@@ -237,7 +248,12 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
 }));
 
 jest.mock('./EvmSwitchWalletDrawer', () => ({
-  EvmSwitchWalletDrawer: () => null
+  EvmSwitchWalletDrawer: ({ open, onConnectAnother }: { open: boolean; onConnectAnother: () => void }) =>
+    open ? (
+      <button data-testid="connect-another" onClick={onConnectAnother}>
+        connect another
+      </button>
+    ) : null
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
@@ -314,11 +330,12 @@ const reachSlowUsdcReview = async () => {
   await settle();
 };
 
+const connectAnother = jest.fn();
 const depositScreen = (reportDeposit?: ReportDeposit) => (
   <EvmBridgeDepositScreen
     evmAddress="0xevm-wallet"
     midenAccount={midenAccount as never}
-    onConnectAnother={jest.fn()}
+    onConnectAnother={connectAnother}
     onClose={jest.fn()}
     reportDeposit={reportDeposit}
   />
@@ -623,15 +640,17 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
   });
 
-  /** Holds the tracking row's creation open after the Confirm tap, as a slow write would. */
+  /** Holds the tracking row's creation open after the Confirm tap, as a slow write would, until it is written or fails. */
   const holdRowCreation = () => {
-    let release: (id: string) => void = () => undefined;
+    let resolveRow: (id: string) => void = () => undefined;
+    let rejectRow: (err: Error) => void = () => undefined;
     jest.mocked(initiateBridgedReceiveTransaction).mockReturnValue(
-      new Promise<string>(resolve => {
-        release = resolve;
+      new Promise<string>((resolve, reject) => {
+        resolveRow = resolve;
+        rejectRow = reject;
       })
     );
-    return () => release('bridge-tx');
+    return { release: () => resolveRow('bridge-tx'), fail: () => rejectRow(new Error('row failed')) };
   };
 
   // The store still reads 'quoted' while the row is written, so the status alone cannot tell the deposit has started.
@@ -643,7 +662,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       await reachFastReview();
       const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
       jest.mocked(epochState.reset).mockClear();
-      const release = holdRowCreation();
+      const row = holdRowCreation();
       fireEvent.click(screen.getByTestId('confirm-deposit'));
       await settle();
 
@@ -652,7 +671,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
       expect(epochState.reset).not.toHaveBeenCalled();
 
-      release();
+      row.release();
       await settle();
       expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
     }
@@ -686,14 +705,14 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     renderScreen();
     await reachFastReview();
     jest.mocked(epochState.reset).mockClear();
-    const release = holdRowCreation();
+    const row = holdRowCreation();
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
 
     await change();
     expect(epochState.reset).not.toHaveBeenCalled();
 
-    release();
+    row.release();
     await settle();
     expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
   });
@@ -710,6 +729,147 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await changeRoute();
 
     expect(epochState.reset).toHaveBeenCalledTimes(1);
+  });
+
+  // The confirmed deposit carries the amount, token and wallet on screen at the tap; none of them may move under it.
+  const confirmHeld = async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    const row = holdRowCreation();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+    await goBackTo(2);
+    return row;
+  };
+
+  it('keeps the amount a deposit was confirmed with while its row is written', async () => {
+    const row = await confirmHeld();
+    const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
+
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+
+    expect(screen.getByTestId('form-amount')).toHaveTextContent(/^1\.5050$/);
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
+    row.release();
+    await settle();
+  });
+
+  it('keeps the token a deposit was confirmed with while its row is written', async () => {
+    const row = await confirmHeld();
+
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+    row.release();
+    await settle();
+  });
+
+  it('opens no wallet switch while a confirmed row is written', async () => {
+    const row = await confirmHeld();
+
+    fireEvent.click(screen.getByTestId('switch-wallet'));
+    await settle();
+
+    expect(screen.queryByTestId('connect-another')).not.toBeInTheDocument();
+    expect(connectAnother).not.toHaveBeenCalled();
+    row.release();
+    await settle();
+  });
+
+  it('hands a switch drawer already open no wallet change while a confirmed row is written', async () => {
+    quoteFast();
+    renderScreen();
+    fireEvent.click(screen.getByTestId('switch-wallet'));
+    await settle();
+    await reachFastReview();
+    const row = holdRowCreation();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    fireEvent.click(screen.getByTestId('connect-another'));
+    await settle();
+
+    expect(connectAnother).not.toHaveBeenCalled();
+    row.release();
+    await settle();
+  });
+
+  it('switches the wallet outside a confirm', async () => {
+    renderScreen();
+
+    fireEvent.click(screen.getByTestId('switch-wallet'));
+    await settle();
+    fireEvent.click(screen.getByTestId('connect-another'));
+
+    expect(connectAnother).toHaveBeenCalledTimes(1);
+  });
+
+  // The quote effect skips whatever moves during a confirm; a confirm that leaves no row must not leave that quote.
+  it.each(CONFIG_MOVES)(
+    'quotes a move of only %s made while a confirm was out once its row fails',
+    async (_case, move, moved) => {
+      quoteFast();
+      renderScreen();
+      await reachFastReview();
+      const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
+      const row = holdRowCreation();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+      act(() => publishSnapshot({ ...READY_SNAPSHOT, config: move(READY_SNAPSHOT.config!) }));
+      await settle();
+
+      row.fail();
+      await settle();
+
+      expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes + 1);
+      expect(epochState.quoteEVMToMiden).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          midenFaucetId: '0x00000000000000000000000000e2e0',
+          minTokenOut: '1505000',
+          ...moved
+        }),
+        '0xevm-wallet'
+      );
+    }
+  );
+
+  it('resets the store once a confirm whose row fails settles after the config named no Miden USDC', async () => {
+    const [, move] = NO_MIDEN_USDC;
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
+    jest.mocked(epochState.reset).mockClear();
+    const row = holdRowCreation();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+    act(() => publishSnapshot({ ...READY_SNAPSHOT, config: move(READY_SNAPSHOT.config!) }));
+    await settle();
+    expect(epochState.reset).not.toHaveBeenCalled();
+
+    row.fail();
+    await settle();
+
+    expect(epochState.reset).toHaveBeenCalledTimes(1);
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
+  });
+
+  it('quotes nothing more once a confirm whose row is written settles', async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
   });
 
   it("keeps a failed deposit's error on screen and quotes nothing for it on its own", async () => {

@@ -212,8 +212,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const poll = useEpochStore(s => s.poll);
   const resetEpoch = useEpochStore(s => s.reset);
   // Set from the Confirm tap until the tracking row exists, while the store still reads 'quoted': nothing may quote
-  // over or reset the deposit then. Once the row exists the screen is on the status page, out of reach of every reset.
+  // over or reset the deposit then, nor change the amount, token or wallet it was confirmed with. Once the row exists
+  // the screen is on the status page, out of reach of every reset.
   const confirming = useRef(false);
+  // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
+  const [confirmSettled, setConfirmSettled] = useState(0);
 
   const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
   const [slowError, setSlowError] = useState<string | null>(null);
@@ -371,7 +374,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     // A declined quote (no amount, or one that rounds to zero faucet units) clears the last one.
     const quoting = requote();
     if (quoting === undefined) resetEpoch();
-  }, [allocatorUrl, debouncedAmount, requote, resetEpoch, route, token]);
+  }, [allocatorUrl, confirmSettled, debouncedAmount, requote, resetEpoch, route, token]);
 
   useEffect(() => {
     if (epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
@@ -382,16 +385,29 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [epochFlow, epochStatus, poll]);
 
   const handleAmountChange = useCallback((value?: string) => {
+    if (confirming.current) return;
     setAmount(value ?? '');
   }, []);
 
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
+      if (confirming.current) return;
       setTokenDrawerOpen(false);
       selectToken(next);
     },
     [selectToken]
   );
+
+  const handleOpenSwitchDrawer = useCallback(() => {
+    if (confirming.current) return;
+    setSwitchDrawerOpen(true);
+  }, []);
+
+  // The drawer may have been open since before the tap.
+  const handleConnectAnother = useCallback(() => {
+    if (confirming.current) return;
+    onConnectAnother();
+  }, [onConnectAnother]);
 
   const handleRouteChange = useCallback(
     (next: BridgeRoute) => {
@@ -695,6 +711,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       setSlowError(errorMessage(err));
+      setConfirmSettled(count => count + 1);
     } finally {
       confirming.current = false;
       setCreatingBridgeRow(false);
@@ -769,7 +786,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
               onSelectToken={() => setTokenDrawerOpen(true)}
-              onSwitch={() => setSwitchDrawerOpen(true)}
+              onSwitch={handleOpenSwitchDrawer}
               onContinue={handleContinue}
             />
           );
@@ -788,6 +805,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       handleConfirm,
       handleContinue,
       handleContinueToReview,
+      handleOpenSwitchDrawer,
       handleRouteChange,
       route,
       token,
@@ -842,7 +860,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         address={evmAddress}
         ethBalance={ethBalance.formatted}
         ethLoading={ethBalance.loading}
-        onConnectAnother={onConnectAnother}
+        onConnectAnother={handleConnectAnother}
       />
     </div>
   );
