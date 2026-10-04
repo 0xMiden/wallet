@@ -623,6 +623,95 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
   });
 
+  /** Holds the tracking row's creation open after the Confirm tap, as a slow write would. */
+  const holdRowCreation = () => {
+    let release: (id: string) => void = () => undefined;
+    jest.mocked(initiateBridgedReceiveTransaction).mockReturnValue(
+      new Promise<string>(resolve => {
+        release = resolve;
+      })
+    );
+    return () => release('bridge-tx');
+  };
+
+  // The store still reads 'quoted' while the row is written, so the status alone cannot tell the deposit has started.
+  it.each([...CONFIG_MOVES, NO_MIDEN_USDC].map(([moved, move]) => [moved, move] as const))(
+    'leaves a confirmed deposit alone while its row is written and the config moves only %s',
+    async (_moved, move) => {
+      quoteFast();
+      renderScreen();
+      await reachFastReview();
+      const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
+      jest.mocked(epochState.reset).mockClear();
+      const release = holdRowCreation();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      act(() => publishSnapshot({ ...READY_SNAPSHOT, config: move(READY_SNAPSHOT.config!) }));
+      await settle();
+      expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
+      expect(epochState.reset).not.toHaveBeenCalled();
+
+      release();
+      await settle();
+      expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  // Back stays open while the row is written, so a route or token change then must not reset the deposit.
+  const goBackTo = async (steps: number) => {
+    for (let step = 0; step < steps; step++) {
+      fireEvent.click(screen.getByTestId('page-back'));
+      await settle();
+    }
+  };
+  const changeRoute = async () => {
+    await goBackTo(1);
+    fireEvent.click(screen.getByTestId('pick-slow'));
+    await settle();
+  };
+  const changeToken = async () => {
+    await goBackTo(2);
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+  };
+
+  it.each([
+    ['route', changeRoute],
+    ['token', changeToken]
+  ] as const)('keeps a deposit whose row is being written when the %s changes', async (_change, change) => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    jest.mocked(epochState.reset).mockClear();
+    const release = holdRowCreation();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    await change();
+    expect(epochState.reset).not.toHaveBeenCalled();
+
+    release();
+    await settle();
+    expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the route change again once a confirm whose row failed has settled', async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    jest.mocked(initiateBridgedReceiveTransaction).mockRejectedValue(new Error('row failed'));
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+    jest.mocked(epochState.reset).mockClear();
+
+    await changeRoute();
+
+    expect(epochState.reset).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a failed deposit's error on screen and quotes nothing for it on its own", async () => {
     let rerenderScreen = (): void => undefined;
     const quoteEVMToMiden = quoteMovingTheStore(() => rerenderScreen());

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAppKitProvider } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
@@ -211,10 +211,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const executeEVMToMiden = useEpochStore(s => s.executeEVMToMiden);
   const poll = useEpochStore(s => s.poll);
   const resetEpoch = useEpochStore(s => s.reset);
+  // Set from the Confirm tap until the tracking row exists, while the store still reads 'quoted': nothing may quote
+  // over or reset the deposit then. Once the row exists the screen is on the status page, out of reach of every reset.
+  const confirming = useRef(false);
 
   const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
   const [slowError, setSlowError] = useState<string | null>(null);
   const clearTokenState = useCallback(() => {
+    if (confirming.current) return;
     resetEpoch();
     setSlowStatus('idle');
     setSlowError(null);
@@ -362,6 +366,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     // started. Read, not subscribed: a status change alone must never quote, or a landed quote starts another and a
     // deposit that fails is re-quoted over its error.
     const { flow, status } = useEpochStore.getState();
+    if (confirming.current) return;
     if (flow === 'evm-to-miden' && (status === 'signing' || status === 'pending' || status === 'done')) return;
     // A declined quote (no amount, or one that rounds to zero faucet units) clears the last one.
     const quoting = requote();
@@ -390,7 +395,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleRouteChange = useCallback(
     (next: BridgeRoute) => {
-      if (next === route) return;
+      if (next === route || confirming.current) return;
       hapticLight();
       setRoute(next);
       setSlowStatus('idle');
@@ -656,6 +661,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       return;
     }
     if (!canConfirmRoute || creatingBridgeRow) return;
+    confirming.current = true;
     setCreatingBridgeRow(true);
     try {
       hapticMedium();
@@ -690,6 +696,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       setSlowError(errorMessage(err));
     } finally {
+      confirming.current = false;
       setCreatingBridgeRow(false);
     }
   }, [
