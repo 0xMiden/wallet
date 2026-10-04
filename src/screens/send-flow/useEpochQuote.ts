@@ -47,14 +47,14 @@ export function useEpochQuote({
   enabled
 }: UseEpochQuoteOpts): EpochQuoteState {
   const snapshot = useBridgeConfigSnapshot();
-  const outputSymbol = selectEvmUsdc(snapshot)?.symbol ?? '';
-  // The quote goes through the configured allocator for the configured token and chain, so they key it too. A move is
-  // no keystroke: it supersedes the quote at once, not after the debounce.
-  const { config } = snapshot;
+  const outputToken = selectEvmUsdc(snapshot);
+  const outputSymbol = outputToken?.symbol ?? '';
+  // The quote goes through the configured allocator for the output token the document and its read make usable, so
+  // they key it too: a read that recovers or moves under the same document quotes anew. A move is no keystroke: it
+  // supersedes the quote at once, not after the debounce.
   const configKey = JSON.stringify([
-    config?.epoch.allocatorUrl ?? '',
-    config?.epoch.evmUsdc ?? '',
-    String(config?.evm.chainId ?? '')
+    snapshot.config?.epoch.allocatorUrl ?? '',
+    outputToken ? [outputToken.address, outputToken.chainId, outputToken.symbol, outputToken.decimals] : null
   ]);
   const ready = enabled && !!amount && amount > 0n && !!faucetId && !!destinationAddress && !!senderPublicKey;
   // Debounce the whole input set so neither amount nor recipient keystrokes spam

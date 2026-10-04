@@ -6,7 +6,7 @@ import { usePageActive } from 'app/layouts/page-active';
 import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { getEarnMarket, getEpochPositionsUrl, selectEarnMarket } from 'lib/remote-config/values';
+import { BridgeConfigUnavailableError, selectEarnMarket } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 
@@ -26,15 +26,12 @@ interface KeyReads {
 // Per SWR cache, so a test's fresh cache starts with none.
 const keyReads = new WeakMap<object, Map<string, KeyReads>>();
 
-// The getters' own failure for a config that names no positions host or Earn market, which a read would report.
-function unconfiguredError(): string | undefined {
-  try {
-    getEpochPositionsUrl();
-    getEarnMarket();
-    return undefined;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
+// The failure a read would report for a config that names no positions host or Earn market, as the getters phrase it,
+// named from the snapshot the hook keys on: the getters read the realm's, which can differ.
+function unconfiguredError(positionsUrl: string | undefined, marketUid: string | undefined): string | undefined {
+  if (!positionsUrl) return new BridgeConfigUnavailableError('epoch.positionsUrl').message;
+  if (!marketUid) return new BridgeConfigUnavailableError('Earn market').message;
+  return undefined;
 }
 
 function readsOf(cache: object, id: string): KeyReads {
@@ -107,7 +104,7 @@ export function useEarnPositions(): {
   const positionsUrl = config.config?.epoch.positionsUrl;
   const marketUid = selectEarnMarket(config)?.marketUid;
   // Only a loading snapshot is a wait: a loaded one that names neither settles at once, as the read would have failed.
-  const unconfigured = config.status === 'ready' && (!positionsUrl || !marketUid) ? unconfiguredError() : undefined;
+  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, marketUid) : undefined;
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook

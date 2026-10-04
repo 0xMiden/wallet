@@ -31,6 +31,21 @@ jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: unknown[]) => mockUseRetryableSWR(...args)
 }));
 
+// The realm's getters find both values, so only a hook that names what its own snapshot lacks reports an error.
+jest.mock('lib/remote-config/values', () => {
+  const actual = jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values');
+  return {
+    ...actual,
+    getEpochPositionsUrl: () => 'https://positions.test',
+    getEarnMarket: () => ({
+      marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
+      underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+      chainId: 11155111
+    })
+  };
+});
+
 const POSITIONS_URL = 'https://positions.test';
 const MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
 const READY_CONFIG: BridgeConfig = {
@@ -318,22 +333,34 @@ describe('useEarnPositions', () => {
       expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
     });
 
-    it.each<[string, BridgeConfig | null]>([
-      ['names no config', null],
-      ['names no positions host', { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: undefined } }]
-    ])('settles at once as a failed load, reading nothing, when a loaded snapshot %s', async (_case, config) => {
-      mockUseRetryableSWR.mockImplementation(realSWR);
-      publishConfig({ ...READY, config });
-      const { result } = renderHook(() => useEarnPositions(), { wrapper });
-      await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      });
-      expect(result.current.isLoading).toBe(false);
-      expect(result.current.loadError).toBe('The bridge config has no usable epoch.positionsUrl.');
-      expect(result.current.error).toBe('The bridge config has no usable epoch.positionsUrl.');
-      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
-      expect(fetchEarnPositions).not.toHaveBeenCalled();
-    });
+    it.each<[string, BridgeConfig | null, string]>([
+      ['names no config', null, 'The bridge config has no usable epoch.positionsUrl.'],
+      [
+        'names no positions host',
+        { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: undefined } },
+        'The bridge config has no usable epoch.positionsUrl.'
+      ],
+      [
+        'names the positions host but no Earn market',
+        { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, earnProtocol: undefined } },
+        'The bridge config has no usable Earn market.'
+      ]
+    ])(
+      'settles at once as a failed load, reading nothing, when a loaded snapshot %s',
+      async (_case, config, message) => {
+        mockUseRetryableSWR.mockImplementation(realSWR);
+        publishConfig({ ...READY, config });
+        const { result } = renderHook(() => useEarnPositions(), { wrapper });
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(result.current.loadError).toBe(message);
+        expect(result.current.error).toBe(message);
+        expect(result.current.isLoading).toBe(false);
+        expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
+        expect(fetchEarnPositions).not.toHaveBeenCalled();
+      }
+    );
 
     it('reads again at once when the config moves the positions host', async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
