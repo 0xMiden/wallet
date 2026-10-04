@@ -16,6 +16,8 @@
  */
 import type { Page } from '@playwright/test';
 
+import { TELEMETRY_STORAGE_KEY } from '../../../src/lib/settings/constants';
+
 /**
  * Playwright's TimeoutError by NAME, so this module never value-imports
  * `@playwright/test`. It is reached from a plain Jest unit test
@@ -81,13 +83,21 @@ const ROTATION_GATE_HINT =
 export const TELEMETRY_CONSENT_TIMEOUT_MS = 5_000;
 
 /**
- * Ceiling for the decline click and the unmount that follows it. Deliberately
- * not the caller's `timeoutMs`: by then the prompt has been SEEN, so these act
- * on an element already on screen and only have one navigation to wait out.
- * Keeping them separate lets `timeoutMs` mean exactly one thing — how long the
- * prompt has to show up.
+ * Ceiling for the decline click. Deliberately not the caller's `timeoutMs`: by
+ * then the prompt has been SEEN, so the click acts on an element already on
+ * screen. Keeping it separate lets `timeoutMs` mean exactly one thing: how
+ * long the prompt has to show up.
  */
-const CONSENT_ACTION_TIMEOUT_MS = 5_000;
+const CONSENT_CLICK_TIMEOUT_MS = 5_000;
+
+/**
+ * Ceiling for the prompt to unmount once declined. Declining navigates to the
+ * wallet home for the first time after onboarding, and on a CI emulator or
+ * simulator that first render has held the main thread for 5-7 s, during which
+ * the WebView answers no CDP poll either; a 5 s ceiling here failed E2E Android
+ * and dApp Browser runs that were otherwise fine.
+ */
+const CONSENT_LEAVE_TIMEOUT_MS = 30_000;
 
 /** Poll interval for the CDP path, which has no locators to auto-wait on. */
 const CDP_POLL_INTERVAL_MS = 250;
@@ -181,7 +191,7 @@ async function dismissViaLocators(page: Page, timeoutMs: number, nextSurface: st
   if (!(await prompt.isVisible())) return false;
 
   try {
-    await prompt.locator(DECLINE_SELECTOR).click({ timeout: CONSENT_ACTION_TIMEOUT_MS });
+    await prompt.locator(DECLINE_SELECTOR).click({ timeout: CONSENT_CLICK_TIMEOUT_MS });
   } catch (error) {
     // Re-checked on failure rather than guarded before the click: the gate can
     // mount in the window between the prompt becoming visible and the click
@@ -196,7 +206,7 @@ async function dismissViaLocators(page: Page, timeoutMs: number, nextSurface: st
   // Declining navigates to `postOnboardingRoute()`, which unmounts the prompt.
   // Waiting for that means a caller resumes on the next screen rather than
   // mid-transition.
-  await prompt.waitFor({ state: 'detached', timeout: CONSENT_ACTION_TIMEOUT_MS });
+  await prompt.waitFor({ state: 'detached', timeout: CONSENT_LEAVE_TIMEOUT_MS });
   return true;
 }
 
@@ -222,12 +232,19 @@ async function dismissViaCdp(
 
   await driver.click(`${PROMPT_SELECTOR} ${DECLINE_SELECTOR}`);
 
-  const goneBy = Date.now() + CONSENT_ACTION_TIMEOUT_MS;
-  while (await isMounted(driver, PROMPT_SELECTOR)) {
-    if (Date.now() >= goneBy) {
+  const leaveBy = Date.now() + CONSENT_LEAVE_TIMEOUT_MS;
+  for (;;) {
+    // Only an answer ASKED after the deadline can fail the wait: one asked before it may come back
+    // late, across the same stall, and still say mounted.
+    const askedAt = Date.now();
+    if (!(await isMounted(driver, PROMPT_SELECTOR))) break;
+    if (askedAt >= leaveBy) {
+      const stored = await driver.evalJs<string | null>(
+        `return localStorage.getItem(${JSON.stringify(TELEMETRY_STORAGE_KEY)});`
+      );
       throw new Error(
         `dismissTelemetryConsent: "Not now" was clicked but ${PROMPT_SELECTOR} is still mounted after ` +
-          `${CONSENT_ACTION_TIMEOUT_MS}ms`
+          `${CONSENT_LEAVE_TIMEOUT_MS}ms (stored consent: ${stored ?? 'none'})`
       );
     }
     await driver.delay(CDP_POLL_INTERVAL_MS);
