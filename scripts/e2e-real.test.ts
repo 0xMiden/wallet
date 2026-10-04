@@ -24,6 +24,7 @@ import {
   composeGrep,
   pricedAmountFrom,
   probeAgglayerIndexer,
+  probeConfigDocument,
   resolveOperatorInput,
   run,
   suiteRetries
@@ -438,20 +439,21 @@ describe('the command refuses operator input before any probe or build', () => {
   }, 35_000);
 });
 
+const ALLOCATOR = 'https://allocator.example';
+const EVM_USDC = `0x${'a'.repeat(40)}`;
+const L1_BRIDGE = `0x${'b'.repeat(40)}`;
+const INDEXER = 'https://indexer.example/api';
+const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
+const DOCUMENT = {
+  network: 'testnet',
+  version: 7,
+  evm: { chainId: 11155111 },
+  agglayer: { l1Bridge: L1_BRIDGE, midenBridge: '0x3b66e20b5088f25133b69216484652', indexerUrl: INDEXER },
+  epoch: { allocatorUrl: ALLOCATOR, positionsUrl: 'https://positions.example', evmUsdc: EVM_USDC },
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+};
+
 describe('the preflight reads what it probes from the network config document', () => {
-  const ALLOCATOR = 'https://allocator.example';
-  const EVM_USDC = `0x${'a'.repeat(40)}`;
-  const L1_BRIDGE = `0x${'b'.repeat(40)}`;
-  const INDEXER = 'https://indexer.example/api';
-  const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
-  const DOCUMENT = {
-    network: 'testnet',
-    version: 7,
-    evm: { chainId: 11155111 },
-    agglayer: { l1Bridge: L1_BRIDGE, midenBridge: '0x3b66e20b5088f25133b69216484652', indexerUrl: INDEXER },
-    epoch: { allocatorUrl: ALLOCATOR, positionsUrl: 'https://positions.example', evmUsdc: EVM_USDC },
-    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
-  };
   const STUB = pathToFileURL(path.join(__dirname, 'e2e-real.fetch-stub.mjs')).href;
   // Any valid secp256k1 scalar: the stub answers every read, so nothing is ever signed or sent.
   const FUNDED_KEY = `0x${'11'.repeat(32)}`;
@@ -593,6 +595,66 @@ describe('the preflight reads what it probes from the network config document', 
   }, 35_000);
 });
 
+// E2E Bridge reads the document on every push to main, so a failed GET or a gateway error is asked again once. A
+// document that arrives is judged on that answer, whatever the wallet's parser makes of it.
+describe('the config document fetch asks twice', () => {
+  const SERVED = { status: 200, body: DOCUMENT };
+  let log: jest.SpyInstance;
+
+  // `record` prints one line per probe.
+  beforeEach(() => {
+    log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const printed = () => log.mock.calls.flat().join('\n');
+
+  it('asks once when the first GET serves the document', async () => {
+    const get = jest.fn().mockResolvedValue(SERVED);
+
+    await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toEqual({
+      indexerUrl: INDEXER
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(PUBLISHED);
+  }, 35_000);
+
+  it.each([
+    ['a GET that throws', () => Promise.reject(new Error('socket hang up'))],
+    ['a gateway error', () => Promise.resolve({ status: 502, body: 'Bad Gateway' })]
+  ])(
+    'reads the document from the second GET after %s',
+    async (_label, firstAnswer) => {
+      const get = jest.fn().mockImplementationOnce(firstAnswer).mockResolvedValueOnce(SERVED);
+
+      await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toEqual({
+        indexerUrl: INDEXER
+      });
+      expect(get).toHaveBeenCalledTimes(2);
+    },
+    35_000
+  );
+
+  it.each([
+    ['two GETs that throw', () => Promise.reject(new Error('socket hang up')), 'unreachable: socket hang up'],
+    ['two gateway errors', () => Promise.resolve({ status: 502, body: 'Bad Gateway' }), 'answered HTTP 502']
+  ])('fails after %s', async (_label, answer, reason) => {
+    const get = jest.fn().mockImplementation(answer);
+
+    await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toBeNull();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(printed()).toContain(reason);
+  });
+
+  it('asks once for a document the wallet refuses', async () => {
+    const get = jest.fn().mockResolvedValue({ status: 200, body: { ...DOCUMENT, network: 'devnet' } });
+
+    await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toBeNull();
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(printed()).toContain('Config document');
+  }, 35_000);
+});
+
 describe('suiteRetries', () => {
   it('gives a real-money suite no retries', () => {
     // Its test mints a faucet and triggers a live solver fill; a retry spends
@@ -644,11 +706,9 @@ describe('the AggLayer indexer guard', () => {
   // Miden exit 0 as the live indexer serves it, trimmed to the fields the guard reads.
   const LIVE = { deposit: { deposit_cnt: 0, network_id: 86, dest_net: 0, tx_hash: `0x${'1'.repeat(64)}` } };
 
-  const INDEXER = 'https://indexer.example/api';
-
   // The wallet derives the rollup id from the bridge account; the probe holds the testnet's, the network the live
   // indexer filed the golden exits under, which the wallet's own lookup tests read too.
-  it('looks where the wallet looks: the network the testnet indexer filed the golden exits under', () => {
+  it('pins the testnet rollup id: the network the testnet indexer filed the golden exits under', () => {
     const deposit16 = fixture.vectors.find(vector => vector.depositCnt === 16);
     expect(AGGLAYER_MIDEN_NETWORK_ID).toBe(deposit16?.indexerDeposit?.network_id);
   });
@@ -659,7 +719,12 @@ describe('the AggLayer indexer guard', () => {
 
   it.each([
     ['an unknown deposit (HTTP 500)', 500, { code: 2, message: 'not found' }, 'HTTP 500'],
-    ['a renumbered network (78)', 200, { deposit: { ...LIVE.deposit, network_id: 78 } }, 'under network 78'],
+    [
+      'a renumbered network (78)',
+      200,
+      { deposit: { ...LIVE.deposit, network_id: 78 } },
+      'under network 78, not the testnet rollup id 86'
+    ],
     [
       'an exit bound elsewhere (dest_net 1)',
       200,

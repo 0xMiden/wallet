@@ -454,19 +454,34 @@ function configTargets(config, needs, getAddress) {
   return targets;
 }
 
-async function probeConfigDocument(network, needs) {
+/**
+ * The probe targets from the network's config document, or null after recording why there are none. A GET that fails
+ * or answers anything but 200 is asked again once before it counts, as the indexer probe does: E2E Bridge reads the
+ * document on every push to main. A document that arrives is never asked for again, whether or not the wallet's parser
+ * accepts it. `get` and `retryDelayMs` are injectable for test.
+ *
+ * Exported for test.
+ */
+export async function probeConfigDocument(network, needs, { get = getJson, retryDelayMs = 5_000 } = {}) {
   const url = configDocumentUrl(network);
-  let reply;
-  try {
-    reply = await getJson(url);
-  } catch (err) {
-    record(false, 'Config document', `${url} unreachable: ${err.message}`);
+  const ask = async () => {
+    try {
+      const reply = await get(url);
+      return reply.status === 200 ? { reply } : { problem: `${url} answered HTTP ${reply.status}` };
+    } catch (err) {
+      return { problem: `${url} unreachable: ${err.message}` };
+    }
+  };
+  let answer = await ask();
+  if (answer.problem !== undefined) {
+    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    answer = await ask();
+  }
+  if (answer.problem !== undefined) {
+    record(false, 'Config document', answer.problem);
     return null;
   }
-  if (reply.status !== 200) {
-    record(false, 'Config document', `${url} answered HTTP ${reply.status}`);
-    return null;
-  }
+  const { reply } = answer;
   try {
     // The wallet takes local http only from a document an E2E build serves itself (src/lib/remote-config/source.ts).
     const config = parseLikeTheWallet(reply.body, network, Boolean(process.env.MIDEN_REMOTE_CONFIG_URL));
@@ -811,9 +826,10 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth, evmUsdc) {
 }
 
 /**
- * Why the indexer's answer for Miden exit 0 shows it no longer files Miden exits where the wallet looks, or
- * undefined when it does. The Slow bridge-out finds its deposit by `network_id` and `dest_net`, so an indexer that
- * renumbers the Miden network leaves every bridge-out unsettled with no error anywhere (#1325).
+ * Why the indexer's answer for Miden exit 0 shows it no longer files Miden exits under the testnet rollup id this
+ * runner pins, or undefined when it does. The wallet derives the rollup id at runtime from the Miden bridge account;
+ * the Slow bridge-out finds its deposit by that `network_id` and by `dest_net`, so an indexer that renumbers the Miden
+ * network leaves every bridge-out unsettled with no error anywhere (#1325).
  *
  * Exported for test.
  */
@@ -821,7 +837,7 @@ export function agglayerExitFilingProblem(status, body) {
   if (status !== 200) return `answered HTTP ${status} for Miden exit 0`;
   const deposit = body?.deposit;
   if (deposit?.network_id !== AGGLAYER_MIDEN_NETWORK_ID) {
-    return `files Miden exit 0 under network ${deposit?.network_id}, but the wallet looks under ${AGGLAYER_MIDEN_NETWORK_ID}`;
+    return `files Miden exit 0 under network ${deposit?.network_id}, not the testnet rollup id ${AGGLAYER_MIDEN_NETWORK_ID}`;
   }
   if (deposit.dest_net !== 0) return `files Miden exit 0 as bound for network ${deposit.dest_net}, not Sepolia (0)`;
   return undefined;
