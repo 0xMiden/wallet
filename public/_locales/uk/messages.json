@@ -3544,6 +3544,14 @@
     "message": "Недоступно",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Тимчасово недоступно",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "Ця зовнішня служба наразі не працює. Будь ласка, спробуйте пізніше.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "Перевірка, чи підтримує цей токен маршрут Slow…",
     "englishSource": "Checking whether this token supports the Slow route…"

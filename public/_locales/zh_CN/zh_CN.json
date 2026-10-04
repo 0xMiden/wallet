@@ -809,6 +809,8 @@
   "fast": "快",
   "slow": "慢",
   "unavailable": "不可用",
+  "bridgeFeatureUnavailableTitle": "暂时不可用",
+  "bridgeFeatureUnavailableBody": "该外部服务目前无法使用。请稍后再试。",
   "agglayerCheckingToken": "正在检查该代币是否支持慢速路线……",
   "agglayerTokenUnsupported": "该代币不支持“慢速”通道。",
   "agglayerTokenCheckFailed": "无法验证此令牌。请返回并重试。",

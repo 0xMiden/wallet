@@ -21,11 +21,11 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc, getEvmUsdcAddress } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
-import { BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from './bridgeable-token';
-import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
-import { EARN_PROTOCOL_HASH, EARN_UNDERLYING, resolveEarnIntentOutcome } from './earn';
+import { MIDEN_DESTINATION_CHAIN_ID } from './config';
+import { resolveEarnIntentOutcome } from './earn';
 import { tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
 import {
   earnWithdrawalRetryKind,
@@ -118,6 +118,7 @@ export function buildEarnWithdrawTaskDataParams(args: {
   underlyingAddress: Address;
   amountAtomic: string;
   chainId: number;
+  protocolHash: `0x${string}`;
 }) {
   return {
     taskType: TaskType.ProtocolInteraction,
@@ -128,7 +129,7 @@ export function buildEarnWithdrawTaskDataParams(args: {
       outputTokenAddress: args.underlyingAddress,
       minTokenOut: '0',
       destinationChainId: String(args.chainId),
-      protocolHashIdentifier: EARN_PROTOCOL_HASH,
+      protocolHashIdentifier: args.protocolHash,
       recipient: args.sponsorAddress
     },
     extraDataTypestring: 'string marketUid,string action,string payAsset,bool isAll,bool simulate',
@@ -152,9 +153,12 @@ export async function gaslessEarnWithdrawalToMiden(
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
+  // Withdraw is a recovery action: it needs the document's token, not a successful read of it. The token's decimals
+  // are checked when that read is known; otherwise the position's own stand.
+  const usdc = findEvmUsdc();
   if (
-    underlyingAddress.toLowerCase() !== EARN_UNDERLYING.toLowerCase() ||
-    args.underlyingDecimals !== BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS
+    underlyingAddress.toLowerCase() !== getEvmUsdcAddress().toLowerCase() ||
+    (usdc !== null && args.underlyingDecimals !== usdc.decimals)
   ) {
     throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
   }
@@ -162,6 +166,8 @@ export async function gaslessEarnWithdrawalToMiden(
   if (chainId !== sepolia.id) throw new Error('Gasless withdrawal currently supports Sepolia only.');
   const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
+  // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
+  const apiBaseUrl = getEpochAllocatorUrl();
 
   const initiateRow = deps.initiateRow ?? initiateEarnWithdrawTransaction;
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
@@ -184,7 +190,8 @@ export async function gaslessEarnWithdrawalToMiden(
       args.amount,
       'USDC',
       attemptId,
-      attemptStartedAt
+      attemptStartedAt,
+      args.underlyingDecimals
     );
     assertCurrent();
     args.onRowCreated?.(txId);
@@ -216,9 +223,7 @@ export async function gaslessEarnWithdrawalToMiden(
       await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
       assertCurrent();
       const walletClient = buildVaultEvmWalletClient(args.midenAccountPublicKey, sponsorAddress);
-      const sdk =
-        deps.sdk ??
-        new EpochIntentSDK({ apiBaseUrl: EPOCH_ALLOCATOR_URL, walletClient, allowGaslessSmartAccount: true });
+      const sdk = deps.sdk ?? new EpochIntentSDK({ apiBaseUrl, walletClient, allowGaslessSmartAccount: true });
       const status = await sdk.getWalletGaslessStatus(chainId);
       assertCurrent();
       if (!status.is7702Capable) throw new Error('Wallet/chain is not 7702-capable for a gasless withdrawal.');
@@ -686,14 +691,17 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
     nonce: ei.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, ei.submissionAttemptId)
   };
+  // A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
+  // decimals stand in while that read fails. A row from before they were recorded refuses through the getter.
+  const underlyingDecimals = findEvmUsdc()?.decimals ?? ei.sourceDecimals ?? getEvmUsdc().decimals;
   await gaslessEarnWithdrawalToMiden(
     {
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
-      underlyingAddress: EARN_UNDERLYING,
+      underlyingAddress: getEvmUsdcAddress(),
       amount: ei.sourceAmount,
-      underlyingDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS
+      underlyingDecimals
     },
     {
       ...deps,

@@ -16,7 +16,6 @@ import { Hero } from 'components/ui/Hero';
 import { Skeleton } from 'components/ui/Skeleton';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
-import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -42,7 +41,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
-import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import { getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
@@ -366,7 +365,6 @@ export const ReviewTransaction: React.FC = () => {
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
-            destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
             guardianProvider: zustandProvider,
             spendingLimitAuthorization: authorization
           });
@@ -531,11 +529,9 @@ export const ReviewTransaction: React.FC = () => {
   const youReceiveAmount =
     route === 'agglayer'
       ? formatMoneyAmount(amount, 'typed')
-      : formatMoneyAmount(epochQuote.amount, 'receives', BRIDGE_OUTPUT_TOKEN_SYMBOL);
+      : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
   const youReceiveLabel =
-    youReceiveAmount != null
-      ? `≈ ${youReceiveAmount} ${BRIDGE_OUTPUT_TOKEN_SYMBOL}`.trim()
-      : BRIDGE_OUTPUT_TOKEN_SYMBOL;
+    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${epochQuote.symbol}`.trim() : epochQuote.symbol;
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
 

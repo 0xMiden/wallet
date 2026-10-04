@@ -1,18 +1,14 @@
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
+import { getEarnMarket } from 'lib/remote-config/values';
 
 import { getCurrentMidenBlock } from './chain';
-import {
-  EARN_DESTINATION_CHAIN_ID,
-  openEarnPosition,
-  pollEarnIntentStatus,
-  reconcileEarnDeposits,
-  resolveEarnIntentOutcome
-} from './earn';
+import { openEarnPosition, pollEarnIntentStatus, reconcileEarnDeposits, resolveEarnIntentOutcome } from './earn';
 import { createEarnP2IDENote } from './earn-note';
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
+import { TEST_EARN_MARKET, TEST_EVM_CHAIN_ID, TEST_MIDEN_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
@@ -30,8 +26,11 @@ jest.mock('./earn-note', () => ({ createEarnP2IDENote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
 jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: jest.fn() } }));
+jest.mock('lib/remote-config/values', () =>
+  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+);
 
-const SEPOLIA = EARN_DESTINATION_CHAIN_ID;
+const SEPOLIA = TEST_EVM_CHAIN_ID;
 const MIDEN_CHAIN = 999;
 const SPONSOR = '0x1111111111111111111111111111111111111111';
 
@@ -401,6 +400,34 @@ describe('reconcileEarnDeposits', () => {
     warning.mockRestore();
   });
 
+  it('keeps a deposit pending while the bridge config cannot build the SDK, and settles once it can', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    wireRows([depositRow()]);
+    const getIntentStatus = jest
+      .fn()
+      .mockResolvedValue([{ chainId: SEPOLIA, status: 'completed', transactionHash: '0xdest' }]);
+    const d = {
+      ...deps(),
+      getSdk: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('bridge config unavailable'))
+        .mockResolvedValue({ getIntentStatus })
+    };
+
+    await reconcileEarnDeposits(d);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(d.updateStatus).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(3000);
+    expect(d.updateStatus).toHaveBeenCalledWith(
+      'TX1',
+      'confirmed',
+      { evmTxHash: '0xdest' },
+      { owner: SPONSOR, nonce: 'N1' }
+    );
+    warning.mockRestore();
+  });
+
   it('starts another identity while the first status request never resolves', async () => {
     wireRows([
       depositRow({ id: 'PARKED' }),
@@ -475,6 +502,7 @@ const mockCreateEarnP2IDENote = createEarnP2IDENote as jest.MockedFunction<typeo
 describe('openEarnPosition guards', () => {
   const baseArgs = () => ({
     amount: 1_000_000n,
+    collateral: TEST_MIDEN_USDC,
     evmAddress: SPONSOR,
     senderPublicKey: 'mtst1sender',
     deps: { signTransaction: jest.fn(), guardianProvider: {} } as never,
@@ -546,5 +574,39 @@ describe('openEarnPosition guards', () => {
     await expect(openEarnPosition({ ...baseArgs(), spendingLimitAuthorization })).rejects.toBe(error);
     expect(mockCreateEarnP2IDENote).toHaveBeenCalledWith(expect.objectContaining({ spendingLimitAuthorization }));
     expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it('builds the intent for the configured market, locking the collateral it was reviewed with', async () => {
+    const getTaskData = jest.fn().mockRejectedValue(new Error('stop'));
+    mockGetSdk.mockResolvedValue({ getTaskData } as never);
+
+    await expect(
+      openEarnPosition({ ...baseArgs(), collateral: { ...TEST_MIDEN_USDC, faucetId: '0xreviewed' } })
+    ).rejects.toThrow('stop');
+
+    expect(getTaskData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intentData: expect.objectContaining({
+          outputTokenAddress: TEST_EARN_MARKET.underlying,
+          destinationChainId: String(TEST_EARN_MARKET.chainId),
+          protocolHashIdentifier: TEST_EARN_MARKET.protocolHash
+        }),
+        extraData: expect.objectContaining({ marketUid: TEST_EARN_MARKET.marketUid, midenFaucetId: '0xreviewed' })
+      })
+    );
+  });
+
+  it('refuses before any SDK work while the config names no Earn market, as a rejection the flow catches', async () => {
+    jest.mocked(getEarnMarket).mockImplementationOnce(() => {
+      throw new Error('no market');
+    });
+
+    // The getter throws synchronously; a caller's try/await must still see a rejection, never a throw at call time.
+    let pending: Promise<unknown> | undefined;
+    expect(() => {
+      pending = openEarnPosition(baseArgs());
+    }).not.toThrow();
+    await expect(pending).rejects.toThrow('no market');
+    expect(mockGetSdk).not.toHaveBeenCalled();
   });
 });

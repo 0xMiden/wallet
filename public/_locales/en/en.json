@@ -809,6 +809,8 @@
   "fast": "Fast",
   "slow": "Slow",
   "unavailable": "Unavailable",
+  "bridgeFeatureUnavailableTitle": "Temporarily unavailable",
+  "bridgeFeatureUnavailableBody": "This external service is currently down. Please try again later.",
   "agglayerCheckingToken": "Checking whether this token supports the Slow route…",
   "agglayerTokenUnsupported": "This token does not support the Slow route.",
   "agglayerTokenCheckFailed": "Could not check this token. Go back and try again.",

@@ -43,7 +43,8 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID, MIDEN_BRIDGE_ID } from './constant';
+import { TEST_EVM_NETWORK_ID, TEST_MIDEN_BRIDGE, TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
+
 import {
   agglayerExitTxHash,
   agglayerExitTxHashFromDetailsCommitment,
@@ -71,9 +72,9 @@ const { dest_addr: destination } = deposit16.indexerDeposit;
 const b2aggNote = () =>
   Note.createB2AggNote(
     AccountId.fromHex('0xa95e28ec96b9ae1132266aa4d4ddb9'),
-    AccountId.fromHex(MIDEN_BRIDGE_ID),
-    new NoteAssets([new FungibleAsset(AccountId.fromHex(MIDEN_AGGLAYER_FAUCET_ID), 10_000n)]),
-    EVM_AGGLAYER_NETWORK_ID,
+    AccountId.fromHex(TEST_MIDEN_BRIDGE),
+    new NoteAssets([new FungibleAsset(AccountId.fromHex(TEST_NATIVE_ETH_FAUCET), 10_000n)]),
+    TEST_EVM_NETWORK_ID,
     EthAddress.fromHex(destination)
   );
 

@@ -3544,6 +3544,14 @@
     "message": "Kullanılamıyor",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Geçici olarak kullanılamıyor",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
     "englishSource": "Checking whether this token supports the Slow route…"

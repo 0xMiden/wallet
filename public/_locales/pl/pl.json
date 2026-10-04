@@ -809,6 +809,8 @@
   "fast": "Szybko",
   "slow": "Powoli",
   "unavailable": "Niedostępne",
+  "bridgeFeatureUnavailableTitle": "Tymczasowo niedostępne",
+  "bridgeFeatureUnavailableBody": "Ta usługa zewnętrzna jest obecnie niedostępna. Spróbuj ponownie później.",
   "agglayerCheckingToken": "Sprawdzanie, czy ten token obsługuje trasę Slow…",
   "agglayerTokenUnsupported": "Ten token nie obsługuje trasy Slow.",
   "agglayerTokenCheckFailed": "Nie udało się zweryfikować tego tokenu. Cofnij się i spróbuj ponownie.",

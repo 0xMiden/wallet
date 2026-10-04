@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
-import { setEarnCollateralFaucetForTest } from 'lib/epoch/collateral';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
@@ -17,6 +16,7 @@ import {
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
+import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
@@ -1060,11 +1060,11 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     }
   });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
-  // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
-  // THIS (page) realm. The fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet
-  // node. Zero prod impact.
+  // The Earn screens, `openEarnPosition` and the price allowlist read it page-side, so the
+  // override must be set in THIS (page) realm; a served document cannot name a faucet the
+  // suite creates at runtime. Zero prod impact.
   (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
-    setEarnCollateralFaucetForTest(faucetHex);
+    setEarnCollateralFaucetOverride({ faucetId: faucetHex });
   };
   (globalThis as any).__TEST_SET_FEE_FAUCET__ = async (faucetId: string): Promise<void> => {
     const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');

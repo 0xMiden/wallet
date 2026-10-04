@@ -17,7 +17,6 @@ import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
-import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { isOutcomeUnconfirmed, isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
@@ -46,6 +45,8 @@ import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constan
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { TokenPrices } from 'lib/prices';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -264,6 +265,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
   const configuredNativeFaucet = useMidenFaucetId();
+  // An Earn withdrawal's redeemed USDC is priced through the collateral faucet the config names.
+  const earnCollateral = selectMidenUsdc(useBridgeConfigSnapshot());
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
@@ -653,7 +656,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // side is priced through the Earn collateral faucet.
   const pricedFaucetId =
     earnWithdraw !== null && transaction !== undefined && earnWithdrawShowsSource(earnWithdraw, transaction.amount)
-      ? getEarnCollateralFaucet()
+      ? earnCollateral?.faucetId
       : entry?.faucetId;
   const approximateUsdAmount =
     pricedAmount !== undefined && entry?.token && !spansMultipleAssets

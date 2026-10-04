@@ -1,8 +1,6 @@
 import type { IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import { getAgglayerEvmNetworkId, getAgglayerIndexerUrl, getAgglayerRollupId } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
-
-import { EVM_AGGLAYER_NETWORK_ID } from './b2agg/constant';
-import { AGGLAYER_BRIDGE_API, MIDEN_CHAIN_ID } from './constant';
 
 // A bridge indexer that accepts the connection then goes silent must not hang
 // the claim/poll flow forever; bound every AggLayer request, its body read
@@ -117,7 +115,7 @@ interface BridgesResponse {
 // deposit by origin tx hash and not confuse it with an earlier bridge.
 export async function fetchDeposits(destAddr: string, limit = 10): Promise<AgglayerDeposit[]> {
   const data = await agglayerJson<BridgesResponse>(
-    `${AGGLAYER_BRIDGE_API}/${destAddr}?limit=${limit}&offset=0`,
+    `${getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${limit}&offset=0`,
     'Agglayer bridge status'
   );
   return data.deposits ?? [];
@@ -131,7 +129,7 @@ export async function fetchDepositsPage(
   offset: number
 ): Promise<{ deposits: AgglayerDeposit[]; total: number }> {
   const data = await agglayerJson<BridgesResponse>(
-    `${AGGLAYER_BRIDGE_API}/${destAddr}?limit=${AGGLAYER_DEPOSITS_PAGE_SIZE}&offset=${offset}`,
+    `${getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${AGGLAYER_DEPOSITS_PAGE_SIZE}&offset=${offset}`,
     'Agglayer bridge status'
   );
   return { deposits: data.deposits ?? [], total: Number(data.total_cnt) };
@@ -149,9 +147,6 @@ interface MerkleProofResponse {
   proof: AgglayerMerkleProof;
 }
 
-// Base URL of the bridge service (the `/bridges` indexer path stripped off).
-const BRIDGE_SERVICE_URL = AGGLAYER_BRIDGE_API.replace(/\/bridges$/, '');
-
 // Origin and claim hashes come back from the indexer with inconsistent `0x`
 // prefixing and casing, so compare them normalized.
 export function sameTxHash(left: string, right: string): boolean {
@@ -159,9 +154,9 @@ export function sameTxHash(left: string, right: string): boolean {
   return normalize(left) === normalize(right);
 }
 
-/** A deposit the indexer filed as a Miden -> EVM exit. */
+/** A deposit the indexer filed as a Miden -> EVM exit: from the configured rollup, bound for the L1 network. */
 export const isMidenToEvmDeposit = (deposit: AgglayerDeposit): boolean =>
-  deposit.network_id === MIDEN_CHAIN_ID && deposit.dest_net === EVM_AGGLAYER_NETWORK_ID;
+  deposit.network_id === getAgglayerRollupId() && deposit.dest_net === getAgglayerEvmNetworkId();
 
 /**
  * A Slow bridge-out no lookup can ever find, so it is never polled, prompts nothing and offers no claim. Only its
@@ -182,7 +177,7 @@ interface DepositResponse {
 /** Miden -> EVM exit number `depositCnt`. The indexer answers an unknown one with HTTP 500, which rejects. */
 export async function fetchMidenToEvmDeposit(depositCnt: number): Promise<AgglayerDeposit> {
   const data = await agglayerJson<DepositResponse>(
-    `${BRIDGE_SERVICE_URL}/bridge?net_id=${MIDEN_CHAIN_ID}&deposit_cnt=${depositCnt}`,
+    `${getAgglayerIndexerUrl()}/bridge?net_id=${getAgglayerRollupId()}&deposit_cnt=${depositCnt}`,
     'Agglayer bridge deposit'
   );
   return data.deposit;
@@ -283,7 +278,7 @@ export async function findAgglayerExitDeposit(
 // Fetch the merkle proof for a deposit (net_id is the deposit's `network_id`).
 export async function fetchMerkleProof(depositCnt: number, netId: number): Promise<AgglayerMerkleProof> {
   const data = await agglayerJson<MerkleProofResponse>(
-    `${BRIDGE_SERVICE_URL}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
+    `${getAgglayerIndexerUrl()}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
     'Agglayer merkle-proof status'
   );
   return data.proof;

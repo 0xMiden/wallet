@@ -14,6 +14,14 @@ import {
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
+const mockIndexerUrl = jest.fn(() => 'https://indexer.one.example/api');
+// The testnet's derived networks: rollup 86 files every Miden exit, bound for L1 network 0.
+const mockRollupId = jest.fn(() => 86);
+jest.mock('lib/remote-config/values', () => ({
+  getAgglayerIndexerUrl: () => mockIndexerUrl(),
+  getAgglayerRollupId: () => mockRollupId(),
+  getAgglayerEvmNetworkId: () => 0
+}));
 
 const deposit = (overrides: Record<string, unknown>) =>
   ({ tx_hash: '0x1', ready_for_claim: false, ...overrides }) as any;
@@ -140,7 +148,7 @@ const LIVE_16: AgglayerDeposit = deposit16.indexerDeposit;
 const EXIT_16 = deposit16.exitTxHash;
 
 describe('findAgglayerExitDeposit (#1325)', () => {
-  const PINNED_URL = 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/bridge?net_id=86&deposit_cnt=16';
+  const PINNED_URL = 'https://indexer.one.example/api/bridge?net_id=86&deposit_cnt=16';
 
   // `/bridge?` serves one deposit by number, `/bridges/<address>` the address's newest ten.
   const serve = ({ pinned, page }: { pinned?: AgglayerDeposit | 'not-found'; page: AgglayerDeposit[] }) => {
@@ -187,6 +195,20 @@ describe('findAgglayerExitDeposit (#1325)', () => {
     serve({ page: [{ ...LIVE_16, ...change }] });
 
     expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16)).toBeNull();
+  });
+
+  it('reads an exit under the rollup id the config derives, and takes no exit filed under another', async () => {
+    mockRollupId.mockReturnValue(87);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      serve({ pinned: LIVE_16, page: [LIVE_16] });
+
+      expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16)).toBeNull();
+      expect(fetchMock.mock.calls[0]![0]).toBe('https://indexer.one.example/api/bridge?net_id=87&deposit_cnt=16');
+    } finally {
+      warn.mockRestore();
+      mockRollupId.mockReturnValue(86);
+    }
   });
 
   it("answers nothing for a Miden transaction id: the indexer's tx_hash is the exit hash", async () => {
@@ -407,5 +429,32 @@ describe('isAgglayerExitUnfindable (#1325)', () => {
 
   it('never retires an Epoch row, which has no exit', () => {
     expect(isAgglayerExitUnfindable({ provider: 'epoch', agglayerExitUnfiled: true })).toBe(false);
+  });
+});
+
+describe('the configured indexer', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ deposits: [], total_cnt: '0', proof: { merkle_proof: [] } })
+    });
+  });
+
+  it('lists deposits and reads merkle proofs from the indexer the config names', async () => {
+    await fetchDeposits('0xdest');
+    await fetchMerkleProof(16, 86);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://indexer.one.example/api/bridges/0xdest?limit=10&offset=0',
+      'https://indexer.one.example/api/merkle-proof?deposit_cnt=16&net_id=86'
+    ]);
+  });
+
+  it('sends nothing while the config names no indexer', async () => {
+    mockIndexerUrl.mockImplementationOnce(() => {
+      throw new Error('no indexer');
+    });
+    await expect(fetchDeposits('0xdest')).rejects.toThrow('no indexer');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

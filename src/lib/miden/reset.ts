@@ -4,13 +4,16 @@ import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoin
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
+import { BRIDGE_CONFIG_FLOOR_KEY } from 'lib/remote-config/source';
 import { storageCleared } from 'lib/storage-cleared';
 
 // Configuration, not wallet data, so a reset keeps it. The dev-settings endpoint override
 // selects the network a wallet is created for and is set BEFORE creation; losing it mints the
 // account on one network while the client resolves another. Developer Settings' reset takes it
-// with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards.
-export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY];
+// with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards. The
+// bridge config floor is the highest config version each network has accepted; losing it would
+// let a reset wallet accept an older, superseded document.
+export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY, BRIDGE_CONFIG_FLOOR_KEY];
 
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
 // failure can lose it, and a failure rejects the reset rather than being swallowed.

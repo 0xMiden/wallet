@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
@@ -84,6 +84,14 @@ jest.mock('lib/miden/db/types', () => ({
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
+// The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({
+  selectNativeEthFaucet: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_NATIVE_ETH_FAUCET
+}));
+jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => ref }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => mockEndpoint.rpc,
   getEffectiveNetworkName: () => mockEndpoint.network
@@ -420,8 +428,8 @@ it('groups notes from the same faucet and keeps them queued if the worker wake-u
 });
 
 it('queues each Agglayer bridge delivery in a consume of its own', async () => {
-  const first = { ...note, id: 'bridge-1', senderAddress: AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID };
-  const second = { ...note, id: 'bridge-2', senderAddress: AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID };
+  const first = { ...note, id: 'bridge-1', senderAddress: TEST_NATIVE_ETH_FAUCET };
+  const second = { ...note, id: 'bridge-2', senderAddress: TEST_NATIVE_ETH_FAUCET };
   mockClaim.safeClaimableNotes = [first, second];
   const { result } = renderHook(() => useActivityClaims());
 

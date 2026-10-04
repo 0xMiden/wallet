@@ -1,3 +1,7 @@
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
+
 import {
   agglayerDeliveredAmount,
   findPendingBridgeInByEarnWithdrawTxId,
@@ -5,7 +9,8 @@ import {
   resolveBridgeInNoteId,
   suppressedLinkedConsumeIds,
   takeAgglayerBridgeInInfo,
-  applyBridgeInInfoForNotes
+  applyBridgeInInfoForNotes,
+  setAgglayerSenderForE2E
 } from './bridge-in';
 import { IBridgeInInfo, ITransaction } from '../db/types';
 
@@ -32,10 +37,30 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
   if (row) mutate(row);
   return row ? 1 : 0;
 });
-jest.mock('lib/agglayer/constant', () => ({
-  AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender',
-  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH',
-  AGGLAYER_BRIDGE_NOTE_SCALE: 10
+jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH' }));
+// The delivery sender is the registry's native-ETH faucet (hex); the consume reads its sender in bech32. The bridge
+// registers that faucet with scale 10: a deposit of w wei arrives as floor(w / 10^10) (#1326).
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: jest.fn(() => ({})),
+  initBridgeConfig: jest.fn(async () => ({}))
+}));
+jest.mock('lib/remote-config/values', () => ({
+  selectNativeEthFaucet: jest.fn(() => '0xagg'),
+  selectNativeEthToken: jest.fn(() => ({
+    midenFaucetId: '0xagg',
+    originToken: '0x0000000000000000000000000000000000000000',
+    originNetwork: 0,
+    scale: 10
+  }))
+}));
+// As the SDK parses ids: one text per account whichever form names it, and not the text the registry names the faucet
+// in, so only a match that converts both sides finds the sender.
+const mockAccountText: Record<string, string> = { 'agg-sender': 'agg-account', '0xagg': 'agg-account' };
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountRefToSdk: (ref: string) => {
+    if (ref === 'unreadable-sender') throw new Error('not an account id');
+    return { toString: () => mockAccountText[ref] ?? `${ref}-account` };
+  }
 }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -125,7 +150,7 @@ describe('resolveBridgeInNoteId', () => {
   });
 });
 
-// The bridge registers its ETH faucet with scale 10: a deposit of w wei arrives as floor(w / 10^10) (#1326).
+// The registry scale the mock above names for the native-ETH faucet.
 const SCALE = 10n ** 10n;
 
 describe('takeAgglayerBridgeInInfo', () => {
@@ -136,6 +161,24 @@ describe('takeAgglayerBridgeInInfo', () => {
     nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
   });
   afterEach(() => nowSpy.mockRestore());
+
+  it('reads the delivery sender only once this realm has hydrated the bridge config', async () => {
+    let hydrated: () => void = () => undefined;
+    jest.mocked(initBridgeConfig).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          hydrated = () =>
+            resolve({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null });
+        })
+    );
+    jest.mocked(selectNativeEthFaucet).mockClear();
+    const taken = takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(selectNativeEthFaucet).not.toHaveBeenCalled();
+    hydrated();
+    await expect(taken).resolves.toBeUndefined();
+    expect(selectNativeEthFaucet).toHaveBeenCalled();
+  });
 
   it('matches sender, recipient and amount and selects the oldest pending row', async () => {
     mockTransactions.push(
@@ -242,10 +285,132 @@ describe('takeAgglayerBridgeInInfo', () => {
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
   });
 
-  it('uses the registry scale of 10 for the bridged-ETH faucet', () => {
-    const actual = jest.requireActual<{ AGGLAYER_BRIDGE_NOTE_SCALE: number }>('lib/agglayer/constant');
-    expect(actual.AGGLAYER_BRIDGE_NOTE_SCALE).toBe(10);
-    expect(agglayerDeliveredAmount(123_456_789_012_345_678n)).toBe(12_345_678n);
+  it('matches the sender as an account, not as the text the registry names the faucet in', async () => {
+    expect(accountRefToSdk('0xagg').toString()).not.toBe('0xagg');
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  it('logs a sender it cannot compare and takes no row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'unreadable-sender', amount: 5n })
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-in] could not compare the delivery sender',
+        'unreadable-sender',
+        expect.any(Error)
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('matches nothing while the bridge config names no native-ETH faucet', async () => {
+    jest.mocked(selectNativeEthFaucet).mockReturnValueOnce(null);
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+  });
+
+  it('takes an E2E sender instead of the registry faucet', async () => {
+    setAgglayerSenderForE2E('cli-faucet');
+    try {
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+      ).resolves.toBeUndefined();
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'cli-faucet', amount: 5n })
+      ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+    } finally {
+      // An empty override clears it, so no later case inherits it.
+      setAgglayerSenderForE2E('');
+    }
+  });
+
+  it('floors a tracked wei amount at the scale it is given', () => {
+    expect(agglayerDeliveredAmount(123_456_789_012_345_678n, 10)).toBe(12_345_678n);
+    expect(agglayerDeliveredAmount(123_456_789_012_345_678n, 8)).toBe(1_234_567_890n);
+  });
+
+  it('compares at the scale the registry names for the native-ETH faucet', async () => {
+    jest.mocked(selectNativeEthToken).mockReturnValueOnce({
+      midenFaucetId: '0xagg',
+      originToken: '0x0000000000000000000000000000000000000000',
+      originNetwork: 0,
+      scale: 8
+    });
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * 10n ** 8n,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  // An E2E sender stands in for the faucet only: the delivery's scale is still the registry's.
+  it('matches nothing while the registry names no native-ETH scale, even from an E2E sender', async () => {
+    setAgglayerSenderForE2E('cli-faucet');
+    try {
+      jest.mocked(selectNativeEthToken).mockReturnValueOnce(null);
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'cli-faucet', amount: 5n })
+      ).resolves.toBeUndefined();
+    } finally {
+      setAgglayerSenderForE2E('');
+    }
   });
 
   it('matches a scale-10 delivery to its wei tracker and never the unscaled wei amount', async () => {

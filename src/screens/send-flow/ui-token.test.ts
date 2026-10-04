@@ -1,10 +1,12 @@
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { _resetNormalizedFaucetIdsForTest, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import { UIToken } from './types';
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
 
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => null,
   getNativeAssetMetadataSync: () => null

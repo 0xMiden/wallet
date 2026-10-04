@@ -3544,6 +3544,14 @@
     "message": "No disponible",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Temporalmente no disponible",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "Este servicio externo no está disponible en este momento. Inténtalo de nuevo más tarde.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "Comprobando si este token es compatible con la ruta Slow…",
     "englishSource": "Checking whether this token supports the Slow route…"

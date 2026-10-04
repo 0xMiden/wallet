@@ -19,6 +19,7 @@ _g.__mainTest = {
   startTransactionProcessing: jest.fn(),
   resetMidenClient: jest.fn(),
   loadEndpointOverrides: jest.fn(),
+  initBridgeConfig: jest.fn(async () => undefined),
   swSignCallback: jest.fn(async () => new Uint8Array([0xab, 0xcd])),
   client: {
     importNoteBytes: jest.fn(),
@@ -145,6 +146,11 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides()
 }));
 
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual('lib/remote-config/runtime'),
+  initBridgeConfig: async () => (globalThis as any).__mainTest.initBridgeConfig()
+}));
+
 const mockOnRequest = _g.__mainTest.onRequest;
 const mockBroadcast = _g.__mainTest.broadcast;
 const mockStoreWatch = _g.__mainTest.storeWatch;
@@ -152,6 +158,7 @@ const mockDoSync = _g.__mainTest.doSync;
 const mockStartTransactionProcessing = _g.__mainTest.startTransactionProcessing;
 const mockResetMidenClient = _g.__mainTest.resetMidenClient;
 const mockLoadEndpointOverrides = _g.__mainTest.loadEndpointOverrides;
+const mockInitBridgeConfig = _g.__mainTest.initBridgeConfig;
 const mockClient = _g.__mainTest.client;
 
 jest.mock('../sdk/helpers', () => ({
@@ -256,6 +263,36 @@ beforeEach(async () => {
 });
 
 describe('main.start', () => {
+  it('hydrates the remote config after the endpoint override and before any handler can run', () => {
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
+    expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
+      mockInitBridgeConfig.mock.invocationCallOrder[0]
+    );
+    expect(mockInitBridgeConfig.mock.invocationCallOrder[0]).toBeLessThan(Actions.init.mock.invocationCallOrder[0]);
+  });
+
+  it('holds every request until start() has hydrated the endpoint override and the bridge config', async () => {
+    let hydrated: () => void = () => undefined;
+    mockInitBridgeConfig.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(resolve => {
+          hydrated = () => resolve(undefined);
+        })
+    );
+    mockOnRequest.mockClear();
+    Actions.getFrontState.mockClear();
+    const started = start();
+    const handler = mockOnRequest.mock.calls[0]![0];
+    const answered = handler({ type: WalletMessageType.GetStateRequest });
+    await flushStorage();
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(2);
+    expect(Actions.getFrontState).not.toHaveBeenCalled();
+    hydrated();
+    await started;
+    await expect(answered).resolves.toMatchObject({ type: WalletMessageType.GetStateResponse });
+    expect(Actions.getFrontState).toHaveBeenCalled();
+  });
+
   it('initializes Actions and registers an intercom handler', () => {
     expect(Actions.init).toHaveBeenCalled();
     expect(mockOnRequest).toHaveBeenCalledTimes(1);
@@ -385,6 +422,16 @@ describe('processRequest', () => {
   // executes writes/syncs and talks to the node lives in the offscreen document —
   // a separate JS realm with its own override cache and its own client — so a saved
   // override that isn't pushed there never reaches the node the wallet actually uses.
+  it('ReloadEndpointOverridesRequest re-hydrates the remote config for the network the override selects', async () => {
+    mockLoadEndpointOverrides.mockClear();
+    mockInitBridgeConfig.mockClear();
+    await dispatch({ type: WalletMessageType.ReloadEndpointOverridesRequest });
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
+    expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
+      mockInitBridgeConfig.mock.invocationCallOrder[0]
+    );
+  });
+
   it('ReloadEndpointOverridesRequest also invalidates the OFFSCREEN realm, after re-reading the override', async () => {
     mockLoadEndpointOverrides.mockClear();
     await dispatch({ type: WalletMessageType.ReloadEndpointOverridesRequest });

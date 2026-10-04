@@ -1,3 +1,5 @@
+import { getEpochPositionsUrl } from 'lib/remote-config/values';
+
 import {
   carryForward,
   type EarnPosition,
@@ -6,11 +8,11 @@ import {
   fetchEarnPositions,
   getEarnDepositEvmAddresses
 } from './positions';
+import { TEST_POSITIONS_URL } from './testing/bridge-config';
 
-jest.mock('./earn', () => ({
-  EARN_DESTINATION_CHAIN_ID: 11155111,
-  EARN_MARKET_UID: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'
-}));
+jest.mock('lib/remote-config/values', () =>
+  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+);
 jest.mock('lib/miden/repo', () => ({
   transactions: { filter: jest.fn() }
 }));
@@ -73,6 +75,28 @@ describe('fetchEarnPositions', () => {
     expect(result.positions).toEqual([]);
     expect(result.vaults).toHaveLength(1);
     expect(result.vaults[0]).toMatchObject({ lenderKey: 'DUMMY_LENDING', chainId: '11155111', depositApr: 2 });
+  });
+
+  it('reads the positions host and the market chain the config names', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { items: [] } })
+    });
+
+    await fetchEarnPositions({ owners: [OWNER] });
+
+    expect(global.fetch).toHaveBeenCalledWith(`${TEST_POSITIONS_URL}/positions?account=${OWNER}&chains=11155111`, {
+      signal: expect.any(AbortSignal)
+    });
+  });
+
+  it('rejects before any request while the config names no positions host', async () => {
+    jest.mocked(getEpochPositionsUrl).mockImplementationOnce(() => {
+      throw new Error('no positions host');
+    });
+
+    await expect(fetchEarnPositions({ owners: [OWNER] })).rejects.toThrow('no positions host');
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('maps funded positions and preserves withdrawal inputs', async () => {

@@ -38,13 +38,13 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { napiExitTxHashFromRequestBytes } from './exit-hash';
-import {
-  EVM_AGGLAYER_NETWORK_ID,
-  MIDEN_AGGLAYER_FAUCET_ID,
-  MIDEN_BRIDGE_ID
-} from '../../../src/lib/agglayer/b2agg/constant';
 import { agglayerExitTxHash } from '../../../src/lib/agglayer/b2agg/exit-hash';
 import fixture from '../../../src/lib/agglayer/b2agg/exit-hash.vectors.json';
+import {
+  TEST_EVM_NETWORK_ID,
+  TEST_MIDEN_BRIDGE,
+  TEST_NATIVE_ETH_FAUCET
+} from '../../../src/lib/epoch/testing/bridge-config';
 
 const deposit16 = fixture.vectors.find(vector => vector.depositCnt === 16);
 if (deposit16?.indexerDeposit === undefined) throw new Error('the fixture lost deposit 16');
@@ -55,9 +55,9 @@ describe('napiExitTxHashFromRequestBytes', () => {
     // A B2AGG note as 0.17 builds one, sent from deposit 16's sender to its destination.
     const note = Note.createB2AggNote(
       AccountId.fromHex('0xa95e28ec96b9ae1132266aa4d4ddb9'),
-      AccountId.fromHex(MIDEN_BRIDGE_ID),
-      new NoteAssets([new FungibleAsset(AccountId.fromHex(MIDEN_AGGLAYER_FAUCET_ID), 10_000n)]),
-      EVM_AGGLAYER_NETWORK_ID,
+      AccountId.fromHex(TEST_MIDEN_BRIDGE),
+      new NoteAssets([new FungibleAsset(AccountId.fromHex(TEST_NATIVE_ETH_FAUCET), 10_000n)]),
+      TEST_EVM_NETWORK_ID,
       EthAddress.fromHex(destination)
     );
     // The request `initiateB2AggBridge` queues an Agglayer row with, around its one B2AGG note.

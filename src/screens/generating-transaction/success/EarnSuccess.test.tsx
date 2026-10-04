@@ -57,6 +57,11 @@ jest.mock('lib/store', () => ({
     selector({ assetsMetadata: mockAssetsMetadata })
 }));
 
+// The collateral the receipt falls back to comes from the bridge config.
+let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
+
 // Captures the last props handed to the shared layout. `mock`-prefixed so
 // jest's factory-hoisting allows the out-of-scope reference.
 let mockLastLayoutProps: TransactionSuccessLayoutProps | undefined;
@@ -121,6 +126,7 @@ describe('EarnSuccess', () => {
     mockLastRows = undefined;
     mockLastPill = undefined;
     mockAssetsMetadata = {};
+    mockCollateral = { faucetId: 'mtst1faucet', symbol: 'USDC', decimals: 6 };
     mockNavigate.mockClear();
   });
 
@@ -205,5 +211,19 @@ describe('EarnSuccess', () => {
 
     expect(mockLastPill?.lhs).toBeUndefined();
     expect(mockLastPill?.rhs).toBeUndefined();
+  });
+  it('falls back to the symbol of the collateral the config names when the row is that collateral', () => {
+    mockCollateral = { faucetId: 'mtst1faucet', symbol: 'tUSDC', decimals: 2 };
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+    expect(mockLastPill?.lhs).toBe('10000000 tUSDC');
+  });
+
+  it('withholds the amount of a deposit whose faucet the config does not name', () => {
+    mockCollateral = { faucetId: 'mtst1other', symbol: 'USDC', decimals: 6 };
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+    expect(mockLastPill?.lhs).toBeUndefined();
+    expect((mockLastRows ?? []).map(row => row.label)).not.toContain('Total Deposited');
   });
 });

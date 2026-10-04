@@ -809,6 +809,8 @@
   "fast": "Швидко",
   "slow": "Повільно",
   "unavailable": "Недоступно",
+  "bridgeFeatureUnavailableTitle": "Тимчасово недоступно",
+  "bridgeFeatureUnavailableBody": "Ця зовнішня служба наразі не працює. Будь ласка, спробуйте пізніше.",
   "agglayerCheckingToken": "Перевірка, чи підтримує цей токен маршрут Slow…",
   "agglayerTokenUnsupported": "Цей токен не підтримує маршрут Slow.",
   "agglayerTokenCheckFailed": "Не вдалося перевірити цей токен. Поверніться назад і спробуйте ще раз.",

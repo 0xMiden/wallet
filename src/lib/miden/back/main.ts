@@ -38,6 +38,7 @@ import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sd
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
 
@@ -55,9 +56,17 @@ import { MidenMessageType } from '../types';
 // `store` may not be initialized at module scope evaluation time.
 let frontStore: ReturnType<typeof store.map> | null = null;
 
+// Settles once start() has hydrated the endpoint override and the bridge config, which handlers read synchronously.
+let startupHydration: Promise<void> = Promise.resolve();
+
 export async function start() {
   console.log('Miden background script started');
-  intercom.onRequest(processRequest);
+  let hydrated: () => void = () => undefined;
+  startupHydration = new Promise<void>(resolve => {
+    hydrated = resolve;
+  });
+  // Registered first so no message is missed; it dispatches only once startupHydration settles.
+  intercom.onRequest(dispatchWhenHydrated);
   registerOffscreenSignHandler();
 
   // The connectivity snapshot is in-memory and therefore empty on every MV3 wake,
@@ -91,7 +100,14 @@ export async function start() {
   // Apply any developer endpoint override before any client/vault init reads
   // endpoints. Must run before primeNativeAssetId() below — its cache keys
   // are derived from getEffectiveNetworkName() at call time.
-  await loadEndpointOverrides();
+  // Then the bridge config, which synchronous readers here (bridge-in matching, spend valuation) need. Requests wait
+  // for both through dispatchWhenHydrated; both read storage only and never wait for the network.
+  try {
+    await loadEndpointOverrides();
+    await initBridgeConfig();
+  } finally {
+    hydrated();
+  }
 
   await Actions.init();
 
@@ -333,6 +349,11 @@ function registerOffscreenSignHandler(): void {
   });
 }
 
+async function dispatchWhenHydrated(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+  await startupHydration;
+  return processRequest(req, port);
+}
+
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
@@ -375,6 +396,9 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     rediscovery to whoever happens to ask next means the first sync after a
       //     repoint judges notes against the old chain's fee.
       await loadEndpointOverrides();
+      //   - initBridgeConfig() hydrates the remote bridge config of the network the override selects; this realm has
+      //     no scheduler to notice the switch on its own.
+      await initBridgeConfig();
       resetSyncBackoffForEndpointChange();
       clearSyncFuseForEndpointChange();
       //   - retireGuardianWritesForEndpointChange() retires guardian writes DECIDED against the

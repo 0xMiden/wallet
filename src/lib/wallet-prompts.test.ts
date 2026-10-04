@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
@@ -51,6 +51,8 @@ import {
   withFaucetFundingMarkerLock
 } from './wallet-prompts';
 
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/platform', () => ({
   isMobile: () => false,
   isDesktop: () => true,
@@ -112,6 +114,13 @@ jest.mock('lib/miden/transaction/complete', () => ({
   // stubbed rather than the real function so this suite stays about
   // `reconcileBridgedSends`'s own decisions, not `complete.ts`'s literals.
   bridgedSendLandedValues: () => ({ displayMessage: 'Bridged to EVM', displayIcon: 'SEND', completedAt: 1_700_000_000 })
+}));
+// The testnet indexer and its derived networks, which the real lookup reads from the bridge config.
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual('lib/remote-config/values'),
+  getAgglayerIndexerUrl: () => 'https://indexer.test/api',
+  getAgglayerRollupId: () => 86,
+  getAgglayerEvmNetworkId: () => 0
 }));
 jest.mock('lib/agglayer/b2agg/exit-hash', () => ({
   agglayerExitTxHashFromRowBytes: (...args: unknown[]) => exitHashFromRowBytes(...args)

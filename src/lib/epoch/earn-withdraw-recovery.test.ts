@@ -50,6 +50,9 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 }));
 jest.mock('./evm-account', () => ({ buildVaultEvmWalletClient: jest.fn(() => ({})) }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn(), ensureEpochSmartAccount: jest.fn() }));
+jest.mock('lib/remote-config/values', () =>
+  jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config').remoteConfigValuesMock()
+);
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn().mockResolvedValue('0xabcdef1234567890abcdef12345678')
 }));

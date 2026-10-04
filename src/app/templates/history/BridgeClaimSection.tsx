@@ -243,7 +243,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     try {
       await updateBridgeClaimStatus(entry.txId, 'claiming', pin, claimable.tx_hash);
       try {
-        const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider, network: 'sepolia' });
+        const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider });
         await tx.wait();
         setStatus('claimed');
         await updateBridgeClaimStatus(entry.txId, 'claimed', { ...pin, claimTxHash: tx.hash }, claimable.tx_hash);

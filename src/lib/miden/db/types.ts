@@ -252,7 +252,7 @@ export interface IBridgedSendExtraInputs {
   provider: IBridgeProvider;
   /** 0x EVM recipient. */
   destinationAddress: string;
-  /** EVM destination network: `EVM_AGGLAYER_NETWORK_ID` (agglayer) or chain id (epoch). */
+  /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
   destinationNetwork: number;
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
@@ -390,6 +390,8 @@ export interface IEarnWithdrawExtraInputs {
   sourceAmount: string;
   /** Source token symbol (e.g. `USDC`). */
   sourceSymbol: string;
+  /** The source token's decimals when the withdrawal was created, so a retry never waits on the token's read. */
+  sourceDecimals?: number;
   phase: IEarnWithdrawPhase;
   /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
   withdrawIntentNonce?: string;
@@ -1334,7 +1336,8 @@ export class EarnWithdrawTransaction implements ITransaction {
     sourceAmount: string,
     sourceSymbol = 'USDC',
     submissionAttemptId?: string,
-    attemptStartedAt?: number
+    attemptStartedAt?: number,
+    sourceDecimals?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -1353,6 +1356,7 @@ export class EarnWithdrawTransaction implements ITransaction {
       destinationFaucetId: faucetId,
       sourceAmount,
       sourceSymbol,
+      sourceDecimals,
       phase: 'redeeming',
       submissionState: 'preparing',
       submissionAttemptId,
