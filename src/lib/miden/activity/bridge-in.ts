@@ -182,9 +182,11 @@ async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
   const faucet = selectNativeEthFaucet(getBridgeConfigSnapshot());
   if (!faucet) return false;
   try {
-    // The consume reads its sender in bech32; the registry names the faucet in hex.
-    return accountRefToSdk(sender).toString().toLowerCase() === faucet;
-  } catch {
+    // The consume reads its sender in bech32 and the registry names the faucet in hex: both go through the SDK, as
+    // sameWalletAccountId compares, so the match never rests on the registry's text matching the SDK's.
+    return accountRefToSdk(sender).toString().toLowerCase() === accountRefToSdk(faucet).toString().toLowerCase();
+  } catch (error) {
+    console.warn('[bridge-in] could not compare the delivery sender', sender, error);
     return false;
   }
 }

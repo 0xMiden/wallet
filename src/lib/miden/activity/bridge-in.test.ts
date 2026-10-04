@@ -1,3 +1,4 @@
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { selectNativeEthFaucet } from 'lib/remote-config/values';
 
@@ -42,8 +43,14 @@ jest.mock('lib/remote-config/runtime', () => ({
   initBridgeConfig: jest.fn(async () => ({}))
 }));
 jest.mock('lib/remote-config/values', () => ({ selectNativeEthFaucet: jest.fn(() => '0xagg') }));
+// As the SDK parses ids: one text per account whichever form names it, and not the text the registry names the faucet
+// in, so only a match that converts both sides finds the sender.
+const mockAccountText: Record<string, string> = { 'agg-sender': 'agg-account', '0xagg': 'agg-account' };
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountRefToSdk: (ref: string) => ({ toString: () => (ref === 'agg-sender' ? '0xAGG' : `0x${ref}`) })
+  accountRefToSdk: (ref: string) => {
+    if (ref === 'unreadable-sender') throw new Error('not an account id');
+    return { toString: () => mockAccountText[ref] ?? `${ref}-account` };
+  }
 }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -255,6 +262,47 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  it('matches the sender as an account, not as the text the registry names the faucet in', async () => {
+    expect(accountRefToSdk('0xagg').toString()).not.toBe('0xagg');
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  it('logs a sender it cannot compare and takes no row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'unreadable-sender', amount: 5n })
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-in] could not compare the delivery sender',
+        'unreadable-sender',
+        expect.any(Error)
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('matches nothing while the bridge config names no native-ETH faucet', async () => {

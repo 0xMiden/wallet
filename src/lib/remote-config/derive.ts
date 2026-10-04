@@ -109,8 +109,8 @@ const wordKey = (sub: bigint, suffix: bigint, prefix: bigint) => `${sub}:0:${suf
 const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
- * The id as `AccountId.toString()` prints it: the prefix felt's 8 bytes, then the top 7 bytes of the
- * suffix felt, whose low byte is always 0.
+ * The id in the hex form `AccountId.fromHex` parses: the prefix felt's 8 bytes, then the top 7 bytes of the
+ * suffix felt, whose low byte is always 0. A reader compares it with another id through the SDK, never as text.
  */
 function accountIdHex(prefix: bigint, suffix: bigint): string {
   return `0x${prefix.toString(16).padStart(16, '0')}${(suffix >> 8n).toString(16).padStart(14, '0')}`;
