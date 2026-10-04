@@ -220,8 +220,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
   const [slowError, setSlowError] = useState<string | null>(null);
+  // Reached only through handleTokenSelect, which refuses under the confirm lock first.
   const clearTokenState = useCallback(() => {
-    if (confirming.current) return;
     resetEpoch();
     setSlowStatus('idle');
     setSlowError(null);

@@ -157,6 +157,11 @@ jest.mock('lib/walletconnect/config', () => ({
   getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
 }));
 
+/** The handlers the screen last rendered into the form and the drawers: a guard is driven through them directly. */
+let mockLastOpenTokenDrawer: () => void = () => undefined;
+let mockLastTokenSelect: (token: string) => void = () => undefined;
+let mockLastConnectAnother: () => void = () => undefined;
+
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
@@ -175,31 +180,34 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onContinue: () => void;
     onSelectToken: () => void;
     onSwitch: () => void;
-  }) => (
-    <div>
-      <span data-testid="form-error">{error}</span>
-      <span data-testid="form-amount">{amount}</span>
-      <span data-testid="form-token">{token.name}</span>
-      <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
-        amount
-      </button>
-      <button data-testid="set-amount-padded" onClick={() => onAmountChange('1.5050')}>
-        padded amount
-      </button>
-      <button data-testid="set-amount-four-places" onClick={() => onAmountChange('10.6512')}>
-        four-place amount
-      </button>
-      <button data-testid="open-token-drawer" onClick={onSelectToken}>
-        token
-      </button>
-      <button data-testid="switch-wallet" onClick={onSwitch}>
-        switch
-      </button>
-      <button data-testid="continue" onClick={onContinue}>
-        continue
-      </button>
-    </div>
-  )
+  }) => {
+    mockLastOpenTokenDrawer = onSelectToken;
+    return (
+      <div>
+        <span data-testid="form-error">{error}</span>
+        <span data-testid="form-amount">{amount}</span>
+        <span data-testid="form-token">{token.name}</span>
+        <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
+          amount
+        </button>
+        <button data-testid="set-amount-padded" onClick={() => onAmountChange('1.5050')}>
+          padded amount
+        </button>
+        <button data-testid="set-amount-four-places" onClick={() => onAmountChange('10.6512')}>
+          four-place amount
+        </button>
+        <button data-testid="open-token-drawer" onClick={onSelectToken}>
+          token
+        </button>
+        <button data-testid="switch-wallet" onClick={onSwitch}>
+          switch
+        </button>
+        <button data-testid="continue" onClick={onContinue}>
+          continue
+        </button>
+      </div>
+    );
+  }
 }));
 
 /** The Review's latest Confirm handler: a tap can land on Review while the Navigator is leaving it. */
@@ -245,25 +253,30 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
     onSelect: (token: string) => void;
     usdcBalance: string;
     usdcLoading: boolean;
-  }) => (
-    <div>
-      <span data-testid="usdc-balance">{usdcLoading ? 'loading' : usdcBalance}</span>
-      {open ? (
-        <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
-          ETH
-        </button>
-      ) : null}
-    </div>
-  )
+  }) => {
+    mockLastTokenSelect = onSelect;
+    return (
+      <div>
+        <span data-testid="usdc-balance">{usdcLoading ? 'loading' : usdcBalance}</span>
+        {open ? (
+          <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
+            ETH
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 }));
 
 jest.mock('./EvmSwitchWalletDrawer', () => ({
-  EvmSwitchWalletDrawer: ({ open, onConnectAnother }: { open: boolean; onConnectAnother: () => void }) =>
-    open ? (
+  EvmSwitchWalletDrawer: ({ open, onConnectAnother }: { open: boolean; onConnectAnother: () => void }) => {
+    mockLastConnectAnother = onConnectAnother;
+    return open ? (
       <button data-testid="connect-another" onClick={onConnectAnother}>
         connect another
       </button>
-    ) : null
+    ) : null;
+  }
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
@@ -650,13 +663,6 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
   });
 
-  /** Taps a control if it is on screen: a drawer the lock keeps closed leaves nothing to tap, and that is the point. */
-  const clickIfShown = (testId: string) => {
-    const control = screen.queryByTestId(testId);
-    if (control) fireEvent.click(control);
-  };
-  const pickEthIfShown = () => clickIfShown('pick-eth');
-
   /** Holds the tracking row's creation open after the Confirm tap, as a slow write would, until it is written or fails. */
   const holdRowCreation = () => {
     let resolveRow: (id: string) => void = () => undefined;
@@ -706,11 +712,10 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     fireEvent.click(screen.getByTestId('pick-slow'));
     await settle();
   };
+  // The drawer cannot open under the lock, so the pick goes to the handler the drawer last rendered with.
   const changeToken = async () => {
     await goBackTo(2);
-    fireEvent.click(screen.getByTestId('open-token-drawer'));
-    await settle();
-    pickEthIfShown();
+    act(() => mockLastTokenSelect('ETH'));
     await settle();
   };
 
@@ -776,9 +781,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   it('keeps the token a deposit was confirmed with while its row is written', async () => {
     const row = await confirmHeld();
 
-    fireEvent.click(screen.getByTestId('open-token-drawer'));
-    await settle();
-    pickEthIfShown();
+    act(() => mockLastTokenSelect('ETH'));
     await settle();
 
     expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
@@ -808,7 +811,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
 
-    clickIfShown('connect-another');
+    act(() => mockLastConnectAnother());
     await settle();
 
     expect(connectAnother).not.toHaveBeenCalled();
@@ -817,23 +820,51 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   });
 
   // The lock taken at the tap holds once the row exists: the status page follows, and nothing may reset what it shows.
-  it('leaves a deposit whose row exists alone however its token drawer was reached', async () => {
+  const tryEveryInput = async () => {
+    act(() => mockLastOpenTokenDrawer());
+    act(() => mockLastTokenSelect('ETH'));
+    act(() => mockLastConnectAnother());
+    await settle();
+  };
+
+  it('refuses every input of a confirmed deposit while its row is written and once it exists', async () => {
     const row = await confirmHeld();
-    fireEvent.click(screen.getByTestId('open-token-drawer'));
-    await settle();
-    expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
-    pickEthIfShown();
-    await settle();
     jest.mocked(epochState.reset).mockClear();
+
+    await tryEveryInput();
+    expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
 
     row.release();
     await settle();
-    pickEthIfShown();
-    await settle();
+    await tryEveryInput();
 
-    expect(epochState.reset).not.toHaveBeenCalled();
     expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
+    expect(epochState.reset).not.toHaveBeenCalled();
+    expect(connectAnother).not.toHaveBeenCalled();
+    expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['quoted', 'failed'] as const)(
+    'quotes nothing over a deposit whose row exists when the config moves, the store reading %s',
+    async status => {
+      quoteFast();
+      renderScreen();
+      await reachFastReview();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+      Object.assign(epochState, { status, flow: 'evm-to-miden' });
+      const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
+      jest.mocked(epochState.reset).mockClear();
+
+      const [, moveAllocator] = CONFIG_MOVES[0];
+      act(() => publishSnapshot({ ...READY_SNAPSHOT, config: moveAllocator(READY_SNAPSHOT.config!) }));
+      await settle();
+
+      expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
+      expect(epochState.reset).not.toHaveBeenCalled();
+    }
+  );
 
   it('closes an open token or wallet drawer at the Confirm tap', async () => {
     quoteFast();
