@@ -37,9 +37,10 @@ const fixed32Field = (fieldNumber: number, value: number): Uint8Array =>
 /** `primitives.Word { bytes encoded = 1; }` */
 const word = (bytes: Uint8Array): Uint8Array => lenField(1, bytes);
 
-/** `NoteMetadata`, with every field the proto defines except the zero-valued `version`. */
+/** `NoteMetadata` with every field the proto defines, as 0.17 writes it: `version` is 1, so it is on the wire. */
 const metadata = (tag: number): Uint8Array =>
   concat(
+    varintField(1, 1), // NOTE_VERSION_V1
     lenField(2, new Uint8Array(15).fill(0x5e)), // sender: opaque to the decoder
     varintField(3, 1), // NOTE_TYPE_PRIVATE
     fixed32Field(4, tag),

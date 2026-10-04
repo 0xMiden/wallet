@@ -39,8 +39,8 @@ describe('classifyUrl — transport', () => {
   });
 
   it('classifies the transport path as transport even on an rpc host', () => {
-    // A node can serve the transport beside `rpc.Api` on one host; the path must
-    // win, or the push decode (gated on `transport`) never runs.
+    // A node can serve the transport beside its RPC service (`miden.node.v1.NodeService`)
+    // on one host; the path must win, or the push decode (gated on `transport`) never runs.
     expect(classifyUrl(`http://localhost:57291/${SEND_NOTE}`)).toBe('transport');
     expect(classifyUrl(`https://rpc.testnet.miden.io/${SEND_NOTE}`)).toBe('transport');
     expect(classifyUrl(`https://rpc.testnet.miden.io/${FETCH_NOTES}`)).toBe('transport');
