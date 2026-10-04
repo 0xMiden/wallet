@@ -358,6 +358,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // The store quotes through the configured allocator, which it reads itself: a move of it quotes anew.
   useEffect(() => {
     if (route !== 'epoch' || token !== 'USDC') return;
+    // A quote resets the store's deposit state, stopping its status poll, so nothing quotes over a deposit that has
+    // started. Read, not subscribed: a status change alone must never quote, or a landed quote starts another and a
+    // deposit that fails is re-quoted over its error.
+    const { flow, status } = useEpochStore.getState();
+    if (flow === 'evm-to-miden' && (status === 'signing' || status === 'pending' || status === 'done')) return;
     // A declined quote (no amount, or one that rounds to zero faucet units) clears the last one.
     const quoting = requote();
     if (quoting === undefined) resetEpoch();

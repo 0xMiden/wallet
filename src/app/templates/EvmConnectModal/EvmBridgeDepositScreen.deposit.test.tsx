@@ -106,7 +106,9 @@ jest.mock('lib/epoch', () => ({
   // route, which needs no quote.
   evmToMidenMinTokenOut:
     jest.requireActual<typeof import('lib/epoch/bridge')>('lib/epoch/bridge').evmToMidenMinTokenOut,
-  useEpochStore: (selector: (s: typeof epochState) => unknown) => selector(epochState)
+  useEpochStore: Object.assign((selector: (s: typeof epochState) => unknown) => selector(epochState), {
+    getState: () => epochState
+  })
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -312,16 +314,40 @@ const reachSlowUsdcReview = async () => {
   await settle();
 };
 
-const renderScreen = (reportDeposit?: ReportDeposit) =>
-  render(
-    <EvmBridgeDepositScreen
-      evmAddress="0xevm-wallet"
-      midenAccount={midenAccount as never}
-      onConnectAnother={jest.fn()}
-      onClose={jest.fn()}
-      reportDeposit={reportDeposit}
-    />
-  );
+const depositScreen = (reportDeposit?: ReportDeposit) => (
+  <EvmBridgeDepositScreen
+    evmAddress="0xevm-wallet"
+    midenAccount={midenAccount as never}
+    onConnectAnother={jest.fn()}
+    onClose={jest.fn()}
+    reportDeposit={reportDeposit}
+  />
+);
+
+const renderScreen = (reportDeposit?: ReportDeposit) => render(depositScreen(reportDeposit));
+
+type ConfigMove = (config: NonNullable<MockSnapshot['config']>) => MockSnapshot['config'];
+const CONFIG_MOVES: [string, ConfigMove, Record<string, unknown>][] = [
+  ['the allocator', config => ({ ...config, epoch: { ...config.epoch, allocatorUrl: 'https://moved.test' } }), {}],
+  [
+    'the Miden USDC faucet',
+    config => ({ ...config, epoch: { ...config.epoch, midenUsdcFaucet: '0x00000000000000000000000000e2e1' } }),
+    { midenFaucetId: '0x00000000000000000000000000e2e1' }
+  ]
+];
+const NO_MIDEN_USDC: [string, ConfigMove] = [
+  'the Miden USDC faucet, to none',
+  config => ({ ...config, epoch: { ...config.epoch, midenUsdcFaucet: '' } })
+];
+
+/** Quotes as the store does, quoting then quoted, and renders each landed quote as its subscribers would. */
+const quoteMovingTheStore = (rerender: () => void) =>
+  jest.fn(async () => {
+    Object.assign(epochState, { status: 'quoting', flow: 'evm-to-miden', error: null });
+    await Promise.resolve();
+    Object.assign(epochState, { status: 'quoted' });
+    rerender();
+  });
 
 describe('EvmBridgeDepositScreen deposit reporting', () => {
   beforeEach(() => {
@@ -523,14 +549,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(global.fetch).toHaveBeenCalledTimes(reads);
   });
 
-  it.each<[string, (config: NonNullable<MockSnapshot['config']>) => MockSnapshot['config'], Record<string, unknown>]>([
-    ['the allocator', config => ({ ...config, epoch: { ...config.epoch, allocatorUrl: 'https://moved.test' } }), {}],
-    [
-      'the Miden USDC faucet',
-      config => ({ ...config, epoch: { ...config.epoch, midenUsdcFaucet: '0x00000000000000000000000000e2e1' } }),
-      { midenFaucetId: '0x00000000000000000000000000e2e1' }
-    ]
-  ])('quotes again once the config moves only %s', async (_case, move, moved) => {
+  it.each(CONFIG_MOVES)('quotes again once the config moves only %s', async (_case, move, moved) => {
     const quoteEVMToMiden = jest.fn().mockResolvedValue(undefined);
     Object.assign(epochState, { quoteEVMToMiden });
     renderScreen();
@@ -551,6 +570,78 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       }),
       '0xevm-wallet'
     );
+  });
+
+  // A quote resets the store's deposit state, and a declined one resets the store outright.
+  it.each(
+    (['signing', 'pending', 'done'] as const).flatMap(status =>
+      [...CONFIG_MOVES, NO_MIDEN_USDC].map(([moved, move]) => [status, moved, move] as const)
+    )
+  )('leaves a %s deposit in place when the config moves only %s', async (status, _moved, move) => {
+    const quoteEVMToMiden = jest.fn().mockResolvedValue(undefined);
+    Object.assign(epochState, { quoteEVMToMiden });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
+    jest.mocked(epochState.reset).mockClear();
+
+    Object.assign(epochState, { status, flow: 'evm-to-miden' });
+    act(() => publishSnapshot({ ...READY_SNAPSHOT, config: move(READY_SNAPSHOT.config!) }));
+    await settle();
+
+    expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
+    expect(epochState.reset).not.toHaveBeenCalled();
+  });
+
+  // The Retry tap re-quotes through the same path, so a failed deposit stays recoverable.
+  it.each(CONFIG_MOVES)('quotes again after a failed deposit once the config moves only %s', async (_case, move) => {
+    const quoteEVMToMiden = jest.fn().mockResolvedValue(undefined);
+    Object.assign(epochState, { quoteEVMToMiden });
+    renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+
+    Object.assign(epochState, { status: 'failed', flow: 'evm-to-miden' });
+    act(() => publishSnapshot({ ...READY_SNAPSHOT, config: move(READY_SNAPSHOT.config!) }));
+    await settle();
+
+    expect(quoteEVMToMiden).toHaveBeenCalledTimes(2);
+  });
+
+  it('quotes an amount once while the store moves from quoting to quoted', async () => {
+    let rerenderScreen = (): void => undefined;
+    const quoteEVMToMiden = quoteMovingTheStore(() => rerenderScreen());
+    Object.assign(epochState, { quoteEVMToMiden });
+    const { rerender } = renderScreen();
+    rerenderScreen = () => rerender(depositScreen());
+
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+
+    expect(epochState.status).toBe('quoted');
+    expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a failed deposit's error on screen and quotes nothing for it on its own", async () => {
+    let rerenderScreen = (): void => undefined;
+    const quoteEVMToMiden = quoteMovingTheStore(() => rerenderScreen());
+    Object.assign(epochState, { quoteEVMToMiden });
+    const { rerender } = renderScreen();
+    rerenderScreen = () => rerender(depositScreen());
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    quoteEVMToMiden.mockClear();
+
+    Object.assign(epochState, { status: 'signing' });
+    rerenderScreen();
+    await settle();
+    Object.assign(epochState, { status: 'failed', error: 'The wallet rejected the deposit.' });
+    rerenderScreen();
+    await settle();
+
+    expect(quoteEVMToMiden).not.toHaveBeenCalled();
+    expect(screen.getByTestId('form-error')).toHaveTextContent('The wallet rejected the deposit.');
   });
 
   it('shows the USDC balance as loading, not as an error, while the config loads', async () => {
