@@ -857,8 +857,9 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
       jest.mocked(epochState.reset).mockClear();
 
-      const [, moveAllocator] = CONFIG_MOVES[0];
-      act(() => publishSnapshot({ ...READY_SNAPSHOT, config: moveAllocator(READY_SNAPSHOT.config!) }));
+      const config = READY_SNAPSHOT.config!;
+      const moved = { ...config, epoch: { ...config.epoch, allocatorUrl: 'https://moved.test' } };
+      act(() => publishSnapshot({ ...READY_SNAPSHOT, config: moved }));
       await settle();
 
       expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
