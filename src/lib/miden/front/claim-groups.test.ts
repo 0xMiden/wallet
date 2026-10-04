@@ -23,3 +23,13 @@ it('keeps arrival order while the native faucet is unknown', () => {
     [note('miden-1', 'miden')]
   ]);
 });
+
+it('claims each note the predicate singles out on its own, after the native batch', () => {
+  const notes = [note('eth-1', 'eth'), note('bridge-1', 'eth'), note('miden-1', 'miden'), note('bridge-2', 'eth')];
+  expect(groupNotesForClaim(notes, 'miden', candidate => candidate.id.startsWith('bridge'))).toEqual([
+    [note('miden-1', 'miden')],
+    [note('eth-1', 'eth')],
+    [note('bridge-1', 'eth')],
+    [note('bridge-2', 'eth')]
+  ]);
+});

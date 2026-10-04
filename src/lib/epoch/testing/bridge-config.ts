@@ -21,6 +21,11 @@ export const TEST_MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
 export const TEST_MIDEN_USDC: MidenUsdc = { faucetId: TEST_MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
 /** The testnet bridge registry's native-ETH faucet: it mints bridged ETH and sends its deliveries. */
 export const TEST_NATIVE_ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
+/** That faucet's registry scale: a deposit of `w` wei arrives as `floor(w / 10^scale)` of its units. */
+export const TEST_NATIVE_ETH_SCALE = 10;
+/** The testnet Agglayer bridge account every bridge-out note targets, and the L1 bridge's networkID() it carries. */
+export const TEST_MIDEN_BRIDGE = '0x3b66e20b5088f25133b69216484652';
+export const TEST_EVM_NETWORK_ID = 0;
 
 /**
  * A `lib/remote-config/values` stand-in resolving to the fixtures above; every getter is a jest.fn a suite can

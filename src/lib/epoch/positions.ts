@@ -108,7 +108,7 @@ export interface EarnPosition {
 /**
  * An available lending vault (one lender on one chain). The positions service
  * returns every supported lender per chain even when the account holds no
- * position there, so this doubles as the "featured vaults" catalog.
+ * position there, so this doubles as the available-vaults catalog.
  */
 export interface EarnVaultInfo {
   lenderKey: string;

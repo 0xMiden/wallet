@@ -2,6 +2,12 @@ export const BRIDGE_ASSET_ABI = [
   // Human readable abi
   'function bridgeAsset(uint32 destinationNetwork,address destinationAddress,uint256 amount,address token,bool forceUpdateGlobalExitRoot,bytes calldata permitData)'
 ];
+// When the testnet indexer renumbered Miden's exits from network 78 to the rollup id (86, `getAgglayerRollupId`), in
+// unix seconds like a row's `initiatedAt`. It serves nothing under 78 any more, so it gates only one thing: an unpinned
+// row initiated before this whose exit a search of its address's whole history missed is retired (#1325); a later row
+// never is. The issue's evidence dates the switch only to the day (the last network-78 claim is on 2026-09-08), so this
+// is the start of that day, UTC: a row from later that day is still polled rather than retired while it might settle.
+export const MIDEN_CHAIN_ID_RENUMBERED_AT = Date.parse('2026-09-08T00:00:00Z') / 1000;
 /**
  * Source symbol of the only asset the AggLayer delivery sender delivers. The sender
  * is the bridged-ETH faucet itself, so its notes can settle only a native ETH

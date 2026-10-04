@@ -190,6 +190,42 @@ describe('PendingActivityCard', () => {
       expect(accept).toHaveAttribute('aria-busy', 'true');
       expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
     });
+
+    it('a held claim offers Retry, enabled and not loading, and hands the item back (#1081)', () => {
+      const onRetryHeld = jest.fn();
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={onRetryHeld} />);
+      const button = screen.getByRole('button', { name: 'retry' });
+      expect(button).not.toBeDisabled();
+      // A loading Button refuses taps through pointer events, which jsdom does not apply, so the class is the check.
+      expect(button).not.toHaveClass('pointer-events-none');
+      fireEvent.click(button);
+      expect(onRetryHeld).toHaveBeenCalledWith(item);
+    });
+
+    it('a held claim without a refusal says it is not confirmed yet, not that it waits to be accepted (#1081)', () => {
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('transactionNotConfirmedHint');
+      expect(hint).not.toHaveTextContent('activityNotYetAccepted');
+    });
+
+    it('a refusal replaces the hint and opens the folded section (#1081)', () => {
+      const item: PendingActivityItem = {
+        note,
+        status: 'claiming',
+        txId: 'tx-held',
+        held: true,
+        retryError: 'The Guardian is still holding this transaction.'
+      };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('The Guardian is still holding this transaction.');
+      expect(hint).toHaveAttribute('data-tone', 'negative');
+      expect(hint).toHaveAttribute('role', 'alert');
+    });
   });
 
   describe('unread', () => {

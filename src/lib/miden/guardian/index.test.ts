@@ -277,6 +277,7 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   createTransactionProposalRequest: jest.fn(async () => 'tx-req'),
   signProposal: jest.fn(async () => ({ signatures: [] })),
   abandonCandidate: jest.fn(async () => ({ state: 'pending' })),
+  abandonStatus: jest.fn(async () => 'waiting'),
   executeProposal: jest.fn(async () => {}),
   syncState: jest.fn(async () => {}),
   // Local IS the on-chain state unless a test says otherwise: the re-register's guard (#1233).
@@ -490,7 +491,8 @@ describe('MultisigService', () => {
         expect(mockTransactionRequestDeserialize).toHaveBeenCalledWith(originalBytes);
         // A fresh fee-aware builder for THIS service's account, on the realm client.
         expect(mockFeeAwareRequestBuilder).toHaveBeenCalledTimes(1);
-        expect(mockFeeAwareRequestBuilder).toHaveBeenCalledWith(mockRawWebClient, 'acc-id', mockFeeSalt);
+        // No approval expiration was asked for, so none is bound.
+        expect(mockFeeAwareRequestBuilder).toHaveBeenCalledWith(mockRawWebClient, 'acc-id', mockFeeSalt, undefined);
         // The deserialized request's own output notes, carried over as they are.
         expect(mockNoteArray).toHaveBeenCalledWith(ownNotes);
         expect(builder.withOwnOutputNotes).toHaveBeenCalledWith({ kind: 'note-array', notes: ownNotes });
@@ -500,6 +502,17 @@ describe('MultisigService', () => {
         expect(createCustomFn).toHaveBeenCalledWith(rebasedBytes, 'swap');
         expect(result.proposal).toEqual({ kind: 'custom', id: 'rebased-proposal' });
         expect(result.requestBytes).toBe(rebasedBytes);
+      });
+
+      // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
+      // expiration the fee-aware builder binds to the bound block (#1081).
+      it('hands the approval expiration it is given to the fee-aware builder', async () => {
+        const { service, createCustomFn } = arrange();
+
+        await service.createRebasedCustomProposal(originalBytes, 'swap', 180);
+
+        expect(mockFeeAwareRequestBuilder).toHaveBeenCalledWith(mockRawWebClient, 'acc-id', mockFeeSalt, 180);
+        expect(createCustomFn).toHaveBeenCalledWith(rebasedBytes, 'swap');
       });
 
       it('rebuilds and proposes inside one wasm lock hold', async () => {
@@ -789,6 +802,15 @@ describe('MultisigService', () => {
       await service.abandonCandidate(7);
 
       expect(multisig.abandonCandidate).toHaveBeenCalledWith(7);
+    });
+
+    it('abandonStatus forwards the candidate nonce to the Guardian SDK (#1081)', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.abandonStatus(7)).resolves.toBe('waiting');
+
+      expect(multisig.abandonStatus).toHaveBeenCalledWith(7);
     });
 
     it('getConsumableNotes forwards to the wrapped Multisig', async () => {

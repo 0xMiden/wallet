@@ -4,7 +4,7 @@ import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
-import { selectNativeEthFaucet } from 'lib/remote-config/values';
+import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
 
 import { compareAccountIds } from './utils';
 import {
@@ -171,14 +171,24 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
 }
 
 /**
- * Whether `sender` sent an AggLayer delivery: the registered faucet whose origin is native ETH on network 0 mints
- * bridged ETH and sends its delivery notes. Matching stays off while the config cannot name that faucet, so an
- * ordinary incoming note is never mistaken for a bridge delivery.
+ * How long a deposit waits for its delivery: the reconciler times out an unsettled tracker past it, and no
+ * delivery adopts an older one.
  */
-async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
+export const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** What the bridge delivers for a deposit tracked in wei: floored at the native-ETH faucet's registry scale (#1326). */
+export function agglayerDeliveredAmount(trackedWei: bigint, scale: number): bigint {
+  return trackedWei / 10n ** BigInt(scale);
+}
+
+/**
+ * Whether `sender` sent an AggLayer delivery, by the config this realm holds: the registered faucet whose origin is
+ * native ETH on network 0 mints bridged ETH and sends its delivery notes. Matching stays off while the config cannot
+ * name that faucet, so an ordinary incoming note is never mistaken for a bridge delivery. A path that runs without a
+ * user action reads it through `isAgglayerDeliverySender`, which waits for this realm's config first.
+ */
+export function isAgglayerBridgeDelivery(sender: string): boolean {
   if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
-  // A consume can land before this realm hydrated the config; from storage, never the network.
-  await initBridgeConfig();
   const faucet = selectNativeEthFaucet(getBridgeConfigSnapshot());
   if (!faucet) return false;
   try {
@@ -191,12 +201,20 @@ async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
   }
 }
 
+async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
+  // A consume can land before this realm hydrated the config; from storage, never the network.
+  await initBridgeConfig();
+  return isAgglayerBridgeDelivery(sender);
+}
+
 /**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
  * The delivery sender is authoritative; amount + recipient prevent two deposits
- * to the same wallet from being paired in the wrong order. The sender delivers
- * bridged ETH, so only native ETH trackers are compatible: an ERC-20 deposit
- * with the same base-unit amount must not adopt its note.
+ * to the same wallet from being paired in the wrong order. A tracker holds the
+ * deposit in wei and the bridge delivers it at the native-ETH faucet's registry
+ * scale, so the two are compared through `agglayerDeliveredAmount`. The sender
+ * delivers bridged ETH, so only native ETH trackers are compatible: an ERC-20
+ * deposit with the same amount must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
@@ -204,6 +222,14 @@ export async function takeAgglayerBridgeInInfo(args: {
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
   if (!(await isAgglayerDeliverySender(args.senderAccountId))) return undefined;
+  // Matching stays off while the registry names no native-ETH faucet: without its scale no tracker's amount can be
+  // compared with the delivery's.
+  const scale = selectNativeEthToken(getBridgeConfigSnapshot())?.scale;
+  if (scale === undefined) return undefined;
+
+  // A `ready` tracker is never polled again, so the reconciler's timeout never fails it; a tracker whose delivery came
+  // long ago would otherwise take the next deposit of the same amount.
+  const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   const matches = await Repo.transactions
     .filter(tx => {
@@ -219,7 +245,9 @@ export async function takeAgglayerBridgeInInfo(args: {
         inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed' &&
-        tx.amount === args.amount
+        tx.initiatedAt >= cutoffSec &&
+        tx.amount !== undefined &&
+        agglayerDeliveredAmount(tx.amount, scale) === args.amount
       );
     })
     .toArray();

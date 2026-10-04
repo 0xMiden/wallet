@@ -107,6 +107,21 @@ jobs:
       - name: Run bridge E2E (testnet)
         run: xvfb-run -a yarn playwright test --config playwright.bridge.config.ts --retries=1
 
+      - name: Check the AggLayer indexer files Miden exits where the wallet looks
+        # The Slow route finds its deposit by the network id the indexer files
+        # Miden exits under (the rollup id the wallet derives from the testnet
+        # bridge account). A renumbering left every Slow bridge-out unsettled
+        # with no error anywhere (#1325), so it fails this job. It asks the
+        # indexer the published testnet config document names. It runs after
+        # the suite, and whatever the suite did, so a third party's answer never
+        # hides the Miden leg's own result; the probe asks twice before it fails.
+        # Only this probe runs: the suite's full preflight refuses the
+        # E2E_SEPOLIA_RPC_URL above, which is empty while that optional secret
+        # is unset.
+        if: always()
+        timeout-minutes: 2
+        run: node scripts/e2e-real.mjs --agglayer-indexer-only
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4

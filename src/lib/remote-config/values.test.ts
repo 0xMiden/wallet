@@ -6,9 +6,11 @@ import {
   BridgeConfigUnavailableError,
   getAgglayerBridgeOut,
   getAgglayerDeposit,
+  getAgglayerEvmNetworkId,
   getAgglayerIndexerUrl,
   getAgglayerL1Bridge,
   getAgglayerMidenBridge,
+  getAgglayerRollupId,
   getEarnMarket,
   getEpochAllocatorUrl,
   getEpochPositionsUrl,
@@ -21,7 +23,8 @@ import {
   selectEvmUsdc,
   selectMidenUsdc,
   selectMidenUsdcFaucetId,
-  selectNativeEthFaucet
+  selectNativeEthFaucet,
+  selectNativeEthToken
 } from './values';
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
@@ -117,6 +120,12 @@ describe('selectors', () => {
       chainId: 11155111
     });
     expect(selectNativeEthFaucet(snapshot())).toBe(ETH_FAUCET);
+    expect(selectNativeEthToken(snapshot())).toEqual({
+      midenFaucetId: ETH_FAUCET,
+      originToken: '0x0000000000000000000000000000000000000000',
+      originNetwork: 0,
+      scale: 10
+    });
   });
 
   it('keeps the testnet Earn market uid, protocol hash and underlying the wallet compiled in before', () => {
@@ -134,7 +143,8 @@ describe('selectors', () => {
       selectMidenUsdcFaucetId,
       selectEvmUsdc,
       selectEarnMarket,
-      selectNativeEthFaucet
+      selectNativeEthFaucet,
+      selectNativeEthToken
     ]) {
       expect(select(EMPTY)).toBeNull();
     }
@@ -146,6 +156,7 @@ describe('selectors', () => {
     expect(selectMidenUsdcFaucetId(failed)).toBe('0x537c15a622074e91188aa894456c52');
     expect(selectEvmUsdc(failed)).toBeNull();
     expect(selectNativeEthFaucet(withDerived({ agglayer: { tokens: ERROR } }))).toBeNull();
+    expect(selectNativeEthToken(withDerived({ agglayer: { tokens: ERROR } }))).toBeNull();
   });
 
   it('finds no native-ETH faucet in a registry that lists none', () => {
@@ -156,6 +167,7 @@ describe('selectors', () => {
     expect(
       selectNativeEthFaucet(withDerived({ agglayer: { tokens: { state: 'ok', value: onOtherNetwork } } }))
     ).toBeNull();
+    expect(selectNativeEthToken(withDerived({ agglayer: { tokens: { state: 'ok', value: withoutEth } } }))).toBeNull();
   });
 
   it('prefer the E2E collateral faucet, and only in an E2E build', () => {
@@ -182,6 +194,8 @@ describe('getters', () => {
     [getAgglayerMidenBridge, '0x3b66e20b5088f25133b69216484652'],
     [getAgglayerIndexerUrl, 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'],
     [getAgglayerL1Bridge, '0x1348947e282138d8f377b467f7d9c2eb0f335d1f'],
+    [getAgglayerRollupId, 86],
+    [getAgglayerEvmNetworkId, 0],
     [getAgglayerBridgeOut, { midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 }],
     [getAgglayerDeposit, { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f', rollupId: 86 }]
   ])('%p returns the current value synchronously', (get, expected) => {
@@ -202,6 +216,8 @@ describe('getters', () => {
     getAgglayerMidenBridge,
     getAgglayerIndexerUrl,
     getAgglayerL1Bridge,
+    getAgglayerRollupId,
+    getAgglayerEvmNetworkId,
     getAgglayerBridgeOut,
     getAgglayerDeposit
   ])('%p throws while there is no accepted document', get => {
@@ -228,5 +244,14 @@ describe('getters', () => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { evmNetworkId: ERROR } }));
     expect(() => getAgglayerBridgeOut()).toThrow(BridgeConfigUnavailableError);
     expect(getAgglayerDeposit()).toMatchObject({ rollupId: 86 });
+  });
+
+  it('read the rollup id and the L1 network id each from its own derived read', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { rollupId: ERROR } }));
+    expect(() => getAgglayerRollupId()).toThrow('The bridge config has no usable Agglayer rollup id.');
+    expect(getAgglayerEvmNetworkId()).toBe(0);
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { evmNetworkId: ERROR } }));
+    expect(() => getAgglayerEvmNetworkId()).toThrow('The bridge config has no usable Agglayer L1 network id.');
+    expect(getAgglayerRollupId()).toBe(86);
   });
 });

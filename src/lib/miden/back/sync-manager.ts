@@ -36,7 +36,7 @@ import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../s
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
-import { getUncompletedTransactions } from '../transaction/get';
+import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { runTrimTick } from '../transaction/trim-result-bytes';
@@ -403,6 +403,17 @@ async function runSync(force: boolean): Promise<void> {
       }
     }
 
+    // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten so a slow node or Guardian
+    // never holds the lap: node reads, and for each kept Guardian candidate the pass releases, a short WASM-lock read
+    // to build the cold service, a bounded Guardian abandon and up to 60 s of polling. Only after a successful sync,
+    // and skipped after an evicted one like the sweep. transaction-processor is imported dynamically, as below, to keep
+    // the service worker's init order acyclic; it holds the vault-backed Guardian provider the release needs.
+    if (syncSucceededAt !== undefined && !(inlineWasm && syncHoldEvicted)) {
+      void import('./transaction-processor')
+        .then(({ reconcileUnconfirmedInWorker }) => reconcileUnconfirmedInWorker())
+        .catch(err => console.warn('[SyncManager] unconfirmed reconcile failed', err));
+    }
+
     const intercom = getIntercom()!;
     const vault2 = await getVault();
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
@@ -599,7 +610,7 @@ async function runSync(force: boolean): Promise<void> {
         ) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
-            // Notes already covered by an uncompleted consume row are excluded BEFORE
+            // Notes already held by a consume row (live, or awaiting its verdict) are excluded BEFORE
             // the value check, because the enqueue below drops exactly those at its
             // dedup gate -- so counting them measured a set larger than the one that
             // gets claimed. Chain-sync lag keeps a consumed note visible for a lap or
@@ -607,7 +618,7 @@ async function runSync(force: boolean): Promise<void> {
             // newly-arrived dust note rode in on the in-flight batch's value and was
             // then claimed by itself for a full fee.
             const notesBeingClaimed = new Set(
-              (await getUncompletedTransactions(accountPubKey))
+              (await getNoteHoldingTransactions(accountPubKey))
                 .filter(tx => tx.type === 'consume')
                 .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
             );

@@ -34,6 +34,15 @@ const SEPOLIA_COMPACT = '0x00000000000000171ede64904551eeDF3C6C9788';
 /** Where wallets read `<network>.json` (0xMiden/wallet-config, branch main) - src/lib/remote-config/source.ts. */
 const PUBLISHED_CONFIG_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main';
 
+/**
+ * The testnet rollup id: the network id the AggLayer indexer files every Miden -> EVM exit under, and the one the
+ * wallet's Slow bridge-out looks its deposit up by. The wallet derives it from the bridge account the config document
+ * names (`agglayer::bridge::network_id`, src/lib/remote-config/derive.ts); this probe reads no Miden storage, so it
+ * holds the testnet's value, the one the indexer filed the golden exits under
+ * (src/lib/agglayer/b2agg/exit-hash.vectors.json).
+ */
+export const AGGLAYER_MIDEN_NETWORK_ID = 86;
+
 const MIDEN_RPC = {
   testnet: 'https://rpc.testnet.miden.io',
   devnet: 'https://rpc.devnet.miden.io'
@@ -68,13 +77,13 @@ export const SUITES = {
     grep: 'Slow AggLayer',
     // No epoch: this route never asks the solver anything, so an Epoch refusal
     // must not decide whether an AggLayer run happens.
-    probes: ['sepolia'],
+    probes: ['sepolia', 'agglayer'],
     describe: 'Miden testnet -> real AggLayer bridge (Miden leg asserted)'
   },
   'bridge-out': {
     config: 'playwright.bridge.config.ts',
     grep: 'bridge-out',
-    probes: ['epoch', 'sepolia'],
+    probes: ['epoch', 'sepolia', 'agglayer'],
     retries: 0, // includes the Epoch route; see bridge-out-epoch.
     describe: 'both bridge-out routes'
   },
@@ -115,14 +124,16 @@ Options
                             (env: E2E_SEPOLIA_PRIVATE_KEY)
   --min-eth <amount>        preflight gas floor in ether (default: 0.02)
   --preflight-only          probe the services and exit; build and run nothing
+  --agglayer-indexer-only   probe only the AggLayer indexer's Miden exit filing and exit;
+                            takes no --suite, reads the config document, no URL or key
   --skip-build              reuse the existing dist/ (it must match --network)
   --headed                  run the browser headed
   --grep <pattern>          further narrow the tests within the suite
   -h, --help                this message
 
-The Epoch allocator, the Sepolia USDC and the AggLayer bridge come from the
-network's config document, read as the wallet reads it: MIDEN_REMOTE_CONFIG_URL
-when set, else the published 0xMiden/wallet-config.
+The Epoch allocator, the Sepolia USDC, the AggLayer bridge and its indexer come
+from the network's config document, read as the wallet reads it:
+MIDEN_REMOTE_CONFIG_URL when set, else the published 0xMiden/wallet-config.
 
 No suite here is secret-gated. Bridge-out is solver-fulfilled and swap is
 Miden-side, so neither signs on EVM and neither needs a key; --sepolia-key is
@@ -142,6 +153,7 @@ function parseArgs(argv) {
     sepoliaKey: process.env.E2E_SEPOLIA_PRIVATE_KEY,
     minEth: '0.02',
     preflightOnly: false,
+    agglayerIndexerOnly: false,
     skipBuild: false,
     headed: false,
     grep: undefined
@@ -149,6 +161,7 @@ function parseArgs(argv) {
   const helpNames = ['-h', '--help'];
   const booleanFlags = {
     '--preflight-only': 'preflightOnly',
+    '--agglayer-indexer-only': 'agglayerIndexerOnly',
     '--skip-build': 'skipBuild',
     '--headed': 'headed'
   };
@@ -192,6 +205,12 @@ function parseArgs(argv) {
     } else if (arg.includes('=')) {
       fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
     } else fail(`unknown argument: ${arg}`);
+  }
+  if (opts.agglayerIndexerOnly) {
+    // This probe reads the config document and no URL or key, so the empty-variable refusals below do not apply:
+    // E2E Bridge sets E2E_SEPOLIA_RPC_URL from an optional secret, which is empty when the secret is unset.
+    if (opts.suite !== undefined) fail('--agglayer-indexer-only probes one service and takes no --suite');
+    return opts;
   }
   // A flag is never '', so an empty URL here was exported empty and would be
   // probed and built in. After the loop, so a flag overrides it and -h still works.
@@ -355,8 +374,18 @@ async function rpc(url, method, params, timeoutMs = 20_000) {
 // ── config document ─────────────────────────────────────────────────────────
 
 /** What each probe group asks about, by the document field it comes from. */
-const DOCUMENT_FIELDS = { epoch: ['allocatorUrl', 'evmUsdc'], sepolia: ['evmUsdc', 'l1Bridge'] };
-const FIELD_PATHS = { allocatorUrl: 'epoch.allocatorUrl', evmUsdc: 'epoch.evmUsdc', l1Bridge: 'agglayer.l1Bridge' };
+const DOCUMENT_FIELDS = {
+  epoch: ['allocatorUrl', 'evmUsdc'],
+  sepolia: ['evmUsdc', 'l1Bridge'],
+  agglayer: ['indexerUrl']
+};
+const FIELD_PATHS = {
+  allocatorUrl: 'epoch.allocatorUrl',
+  evmUsdc: 'epoch.evmUsdc',
+  l1Bridge: 'agglayer.l1Bridge',
+  indexerUrl: 'agglayer.indexerUrl'
+};
+const URL_FIELDS = new Set(['allocatorUrl', 'indexerUrl']);
 
 // Reads `{ body, network, allowLocalHttp }` on stdin and prints what the wallet's parser makes of the body.
 const PARSE_SCRIPT = `
@@ -413,13 +442,14 @@ function configTargets(config, needs, getAddress) {
   const read = {
     allocatorUrl: config.epoch.allocatorUrl,
     evmUsdc: config.epoch.evmUsdc,
-    l1Bridge: config.agglayer.l1Bridge
+    l1Bridge: config.agglayer.l1Bridge,
+    indexerUrl: config.agglayer.indexerUrl
   };
   const targets = {};
   for (const field of new Set(needs.flatMap(probe => DOCUMENT_FIELDS[probe] ?? []))) {
     const value = read[field];
     if (value === undefined) throw new Error(`names no ${FIELD_PATHS[field]}`);
-    targets[field] = field === 'allocatorUrl' ? value : getAddress(value);
+    targets[field] = URL_FIELDS.has(field) ? value : getAddress(value);
   }
   return targets;
 }
@@ -780,6 +810,52 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth, evmUsdc) {
   }
 }
 
+/**
+ * Why the indexer's answer for Miden exit 0 shows it no longer files Miden exits where the wallet looks, or
+ * undefined when it does. The Slow bridge-out finds its deposit by `network_id` and `dest_net`, so an indexer that
+ * renumbers the Miden network leaves every bridge-out unsettled with no error anywhere (#1325).
+ *
+ * Exported for test.
+ */
+export function agglayerExitFilingProblem(status, body) {
+  if (status !== 200) return `answered HTTP ${status} for Miden exit 0`;
+  const deposit = body?.deposit;
+  if (deposit?.network_id !== AGGLAYER_MIDEN_NETWORK_ID) {
+    return `files Miden exit 0 under network ${deposit?.network_id}, but the wallet looks under ${AGGLAYER_MIDEN_NETWORK_ID}`;
+  }
+  if (deposit.dest_net !== 0) return `files Miden exit 0 as bound for network ${deposit.dest_net}, not Sepolia (0)`;
+  return undefined;
+}
+
+/**
+ * Check the filing of Miden exit 0 by the indexer the config document names, asking a second time before a failure
+ * counts: E2E Bridge runs this on every push to main, and a third party's blip must not red main on its own. A
+ * renumbering fails both asks. `get` and `retryDelayMs` are injectable for test.
+ *
+ * Exported for test.
+ */
+export async function probeAgglayerIndexer(indexerUrl, { get = getJson, retryDelayMs = 5_000 } = {}) {
+  const url = `${indexerUrl}/bridge?net_id=${AGGLAYER_MIDEN_NETWORK_ID}&deposit_cnt=0`;
+  const ask = async () => {
+    try {
+      const { status, body } = await get(url);
+      return agglayerExitFilingProblem(status, body);
+    } catch (err) {
+      return `${indexerUrl} unreachable: ${err.message}`;
+    }
+  };
+  let problem = await ask();
+  if (problem !== undefined) {
+    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    problem = await ask();
+  }
+  return record(
+    problem === undefined,
+    'AggLayer indexer',
+    problem ?? `files Miden exits under network ${AGGLAYER_MIDEN_NETWORK_ID}`
+  );
+}
+
 function formatUnits(value, decimals) {
   if (value === undefined || value === null) return '?';
   const raw = BigInt(value)
@@ -840,6 +916,13 @@ async function main() {
     console.log(USAGE);
     return 0;
   }
+  if (opts.agglayerIndexerOnly) {
+    console.log(`\nConfig   ${configDocumentUrl(opts.network)}`);
+    console.log('\nPreflight');
+    const targets = await probeConfigDocument(opts.network, ['agglayer']);
+    if (targets) await probeAgglayerIndexer(targets.indexerUrl);
+    return results.every(r => r.ok) ? 0 : 1;
+  }
   // Every refusal of operator input happens here, before the banner: one found
   // later is never reached under --preflight-only, and otherwise costs the probes
   // and a build first. probeFundedKey keeps its own checks as a backstop.
@@ -878,6 +961,7 @@ async function main() {
     await probeSepolia(opts.sepoliaRpc);
     if (targets) await probeSepoliaContracts(opts.sepoliaRpc, targets);
   }
+  if (targets && needs.includes('agglayer')) await probeAgglayerIndexer(targets.indexerUrl);
   if (needs.includes('guardian')) await probeGuardian(opts.network);
   // Only for a suite that actually talks to Sepolia: a key handed to a swap run
   // must not make Sepolia's availability decide whether that run happens.

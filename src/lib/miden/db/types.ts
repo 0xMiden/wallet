@@ -13,12 +13,76 @@ export enum ITransactionStatus {
   Queued,
   GeneratingTransaction,
   Completed,
-  Failed
+  Failed,
+  /**
+   * Its submit came back without a definite outcome, so it waits for the node's verdict (#1081). Appended, so the
+   * persisted 0 to 3 keep their meaning; an older build shows such a row in no list.
+   */
+  Unconfirmed
 }
 
 /** The row can still produce a transaction: it is queued or generating. */
 export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
+/** The pipeline is done with the row: it completed, failed, or waits for the node's verdict (#1081). */
+export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Completed ||
+  row.status === ITransactionStatus.Failed ||
+  row.status === ITransactionStatus.Unconfirmed;
+
+export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'end' | 'error-text';
+
+/** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
+export interface ISubmitEvidence {
+  attemptId: string;
+  capturedAt: number; // unix seconds
+  source: SubmitEvidenceSource;
+  transactionId?: string;
+  initialCommitment?: string;
+  finalCommitment?: string;
+  initialNonce?: string; // decimal
+  outputNoteIds?: string[]; // user output notes; [] when known empty
+  nullifiers?: string[]; // [] when known empty
+  refBlock?: number;
+  refBlockCommitment?: string; // the network identity
+  expirationBlock?: number;
+  guardianProposalNonce?: number;
+  candidateKept?: true; // the guardian still holds this attempt's candidate
+  initialSeenAtBlock?: number;
+  otherNetworkSince?: number; // unix seconds
+  landingSeenAtBlock?: number; // the block a landing judgement rested on; set once by row 1 or 3, a row 2 record may be replaced
+  landingSeenBy?: 1 | 2 | 3; // the verdict row whose judgement wrote landingSeenAtBlock
+  verdict?: 'never-committed' | 'unresolvable'; // sticky
+  endedBy?: 'kill' | 'out-of-band'; // how the attempt ended outside its pipeline; set once
+  endedAt?: number; // unix seconds, with endedBy
+  preSubmitEnd?: true; // the leaf's tag proved the attempt ended before its submit call
+  raisedFlag?: true; // the pin, not an earlier crossing, set mayHaveSubmitted
+  fromExecute?: true; // the row was an execute when this entry was made
+}
+
+/** What a leaf reads off the executed and proven transaction just before it submits (#1081). */
+export type SubmitEvidenceFields = Pick<
+  ISubmitEvidence,
+  | 'transactionId'
+  | 'initialCommitment'
+  | 'finalCommitment'
+  | 'initialNonce'
+  | 'outputNoteIds'
+  | 'nullifiers'
+  | 'refBlock'
+  | 'refBlockCommitment'
+  | 'expirationBlock'
+>;
+
+/**
+ * What a stage stamp carries besides its stage (#1081): `reliable: false` for a stamp replayed from the offscreen
+ * realm (see `setTransactionStage`), and the submit evidence the 'submitting' stamp brings.
+ */
+export interface StageDetail {
+  readonly reliable?: boolean;
+  readonly evidence?: SubmitEvidenceFields;
+}
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
@@ -33,6 +97,21 @@ export type ITransactionType =
   | 'replace-hot-key'
   | 'swap'
   | 'update-procedure-threshold';
+
+/** Each type's own display icon, as its class constructor below sets it: what a row shows when it is not failed. */
+export const ICON_BY_TYPE: Readonly<Record<ITransactionType, ITransactionIcon>> = {
+  send: 'SEND',
+  consume: 'RECEIVE',
+  execute: 'DEFAULT',
+  'bridged-send': 'SEND',
+  'bridged-receive': 'RECEIVE',
+  'earn-deposit': 'DEFAULT',
+  'earn-withdraw': 'DEFAULT',
+  'switch-guardian': 'DEFAULT',
+  'replace-hot-key': 'DEFAULT',
+  swap: 'SWAP',
+  'update-procedure-threshold': 'DEFAULT'
+};
 
 /**
  * Structural Guardian operations: they rewrite the account's own authorization rather
@@ -178,10 +257,25 @@ export interface IBridgedSendExtraInputs {
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
   claimStatus: IBridgeClaimStatus;
-  /** agglayer: a deposit to `destinationAddress` is claimable on L1. */
+  /** agglayer: this row's bound exit deposit is claimable on L1. */
   depositReady?: boolean;
-  /** agglayer: L1 claim tx hash once claimed. */
+  /** agglayer: L1 claim tx hash once claimed: the wallet's own, or the indexer's `claim_tx_hash` for anyone's. */
   claimTxHash?: string;
+  /**
+   * agglayer: the bridge indexer's `tx_hash` for this row's exit, keccak of its B2AGG note's details commitment
+   * (`lib/agglayer/b2agg/exit-hash.ts`). It is the only value that binds an indexer deposit to this row. Set when
+   * the note is built; a row built before that is back-filled from the bytes it kept.
+   */
+  agglayerExitTxHash?: string;
+  /** agglayer: none of this row's bytes held its note, so it has no exit hash and is never looked up. */
+  agglayerExitTxHashUnavailable?: true;
+  /**
+   * agglayer: a search of the address's whole history missed this row's exit, and the row was initiated before the
+   * indexer's renumbering (`MIDEN_CHAIN_ID_RENUMBERED_AT`), so it is never looked up again.
+   */
+  agglayerExitUnfiled?: true;
+  /** agglayer: `deposit_cnt` of the bound exit deposit, pinned once the indexer first reports it. */
+  agglayerDepositCnt?: number;
   /** epoch: solver/intent hash (informational). */
   evmTxHash?: string;
   /**
@@ -714,18 +808,14 @@ export interface ITransaction {
    *
    * `mayHaveSubmitted` records a crossing that HAPPENED. This records that we
    * do not yet know whether one will: the cancel marks the row but does not
-   * abort the work, so the pipeline runs on and may still submit. The GUARDIAN
-   * leaves stamp `mayHaveSubmitted` before submitting and their writes go through
-   * a terminal row, so a crossing that occurs there IS recorded — but only from
-   * the moment the leaf reaches it. Between the cancel and that stamp the row
-   * looks pre-submit, and a retry in that window would rebuild the request and pay
-   * twice. This field covers exactly that gap.
-   *
-   * For a send from a non-guardian account there is no such stamp to supplement:
-   * that leaf calls through to the proxy without recording anything, and the row
-   * stays at the 'sending' its pipeline set once at pickup. This field is then the
-   * only evidence that exists, which is why the retry guard refuses on it outright
-   * rather than merely declining to rebuild.
+   * abort the work, so the pipeline runs on and may still submit. Every leaf of a
+   * row that can await a verdict records its crossing at its 'submitting' stamp,
+   * with the attempt's evidence (`recordSubmitCrossing`, #1081), but only from the
+   * moment the stamp lands, and an offscreen stamp is replayed late or lost with
+   * its realm. Between the cancel and that stamp the row looks pre-submit, and a
+   * retry in that window would rebuild the request and pay twice. This field
+   * covers that gap for a send; for a swap or an execute, the out-of-band end the
+   * cancel records on the attempt's entry (`endedBy`) covers it.
    *
    * It has to expire, which is why it is a timestamp rather than a boolean. The
    * first version of this guard was a sticky flag, and a sticky "maybe" is
@@ -750,6 +840,12 @@ export interface ITransaction {
    * of the window this field exists to cover.
    */
   cancelledInFlightAt?: number;
+  /** One entry per attempt that may have crossed its submit, kept across Retry (#1081). See `ISubmitEvidence`. */
+  submitEvidence?: ISubmitEvidence[];
+  /** Unix seconds at which the node proved no recorded attempt can ever commit: the safe-to-retry marker (#1081). */
+  neverCommittedAt?: number;
+  /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
+  attemptId?: string;
 }
 
 /**
@@ -802,6 +898,7 @@ export class Transaction implements ITransaction {
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
   queuedSeq?: number;
   processingStartedAt?: number;
+  attemptId?: string;
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
@@ -1107,7 +1204,8 @@ export class BridgedSendTransaction implements ITransaction {
     faucetId: string,
     requestBytes?: Uint8Array,
     delegateTransaction?: boolean,
-    sendParams?: IBridgedSendNoteParams
+    sendParams?: IBridgedSendNoteParams,
+    agglayerExitTxHash?: string
   ) {
     this.id = uuid();
     this.type = 'bridged-send';
@@ -1130,6 +1228,7 @@ export class BridgedSendTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
+      agglayerExitTxHash,
       recallBlocks: sendParams?.recallBlocks,
       reclaimHeight: sendParams?.reclaimHeight,
       reclaimNoteId: sendParams?.reclaimNoteId

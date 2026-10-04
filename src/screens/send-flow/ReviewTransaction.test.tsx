@@ -11,6 +11,7 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -212,8 +213,9 @@ jest.mock('lib/miden/front/client', () => ({
   useMidenContext: () => ({ signTransaction: jest.fn() })
 }));
 
+// Distinct, so an assertion on it fails for any other provider.
 jest.mock('lib/miden/front/guardian-sync', () => ({
-  zustandProvider: {}
+  zustandProvider: { provider: 'zustand' }
 }));
 
 jest.mock('lib/miden/types', () => ({
@@ -903,11 +905,13 @@ describe('ReviewTransaction — onSubmit', () => {
         amount: 12345n,
         faucetId: 'tok1',
         destinationAddress: '0xrecipient',
-        senderPublicKey: 'pubkey-1'
+        senderPublicKey: 'pubkey-1',
+        guardianProvider: zustandProvider
       })
     );
     // The bridge build reads the destination network from the config; the review passes none.
     expect(initiateB2AggBridgeMock.mock.calls[0]![0]).not.toHaveProperty('destinationNetwork');
+    expect(initiateB2AggBridgeMock.mock.calls[0]?.[0].guardianProvider).toBe(zustandProvider);
   });
 
   it('refuses a Slow bridge-out of a token the registry does not list (#1276)', async () => {

@@ -1,4 +1,5 @@
 import { Account, MidenClient, NoteArray, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import type { AbandonStatus } from '@openzeppelin/guardian-client';
 import {
   AccountInspector,
   Multisig,
@@ -463,16 +464,21 @@ export class MultisigService {
    * Only for requests whose whole content is their own output notes (the wallet's sends,
    * swaps and collateral notes): nothing else survives the rebuild, and a dApp's request is
    * not ours to rebuild. The notes are carried over as they are, so a PSWAP keeps its order id.
+   *
+   * The request's own expiration delta does not survive either, and a tip execution would count
+   * it from the tip anyway. `approvalExpirationDelta` is the bound the proposal keeps instead,
+   * counted from the bound block this rebuild takes (#1081).
    */
   async createRebasedCustomProposal(
     requestBytes: Uint8Array,
-    proposalType: string
+    proposalType: string,
+    approvalExpirationDelta?: number
   ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
     return await withWasmClientLock(async hold => {
       const client = (await getMidenClient()).client;
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the client build');
       const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();
-      const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt());
+      const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
       const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
       const proposal = await this.multisig.createCustomProposal(rebased, proposalType);
@@ -510,6 +516,14 @@ export class MultisigService {
    */
   async abandonCandidate(nonce: number): Promise<void> {
     await this.multisig.abandonCandidate(nonce);
+  }
+
+  /**
+   * Where an abandon asked for with `abandonCandidate` stands (#1081): `'waiting'` while the Guardian's quarantine
+   * runs, `'abandoned'` once it released the account, `'landed'` if the transaction landed after all.
+   */
+  async abandonStatus(nonce: number): Promise<AbandonStatus> {
+    return this.multisig.abandonStatus(nonce);
   }
 
   /**

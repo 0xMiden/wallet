@@ -17,7 +17,18 @@ import { pathToFileURL } from 'node:url';
 
 import { getAddress } from 'viem';
 
-import { SUITES, composeGrep, pricedAmountFrom, resolveOperatorInput, run, suiteRetries } from './e2e-real.mjs';
+import {
+  AGGLAYER_MIDEN_NETWORK_ID,
+  SUITES,
+  agglayerExitFilingProblem,
+  composeGrep,
+  pricedAmountFrom,
+  probeAgglayerIndexer,
+  resolveOperatorInput,
+  run,
+  suiteRetries
+} from './e2e-real.mjs';
+import fixture from '../src/lib/agglayer/b2agg/exit-hash.vectors.json';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -431,12 +442,13 @@ describe('the preflight reads what it probes from the network config document', 
   const ALLOCATOR = 'https://allocator.example';
   const EVM_USDC = `0x${'a'.repeat(40)}`;
   const L1_BRIDGE = `0x${'b'.repeat(40)}`;
+  const INDEXER = 'https://indexer.example/api';
   const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
   const DOCUMENT = {
     network: 'testnet',
     version: 7,
     evm: { chainId: 11155111 },
-    agglayer: { l1Bridge: L1_BRIDGE, midenBridge: '0x3b66e20b5088f25133b69216484652' },
+    agglayer: { l1Bridge: L1_BRIDGE, midenBridge: '0x3b66e20b5088f25133b69216484652', indexerUrl: INDEXER },
     epoch: { allocatorUrl: ALLOCATOR, positionsUrl: 'https://positions.example', evmUsdc: EVM_USDC },
     features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
   };
@@ -446,18 +458,18 @@ describe('the preflight reads what it probes from the network config document', 
 
   // The whole command under --preflight-only, its every request answered by the stub and logged.
   function preflight(suite: string, served: unknown = DOCUMENT, env: Record<string, string> = {}) {
+    return stubbed(['--suite', suite, '--preflight-only'], served, env);
+  }
+
+  function stubbed(args: string[], served: unknown, env: Record<string, string> = {}) {
     const log = path.join(mkdtempSync(path.join(os.tmpdir(), 'e2e-real-')), 'requests.log');
     writeFileSync(log, '');
-    const res = spawnSync(
-      process.execPath,
-      ['--import', STUB, 'scripts/e2e-real.mjs', '--suite', suite, '--preflight-only'],
-      {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-        env: { ...cleanEnv(), ...env, E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log }) },
-        timeout: 30_000
-      }
-    );
+    const res = spawnSync(process.execPath, ['--import', STUB, 'scripts/e2e-real.mjs', ...args], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      env: { ...cleanEnv(), ...env, E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log }) },
+      timeout: 30_000
+    });
     return { status: res.status, output: `${res.stdout}${res.stderr}`, requests: readFileSync(log, 'utf8') };
   }
 
@@ -545,6 +557,36 @@ describe('the preflight reads what it probes from the network config document', 
     expect(res.status).toBe(0);
   }, 35_000);
 
+  const EXIT_0 = `${INDEXER}/bridge?net_id=${AGGLAYER_MIDEN_NETWORK_ID}&deposit_cnt=0`;
+
+  it('asks the indexer the document names for Miden exit 0', () => {
+    const res = preflight('bridge-out-agglayer');
+    expect(res.requests).toContain(EXIT_0);
+    expect(res.output).toContain(`files Miden exits under network ${AGGLAYER_MIDEN_NETWORK_ID}`);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('fails the preflight on a document naming no indexer for a Slow suite, and asks no indexer', () => {
+    const res = preflight('bridge-out-agglayer', { ...DOCUMENT, agglayer: { l1Bridge: L1_BRIDGE } });
+    expect(res.status).toBe(1);
+    expect(res.output).toContain('names no agglayer.indexerUrl');
+    expect(res.requests).not.toContain('/bridge?');
+  }, 35_000);
+
+  // E2E Bridge runs this on its own, with no Sepolia URL or key: only the document and its indexer are read.
+  it('--agglayer-indexer-only reads the document and asks only its indexer', () => {
+    const res = stubbed(['--agglayer-indexer-only'], DOCUMENT, { E2E_SEPOLIA_RPC_URL: '' });
+    expect(res.requests.trim().split('\n')).toEqual([PUBLISHED, EXIT_0]);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('--agglayer-indexer-only fails on a document the wallet refuses, and asks no indexer', () => {
+    const res = stubbed(['--agglayer-indexer-only'], { ...DOCUMENT, network: 'devnet' });
+    expect(res.status).toBe(1);
+    expect(res.output).toContain('Config document');
+    expect(res.requests).not.toContain('/bridge?');
+  }, 35_000);
+
   it('reads no document for a suite that probes nothing it names', () => {
     const res = preflight('swap');
     expect(res.requests).not.toContain('.json');
@@ -590,6 +632,115 @@ describe('pricedAmountFrom', () => {
 
   it('rejects an unparseable amount', () => {
     expect(pricedAmountFrom(reply('not-a-number'))).toBeUndefined();
+  });
+});
+
+/**
+ * The AggLayer indexer guard (#1325). The Slow bridge-out finds its deposit by the network id the indexer files
+ * Miden exits under, and a renumbering once left every bridge-out unsettled with no error anywhere. E2E Bridge runs
+ * this probe on its own, after the suite, so a renumbering fails that job without hiding the suite's own result.
+ */
+describe('the AggLayer indexer guard', () => {
+  // Miden exit 0 as the live indexer serves it, trimmed to the fields the guard reads.
+  const LIVE = { deposit: { deposit_cnt: 0, network_id: 86, dest_net: 0, tx_hash: `0x${'1'.repeat(64)}` } };
+
+  const INDEXER = 'https://indexer.example/api';
+
+  // The wallet derives the rollup id from the bridge account; the probe holds the testnet's, the network the live
+  // indexer filed the golden exits under, which the wallet's own lookup tests read too.
+  it('looks where the wallet looks: the network the testnet indexer filed the golden exits under', () => {
+    const deposit16 = fixture.vectors.find(vector => vector.depositCnt === 16);
+    expect(AGGLAYER_MIDEN_NETWORK_ID).toBe(deposit16?.indexerDeposit?.network_id);
+  });
+
+  it('accepts the live filing', () => {
+    expect(agglayerExitFilingProblem(200, LIVE)).toBeUndefined();
+  });
+
+  it.each([
+    ['an unknown deposit (HTTP 500)', 500, { code: 2, message: 'not found' }, 'HTTP 500'],
+    ['a renumbered network (78)', 200, { deposit: { ...LIVE.deposit, network_id: 78 } }, 'under network 78'],
+    [
+      'an exit bound elsewhere (dest_net 1)',
+      200,
+      { deposit: { ...LIVE.deposit, dest_net: 1 } },
+      'network 1, not Sepolia'
+    ]
+  ])('refuses %s', (_label, status, body, reason) => {
+    expect(agglayerExitFilingProblem(status, body)).toContain(reason);
+  });
+
+  // E2E Bridge must not go red on one gateway blip, so a failed GET or a problem answer is asked again once.
+  describe('retrying once', () => {
+    const RENUMBERED = { deposit: { ...LIVE.deposit, network_id: 78 } };
+
+    // `record` prints one line per probe.
+    beforeEach(() => jest.spyOn(console, 'log').mockImplementation(() => undefined));
+    afterEach(() => jest.restoreAllMocks());
+
+    it('asks once when the first GET shows the live filing', async () => {
+      const get = jest.fn().mockResolvedValue({ status: 200, body: LIVE });
+
+      await expect(probeAgglayerIndexer(INDEXER, { get, retryDelayMs: 0 })).resolves.toBe(true);
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(get).toHaveBeenCalledWith(`${INDEXER}/bridge?net_id=86&deposit_cnt=0`);
+    });
+
+    it.each([
+      ['a GET that throws', () => Promise.reject(new Error('socket hang up'))],
+      ['a gateway error', () => Promise.resolve({ status: 502, body: 'Bad Gateway' })]
+    ])('passes on the second GET after %s', async (_label, firstAnswer) => {
+      const get = jest.fn().mockImplementationOnce(firstAnswer).mockResolvedValueOnce({ status: 200, body: LIVE });
+
+      await expect(probeAgglayerIndexer(INDEXER, { get, retryDelayMs: 0 })).resolves.toBe(true);
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails a renumbering, which the second GET shows again', async () => {
+      const get = jest.fn().mockResolvedValue({ status: 200, body: RENUMBERED });
+
+      await expect(probeAgglayerIndexer(INDEXER, { get, retryDelayMs: 0 })).resolves.toBe(false);
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('is probed by both bridge-out suites that take the Slow route', () => {
+    expect(SUITES['bridge-out-agglayer'].probes).toContain('agglayer');
+    expect(SUITES['bridge-out'].probes).toContain('agglayer');
+  });
+
+  // E2E Bridge sets E2E_SEPOLIA_RPC_URL from an optional secret, which is empty when unset, and the indexer probe
+  // reads no Sepolia URL, so its own refusal must come before the empty-variable ones. No network: the suite is refused.
+  it('refuses a --suite beside --agglayer-indexer-only, ahead of any empty-variable refusal', () => {
+    const res = runCli({ E2E_SEPOLIA_RPC_URL: '' }, '--agglayer-indexer-only', '--suite', 'swap');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--agglayer-indexer-only probes one service and takes no --suite');
+    expect(res.stderr).not.toContain('is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+});
+
+describe('probeAgglayerIndexer uses the shared check', () => {
+  // Source-level, like probeEpochQuote's. The probe's verdict is also tested above through an injected GET; its call
+  // sites in main(), which does live network I/O, are reachable only here.
+  const source = readFileSync(path.join(__dirname, 'e2e-real.mjs'), 'utf8');
+  const body = /async function probeAgglayerIndexer\([\s\S]*?\n\}/.exec(source)?.[0] ?? '';
+
+  it('finds the function', () => {
+    expect(body).not.toBe('');
+  });
+
+  it('decides with agglayerExitFilingProblem', () => {
+    expect(body).toContain('agglayerExitFilingProblem(status, body)');
+  });
+
+  // Each call asks the indexer the config document names, never a copy kept in the runner.
+  it('runs for a suite that needs it and for --agglayer-indexer-only', () => {
+    expect(source).toContain(
+      "if (targets && needs.includes('agglayer')) await probeAgglayerIndexer(targets.indexerUrl);"
+    );
+    expect(source.match(/await probeAgglayerIndexer\(targets\.indexerUrl\);/g)).toHaveLength(2);
+    expect(source.match(/probeAgglayerIndexer\(/g)).toHaveLength(3);
   });
 });
 

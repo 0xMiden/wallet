@@ -1,6 +1,6 @@
 import { getAddress, keccak256, toBytes } from 'viem';
 
-import type { Probe, TokenMetadata } from './derive';
+import type { BridgeToken, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { EarnProtocol } from './schema';
@@ -72,10 +72,18 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
   };
 }
 
-/** The registered faucet whose origin is native ETH on network 0: it mints bridged ETH and sends its deliveries. */
-export function selectNativeEthFaucet(s: BridgeConfigSnapshot): string | null {
+/**
+ * The registered token whose origin is native ETH on network 0: its faucet mints bridged ETH and sends its deliveries,
+ * each a deposit of `w` wei arriving as `floor(w / 10^scale)` of the faucet's units.
+ */
+export function selectNativeEthToken(s: BridgeConfigSnapshot): BridgeToken | null {
   const tokens = okValue(s.derived?.agglayer.tokens) ?? [];
-  return tokens.find(token => token.originToken === NATIVE_ETH && token.originNetwork === 0)?.midenFaucetId ?? null;
+  return tokens.find(token => token.originToken === NATIVE_ETH && token.originNetwork === 0) ?? null;
+}
+
+/** The native-ETH token's faucet: it mints bridged ETH and sends its deliveries. */
+export function selectNativeEthFaucet(s: BridgeConfigSnapshot): string | null {
+  return selectNativeEthToken(s)?.midenFaucetId ?? null;
 }
 
 // Read synchronously: each realm hydrates its snapshot at startup, and an entry point stays greyed until its values are
@@ -133,6 +141,16 @@ export function getAgglayerIndexerUrl(): string {
 
 export function getAgglayerL1Bridge(): `0x${string}` {
   return getValue('agglayer.l1Bridge', s => s.config?.agglayer.l1Bridge ?? null);
+}
+
+/** The Miden rollup id: a deposit's destination network, and the network the indexer files every Miden exit under. */
+export function getAgglayerRollupId(): number {
+  return getValue('Agglayer rollup id', s => okValue(s.derived?.agglayer.rollupId));
+}
+
+/** The L1 bridge's networkID(): the destination of every bridge-out note, and of the exit the indexer files for it. */
+export function getAgglayerEvmNetworkId(): number {
+  return getValue('Agglayer L1 network id', s => okValue(s.derived?.agglayer.evmNetworkId));
 }
 
 /** What a bridge-out note carries: the Miden bridge it targets and the L1 bridge's networkID() as its destination. */

@@ -365,6 +365,7 @@ export const ReviewTransaction: React.FC = () => {
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
+            guardianProvider: zustandProvider,
             spendingLimitAuthorization: authorization
           });
           if (isExtension()) requestSWTransactionProcessing();

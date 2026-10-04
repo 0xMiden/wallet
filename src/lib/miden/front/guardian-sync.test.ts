@@ -32,6 +32,7 @@ import {
   subscribeGuardianSyncOutage,
   SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
   SYNC_RATE_LIMIT_MAX_COOLDOWN_MS,
+  reconcileUnconfirmedInApp,
   syncGuardianAccounts,
   zustandProvider
 } from './guardian-sync';
@@ -132,8 +133,15 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockRequestSWTransactionProcessing = jest.fn();
+const mockGuardianCandidateRelease = jest.fn();
 jest.mock('lib/miden/activity', () => ({
-  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
+  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing(),
+  guardianCandidateRelease: (...args: unknown[]) => mockGuardianCandidateRelease(...args)
+}));
+
+const mockReconcileUnconfirmedTransactions = jest.fn();
+jest.mock('lib/miden/transaction/reconcile-unconfirmed', () => ({
+  reconcileUnconfirmedTransactions: (...args: unknown[]) => mockReconcileUnconfirmedTransactions(...args)
 }));
 
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
@@ -368,6 +376,24 @@ describe('zustandProvider', () => {
   it('setGuardianEndpoint delegates to the store', () => {
     zustandProvider.setGuardianEndpoint?.('account-pub', 'https://guardian.example');
     expect(storeState.setGuardianEndpoint).toHaveBeenCalledWith('account-pub', 'https://guardian.example');
+  });
+});
+
+describe('reconcileUnconfirmedInApp (#1081)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("runs the reconciler pass with a release built on the app realm's store provider", async () => {
+    const release = { abandon: jest.fn() };
+    mockGuardianCandidateRelease.mockReturnValue(release);
+    mockReconcileUnconfirmedTransactions.mockResolvedValue(undefined);
+
+    await reconcileUnconfirmedInApp();
+
+    expect(mockGuardianCandidateRelease).toHaveBeenCalledWith(zustandProvider);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledTimes(1);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledWith({ release });
   });
 });
 

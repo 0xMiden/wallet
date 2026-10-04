@@ -351,13 +351,21 @@ describe('HotKeyRotationGate', () => {
 
   it('requeues orphaned in-progress rows before adopting when no generation loop is running', async () => {
     mockTable = [
-      rotationRow('tx-orphan', { status: ITransactionStatus.GeneratingTransaction, processingStartedAt: 5 })
+      rotationRow('tx-orphan', {
+        status: ITransactionStatus.GeneratingTransaction,
+        processingStartedAt: 5,
+        attemptId: 'a1'
+      })
     ];
 
     render(<HotKeyRotationGate />);
 
     await waitFor(() => expect(mockUseTransactionRow).toHaveBeenCalledWith('tx-orphan'));
-    expect(mockTable[0]).toMatchObject({ status: ITransactionStatus.Queued, processingStartedAt: undefined });
+    expect(mockTable[0]).toMatchObject({
+      status: ITransactionStatus.Queued,
+      processingStartedAt: undefined,
+      attemptId: undefined
+    });
     expect(mockInitiate).not.toHaveBeenCalled();
   });
 

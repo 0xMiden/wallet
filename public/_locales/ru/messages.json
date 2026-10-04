@@ -485,8 +485,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Избранные хранилища",
-    "englishSource": "Featured Vaults"
+    "message": "Доступные хранилища",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -623,8 +623,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "Кошелек не смог подтвердить, прошла ли эта операция. Возможно, она ещё поступит, поэтому проверьте свой баланс после синхронизации кошелька, прежде чем отправлять её заново.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "Кошелек не смог подтвердить, прошла ли эта операция. Она может ещё завершиться, поэтому проверьте кошелёк после синхронизации, прежде чем повторить попытку.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "Кошелек не смог определить, прошла ли эта операция, и не проверяет это. Проверьте кошелек, прежде чем повторить попытку.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "Восстановление было выполнено из резервной копии, поэтому кошелек не может проверить, прошло ли восстановление, или повторить попытку. Проверьте кошелек, прежде чем повторять операцию.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Показать полный текст ошибки",
@@ -4084,8 +4092,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "Кошелек не смог подтвердить, прошла ли транзакция. Откройте кошелек, прежде чем отправить её снова.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "Кошелек не смог подтвердить, прошла ли транзакция. Откройте кошелек, прежде чем повторить попытку.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Нажмите здесь, чтобы принять",
