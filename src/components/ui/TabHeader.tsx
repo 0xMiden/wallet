@@ -1,4 +1,4 @@
-import React, { FC, ReactNode } from 'react';
+import React, { FC, ReactNode, createContext, useContext } from 'react';
 
 import { AnimatePresence, motion, type Transition } from 'framer-motion';
 
@@ -31,6 +31,35 @@ export interface TabHeaderProps {
     'data-testid'?: string;
   };
 }
+
+type TabHeaderSearch = NonNullable<TabHeaderProps['search']>;
+
+/**
+ * The search's live props, which the field reads here rather than from its element. `AnimatePresence`
+ * renders the children it saved in its own state, and when the title's exit finishes it re-renders a
+ * saved copy that can carry older props than the latest render: on a busy main thread that copy wiped
+ * a URL typed during the exit and handed Enter a stale empty query, so nothing opened.
+ */
+const TabHeaderSearchContext = createContext<TabHeaderSearch | undefined>(undefined);
+
+const TabHeaderSearchField: FC = () => {
+  const search = useContext(TabHeaderSearchContext);
+  if (!search) return null;
+  return (
+    <SearchInput
+      size="sm"
+      className="w-full"
+      value={search.value}
+      onChange={search.onChange}
+      placeholder={search.placeholder}
+      onSubmit={search.onSubmit}
+      onEscape={search.onEscape}
+      inputMode={search.inputMode}
+      data-testid={search['data-testid']}
+      autoFocus
+    />
+  );
+};
 
 /**
  * The icon button of a tab root's title row: the design system's `IconButton` in its 44px `filled` circle -
@@ -99,48 +128,39 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
 
   return (
     <header className="shrink-0 px-4 flex h-14 items-center justify-between gap-3">
-      <AnimatePresence initial={false} mode="popLayout">
-        {searchOpen && search ? (
-          <motion.div
-            key="search"
-            data-testid="tab-header-search"
-            // `h-9`: the same 36px box the title occupies, so the swap is height-neutral.
-            className="h-9 min-w-0 flex-1"
-            // The field grows in from just shy of full size, slightly offset toward
-            // the search icon it replaces (on the header's right edge) — closing
-            // retraces the same path back toward the icon, not a plain fade.
-            initial={{ opacity: 0, scale: 0.96, x: 6 }}
-            animate={{ opacity: 1, scale: 1, x: 0 }}
-            exit={{ opacity: 0, scale: 0.96, x: 6 }}
-            transition={transition}
-          >
-            <SearchInput
-              size="sm"
-              className="w-full"
-              value={search.value}
-              onChange={search.onChange}
-              placeholder={search.placeholder}
-              onSubmit={search.onSubmit}
-              onEscape={search.onEscape}
-              inputMode={search.inputMode}
-              data-testid={search['data-testid']}
-              autoFocus
-            />
-          </motion.div>
-        ) : (
-          <motion.h1
-            key="title"
-            data-testid="tab-header-title"
-            className="h-9 min-w-0 truncate text-title-tab text-ink"
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -6 }}
-            transition={transition}
-          >
-            {title}
-          </motion.h1>
-        )}
-      </AnimatePresence>
+      <TabHeaderSearchContext.Provider value={search}>
+        <AnimatePresence initial={false} mode="popLayout">
+          {searchOpen && search ? (
+            <motion.div
+              key="search"
+              data-testid="tab-header-search"
+              // `h-9`: the same 36px box the title occupies, so the swap is height-neutral.
+              className="h-9 min-w-0 flex-1"
+              // The field grows in from just shy of full size, slightly offset toward
+              // the search icon it replaces (on the header's right edge); closing
+              // retraces the same path back toward the icon, not a plain fade.
+              initial={{ opacity: 0, scale: 0.96, x: 6 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.96, x: 6 }}
+              transition={transition}
+            >
+              <TabHeaderSearchField />
+            </motion.div>
+          ) : (
+            <motion.h1
+              key="title"
+              data-testid="tab-header-title"
+              className="h-9 min-w-0 truncate text-title-tab text-ink"
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={transition}
+            >
+              {title}
+            </motion.h1>
+          )}
+        </AnimatePresence>
+      </TabHeaderSearchContext.Provider>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </header>
   );
