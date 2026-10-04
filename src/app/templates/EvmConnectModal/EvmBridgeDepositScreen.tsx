@@ -211,9 +211,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const executeEVMToMiden = useEpochStore(s => s.executeEVMToMiden);
   const poll = useEpochStore(s => s.poll);
   const resetEpoch = useEpochStore(s => s.reset);
-  // Set from the Confirm tap until the tracking row exists, while the store still reads 'quoted': nothing may quote
-  // over or reset the deposit then, nor change the amount, token or wallet it was confirmed with. Once the row exists
-  // the screen is on the status page, out of reach of every reset.
+  // Set at the Confirm tap and released only by a confirm that ends without a row: nothing may quote over or reset the
+  // deposit, nor change the amount, token or wallet it was confirmed with. Once the row exists the screen stays on the
+  // status page until it closes, so the lock holds for the rest of the screen.
   const confirming = useRef(false);
   // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
   const [confirmSettled, setConfirmSettled] = useState(0);
@@ -403,6 +403,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const handleOpenSwitchDrawer = useCallback(() => {
     if (confirming.current) return;
     setSwitchDrawerOpen(true);
+  }, []);
+
+  const handleOpenTokenDrawer = useCallback(() => {
+    if (confirming.current) return;
+    setTokenDrawerOpen(true);
   }, []);
 
   // The drawer may have been open since before the tap.
@@ -670,6 +675,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [canConfirmRoute, navigateTo]);
 
   const handleConfirm = useCallback(async () => {
+    // A tap that lands once a row exists (Review is still on screen while the Navigator leaves it) changes nothing.
+    if (confirming.current) return;
     // Fast (Epoch): after a failed attempt the store is 'failed' and
     // executeEVMToMiden requires 'quoted', so re-quote to recover instead of
     // dead-ending until the amount changes. Once re-quoted, the next tap submits.
@@ -680,6 +687,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
     if (!canConfirmRoute || creatingBridgeRow) return;
     confirming.current = true;
+    setTokenDrawerOpen(false);
+    setSwitchDrawerOpen(false);
     setCreatingBridgeRow(true);
     try {
       hapticMedium();
@@ -713,9 +722,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       setSlowError(errorMessage(err));
+      confirming.current = false;
       setConfirmSettled(count => count + 1);
     } finally {
-      confirming.current = false;
       setCreatingBridgeRow(false);
     }
   }, [
@@ -787,7 +796,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               error={error ?? selectedBalance.error ?? undefined}
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
-              onSelectToken={() => setTokenDrawerOpen(true)}
+              onSelectToken={handleOpenTokenDrawer}
               onSwitch={handleOpenSwitchDrawer}
               onContinue={handleContinue}
             />
@@ -808,6 +817,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       handleContinue,
       handleContinueToReview,
       handleOpenSwitchDrawer,
+      handleOpenTokenDrawer,
       handleRouteChange,
       route,
       token,

@@ -202,6 +202,8 @@ jest.mock('./EvmBridgeDepositForm', () => ({
   )
 }));
 
+/** The Review's latest Confirm handler: a tap can land on Review while the Navigator is leaving it. */
+let mockLastReviewConfirm: () => unknown = () => undefined;
 jest.mock('./EvmBridgeDepositReview', () => ({
   EvmBridgeDepositReview: ({
     amount,
@@ -213,16 +215,19 @@ jest.mock('./EvmBridgeDepositReview', () => ({
     fiat?: number;
     outputAmount?: string;
     onConfirm: () => void;
-  }) => (
-    <div>
-      <span data-testid="review-amount">{amount}</span>
-      <span data-testid="review-fiat">{fiat}</span>
-      <span data-testid="review-output">{outputAmount}</span>
-      <button data-testid="confirm-deposit" onClick={onConfirm}>
-        confirm
-      </button>
-    </div>
-  )
+  }) => {
+    mockLastReviewConfirm = onConfirm;
+    return (
+      <div>
+        <span data-testid="review-amount">{amount}</span>
+        <span data-testid="review-fiat">{fiat}</span>
+        <span data-testid="review-output">{outputAmount}</span>
+        <button data-testid="confirm-deposit" onClick={onConfirm}>
+          confirm
+        </button>
+      </div>
+    );
+  }
 }));
 
 jest.mock('./EvmBridgeDepositStatus', () => ({
@@ -645,6 +650,13 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(quoteEVMToMiden).toHaveBeenCalledTimes(1);
   });
 
+  /** Taps a control if it is on screen: a drawer the lock keeps closed leaves nothing to tap, and that is the point. */
+  const clickIfShown = (testId: string) => {
+    const control = screen.queryByTestId(testId);
+    if (control) fireEvent.click(control);
+  };
+  const pickEthIfShown = () => clickIfShown('pick-eth');
+
   /** Holds the tracking row's creation open after the Confirm tap, as a slow write would, until it is written or fails. */
   const holdRowCreation = () => {
     let resolveRow: (id: string) => void = () => undefined;
@@ -698,7 +710,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await goBackTo(2);
     fireEvent.click(screen.getByTestId('open-token-drawer'));
     await settle();
-    fireEvent.click(screen.getByTestId('pick-eth'));
+    pickEthIfShown();
     await settle();
   };
 
@@ -766,7 +778,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     fireEvent.click(screen.getByTestId('open-token-drawer'));
     await settle();
-    fireEvent.click(screen.getByTestId('pick-eth'));
+    pickEthIfShown();
     await settle();
 
     expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
@@ -796,12 +808,68 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
 
-    fireEvent.click(screen.getByTestId('connect-another'));
+    clickIfShown('connect-another');
     await settle();
 
     expect(connectAnother).not.toHaveBeenCalled();
     row.release();
     await settle();
+  });
+
+  // The lock taken at the tap holds once the row exists: the status page follows, and nothing may reset what it shows.
+  it('leaves a deposit whose row exists alone however its token drawer was reached', async () => {
+    const row = await confirmHeld();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
+    pickEthIfShown();
+    await settle();
+    jest.mocked(epochState.reset).mockClear();
+
+    row.release();
+    await settle();
+    pickEthIfShown();
+    await settle();
+
+    expect(epochState.reset).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
+  });
+
+  it('closes an open token or wallet drawer at the Confirm tap', async () => {
+    quoteFast();
+    renderScreen();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    fireEvent.click(screen.getByTestId('switch-wallet'));
+    await settle();
+    await reachFastReview();
+    const row = holdRowCreation();
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('connect-another')).not.toBeInTheDocument();
+    row.release();
+    await settle();
+  });
+
+  it('creates no second row from a Confirm that lands once the row exists', async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    const row = holdRowCreation();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    row.release();
+    await settle();
+    // A tap on Review as the Navigator leaves it runs the handler Review last rendered with.
+    await act(async () => {
+      await mockLastReviewConfirm();
+    });
+    await settle();
+
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
   });
 
   it('switches the wallet outside a confirm', async () => {
