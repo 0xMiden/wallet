@@ -78,10 +78,10 @@ beforeEach(() => {
   mockConfigSnapshot = configFor();
   // As the real selector reads it: the document's address and chain, usable only while the token's read is ok.
   jest.mocked(selectEvmUsdc).mockImplementation(({ config, derived }) => {
+    const address = config?.epoch.evmUsdc;
+    const chainId = config?.evm.chainId;
     const read = derived?.epoch.evmUsdc;
-    return config && read?.state === 'ok'
-      ? { address: config.epoch.evmUsdc, chainId: config.evm.chainId, ...read.value }
-      : null;
+    return address && chainId !== undefined && read?.state === 'ok' ? { address, chainId, ...read.value } : null;
   });
   jest.mocked(quoteEpochSendOutput).mockReset();
 });
