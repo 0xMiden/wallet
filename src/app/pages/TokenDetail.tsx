@@ -25,6 +25,7 @@ import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
+import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
 import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -75,6 +76,11 @@ type TokenDetailProps = {
   tokenId: string;
 };
 
+/** A hairline between two of the page's sections, with the body's 20px either side. */
+const SectionDivider: FC = () => (
+  <div aria-hidden="true" className="h-px shrink-0 bg-hairline" data-testid="token-detail-section-divider" />
+);
+
 const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
@@ -105,6 +111,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const formatBalance = adaptiveFormatterFor(balance ?? 0);
   const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
   const verification = useTokenVerification(tokenId);
+  const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
 
   const handleBack = () => goBack();
 
@@ -123,7 +130,29 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
         <div className="flex flex-col gap-5 px-4 pb-4">
           <Hero
             data-testid="token-detail-hero"
-            visual={<TokenLogo symbol={symbol} size="2xl" />}
+            valueClassName="font-extrabold"
+            visual={
+              <TokenLogo
+                symbol={symbol}
+                size="2xl"
+                // An unverified token carries the warning on its own mark, where the eye already is.
+                badge={
+                  verification === 'unverified' ? (
+                    <span
+                      className="flex size-7 items-center justify-center rounded-full bg-page"
+                      data-testid="token-detail-unverified-badge"
+                    >
+                      <Icon
+                        name={IconName.WarningFill}
+                        size="sm"
+                        fill="currentColor"
+                        className="text-pending-tint-ink"
+                      />
+                    </span>
+                  ) : undefined
+                }
+              />
+            }
             value={
               <AnimatedNumber
                 value={scaleIsKnown ? balance : null}
@@ -147,15 +176,23 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           />
 
           {verification === 'unverified' && (
-            // A token's name and logo are whatever its creator chose; only the list vouches for it.
-            <div className="flex flex-col items-center gap-2" data-testid="token-detail-unverified">
-              <Pill size="sm" tone="warning">
-                {t('unverifiedToken')}
+            // A token's name and logo are whatever its creator chose; only the list vouches for it. One
+            // outline pill names it, and opens the sheet that says why.
+            // 8px closer to the hero than the body's gap, so the pill reads as part of the figure above.
+            <div className="-mt-2 flex justify-center" data-testid="token-detail-unverified">
+              <Pill
+                size="md"
+                tone="warning"
+                onClick={() => setUnverifiedSheetOpen(true)}
+                aria-haspopup="dialog"
+                aria-expanded={unverifiedSheetOpen}
+                icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+                trailingIcon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+                data-testid="token-detail-unverified-pill"
+              >
+                {t('unverifiedTokenTitle')}
               </Pill>
-              {/* Centred like the pill and the Hero above it; the pill already carries the warning. */}
-              <Notice tone="warning" variant="inline" className="justify-center text-center">
-                {t('unverifiedTokenDescription')}
-              </Notice>
+              <UnverifiedTokenSheet open={unverifiedSheetOpen} onOpenChange={setUnverifiedSheetOpen} />
             </div>
           )}
 
@@ -186,20 +223,34 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           </div>
 
           {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
-          {quote && !isNominalQuote(quote) && priceSymbol && <PriceChart symbol={priceSymbol} priceInfo={quote} />}
+          <SectionDivider />
+
+          {quote && !isNominalQuote(quote) && priceSymbol && (
+            <>
+              <PriceChart symbol={priceSymbol} priceInfo={quote} />
+              <SectionDivider />
+            </>
+          )}
 
           <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
 
+          <SectionDivider />
+
           <section data-testid="token-detail-activity">
-            <SectionHeader size="lg" tone="muted">
+            <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
               {t('recentActivity')}
             </SectionHeader>
-            <History
-              address={account.publicKey}
-              tokenId={tokenId}
-              fullHistory={true}
-              scrollParentRef={scrollParentRef}
-            />
+            {/* The list opens its first date group 16px down, for the Activity tab where nothing sits
+                above it. Here the section label already leaves 12px, as every other section's does, so
+                take the list's 16px back. */}
+            <div className="-mt-4">
+              <History
+                address={account.publicKey}
+                tokenId={tokenId}
+                fullHistory={true}
+                scrollParentRef={scrollParentRef}
+              />
+            </div>
           </section>
         </div>
       </div>
@@ -253,7 +304,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   // card, and a neutral `Pill` on a `fill` card would not show at all.
   return (
     <section data-testid="token-detail-price">
-      <SectionHeader size="lg" tone="muted">
+      <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
         {t('tokenPrice')}
       </SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
@@ -351,10 +402,10 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
 
   return (
     <section data-testid="token-detail-info">
-      <SectionHeader size="lg" tone="muted">
+      <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
         {t('tokenInfo')}
       </SectionHeader>
-      <DetailCard>
+      <DetailCard surface="outline">
         {/* The faucet that mints this token, under the name the transaction detail page gives every
             faucet id. A bare copy glyph beside the id cut by the shared `truncateHash`, in the row's
             value style; the full id is what gets copied. */}
@@ -371,7 +422,8 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
           />
         </DetailRow>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
-        <DetailRow label={t('network')}>
+        {/* Centred on the chip, which is taller than the label's line. */}
+        <DetailRow label={t('network')} className="items-center">
           <NetworkChip kind="miden" label={network.name} />
         </DetailRow>
         {explorerUrl && (

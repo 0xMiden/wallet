@@ -1064,6 +1064,7 @@
   "unverified": "doğrulanmamış",
   "unverifiedToken": "Doğrulanmamış",
   "unverifiedTokenDescription": "Bu token, Miden’in doğrulanmış token listesinde yer almıyor. Herkes istediği isimle bir token oluşturabilir, bu yüzden güvenmeden önce faucet adresindeki kimliğini kontrol edin.",
+  "unverifiedTokenTitle": "Doğrulanmamış token",
   "couldNotVerifyBySimulation": "Simülasyon yoluyla doğrulanamadı. Aşağıdaki tutarlar, site tarafından beyan edilen tutarlardır.",
   "couldNotDecodeTransaction": "Bu dApp, özel bir işlem talep ediyor. Cüzdan, işlemin ayrıntılarını çözemedi — ne işe yaradığını tam olarak biliyorsanız devam edin.",
   "rawValue": "Ham değer",

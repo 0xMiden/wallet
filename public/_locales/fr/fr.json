@@ -1064,6 +1064,7 @@
   "unverified": "non vérifié",
   "unverifiedToken": "Non vérifié",
   "unverifiedTokenDescription": "Ce jeton ne figure pas sur la liste des jetons vérifiés de Miden. N’importe qui peut créer un jeton sous n’importe quel nom ; vérifiez donc l’identifiant de l’faucete avant de lui accorder votre confiance.",
+  "unverifiedTokenTitle": "Jeton non vérifié",
   "couldNotVerifyBySimulation": "Impossible de vérifier par simulation. Les montants ci-dessous sont ceux indiqués par le site.",
   "couldNotDecodeTransaction": "Cette dApp demande une transaction personnalisée. Le portefeuille n'a pas pu décoder ses détails — ne continuez que si vous savez exactement en quoi cela consiste.",
   "rawValue": "Valeur brute",

@@ -4672,6 +4672,10 @@
     "message": "Ten token nie znajduje się na liście zweryfikowanych tokenów serwisu Miden. Każdy może utworzyć token o dowolnej nazwie, dlatego przed nadaniem mu zaufania sprawdź identyfikator w bazie danych faucet.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
   },
+  "unverifiedTokenTitle": {
+    "message": "Niezweryfikowany token",
+    "englishSource": "Unverified token"
+  },
   "couldNotVerifyBySimulation": {
     "message": "Nie udało się zweryfikować za pomocą symulacji. Poniższe kwoty są zgodne z danymi podanymi przez stronę.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."

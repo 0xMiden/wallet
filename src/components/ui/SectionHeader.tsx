@@ -12,12 +12,14 @@ const headingVariants = cva('min-w-0 truncate', {
      * `text-row-title`, 16px, for a detail page's sections (a transaction's details and notes).
      * `lg`: `text-title-section` `ink`, for a page-level section title such as Settings' coloured
      * group headers. `xl`: `text-title-page` `ink`, the section title of a tab root, such as
-     * Explore's. */
+     * Explore's. `2xl`: 24px extrabold `ink`, the size of Home's "Assets" heading, for a detail page
+     * whose sections should read at that weight (a token's page). */
     size: {
       sm: 'text-label text-muted',
       md: 'text-row-title text-muted',
       lg: 'text-title-section text-ink',
-      xl: 'text-title-page text-ink'
+      xl: 'text-title-page text-ink',
+      '2xl': 'font-heading text-2xl leading-7 font-extrabold text-ink'
     },
     /** `muted` quiets a `lg`/`xl` title to the label colour: a page's section labels beside `ink` values. */
     tone: {
