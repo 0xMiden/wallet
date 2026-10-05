@@ -212,7 +212,7 @@ describe('EarnDepositAmount', () => {
     // Empty amount => hasAmount false => isValidAmount short-circuits false, helper shown.
     expect(select).toHaveAttribute('data-amount', '');
     expect(select).toHaveAttribute('data-valid', 'false');
-    expect(select).toHaveAttribute('data-show-balance-helper', 'true');
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -226,7 +226,7 @@ describe('EarnDepositAmount', () => {
     const select = screen.getByTestId('select-amount');
     expect(select).toHaveAttribute('data-amount', 'abc');
     expect(select).toHaveAttribute('data-valid', 'false');
-    expect(select).toHaveAttribute('data-show-balance-helper', 'true');
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -241,7 +241,8 @@ describe('EarnDepositAmount', () => {
     const select = screen.getByTestId('select-amount');
     expect(select).toHaveAttribute('data-amount', '1,50');
     expect(select).toHaveAttribute('data-valid', 'true');
-    expect(select).toHaveAttribute('data-show-balance-helper', 'false');
+    // The available balance stays up while an amount is typed, as in the send flow.
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).toHaveBeenCalledTimes(1);
@@ -258,7 +259,8 @@ describe('EarnDepositAmount', () => {
     const select = screen.getByTestId('select-amount');
     expect(select).toHaveAttribute('data-valid', 'false');
     // hasAmount is true, so the balance helper is hidden even though it's invalid.
-    expect(select).toHaveAttribute('data-show-balance-helper', 'false');
+    // The available balance stays up while an amount is typed, as in the send flow.
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();

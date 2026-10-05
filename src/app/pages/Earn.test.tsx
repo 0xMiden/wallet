@@ -19,6 +19,9 @@ jest.mock('screens/earn-flow/components', () => ({
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewardsUsd} />
   ),
+  EarnAssetMark: ({ asset, network }: { asset: string; network: string }) => (
+    <span data-testid="earn-asset-mark" data-asset={asset} data-network={network} />
+  ),
   earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
   EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
     `${subject.asset} on ${subject.network}`
@@ -259,11 +262,13 @@ describe('Earn page', () => {
     const firstCard = cards[0]!;
     expect(firstCard).toHaveTextContent(`earnPositionsApy:${first.apy}`);
     expect(firstCard).toHaveTextContent(first.amount);
-    expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
+    // No rewards/age line: neither has a source yet, and it only ever drew placeholder dashes.
+    expect(firstCard).not.toHaveTextContent(`${first.rewards} • ${first.age}`);
 
-    // ProviderLogo probe receives the position's protocol.
-    const logo = within(firstCard).getByTestId('provider-logo');
-    expect(logo).toHaveAttribute('data-protocol', first.protocol);
+    // The asset's mark, badged with its network, leads the row.
+    const mark = within(firstCard).getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', first.asset);
+    expect(mark).toHaveAttribute('data-network', first.network);
   });
 
   it('uses theme-aware text colors for position and vault labels', () => {

@@ -150,12 +150,17 @@ export const SuccessSummaryPill: FC<{
   <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} fillForArrow={fillForArrow} className="mt-1" />
 );
 
-/** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows. */
-export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {
+/** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows.
+ *  `surface="outline"` draws it on the page with a hairline edge, set in Nunito (the earn flow's). */
+export const ReceiptRows: FC<{ rows: ReceiptRow[]; surface?: 'fill' | 'outline'; className?: string }> = ({
+  rows,
+  surface = 'fill',
+  className
+}) => {
   if (rows.length === 0) return null;
 
   return (
-    <DetailCard className={classNames('w-full', className)}>
+    <DetailCard surface={surface} className={classNames('w-full', surface === 'outline' && 'face-heading', className)}>
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
           {row.onClick ? (

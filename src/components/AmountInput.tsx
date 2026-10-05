@@ -12,7 +12,7 @@ import { Skeleton } from 'components/ui/Skeleton';
  * on narrow mobile screens. Tuned so a short value renders ~text-6xl and a
  * long one (16 chars max) settles at text-3xl.
  */
-function amountTextSize(value?: string): string {
+export function amountTextSize(value?: string): string {
   const len = value?.length || 4;
   if (len >= 13) return 'text-3xl';
   if (len >= 10) return 'text-4xl';
@@ -198,7 +198,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
       {error ? (
         <div className="flex items-center gap-2 pt-2">
-          <Icon name={IconName.InformationFill} size="xs" className="text-red-500" />
+          <Icon name={IconName.InformationFill} size="xs" fill="currentColor" className="shrink-0 text-red-500" />
           <span className="text-red-500 text-sm">{error}</span>
         </div>
       ) : helper ? (

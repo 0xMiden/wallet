@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
@@ -111,14 +111,14 @@ describe('AssetRow', () => {
     expect(mockVerify).toHaveBeenCalledWith(asset.tokenId);
   });
 
-  it('draws the Unverified mark as an xs warning pill', () => {
+  it('draws the Unverified mark as an xs soft grey tag', () => {
     mockVerify.mockReturnValue('unverified');
 
     render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
 
-    const pill = screen.getByTestId('pill');
-    expect(pill).toHaveTextContent('unverifiedToken');
-    expect(pill).toHaveAttribute('data-tone', 'warning');
+    const pill = screen.getAllByTestId('pill').find(node => node.textContent === 'unverifiedToken')!;
+    expect(pill).toBeDefined();
+    expect(pill).toHaveAttribute('data-tone', 'neutral');
     expect(pill).toHaveAttribute('data-size', 'xs');
   });
 
@@ -131,13 +131,15 @@ describe('AssetRow', () => {
     // Delta formatting: "+" prefix + two decimals + "%".
     expect(screen.getByTestId('row-delta')).toHaveTextContent('+5.26%');
     expect(item).toHaveAttribute('data-delta-direction', 'positive');
+    // The move sits in a pill on its direction's tint.
+    expect(within(screen.getByTestId('row-delta')).getByTestId('pill')).toHaveAttribute('data-tone', 'positive');
 
     // Real points (length > 1) => the actual points and the positive color; the beforeEach series.
     const spark = screen.getByTestId('sparkline');
     expect(spark).toHaveAttribute('data-points', JSON.stringify([10, 20, 30]));
     expect(spark).toHaveAttribute('data-color', 'var(--status-positive)');
-    expect(spark).toHaveAttribute('data-width', '120');
-    expect(spark).toHaveAttribute('data-height', '32');
+    expect(spark).toHaveAttribute('data-width', '64');
+    expect(spark).toHaveAttribute('data-height', '28');
 
     // Amount + price plumbing: standard 2dp formatting + symbol; balance * price.
     expect(screen.getByTestId('row-amount')).toHaveTextContent('2.00 BTC');
@@ -155,15 +157,17 @@ describe('AssetRow', () => {
     expect(screen.getByTestId('row-price')).toHaveTextContent('$0.0025');
   });
 
-  it('treats an exactly-zero change as positive', () => {
-    tokenPrices = { BTC: priceInfo({ percentageChange24h: 0 }) };
+  it('treats a move under 0.1% either way as flat: a grey pill and a grey line', () => {
+    for (const change of [0, -0.02, 0.09]) {
+      tokenPrices = { BTC: priceInfo({ percentageChange24h: change }) };
 
-    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+      const { unmount } = render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
 
-    const item = screen.getByTestId('asset-list-item');
-    expect(screen.getByTestId('row-delta')).toHaveTextContent('+0.00%');
-    expect(item).toHaveAttribute('data-delta-direction', 'positive');
-    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--status-positive)');
+      expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-delta-direction', 'neutral');
+      expect(within(screen.getByTestId('row-delta')).getByTestId('pill')).toHaveAttribute('data-tone', 'neutral');
+      expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+      unmount();
+    }
   });
 
   it('renders a negative 24h delta without a prefix, negative direction, and status-negative sparkline color', () => {
@@ -200,7 +204,7 @@ describe('AssetRow', () => {
     expect(screen.queryByTestId('row-price')).toBeNull();
     expect(screen.queryByTestId('row-delta')).toBeNull();
     // No move is known either, so real points are drawn neutral, not in a stand-in 0%'s green.
-    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
+    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
   });
 
   // The nominal rate is a dollar figure, not a market, so it has no 24h move to show.
@@ -226,7 +230,7 @@ describe('AssetRow', () => {
 
     expect(screen.queryByTestId('row-price')).toBeNull();
     expect(screen.queryByTestId('row-delta')).toBeNull();
-    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--text-tertiary)');
+    expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
     expect(mockUseTokenSparkline).toHaveBeenCalledWith(undefined, '1D');
   });
 
@@ -240,7 +244,7 @@ describe('AssetRow', () => {
     const spark = screen.getByTestId('sparkline');
     // FLAT_SPARKLINE_POINTS fallback.
     expect(spark).toHaveAttribute('data-points', JSON.stringify([1, 1]));
-    expect(spark).toHaveAttribute('data-color', 'var(--text-tertiary)');
+    expect(spark).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
   });
 
   it('treats a single-point series as "no real points" (boundary: length === 1)', () => {
@@ -250,7 +254,7 @@ describe('AssetRow', () => {
 
     const spark = screen.getByTestId('sparkline');
     expect(spark).toHaveAttribute('data-points', JSON.stringify([1, 1]));
-    expect(spark).toHaveAttribute('data-color', 'var(--text-tertiary)');
+    expect(spark).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
   });
 
   it('uses metadata.name for the displayed name and passes the symbol to TokenLogo', () => {

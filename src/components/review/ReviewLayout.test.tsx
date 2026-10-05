@@ -154,7 +154,8 @@ describe('ReviewLayout', () => {
   it('draws no bar between the hero and the rows, whatever the flow', () => {
     for (const accent of ['brand', 'send', 'receive', 'earn', 'swap'] as const) {
       const { container, unmount } = render(<ReviewLayout {...makeProps({ accent })} />);
-      expect(container.querySelector('.h-2.rounded-full')).not.toBeInTheDocument();
+      // The network pill's dot is the same shape; it belongs to the banner, not the body.
+      expect(container.querySelector('.h-2.rounded-full:not([data-testid="network-mode-banner"] *)')).toBeNull();
       unmount();
     }
   });
