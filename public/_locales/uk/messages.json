@@ -4525,14 +4525,16 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Підтвердьте запит у своєму гаманці та залиште цей екран відкритим, поки Sepolia його підтверджує.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Підтвердьте запити у своєму гаманці — система може запитувати про це кілька разів — і залиште цей екран відкритим, поки Sepolia їх підтверджує.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while Sepolia confirms them."
   },
   "bridgeDepositAwaitingNextConfirmation": {
-    "message": "Waiting for the next wallet confirmation"
+    "message": "Waiting for the next wallet confirmation",
+    "englishSource": "Waiting for the next wallet confirmation"
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
-    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
   },
   "bridgeDepositFailed": {
     "message": "Помилка під час депозиту через міст",
