@@ -21,12 +21,23 @@ jest.mock('@reown/appkit/react', () => ({
   useAppKitProvider: () => ({ walletProvider: { request: jest.fn() } })
 }));
 
+// One stable mutateAsync across renders, so a test can script the approve and the bridge prompt as
+// two distinct calls (the pair #1290 is about) instead of getting a fresh mock on every render.
+const mutateAsync = jest.fn();
+
 jest.mock('wagmi', () => ({
-  useWriteContract: () => ({ mutateAsync: jest.fn() })
+  useWriteContract: () => ({ mutateAsync })
 }));
 
 jest.mock('use-debounce', () => ({
   useDebounce: (value: unknown) => [value]
+}));
+
+// `midenAddrToEvmAddr` decodes a real bech32 account through the WASM mock, which rejects this
+// suite's placeholder key. Only the recipient argument depends on it, and no case asserts on that.
+jest.mock('lib/agglayer', () => ({
+  ...jest.requireActual<typeof import('lib/agglayer')>('lib/agglayer'),
+  midenAddrToEvmAddr: () => '0x000000000000000000000000000000000000dead'
 }));
 
 const epochState = {
@@ -146,7 +157,9 @@ jest.mock('./EvmBridgeDepositReview', () => ({
 }));
 
 jest.mock('./EvmBridgeDepositStatus', () => ({
-  EvmBridgeDepositStatus: () => <div data-testid="deposit-status" />
+  EvmBridgeDepositStatus: ({ awaitingNextConfirmation }: { awaitingNextConfirmation?: boolean }) => (
+    <div data-testid="deposit-status" data-awaiting={String(Boolean(awaitingNextConfirmation))} />
+  )
 }));
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
@@ -257,6 +270,45 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   // The Fast case below quotes into the shared store; every case starts from it idle.
   afterEach(() => {
     Object.assign(epochState, idleEpoch);
+  });
+
+  it('flags the wait between the approve and the bridge confirmation, and clears it after (#1290)', async () => {
+    // The Slow route raises two prompts: approve, then bridgeAsset. Between them it waits on the
+    // approve's Sepolia receipt — seconds in which the wallet is silent. The status screen is told
+    // so, instead of showing copy that reads as finished.
+    let releaseBridgePrompt: (hash: string) => void = () => undefined;
+    const bridgePrompt = new Promise<string>(resolve => {
+      releaseBridgePrompt = resolve;
+    });
+    mutateAsync.mockResolvedValueOnce('0xapprove').mockReturnValueOnce(bridgePrompt);
+
+    renderScreen();
+    await reachSlowUsdcReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    // Approve answered and confirmed; the flow is now sitting on the unanswered bridge prompt.
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('deposit-status')).toHaveAttribute('data-awaiting', 'true');
+
+    releaseBridgePrompt('0xbridge');
+    await settle();
+
+    // Answered: what follows is a chain wait, not a wallet wait.
+    expect(screen.getByTestId('deposit-status')).toHaveAttribute('data-awaiting', 'false');
+  });
+
+  it('never flags a wait when the route raises a single confirmation (#1290)', async () => {
+    // Native ETH needs no approve, so there is no second prompt to announce.
+    mutateAsync.mockResolvedValue('0xbridge');
+
+    renderScreen();
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('deposit-status')).toHaveAttribute('data-awaiting', 'false');
   });
 
   it('routes the deposit submission through the reporter', async () => {

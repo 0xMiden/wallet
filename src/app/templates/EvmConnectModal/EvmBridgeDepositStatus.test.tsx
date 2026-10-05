@@ -159,6 +159,35 @@ describe('EvmBridgeDepositStatus', () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
+  it('names the pending wallet confirmation while the deposit waits for the next prompt', () => {
+    // #1290: between the approve landing and the bridge prompt opening the wallet is silent for
+    // several seconds, and the generic processing copy reads as "done" — users left mid-flow.
+    mockRowState = { row: makeRow(makeInputs()), loaded: true };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} awaitingNextConfirmation />);
+
+    expect(screen.getByText('bridgeDepositAwaitingNextConfirmation')).toBeInTheDocument();
+    expect(screen.getByText('bridgeDepositAwaitingNextConfirmationDescription')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeDepositProcessingDescription')).not.toBeInTheDocument();
+    // The wait appears while the user is looking at their wallet, so it is announced.
+    expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveAttribute('role', 'status');
+    // Still in flight: the spinner state and the Hide affordance are unchanged.
+    expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
+    expect(screen.getByRole('button', { name: 'hide' })).toBeInTheDocument();
+  });
+
+  it('keeps the failure message when a confirmation was pending as the deposit failed', () => {
+    // A rejected prompt sets the row to failed; the stale "waiting" copy must not outrank the error.
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'failed', error: 'user rejected the bridge request' })),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} awaitingNextConfirmation />);
+
+    expect(screen.getByText('bridgeDepositFailed')).toBeInTheDocument();
+    expect(screen.getByText('user rejected the bridge request')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeDepositAwaitingNextConfirmation')).not.toBeInTheDocument();
+  });
+
   it('shows the failed title and its recorded error', () => {
     mockRowState = {
       row: makeRow(makeInputs({ phase: 'failed', error: 'solver rejected the deposit' })),

@@ -4525,8 +4525,16 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Zatwierdź żądanie w swoim portfelu i pozostaw ten ekran otwarty, dopóki Sepolia nie potwierdzi transakcji.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Zatwierdź prośby w swoim portfelu — może pojawić się więcej niż jedna prośba — i pozostaw ten ekran otwarty, dopóki Sepolia ich nie potwierdzi.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while Sepolia confirms them."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Waiting for the next wallet confirmation",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
   },
   "bridgeDepositFailed": {
     "message": "Niepowodzenie wpłaty na most",

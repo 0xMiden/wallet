@@ -4525,8 +4525,16 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Cüzdanınızdaki talebi onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Cüzdanınızdaki istekleri onaylayın — birden fazla kez sorulabilir — ve Sepolia bunları onaylarken bu ekranı açık tutun.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while Sepolia confirms them."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Waiting for the next wallet confirmation",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
   },
   "bridgeDepositFailed": {
     "message": "Köprü yatırımı başarısız oldu",
