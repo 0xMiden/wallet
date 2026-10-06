@@ -33,3 +33,11 @@
 - Audit native-token defaults together with fee warnings, funding prompts and settings copy. Update both locale message metadata and generated runtime bundles; keep genuine separate tokens and SDK identifiers intact.
 - Apply an explicit session change of review workflow immediately. Preserve completed evidence and stop launching the superseded workflow.
 - Preserve the canonical byte format of generated locale messages. A formatting-only difference can trigger an unnecessary translation commit and change the reviewed source head.
+# Faucet funding and responsiveness
+
+- Compare faucet metadata on every target network before choosing a funding amount. A grant that
+  works on devnet can be thousands of times harder to prove on testnet when `base_amount` differs.
+- An `await` on WebCrypto does not guarantee a browser task boundary. Chromium resolves digest
+  promises inline; keep unbounded nonce search in a worker with cancellation owned by its parent.
+- Windows patch application can insert CRLF into an otherwise LF SDK bundle. Normalize both the
+  source helper and installed bundle before comparing the relay patch, and retain stale-content tests.

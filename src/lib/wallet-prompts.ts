@@ -595,10 +595,8 @@ export async function clearFaucetFundingMarker(address: string): Promise<void> {
   await getStorageProvider().remove([faucetFundingMarkerKey(address)]);
 }
 
-// 100 MIDEN in base units (6 decimals).
-const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // Bail out of a hung faucet request. The timeout also aborts the underlying
-// work: the signal is linked into each fetch, checked per PoW iteration, and
+// work: the signal is linked into each fetch, terminates the PoW worker, and
 // cuts a 429 back-off short.
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 /**
@@ -726,7 +724,7 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, r
     }
     return mintFromMidenFaucet(
       address,
-      MIDEN_FAUCET_AMOUNT,
+      undefined,
       controller.signal,
       async () => {
         if (marker) {

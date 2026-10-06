@@ -311,3 +311,24 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
   decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
   earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
+# Faucet funding follow-up after v1.17.1
+
+- [x] Reproduce the reported testnet target and trace the server's amount-scaled difficulty.
+- [x] Confirm the user-approved grant: use each faucet's advertised `base_amount`.
+- [x] Add failing tests for metadata-selected grants, invalid metadata, cancellation and worker isolation.
+- [x] Fetch and validate the grant before requesting PoW; retain one amount through submission.
+- [x] Move nonce hashing into a bundled worker with abort, deadline and cleanup handling.
+- [x] Verify 222 focused tests across six suites and types locally; do not run coverage or browsers locally.
+- [x] Complete medium internal review; neither review found P0/P1 issues.
+- [x] Reproduce and correct the Windows patch-check failure with genuine stale-code refusal controls.
+- [ ] Open and admin squash-merge the follow-up PR without waiting for CI, as explicitly requested.
+- [ ] Re-cut the withdrawn v1.17.1 from new next without a next CI wait, then promote next to main.
+- [ ] Verify the new release packages and report any CI failures separately.
+
+## Evidence
+
+Testnet advertises `base_amount=10000`, decimals 6 and load difficulty 65536. The historical
+100000000-unit grant produces target 28144683202 exactly. A live base-grant challenge solved
+with the unmodified wallet solver in 1591 ms and passed an independent SHA-256 check; no mint
+was submitted. Devnet advertises a 100000000-unit base grant. Funding state disables only its
+card action; the nonce search currently executes in the UI realm.
