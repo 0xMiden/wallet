@@ -7,7 +7,6 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
-import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
   clearGuardianServiceFor,
   getOrCreateMultisigService,
@@ -44,6 +43,7 @@ import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
@@ -1954,7 +1954,13 @@ const buildColdServiceForAccount = async (
  * consuming it does. Throws before any service is built or anything reaches the guardian.
  */
 const assertRotationFundingNotesNative = async (accountId: string, noteIds: string[]): Promise<void> => {
-  const nativeFaucetId = await getFaucetIdSetting();
+  let nativeFaucetId: string | null;
+  try {
+    nativeFaucetId = await getNativeAssetId();
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    nativeFaucetId = null;
+  }
   if (!nativeFaucetId) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
   const listed = await withWasmClientLock(async hold =>
     midenClientProxy.getConsumableNotes(accountId, step =>

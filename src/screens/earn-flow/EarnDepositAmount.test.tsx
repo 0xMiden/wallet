@@ -17,8 +17,14 @@ const mockRefetch = jest.fn();
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
-jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
+let mockBaseFee: number | null = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? 'MIDEN-ID'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
@@ -155,6 +161,22 @@ beforeEach(() => {
 });
 
 describe('EarnDepositAmount', () => {
+  it.each([
+    [1, 0, 'true'],
+    [0, 1, 'false']
+  ])('fee identity: gates a deposit using actual A=%s despite legacy B=%s', (actual, legacy, valid) => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 7;
+    mockBalanceRows = [
+      USDC_ROW,
+      { ...USDC_ROW, tokenId: 'MIDEN-ID', balance: actual },
+      { ...USDC_ROW, tokenId: 'legacy-B', balance: legacy }
+    ];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('1');
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', valid);
+  });
+
   it('renders the page shell and resolves the vault matching vaultId', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
@@ -406,4 +428,12 @@ describe('EarnDepositAmount with no vault', () => {
     expect(select).toHaveAttribute('data-token-balance', '0');
     expect(select).toHaveAttribute('data-valid', 'false');
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
+});
+
+beforeEach(() => {
+  mockBaseFee = 0;
 });

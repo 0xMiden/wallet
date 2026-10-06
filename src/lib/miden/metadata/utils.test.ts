@@ -1,7 +1,14 @@
+import { getNativeAssetId, getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
+
 import { getFaucetIdSetting, getTokensBaseMetadata } from '../front';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from './defaults';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
 import { getAssetSymbol, getAssetName, toBaseMetadata, getTokenMetadata } from './utils';
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: jest.fn(async () => 'miden-faucet-123'),
+  getNativeAssetMetadata: jest.fn(async () => ({ symbol: 'MIDEN', decimals: 6 }))
+}));
 
 jest.mock('../front', () => ({
   getFaucetIdSetting: jest.fn(),
@@ -143,13 +150,13 @@ describe('metadata/utils', () => {
 
     it('returns MIDEN_METADATA for null tokenId', async () => {
       const result = await getTokenMetadata(null);
-      expect(result).toBe(MIDEN_METADATA);
+      expect(result).toEqual({ ...MIDEN_METADATA, scaleIsUnknown: false });
     });
 
     it('returns MIDEN_METADATA when tokenId matches faucet setting', async () => {
       const result = await getTokenMetadata(mockFaucetId);
-      expect(result).toBe(MIDEN_METADATA);
-      expect(mockGetFaucetIdSetting).toHaveBeenCalled();
+      expect(result).toEqual({ ...MIDEN_METADATA, scaleIsUnknown: false });
+      expect(getNativeAssetId).toHaveBeenCalled();
     });
 
     it('fetches and returns token metadata for other tokenIds', async () => {
@@ -175,4 +182,11 @@ describe('metadata/utils', () => {
       expect(result).toBe(DEFAULT_TOKEN_METADATA);
     });
   });
+});
+
+it('returns native USDCX metadata to dApp callers without assuming six decimals', async () => {
+  jest.mocked(getNativeAssetMetadata).mockResolvedValueOnce({ symbol: 'USDCX', decimals: 8 });
+  await expect(getTokenMetadata('miden-faucet-123')).resolves.toEqual(
+    expect.objectContaining({ symbol: 'USDCX', name: 'USDCX', decimals: 8, scaleIsUnknown: false })
+  );
 });

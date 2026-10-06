@@ -21,6 +21,7 @@ import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
+  OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_PROVE_MARKER,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
@@ -37,7 +38,12 @@ import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
-import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import {
+  cacheScope,
+  captureNativeAssetSnapshot,
+  primeNativeAssetId,
+  recordSyncedFeeFaucetId
+} from 'lib/miden-chain/native-asset';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 import { logger } from 'shared/logger';
@@ -256,6 +262,8 @@ function registerOffscreenSignHandler(): void {
           active?: boolean;
           ts?: number;
           line?: string;
+          id?: unknown;
+          scope?: unknown;
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
@@ -272,6 +280,24 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (sender.id !== chrome.runtime.id) return false;
+    if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
+      if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
+      const id = m.id;
+      const scope = m.scope;
+      void startupHydration
+        .then(async () => {
+          if (scope !== cacheScope()) return false;
+          return recordSyncedFeeFaucetId(id, captureNativeAssetSnapshot(scope));
+        })
+        .then(
+          ok => sendResponse({ ok }),
+          error => {
+            console.warn('offscreen fee identity publication failed', error);
+            sendResponse({ ok: false });
+          }
+        );
+      return true;
+    }
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.

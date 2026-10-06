@@ -2880,16 +2880,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "Dodaj MIDEN, aby aktywować swój klucz codzienny",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "Dodaj USDCX, aby aktywować swój klucz codzienny",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "Aktywacja klucza codziennego jest transakcją, a każda transakcja wiąże się z niewielką opłatą sieciową w MIDEN. Wyślij MIDEN na adres tego konta podany poniżej. Portfel odbierze środki i automatycznie zakończy aktywację klucza.",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "Aktywacja klucza codziennego jest transakcją, a każda transakcja wiąże się z niewielką opłatą sieciową w USDCX. Wyślij USDCX na adres tego konta podany poniżej. Portfel odbierze środki i automatycznie zakończy aktywację klucza.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "Wyślij co najmniej $amount$ MIDEN.",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "Wyślij co najmniej $amount$ USDCX.",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2901,28 +2901,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "Czekam na nadejście MIDEN…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "Czekam na nadejście USDCX…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "Otrzymana kwota MIDEN jest zbyt mała, aby pokryć opłatę sieciową. Wyślij nieco więcej.",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "Otrzymana kwota USDCX jest zbyt mała, aby pokryć opłatę sieciową. Wyślij nieco więcej.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "Otrzymano MIDEN. Zgłaszam roszczenie…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "Otrzymano USDCX. Zgłaszam roszczenie…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "Aktywacja klucza codziennego…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "Otrzymany przez Ciebie MIDEN nie mógł zostać odebrany.",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "Otrzymany przez Ciebie USDCX nie mógł zostać odebrany.",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "Portfel nie mógł potwierdzić, czy otrzymany przez Ciebie MIDEN został już odebrany. Odczekaj minutę, aż portfel się zsynchronizuje, zanim spróbujesz ponownie.",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "Portfel nie mógł potwierdzić, czy otrzymany przez Ciebie USDCX został już odebrany. Odczekaj minutę, aż portfel się zsynchronizuje, zanim spróbujesz ponownie.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Spróbuj ponownie",
@@ -3086,28 +3086,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "Twoje MIDEN są zarezerwowane na opłatę sieciową. Otrzymaj więcej MIDEN, aby móc je wysłać.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "Twoje USDCX są zarezerwowane na opłatę sieciową. Otrzymaj więcej USDCX, aby móc je wysłać.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "Aby uiścić opłatę sieciową, potrzebujesz MIDEN. Odbierz trochę MIDEN, aby kontynuować.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "Aby uiścić opłatę sieciową, potrzebujesz USDCX. Odbierz trochę USDCX, aby kontynuować.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Kwota musi być mniejsza niż saldo",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Automatycznie akceptuj transfery MIDEN",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "Automatycznie akceptuj transfery USDCX",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatycznie akceptuje przychodzące transfery MIDEN do Twojego salda — tak samo jak dotknięcie Akceptuj. Nie akceptuje częściej ani nie kosztuje więcej opłat niż samodzielne dotknięcie Akceptuj.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "Automatycznie akceptuje przychodzące transfery USDCX do Twojego salda - tak samo jak dotknięcie Akceptuj. Nie akceptuje częściej ani nie kosztuje więcej opłat niż samodzielne dotknięcie Akceptuj.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Tworzenie pliku portfela…",
@@ -5448,8 +5448,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",

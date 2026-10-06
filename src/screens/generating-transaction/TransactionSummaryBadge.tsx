@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ITransaction } from 'lib/miden/db/types';
-import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
@@ -260,15 +259,12 @@ export const consumeAssetBreakdown = (
         : [];
 
   return totals.map(total => {
-    const tokenMetadata = assetsMetadata?.[total.faucetId];
     // Mirrors `getTokenMetadata`, which the activity row for this same claim
     // goes through: an unresolved NON-native faucet is Unknown, not MIDEN.
     // Labelling it MIDEN would name a foreign token after the native one —
     // and a batch claim's secondary faucets are exactly the ones the wallet
     // has no metadata for, since it has never held them.
-    const fallback =
-      nativeFaucetId !== null && total.faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
-    const resolved = tokenMetadata ?? fallback;
+    const resolved = resolveDisplayMetadata(total.faucetId, assetsMetadata, nativeFaucetId);
     // No trustworthy scale means no honest way to convert this faucet's base
     // units — the unknown-token placeholder's 6 is a guess, not a fact, and
     // using it renders an 18-decimal token 10^12 too large. Name the asset and

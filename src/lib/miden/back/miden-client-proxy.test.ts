@@ -38,6 +38,10 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   const g = globalThis as any;
   return {
     getMidenClient: (...a: any[]) => g.__px.getMidenClient(...a),
+    getCurrentWasmLockHold: () => g.__px.inlineHold,
+    assertWasmHoldCurrent: (hold: unknown) => {
+      if (hold !== g.__px.inlineHold) throw new Error('hold replaced');
+    },
     // The flag-off consume takes the CALLER lock itself (byte-identical to the
     // old switch-under-lock); route through the control so tests can assert it.
     withWasmClientLock: (...a: any[]) => g.__px.withWasmClientLock(...a)
@@ -108,7 +112,7 @@ function resetControl() {
     inlineGetAccount: jest.fn(async () => ({ __inlineAccount: true })),
     // The inline (flag-off) client also exposes the slice-3/4/5 methods so the
     // flag-off pass-through of each is assertable against a spy.
-    inlineSyncState: jest.fn(async () => ({ __syncSummary: true })),
+    inlineSyncState: jest.fn(async () => ({ __syncSummary: true, blockNum: () => 5000 })),
     // Slice 6b: the flag-off pass-through of the structural commit-wait.
     inlineWaitForTransactionCommit: jest.fn(async () => {}),
     // Slice 7b: the flag-off pass-through of the private-note relay.
@@ -1066,11 +1070,38 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     const { midenClientProxy } = await loadProxy(false);
     const height = await midenClientProxy.getSyncHeight({ fresh: true });
 
-    // Verbatim `(await getMidenClient()).client.sync().blockNum()` — NOT getSyncHeight.
-    expect(G.__px.inlineSync).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineSyncState).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineSync).not.toHaveBeenCalled();
     expect(G.__px.inlineGetSyncHeight).not.toHaveBeenCalled();
     expect(height).toBe(5000);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses to sync after inline client acquisition outlives its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let release: (client: unknown) => void = () => undefined;
+    G.__px.getMidenClient.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
+    const height = midenClientProxy.getSyncHeight({ fresh: true });
+    G.__px.inlineHold = { replacement: true };
+    release({ syncState: G.__px.inlineSyncState });
+    await expect(height).rejects.toThrow('hold replaced');
+    expect(G.__px.inlineSyncState).not.toHaveBeenCalled();
+  });
+
+  it('does not read a borrowed height summary after its sync lost the hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const blockNum = jest.fn(() => 5000);
+    G.__px.inlineSyncState.mockImplementationOnce(async () => {
+      G.__px.inlineHold = { replacement: true };
+      return { blockNum };
+    });
+    await expect(midenClientProxy.getSyncHeight({ fresh: true })).rejects.toThrow('hold replaced');
+    expect(blockNum).not.toHaveBeenCalled();
   });
 
   it('flag ON → getSyncHeight() dispatches with the read deadline + fresh:false and parses the number', async () => {

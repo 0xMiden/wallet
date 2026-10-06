@@ -45,7 +45,7 @@ interface TokenLogoProps {
 
 /** A token's mark, in one of the app's four known-logo colors or a generic default. A thin wrapper over `Avatar`. */
 export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', badge, className }) => {
-  const tokenLogo = TOKEN_LOGOS[symbol];
+  const tokenLogo = TOKEN_LOGOS[symbol === 'USDCX' ? 'USDC' : symbol];
   const avatarSize = AVATAR_SIZES[size];
 
   if (tokenLogo) {

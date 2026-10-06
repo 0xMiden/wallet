@@ -1,5 +1,8 @@
-import { getFaucetIdSetting, getTokensBaseMetadata } from '../front';
-import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from './defaults';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+
+import { getNativeDisplayMetadata } from './native';
+import { getTokensBaseMetadata } from '../front';
+import { DEFAULT_TOKEN_METADATA } from './defaults';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
 
 export function getAssetSymbol(metadata: AssetMetadata | null, short = false) {
@@ -29,8 +32,8 @@ export function toBaseMetadata(data: DetailedAssetMetdata | AssetMetadata): Asse
 }
 
 export async function getTokenMetadata(tokenId: string | null): Promise<AssetMetadata> {
-  const midenFaucetId = await getFaucetIdSetting();
-  if (!tokenId || tokenId === midenFaucetId) return MIDEN_METADATA;
+  const nativeId = await getNativeAssetId().catch(() => null);
+  if (!tokenId || tokenId === nativeId) return getNativeDisplayMetadata();
   const tokenMetadata = await getTokensBaseMetadata(tokenId);
   // A real, non-native token whose metadata we couldn't resolve is Unknown —
   // not MIDEN. Falling back to MIDEN would mislabel it and misformat its amount

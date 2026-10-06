@@ -50,6 +50,7 @@ import {
   OFFSCREEN_CALL,
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
+  OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_RELOAD_ENDPOINTS,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
@@ -102,6 +103,7 @@ import {
   type LandedTransaction
 } from 'lib/miden/sdk/sdk-error-code';
 import { readSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
+import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -109,6 +111,8 @@ import {
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
+import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
@@ -210,6 +214,22 @@ function postConnectivityEvent(category: ConnectivityCategory, active: boolean):
 }
 
 setConnectivityReporter(postConnectivityEvent);
+setNativeAssetPublisher(async (id, scope) => {
+  const response: unknown = await withRpcTimeout(
+    () =>
+      chrome.runtime.sendMessage({
+        target: SW_TARGET,
+        type: OFFSCREEN_NATIVE_ASSET_EVENT,
+        id,
+        scope
+      }),
+    'offscreen-native-asset-publication',
+    { retries: 0 }
+  );
+  if (!response || typeof response !== 'object' || !('ok' in response) || response.ok !== true) {
+    throw new Error('service worker did not persist synchronized fee identity');
+  }
+});
 
 // --- Developer endpoint overrides in THIS realm -----------------------------
 //
@@ -577,11 +597,11 @@ const DISPATCH: Record<string, DispatchFn> = {
   // is the whole point once the flag is on: the offscreen client owns the canonical
   // synced state, so these reads no longer go stale against the dormant SW client.
 
-  syncState: async (_context, client) => {
+  syncState: async (context, client) => {
     // Run the sync; every SW-side caller discards the returned `SyncSummary`,
     // so return null. Nothing to serialize here means nothing to re-hydrate on
     // the SW — serializing a result no one reads would be pure waste.
-    await client.syncState();
+    await client.syncState(() => assertWasmHoldCurrent(context.hold, 'after offscreen sync'));
     return null;
   },
 
@@ -653,7 +673,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   getSyncHeight: async (context, client, fresh: boolean) => {
     let height: number;
     if (fresh) {
-      const summary = await client.client.sync();
+      const summary = await client.syncState(() => assertWasmHoldCurrent(context.hold, 'after offscreen fresh sync'));
       // The summary is a live borrow of the client the sync ran on — reading its
       // block number after an eviction would double-borrow alongside the
       // successor, so re-check before touching it (#788). The non-fresh branch
@@ -1222,17 +1242,23 @@ const DISPATCH: Record<string, DispatchFn> = {
       try {
         // Chain-only sync (matches the SDK): confirmation needs on-chain state only,
         // and skipping NTL keeps polling alive when note transport is unavailable.
-        await polling.client.syncChain();
+        const pollingClient = polling.client;
+        await syncAndRecordFeeFaucet(
+          pollingClient,
+          () => pollingClient.syncChain(),
+          () => assertWasmHoldCurrent(context.hold, 'after offscreen confirmation sync')
+        );
       } catch (e) {
-        // Kept non-fatal, exactly as the SDK's own waitFor is — but no longer
-        // silent. A sync that fails EVERY lap makes the poll run blind: it lists
+        if (e instanceof WebAssembly.RuntimeError || e instanceof WasmClientPoisonedError) throw e;
+        // Ordinary transport failures remain non-fatal, while traps and poison
+        // propagate above. A sync that fails EVERY lap makes the poll run blind: it lists
         // transactions against state that never advances, so the only outcome
         // left is the timeout, reported as "confirmation timed out" with nothing
         // anywhere saying the chain was never read.
         console.warn(`${TAG} confirmation poll sync failed for ${transactionId}; continuing to poll:`, e);
       }
       // Re-checked after the sync: an eviction landing during that await (whose own
-      // failure is swallowed just above) would otherwise let this second WASM call
+      // ordinary failure is logged above) would otherwise let this second WASM call
       // run unmutexed, which is the whole hazard the loop-top guard exists for.
       if (getCurrentWasmLockHold() !== context.hold) {
         console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the sync)');

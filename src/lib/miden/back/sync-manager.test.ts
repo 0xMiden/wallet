@@ -158,6 +158,7 @@ jest.mock('lib/settings/helpers', () => ({
 let mockBaseFee: number | null = 0;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetId: () => mockGetFaucetIdSetting(),
   getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
@@ -175,16 +176,17 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   return { ...actual, getEffectiveRpcUrl: () => mockRpcUrl ?? actual.getEffectiveRpcUrl() };
 });
 
+let mockLegacyFeeIdentity: string | undefined;
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
 jest.mock('../assets', () => ({
   ...jest.requireActual('../assets'),
-  getFaucetIdSetting: () => mockGetFaucetIdSetting()
+  getFaucetIdSetting: () =>
+    mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
 }));
 
 const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
 const mockInitiateConsumeBatch = jest.fn((..._args: any[]) => Promise.resolve('consume-batch-tx'));
 jest.mock('../transaction/initiate', () => ({
-  ...jest.requireActual('../transaction/initiate'),
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
   // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
   // temporal-dead-zone error because requireActual('../assets') transitively loads this
@@ -1461,6 +1463,20 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).toHaveLength(20);
   });
 
+  it('fee identity: service worker auto-consumes actual native A instead of legacy B', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 7;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'actual-note', faucetId: 'native-faucet', amount: '1000000' }),
+      fakeNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '1000000' })
+    ]);
+    await doSync();
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'actual-note' })]);
+  });
+
   it('auto-consumes native notes in ONE transaction, following the user delegated-proving setting', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving
@@ -1620,4 +1636,8 @@ describe('doSync drives the resultBytes reaper', () => {
 
     expect(mockTrimResultBytes).toHaveBeenCalledTimes(2);
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

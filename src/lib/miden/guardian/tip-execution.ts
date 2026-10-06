@@ -5,8 +5,10 @@ import {
   requestBoundBlockNum
 } from '@openzeppelin/miden-multisig-client';
 
+import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+
 export const prepareGuardianTipExecution = async (
-  client: Pick<MidenClient, 'syncChain' | 'getSyncHeight'>,
+  client: Pick<MidenClient, 'syncChain' | 'getSyncHeight' | 'feeFaucetId'>,
   request: TransactionRequest,
   assertLive: () => void
 ): Promise<void> => {
@@ -16,7 +18,7 @@ export const prepareGuardianTipExecution = async (
   }
 
   // Foreign accounts load at the store's tip, which may itself have been pruned.
-  await client.syncChain();
+  await syncAndRecordFeeFaucet(client, () => client.syncChain(), assertLive);
   assertLive();
   if (boundBlockNum !== undefined) {
     const syncHeight = await client.getSyncHeight();

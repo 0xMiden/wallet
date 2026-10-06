@@ -412,8 +412,8 @@ export function isVaultShortfallError(raw: string): boolean {
  * the local-vault-view case is one a fresher sync genuinely resolves.
  */
 export const TRANSACTION_VAULT_SHORTFALL_ERROR =
-  'The transaction could not be completed because an asset it moves was not available in full — either the ' +
-  'amount sent, or the MIDEN for the network fee. Check your balances once the wallet has synced, then try again.';
+  'The transaction could not be completed because an asset it moves was not available in full - either the ' +
+  'amount sent, or the USDCX for the network fee. Check your balances once the wallet has synced, then try again.';
 
 /**
  * An everyday-key rotation that failed because the account could not pay its fee. A
@@ -471,7 +471,7 @@ export const ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR =
  * that is not a standard P2ID or P2IDE payment.
  */
 export const ROTATION_FUNDING_NON_NATIVE_ERROR =
-  'The wallet stopped this claim because it could not confirm that the transfer holds only MIDEN.';
+  'The wallet stopped this claim because it could not confirm that the transfer holds only USDCX.';
 
 /**
  * A consume the wallet refused before building anything. The message IS the row's text,

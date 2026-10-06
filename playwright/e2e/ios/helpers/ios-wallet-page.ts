@@ -1,11 +1,11 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
-import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -694,7 +694,7 @@ export class IosWalletPage implements WalletPage {
     const tokenSymbol = params.tokenSymbol;
     if (tokenSymbol) {
       // Wait for the FUNDED token row specifically — balance sync can lag, and
-      // if only the 0-balance MIDEN row has rendered, the fallback would grab it
+      // if only the 0-balance USDCX row has rendered, the fallback would grab it
       // and the amount Confirm would never enable.
       await this.pollForSelector(`[data-testid="send-token-${tokenSymbol}"]`, 30_000);
     } else {
@@ -707,7 +707,7 @@ export class IosWalletPage implements WalletPage {
         `  if (want) { want.click(); return true; } ` +
         `} ` +
         `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
-        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-USDCX']; ` +
         `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
         `if (!pick) pick = rows[0]; ` +
         `if (!pick) return false; pick.click(); return true;`

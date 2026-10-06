@@ -6,6 +6,11 @@ import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import {
+  getNativeAssetIdSync,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync
+} from 'lib/miden-chain/native-asset';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import TokenDetail from './TokenDetail';
@@ -246,6 +251,11 @@ jest.mock('lib/token-list/useTokenVerification', () => ({
 
 let mockNativeFaucetId: string | null = 'mtst1native';
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: jest.fn(() => null),
+  getNativeAssetMetadataSync: jest.fn(() => null),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => null)
+}));
 
 // The hidden-token set is the real module store (`useHiddenTokens`); only its storage is stubbed.
 jest.mock('lib/miden/front/storage', () => ({
@@ -320,6 +330,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockTokenPrices = {};
   mockNativeFaucetId = 'mtst1native';
+  jest.mocked(getNativeAssetIdSync).mockReturnValue(null);
+  jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
+  jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(null);
   resetHiddenTokens();
   mockReadStorage.mockReset();
   // Unread by default: most cases never look at the row, and a read settling after a synchronous
@@ -351,7 +364,31 @@ describe('TokenDetail', () => {
 
     // 0.38 * 3000, never 0.38 * $1.
     expect(within(screen.getByTestId('token-detail-hero')).getByText('$1140.00')).toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-price')).toBeInTheDocument();
+    expect(screen.getByTestId('token-detail-price-change')).toHaveTextContent('tokenDetailChange24h_+1.5');
+    expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toBeInTheDocument();
     expect(mockFetchKlineData).toHaveBeenCalledWith('ETH', '1D');
+  });
+
+  it('values SDK-authenticated native USDCX at $1 without a feed or a market chart', () => {
+    const nativeId = 'mtst1native-usdcx';
+    mockNativeFaucetId = nativeId;
+    jest.mocked(getNativeAssetIdSync).mockReturnValue(nativeId);
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(nativeId);
+    renderPage(
+      {
+        balances: [{ tokenId: nativeId, balance: 1, metadata: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } }],
+        tokenPrices: {}
+      },
+      nativeId
+    );
+
+    expect(within(screen.getByTestId('token-detail-hero')).getByText('$1.00')).toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('token-detail-price-change')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'chartTimeframe' })).not.toBeInTheDocument();
+    expect(mockFetchKlineData).not.toHaveBeenCalled();
   });
 
   it('shows no fiat line and no price section for a token the feed does not quote', () => {

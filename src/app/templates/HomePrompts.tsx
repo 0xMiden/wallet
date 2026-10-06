@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { IconName } from 'app/icons/v2';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
@@ -271,10 +272,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     setFaucetStatusIndicator('idle');
     setFaucetError(null);
   }
-  // One subscription for one value: each call owns state, runs an async settings
-  // lookup and subscribes to native-asset changes, and both consumers here -
-  // arrival filtering and the fee-asset gate - want the same current id.
   const midenFaucetId = useMidenFaucetId();
+  const feeFaucetId = useNativeFeeFaucetId();
   const accountKeyRef = useRef(account.publicKey);
   accountKeyRef.current = account.publicKey;
 
@@ -382,8 +381,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // move them, so it still needs the faucet. `hasNoFeeAsset` fails open, so a
   // zero-fee chain keeps the original any-token behaviour.
   const hasBalance = useMemo(
-    () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, midenFaucetId, verificationBaseFee),
-    [balances, midenFaucetId, verificationBaseFee]
+    () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, feeFaucetId, verificationBaseFee),
+    [balances, feeFaucetId, verificationBaseFee]
   );
   // Per account: one account's completion or dismiss must not hide Fund on another.
   const faucetStatus = storage.faucetByAccount[account.publicKey];
@@ -391,7 +390,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // balance to zero on a fee-charging chain cannot transact at all, and this prompt
   // is the way out -- so a previous dismissal stops suppressing it. Without the
   // re-arm the user is left stuck with no affordance anywhere on Home.
-  const cannotPayFee = hasNoFeeAsset(balances, midenFaucetId, verificationBaseFee);
+  const cannotPayFee = hasNoFeeAsset(balances, feeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
     !cannotPayFee && (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
   const showFaucetPrompt =

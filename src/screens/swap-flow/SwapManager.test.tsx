@@ -67,10 +67,15 @@ const mockNavigate = jest.fn();
 // ---------------------------------------------------------------------------
 
 // `react-i18next` — echo the key back so we can assert against raw keys.
-let mockBaseFee = 0;
+let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 let mockNativeFaucetId: string | null = 'MIDEN-ID';
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? mockNativeFaucetId
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -452,6 +457,54 @@ describe('SwapFlow / SwapManager', () => {
     // user signed. Send already reserves for this; swap quoted and enforced the raw
     // balance, so the same signed-then-failed outcome was still reachable here.
     // Reserve = baseFee * FEE_RESERVE_MULTIPLE / 10^decimals = 10000*30/1e8 = 0.003.
+    it('fee identity: reserves the actual native offer despite a different legacy display override', () => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockNativeFaucetId = 'bech32-faucet-A';
+      mockBaseFee = 7;
+      mockTokenA.decimals = 6;
+      mockAllBalancesReturn = {
+        data: [
+          { tokenId: 'bech32-faucet-A', balance: 1 },
+          { tokenId: 'legacy-B', balance: 1 }
+        ]
+      };
+      renderFlow();
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('0.99979');
+      setOffer('1');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      mockTokenA.decimals = 8;
+    });
+
+    it.each([
+      [0, 1, false],
+      [1, 0, true]
+    ])('fee identity: funds foreign offers from actual A=%s rather than legacy B=%s', (actual, legacy, allowed) => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockNativeFaucetId = 'actual-native';
+      mockBaseFee = 7;
+      mockAllBalancesReturn = {
+        data: [
+          { tokenId: 'bech32-faucet-A', balance: 2 },
+          { tokenId: 'actual-native', balance: actual },
+          { tokenId: 'legacy-B', balance: legacy }
+        ]
+      };
+      renderFlow();
+      setOffer('1');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent(String(allowed));
+    });
+
+    it.each([0, null])('fee identity: leaves the offer unreserved with current fee %s and a legacy override', fee => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockNativeFaucetId = 'bech32-faucet-A';
+      mockBaseFee = fee;
+      mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-A', balance: 1 }] };
+      renderFlow();
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('1');
+      setOffer('1');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    });
+
     it('holds back the fee reserve from the offerable balance', () => {
       mockNativeFaucetId = 'bech32-faucet-A';
       mockBaseFee = 10000;
@@ -1575,4 +1628,12 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
+});
+
+afterEach(() => {
+  mockTokenA.decimals = 8;
 });

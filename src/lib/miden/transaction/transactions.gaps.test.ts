@@ -12,6 +12,7 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
@@ -105,6 +106,13 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn(async () => {});
 const mockWaitForCommit = jest.fn(async () => {});
 const mockSendPrivateNote = jest.fn(async () => {});
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'fixture-rpc|testnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
 // The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
 // the `lib/...` alias of miden-client, which jest mocks separately from the
 // relative specifier below; delegate the alias to the same mock so the proxy's
@@ -1616,9 +1624,16 @@ describe('generateTransaction execute + consume default switch arms', () => {
         })
       }))
     };
+    const guardianClient = {
+      transactions: guardianTxApi,
+      syncChain: jest.fn(async () => {}),
+      getSyncHeight: jest.fn(() => 1),
+      feeFaucetId: jest.fn(async () => ({ toString: () => '0xfee0000000000000000000000000000000' }))
+    };
+    bindFeeFaucetClientScope(guardianClient, 'fixture-rpc|testnet');
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
-      client: { transactions: guardianTxApi, syncChain: jest.fn(async () => {}), getSyncHeight: jest.fn(() => 1) }
+      client: guardianClient
     });
     try {
       // A real GuardianAccountProvider always implements getAccounts (the
@@ -1807,16 +1822,20 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
     const service = seedGuardianService();
     const plainHeightRead = jest.fn(() => 100);
     const getAccount = jest.fn();
+    // The initial bounded sync succeeds; the request's fresh-height sync parks
+    // and loses its hold before rejecting. Its cached-height fallback must stop.
+    const syncState = jest
+      .fn(async () => ({ blockNum: () => 100 }))
+      .mockImplementationOnce(async () => ({ blockNum: () => 100 }))
+      .mockImplementationOnce(async () => {
+        gapsHold = null;
+        throw new Error('node parked');
+      });
     await withPatchedClient(
       {
         getAccount,
+        syncState,
         client: {
-          // The fresh sync parks, the watchdog evicts, and the parked call then
-          // fails — the fallback height read must NOT be taken unmutexed.
-          sync: jest.fn(async () => {
-            gapsHold = null;
-            throw new Error('node parked');
-          }),
           getSyncHeight: plainHeightRead
         }
       },
@@ -1824,6 +1843,7 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
         await generateTransaction(row, jest.fn(), false, provider as any);
       }
     );
+    expect(syncState).toHaveBeenCalledTimes(2);
     expect(plainHeightRead).not.toHaveBeenCalled();
     expect(getAccount).not.toHaveBeenCalled();
     expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();

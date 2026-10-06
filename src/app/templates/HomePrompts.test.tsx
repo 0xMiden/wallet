@@ -173,7 +173,12 @@ jest.mock('lib/miden/front/storage', () => ({
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => '0xnative' }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? '0xnative'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => '0xnative' }));
 
 const mockInitiateReplaceHotKeyTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
@@ -428,6 +433,28 @@ describe('HomePrompts', () => {
     expect(screen.queryByRole('button', { name: 'dismiss-faucetPromptTitle' })).not.toBeInTheDocument();
   });
 
+  it('fee identity: actual native funding suppresses Fund despite an empty legacy display row', () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 7;
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    render(
+      <HomePrompts
+        account={account}
+        balances={
+          [
+            { tokenId: NATIVE_FAUCET_ID, balance: 1 },
+            { tokenId: 'legacy-B', balance: 0 }
+          ] as TokenBalanceData[]
+        }
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+  });
+
   it('still offers the faucet when the account holds tokens but none of the fee asset', () => {
     // Holding USDC is not the same as being funded: the fee comes out of the
     // native balance, so this account cannot transact and needs the faucet.
@@ -621,6 +648,31 @@ describe('HomePrompts', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('fee identity: faucet arrival still follows the legacy display override independently of the fee ID', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 0;
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const renderWith = (notes: PendingNoteValue[]) => (
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    const { rerender } = render(renderWith([]));
+    const card = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+    fireEvent.click(within(card).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(card).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    rerender(renderWith([{ ...pendingNotes[0]!, faucetId: NATIVE_FAUCET_ID }]));
+    expect(card).toHaveAttribute('data-hero', 'faucetPromptFunding');
+    rerender(renderWith([{ ...pendingNotes[0]!, faucetId: 'legacy-B' }]));
+    await waitFor(() => expect(card).toHaveAttribute('data-hero', 'faucetPromptFunded'));
   });
 
   it('shows the generic line for a native mint, even with MIDEN quoted, since no allowlist entry names it', async () => {
@@ -4095,4 +4147,8 @@ describe('HomePrompts', () => {
       }
     );
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

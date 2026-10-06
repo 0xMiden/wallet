@@ -3,7 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button } from 'components/Button';
@@ -207,7 +207,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const inFlightRef = useRef<Promise<string | null> | null>(null);
   const { row } = useTransactionRow(txId ?? '');
   const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
-  const feeFaucetId = useMidenFaucetId();
+  const feeFaucetId = useNativeFeeFaucetId();
   const baseFee = useVerificationBaseFee();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balances, isLoading: balancesLoading } = useAllBalances(accountPublicKey, allTokensBaseMetadata);

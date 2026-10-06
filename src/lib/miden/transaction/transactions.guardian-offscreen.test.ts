@@ -57,6 +57,7 @@
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WalletType } from 'screens/onboarding/types';
 
 import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
@@ -266,10 +267,20 @@ const mockWithWasmClientLock = jest.fn(async (fn: (hold: object) => Promise<unkn
   }
 });
 const mockGetMidenClient = jest.fn();
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'fixture-rpc|testnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
   getCurrentWasmLockHold: () => currentHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && currentHold === hold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn(),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
 }));
@@ -398,15 +409,18 @@ const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
       submit: async () => ({ result, apply: jest.fn(async () => {}) })
     })
   }));
+  const client = {
+    syncChain: jest.fn(async () => {}),
+    getSyncHeight: jest.fn(async () => 100),
+    feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
+    transactions: { executeRequest }
+  };
+  bindFeeFaucetClientScope(client, 'fixture-rpc|testnet');
   return {
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
-    client: {
-      syncChain: jest.fn(async () => {}),
-      getSyncHeight: jest.fn(async () => 100),
-      transactions: { executeRequest }
-    },
+    client,
     __executeRequest: executeRequest
   };
 };

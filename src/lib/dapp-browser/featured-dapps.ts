@@ -82,7 +82,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     name: 'Faucet',
     url: 'https://faucet.testnet.miden.io/',
     icon: faucetIcon,
-    shortDescription: 'Get testnet MIDEN tokens',
+    shortDescription: 'Get testnet tokens',
     genre: 'Helper Tool',
     // The brand card green (`card-green`): the brand orange would swallow the orange faucet mark.
     brandColor: '#778C72',
@@ -94,7 +94,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     name: 'Forkchoice Faucet',
     url: 'https://faucets.forkchoice.xyz/',
     icon: forkchoiceFaucetIcon,
-    shortDescription: 'Gamified testnet MIDEN faucet',
+    shortDescription: 'Gamified testnet faucet',
     genre: 'Helper Tool',
     brandColor: '#2563EB',
     category: 'tools'

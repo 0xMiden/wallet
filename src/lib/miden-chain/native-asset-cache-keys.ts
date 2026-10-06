@@ -6,5 +6,7 @@
  * to do it, so this module stays free of imports and side effects.
  */
 export const NATIVE_ASSET_ID_CACHE = 'native_asset_id:v4';
-export const NATIVE_ASSET_META_CACHE = 'native_asset_meta:v4';
-export const NATIVE_ASSET_FEE_CACHE = 'native_asset_fee:v1';
+export const NATIVE_ASSET_META_CACHE = 'native_asset_meta:v5';
+export const NATIVE_ASSET_FEE_CACHE = 'native_asset_fee:v2';
+
+export const NATIVE_ASSET_SYNCED_ID_CACHE = 'native_asset_synced_id:v1';

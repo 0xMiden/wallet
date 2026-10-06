@@ -23,7 +23,13 @@ import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { getMidenClient, withWasmClientLock, type WasmLockHold } from 'lib/miden/sdk/miden-client';
+import {
+  getMidenClient,
+  getCurrentWasmLockHold,
+  assertWasmHoldCurrent,
+  withWasmClientLock,
+  type WasmLockHold
+} from 'lib/miden/sdk/miden-client';
 import type {
   AssertLive,
   InputNoteDetails,
@@ -1276,8 +1282,13 @@ export const midenClientProxy = {
   async getSyncHeight(opts?: { fresh?: boolean }): Promise<number> {
     const fresh = opts?.fresh ?? false;
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      const client = (await getMidenClient()).client;
-      return fresh ? (await client.sync()).blockNum() : client.getSyncHeight();
+      const hold = getCurrentWasmLockHold();
+      const client = await getMidenClient();
+      if (hold) assertWasmHoldCurrent(hold, 'reading synchronized height');
+      if (!fresh) return client.client.getSyncHeight();
+      const summary = await client.syncState();
+      if (hold) assertWasmHoldCurrent(hold, 'reading synchronized height summary');
+      return summary.blockNum();
     }
     const resultB64 = await this.call('getSyncHeight', [fresh], {
       deadlineMs: fresh ? SYNC_DEADLINE_MS : READ_DEADLINE_MS

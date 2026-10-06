@@ -4,10 +4,8 @@ import BigNumber from 'bignumber.js';
 import Fuse from 'fuse.js';
 import PQueue from 'p-queue';
 
-import { useGasToken } from 'app/hooks/useGasToken';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import {
-  MIDEN_METADATA,
   DEFAULT_TOKEN_METADATA,
   AssetMetadata,
   DetailedAssetMetdata,
@@ -18,9 +16,13 @@ import {
   usePassiveStorage,
   isMidenAsset
 } from 'lib/miden/front';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
+import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useWalletStore } from 'lib/store';
+import { balancePrice } from 'lib/store/utils/balancePrice';
 import { useRetryableSWR } from 'lib/swr';
 
 export const ALL_TOKENS_BASE_METADATA_STORAGE_KEY = 'tokens_base_metadata';
@@ -39,7 +41,6 @@ const autoFetchMetadataFails = new Set<string>();
  * Uses Zustand store for state while maintaining storage persistence.
  */
 export function useAssetMetadata(_slug: string, assetId: string) {
-  const { metadata } = useGasToken();
   const midenFaucetId = useMidenFaucetId();
 
   // Get from Zustand store
@@ -48,12 +49,13 @@ export function useAssetMetadata(_slug: string, assetId: string) {
   const fetchAssetMetadata = useWalletStore(s => s.fetchAssetMetadata);
 
   const isMidenFaucet = assetId === midenFaucetId;
+  const isNativeFaucet = assetId === getNativeAssetIdSync();
   const tokenMetadata = assetsMetadata[assetId] ?? null;
   const exist = Boolean(tokenMetadata);
 
   // Auto-fetch missing metadata
   useEffect(() => {
-    if (!isMidenFaucet && !exist && !autoFetchMetadataFails.has(assetId)) {
+    if (!isNativeFaucet && !exist && !autoFetchMetadataFails.has(assetId)) {
       autoFetchMetadataQueue
         .add(async () => {
           try {
@@ -71,11 +73,11 @@ export function useAssetMetadata(_slug: string, assetId: string) {
         })
         .catch(() => {});
     }
-  }, [assetId, exist, fetchAssetMetadata, setAssetsMetadata, isMidenFaucet]);
+  }, [assetId, exist, fetchAssetMetadata, setAssetsMetadata, isNativeFaucet]);
 
-  // Return MIDEN metadata for native token
-  if (isMidenFaucet) {
-    return metadata;
+  // Preserve authoritative native metadata, including its scale.
+  if (isMidenFaucet || isNativeFaucet) {
+    return getNativeDisplayMetadataSync(tokenMetadata ?? undefined, assetId);
   }
 
   // On a hard fetch failure (RPC throw, blacklisted asset) tokenMetadata stays
@@ -121,6 +123,37 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
     });
   }, [setAssetsMetadata]);
 
+  useEffect(() => {
+    const updateNative = () => {
+      const id = getNativeAssetIdSync();
+      const metadata = getNativeDisplayMetadataSync();
+      useWalletStore.setState(state => ({ tokenPrices: { ...state.tokenPrices } }));
+      if (!id || !hasKnownScale(metadata)) return;
+      setAssetsMetadata({ [id]: metadata });
+      useWalletStore.setState(state => ({
+        balances: Object.fromEntries(
+          Object.entries(state.balances).map(([account, rows]) => [
+            account,
+            rows.map(row =>
+              row.tokenId === id
+                ? {
+                    ...row,
+                    metadata,
+                    tokenSlug: metadata.symbol,
+                    balance: new BigNumber(row.balance).shiftedBy(row.metadata.decimals - metadata.decimals).toNumber(),
+                    ...balancePrice(state.tokenPrices, id, metadata.symbol)
+                  }
+                : row
+            )
+          ])
+        )
+      }));
+    };
+    const stop = onNativeAssetChanged(updateNative);
+    updateNative();
+    return stop;
+  }, [setAssetsMetadata]);
+
   return <>{children}</>;
 }
 
@@ -151,17 +184,17 @@ export const getTokensBaseMetadata = async (assetId: string) => {
  */
 export const useGetTokenMetadata = () => {
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
-  const { metadata } = useGasToken();
+  const nativeId = useMidenFaucetId();
 
   return useCallback(
     (slug: string, id: string) => {
-      if (isMidenAsset(slug)) {
-        return metadata;
+      if (id === nativeId || id === getNativeAssetIdSync() || isMidenAsset(slug)) {
+        return getNativeDisplayMetadataSync(assetsMetadata[id], id);
       }
 
       return assetsMetadata[id];
     },
-    [assetsMetadata, metadata]
+    [assetsMetadata, nativeId]
   );
 };
 
@@ -180,6 +213,8 @@ export function useDetailedAssetMetadata(assetSlug: string, assetId: string) {
   );
 
   useEffect(() => onStorageChanged(storageKey, mutate), [storageKey, mutate]);
+
+  if (assetId === getNativeAssetIdSync() && baseMetadata) return { ...detailedMetadata, ...baseMetadata };
 
   return detailedMetadata ?? baseMetadata;
 }
@@ -232,7 +267,10 @@ export function searchAssets(
     assets.map(({ slug, id }) => ({
       slug,
       id,
-      metadata: isMidenAsset(slug) ? MIDEN_METADATA : allTokensBaseMetadata[id]
+      metadata:
+        id === getNativeAssetIdSync() || isMidenAsset(slug)
+          ? getNativeDisplayMetadataSync(allTokensBaseMetadata[id], id)
+          : allTokensBaseMetadata[id]
     })),
     {
       keys: [

@@ -18,9 +18,14 @@ jest.mock('../transaction', () => ({
 }));
 
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => 'native-faucet');
-jest.mock('lib/miden/assets', () => ({ getFaucetIdSetting: () => mockGetFaucetIdSetting() }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('lib/miden/assets', () => ({
+  getFaucetIdSetting: () =>
+    mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
+}));
 let mockBaseFee: number | null = 0;
 jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: () => mockGetFaucetIdSetting(),
   getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
@@ -71,6 +76,18 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockCurrentAccount = { publicKey: 'pk-1' };
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
+  });
+
+  it('fee identity: auto-consumes actual native notes and leaves the legacy display faucet manual', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 7;
+    mockClaimable = [
+      note('actual-note', 'native-faucet', { amount: '1000000' }),
+      note('legacy-note', 'legacy-B', { amount: '1000000' })
+    ];
+    render(<NativeNoteAutoConsumeManager />);
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'actual-note' })]);
   });
 
   it('claims every eligible note in ONE transaction, paying one fee', async () => {
@@ -238,4 +255,9 @@ describe('NativeNoteAutoConsumeManager', () => {
     await new Promise(resolve => setTimeout(resolve, 20));
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
+  mockBaseFee = 0;
 });

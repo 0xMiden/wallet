@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
 import Balance from 'app/templates/Balance';
@@ -66,6 +67,7 @@ const Explore: FC = () => {
   const isMobileApp = isMobile();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
+  const feeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -101,8 +103,8 @@ const Explore: FC = () => {
     if (!shouldAutoConsume || !claimableNotes || rotationPending) {
       return [];
     }
-    return selectAutoConsumeBatch(claimableNotes, midenFaucetId, verificationBaseFee);
-  }, [claimableNotes, midenFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
+    return selectAutoConsumeBatch(claimableNotes, feeFaucetId, verificationBaseFee);
+  }, [claimableNotes, feeFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
@@ -113,8 +115,8 @@ const Explore: FC = () => {
   // the raw list surfaced a card, with a USD total, for native notes that were already
   // being auto-consumed (#811).
   const manuallyClaimableNotes = useMemo(
-    () => excludeAutoManagedNotes(claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee),
-    [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]
+    () => excludeAutoManagedNotes(claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee),
+    [claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee]
   );
 
   const autoConsumeMidenNotes = useCallback(async () => {

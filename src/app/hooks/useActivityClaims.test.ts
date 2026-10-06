@@ -51,7 +51,12 @@ jest.mock('lib/telemetry', () => ({
   }),
   classifyError: () => 'unknown'
 }));
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? 'faucet-native'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
   // The batch entry point: a test resolves it with a committed id, or with the full result when it
@@ -226,6 +231,23 @@ it('keeps a queued claim active if the processing wake-up fails', async () => {
   expect(mockQueue).toHaveBeenCalledTimes(1);
   log.mockRestore();
 });
+
+it.each([false, true])(
+  'fee identity: queues the actual native claim first under a legacy display override, reversed=%s',
+  async reversed => {
+    mockLegacyFeeIdentity = 'faucet-legacy';
+    const actual = { ...note, id: 'actual-note', faucetId: 'faucet-native' };
+    const legacy = { ...note, id: 'legacy-note', faucetId: 'faucet-legacy' };
+    const notes = reversed ? [actual, legacy] : [legacy, actual];
+    mockClaim.safeClaimableNotes = notes;
+    mockQueueMany.mockResolvedValue('queued');
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.acceptMany(notes);
+    });
+    expect(mockQueueMany.mock.calls.map(call => call[1])).toEqual([[actual], [legacy]]);
+  }
+);
 
 it('marks every batch note as claiming at once, queues the native faucet group first and settles each group on its own', async () => {
   const tokenNote = { ...note, id: 'note-token', faucetId: 'faucet-token' };
@@ -806,4 +828,8 @@ describe('held claims (#1081)', () => {
     settle([{ id: 'tx-new', status: 4, held: false }]);
     expect(result.current.items[0]?.status).toBe('failed');
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

@@ -35,7 +35,8 @@ import {
 jest.mock('./bridge-price-allowlist', () => ({ bridgePriceAllowlist: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
-  getNativeAssetMetadataSync: jest.fn()
+  getNativeAssetMetadataSync: jest.fn(),
+  getSdkSyncedNativeAssetIdSync: jest.fn()
 }));
 
 // Balances key a faucet by the SDK's bech32 form of its id, whose prefix names the network; make that
@@ -111,6 +112,11 @@ describe('swap token registry accessor', () => {
     mockGetNativeAssetIdSync.mockReturnValue(TOKEN_IMIDEN.faucetId);
 
     expect(getSwapTokens().filter(token => token.faucetId === TOKEN_IMIDEN.faucetId)).toHaveLength(1);
+  });
+
+  it('withholds the native swap entry until its scale is authoritative', () => {
+    mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
+    expect(getSwapTokens()).toEqual(SWAP_TOKENS);
   });
 
   it('override replaces the registry for all readers', () => {
@@ -434,5 +440,54 @@ describe('getSwapEta', () => {
     await jest.advanceTimersByTimeAsync(1);
 
     expect(quote.outcome).toBe(signal?.reason);
+  });
+});
+
+describe('SDK-confirmed native stablecoin pricing', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue('testnet:0xfee');
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+  });
+  it('prices the confirmed native faucet through either canonical spelling', () => {
+    expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+  });
+  it('does not price a copied symbol or an arbitrary configured native override', () => {
+    expect(tokenQuote({}, 'other-faucet', 'USDCX')).toBeUndefined();
+    mockGetNativeAssetIdSync.mockReturnValue('override-faucet');
+    expect(tokenQuote({}, 'override-faucet', 'USDCX')).toBeUndefined();
+  });
+  it('quotes the native USDCX unit independently of scale and respects a different chain symbol', () => {
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true });
+    expect(tokenQuote({}, '0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+    expect(tokenQuote({}, '0xfee', 'MIDEN')).toBeUndefined();
+  });
+});
+
+describe('SDK-confirmed provisional native unit pricing', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue('testnet:0xfee');
+    mockGetNativeAssetMetadataSync.mockReturnValue(null);
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+  });
+  it('quotes the provisional native USDCX unit at one dollar before its scale resolves', () => {
+    expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
+  });
+  it('does not quote a copied symbol, missing SDK proof or an unsynced override', () => {
+    expect(tokenQuote({}, 'other-faucet', 'USDCX')).toBeUndefined();
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue(null);
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+    mockGetNativeAssetIdSync.mockReturnValue('override-faucet');
+    expect(tokenQuote({}, 'override-faucet', 'USDCX')).toBeUndefined();
+  });
+  it('stops the default USDCX quote when authoritative chain metadata identifies MIDEN', () => {
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
   });
 });

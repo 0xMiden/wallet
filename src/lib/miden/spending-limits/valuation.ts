@@ -1,5 +1,6 @@
 import { canonicalFaucetId, strictPriceSymbolFor } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import { getNativeAssetId, getNativeAssetMetadata, getSdkSyncedNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { getPriceMicro } from 'lib/prices/usd';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 
@@ -58,12 +59,31 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
   }
   // From storage, never the network, and never rejects: a handler can run before this realm hydrated it.
   await initBridgeConfig();
+  let nativeId: string | undefined;
+  let nativeIdentityCause: unknown;
+  let nativeMetadata;
+  try {
+    nativeId = await getNativeAssetId();
+  } catch (cause) {
+    if (cause instanceof WebAssembly.RuntimeError) {
+      throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
+    }
+    nativeIdentityCause = cause;
+  }
+  if (nativeId !== undefined) {
+    try {
+      nativeMetadata = await getNativeAssetMetadata();
+    } catch (cause) {
+      throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
+    }
+  }
   let total = 0n;
   for (const spend of spends) {
     let faucetId: string;
     let symbol: string;
     let decimals: number;
     let scaleKnown: boolean;
+    let authenticatedNativeUsdcx = false;
     try {
       // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
       // several spellings of this faucet into one canonical hex id (the dApp custom path's
@@ -74,7 +94,18 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       // the allowlist, so a network switch during the metadata await cannot turn a priced spend
       // into $0.
       faucetId = canonicalFaucetId(spend.faucetId);
-      const { base } = await fetchTokenMetadata(faucetId);
+      const isNative = nativeId !== undefined && faucetId === canonicalFaucetId(nativeId);
+      const base = isNative
+        ? nativeMetadata && { ...nativeMetadata, name: nativeMetadata.symbol }
+        : (await fetchTokenMetadata(faucetId)).base;
+      if (!base) throw new Error('native asset metadata is unresolved');
+      if (isNative && base.symbol === 'USDCX') {
+        const syncedId = getSdkSyncedNativeAssetIdSync();
+        if (!syncedId || canonicalFaucetId(syncedId) !== faucetId) {
+          throw new Error('native protocol identity has not been synchronized');
+        }
+        authenticatedNativeUsdcx = true;
+      }
       symbol = base.symbol;
       decimals = base.decimals;
       scaleKnown = hasKnownScale(base);
@@ -84,9 +115,12 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
     let priceSymbol: string | undefined;
     try {
-      priceSymbol = strictPriceSymbolFor(faucetId, symbol);
+      priceSymbol = authenticatedNativeUsdcx ? 'USDCX' : strictPriceSymbolFor(faucetId, symbol);
     } catch (cause) {
       throw new SpendingLimitPriceUnavailableError(symbol, { cause });
+    }
+    if (nativeId === undefined && (priceSymbol === undefined || priceSymbol === 'USDCX')) {
+      throw new SpendingLimitPriceUnavailableError(symbol, { cause: nativeIdentityCause });
     }
     if (priceSymbol === undefined) continue;
     const priceMicro = await getPriceMicro(priceSymbol, now);

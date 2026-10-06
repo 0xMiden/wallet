@@ -244,7 +244,7 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 let mockNativeId: string | null = 'MIDEN-ID';
-jest.mock('app/hooks/useMidenFaucetId', () => ({
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
   __esModule: true,
   default: () => mockNativeId
 }));

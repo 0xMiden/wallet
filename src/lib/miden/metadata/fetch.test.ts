@@ -1,7 +1,15 @@
 import { isMidenAsset } from 'lib/miden/assets';
+import {
+  getNativeAssetMetadata,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync,
+  getVerificationBaseFee,
+  resetNativeAssetCache
+} from 'lib/miden-chain/native-asset';
 
-import { MIDEN_METADATA, DEFAULT_TOKEN_METADATA } from './defaults';
+import { DEFAULT_TOKEN_METADATA } from './defaults';
 import { fetchTokenMetadata, NotFoundTokenMetadata } from './fetch';
+import { getNativeDisplayMetadataSync } from './native';
 import { AssetMetadata } from './types';
 
 jest.mock('webextension-polyfill', () => ({
@@ -20,8 +28,10 @@ jest.mock('lib/platform', () => ({
 
 // Mock @miden-sdk/miden-sdk: RpcClient, Endpoint, Address, BasicFungibleFaucetComponent
 const mockGetAccountDetails = jest.fn();
+const mockGetBlockHeaderByNumber = jest.fn();
 const mockRpcClient = jest.fn(() => ({
-  getAccountDetails: mockGetAccountDetails
+  getAccountDetails: mockGetAccountDetails,
+  getBlockHeaderByNumber: mockGetBlockHeaderByNumber
 }));
 const mockFromBech32 = jest.fn();
 const mockFromAccountStorage = jest.fn();
@@ -43,9 +53,20 @@ jest.mock('lib/miden-chain/constants', () => ({
   ensureSdkWasmReady: jest.fn(() => Promise.resolve())
 }));
 
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveRpcUrl: () => 'rpc-bootstrap',
+  getEffectiveNetworkName: () => 'devnet',
+  getEffectiveFeeFaucetId: () => undefined
+}));
+
+jest.mock('lib/miden/front', () => ({}));
+
+jest.mock('lib/miden/metadata', () => jest.requireActual('./fetch'));
+
 const mockFetchFromStorage = jest.fn();
 const mockPutToStorage = jest.fn();
 jest.mock('lib/miden/front/storage', () => ({
+  onStorageChanged: () => Object.assign(() => {}, { attached: Promise.resolve() }),
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args),
   putToStorage: (...args: unknown[]) => mockPutToStorage(...args)
 }));
@@ -63,14 +84,14 @@ describe('metadata/fetch', () => {
   });
 
   describe('fetchTokenMetadata', () => {
-    it('returns MIDEN_METADATA for miden asset', async () => {
+    it('returns provisional USDCX for the native asset alias', async () => {
       mockIsMidenAsset.mockReturnValue(true);
 
       const result = await fetchTokenMetadata('miden');
 
       expect(result).toEqual({
-        base: MIDEN_METADATA,
-        detailed: MIDEN_METADATA
+        base: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true }),
+        detailed: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true })
       });
       // Should not call any RPC methods for miden asset
       expect(mockGetAccountDetails).not.toHaveBeenCalled();
@@ -304,6 +325,132 @@ describe('metadata/fetch', () => {
       await expect(fetchTokenMetadata('bad-asset-id')).rejects.toThrow(NotFoundTokenMetadata);
       consoleErrorSpy.mockRestore();
     });
+  });
+
+  describe('native bootstrap through actual metadata fetching', () => {
+    const nativeId = 'native-A';
+    const foreignId = 'foreign-B';
+    const proofKey = 'native_asset_synced_id:v1:rpc-bootstrap|devnet';
+    const nativeMetadataKey = 'native_asset_meta:v5:rpc-bootstrap|devnet';
+    const foreignMetadata = { symbol: 'BRAND', name: 'Legacy branding', decimals: 4, scaleIsUnknown: false };
+    let storage: Record<string, any>;
+
+    beforeEach(async () => {
+      storage = {};
+      mockFetchFromStorage.mockImplementation(async (key: string) => storage[key] ?? null);
+      mockPutToStorage.mockImplementation(async (key: string, value: unknown) => {
+        storage[key] = value;
+      });
+      await resetNativeAssetCache();
+      storage[proofKey] = nativeId;
+      storage.tokens_base_metadata = { [foreignId]: foreignMetadata };
+      mockIsMidenAsset.mockImplementation(jest.requireActual('lib/miden/assets/utils').isMidenAsset);
+      mockFromBech32.mockImplementation((id: string) => ({ accountId: () => id }));
+      mockGetAccountDetails.mockResolvedValue({
+        account: () => ({ storage: () => ({}) }),
+        isPublic: () => true
+      });
+      mockFromAccountStorage.mockReturnValue({
+        symbol: () => ({ toString: () => 'USDCX' }),
+        decimals: () => 6
+      });
+      mockGetBlockHeaderByNumber.mockReset().mockResolvedValue({ verificationBaseFee: () => 7 });
+    });
+
+    afterEach(async () => {
+      await resetNativeAssetCache();
+    });
+
+    it('preserves genuine chain MIDEN for the native alias', async () => {
+      mockFromAccountStorage.mockReturnValue({
+        symbol: () => ({ toString: () => 'MIDEN' }),
+        decimals: () => 6
+      });
+      await expect(getNativeAssetMetadata()).resolves.toEqual({ symbol: 'MIDEN', decimals: 6 });
+      await expect(fetchTokenMetadata('miden')).resolves.toEqual({
+        base: expect.objectContaining({ symbol: 'MIDEN', name: 'Miden', decimals: 6, scaleIsUnknown: false }),
+        detailed: expect.objectContaining({ symbol: 'MIDEN', name: 'Miden', decimals: 6, scaleIsUnknown: false })
+      });
+    });
+
+    it.each([false, true])(
+      'reads native chain scale and preserves foreign cache, stale native cache=%s',
+      async stale => {
+        if (stale)
+          storage.tokens_base_metadata[nativeId] = {
+            symbol: 'USDCX',
+            name: 'USDCX',
+            decimals: 8,
+            scaleIsUnknown: false
+          };
+        expect(isMidenAsset(nativeId)).toBe(false);
+        await expect(fetchTokenMetadata(foreignId)).resolves.toEqual({
+          base: foreignMetadata,
+          detailed: foreignMetadata
+        });
+        const expectedCachedNative = stale
+          ? { symbol: 'USDCX', name: 'USDCX', decimals: 8, scaleIsUnknown: false }
+          : undefined;
+        const cachedNative = stale ? await fetchTokenMetadata(nativeId) : undefined;
+        expect(cachedNative?.base).toEqual(expectedCachedNative);
+        expect(mockGetAccountDetails).not.toHaveBeenCalled();
+
+        await expect(getNativeAssetMetadata()).resolves.toEqual({ symbol: 'USDCX', decimals: 6 });
+        expect(getNativeAssetMetadataSync()).toEqual({ symbol: 'USDCX', decimals: 6 });
+        await expect(fetchTokenMetadata('miden')).resolves.toEqual({
+          base: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: false }),
+          detailed: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: false })
+        });
+        expect(getSdkSyncedNativeAssetIdSync()).toBe(nativeId);
+        expect(storage[nativeMetadataKey]).toEqual({ faucetId: nativeId, symbol: 'USDCX', decimals: 6 });
+        expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
+        expect(mockGetAccountDetails).toHaveBeenCalledWith(nativeId);
+        expect(getNativeDisplayMetadataSync(undefined, nativeId)).toMatchObject({
+          symbol: 'USDCX',
+          decimals: 6,
+          scaleIsUnknown: false
+        });
+        expect(getNativeDisplayMetadataSync(foreignMetadata, foreignId)).toEqual(foreignMetadata);
+        expect(storage.tokens_base_metadata[foreignId]).toEqual(foreignMetadata);
+        await expect(fetchTokenMetadata(foreignId)).resolves.toEqual({
+          base: foreignMetadata,
+          detailed: foreignMetadata
+        });
+        expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);
+        await expect(getVerificationBaseFee()).resolves.toBe(7);
+        expect(mockGetBlockHeaderByNumber).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it.each(['RPC rejection', 'unknown chain scale'])(
+      'does not promote stale generic native metadata after %s',
+      async failure => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          storage.tokens_base_metadata[nativeId] = {
+            symbol: 'USDCX',
+            name: 'USDCX',
+            decimals: 8,
+            scaleIsUnknown: false
+          };
+          if (failure === 'RPC rejection') mockGetAccountDetails.mockRejectedValue(new Error('RPC unavailable'));
+          else
+            mockFromAccountStorage.mockImplementation(() => {
+              throw new Error('Unknown faucet interface');
+            });
+          await expect(getNativeAssetMetadata()).resolves.toBeNull();
+          expect(getNativeAssetMetadataSync()).toBeNull();
+          expect(storage[nativeMetadataKey]).toBeNull();
+          expect(getSdkSyncedNativeAssetIdSync()).toBe(nativeId);
+          expect(mockGetAccountDetails).toHaveBeenCalledWith(nativeId);
+          expect(storage.tokens_base_metadata[foreignId]).toEqual(foreignMetadata);
+        } finally {
+          warn.mockRestore();
+          error.mockRestore();
+        }
+      }
+    );
   });
 
   describe('NotFoundTokenMetadata', () => {

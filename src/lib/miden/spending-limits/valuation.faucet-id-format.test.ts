@@ -1,9 +1,22 @@
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { _resetNormalizedFaucetIdsForTest, TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
+import {
+  getNativeAssetId,
+  getNativeAssetMetadata,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync
+} from 'lib/miden-chain/native-asset';
 
 import { SpendingLimitPriceUnavailableError } from './types';
 import { resolveSpendsUsd } from './valuation';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: jest.fn(async () => NATIVE_BECH32),
+  getNativeAssetMetadata: jest.fn(async () => ({ symbol: 'MIDEN', decimals: 6 })),
+  getNativeAssetIdSync: jest.fn(() => NATIVE_BECH32),
+  getNativeAssetMetadataSync: jest.fn(() => ({ symbol: 'MIDEN', decimals: 6 })),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => NATIVE_BECH32)
+}));
 
 /**
  * Reproduces the dApp CUSTOM spending-limit refusal (wallet PR #1080, `dapp_custom_within_limit_
@@ -28,6 +41,8 @@ const BECH32_FAUCET = 'mtst1qtstfaucet00000000000000000000000000000qqqqqqq';
 const HEX_FAUCET = '0xaabbccddeeff00112233445566778899';
 // The Earn collateral USDC, which the price allowlist names by its hex id (#1131).
 const USDC_BECH32 = 'mtst1qusdcfaucet000000000000000000000000000qqqqqqq';
+const NATIVE_BECH32 = 'mtst1qnativefaucet0000000000000000000000000qqqqqqq';
+const NATIVE_HEX = '0x1234567890abcdef1234567890abcdef';
 
 const TST_METADATA = {
   decimals: 6,
@@ -43,6 +58,7 @@ const IETH_METADATA = { ...TST_METADATA, decimals: 8, symbol: 'IETH', name: 'IET
 
 const sentinelAccountId = { __brand: 'faucet-account-id' };
 const usdcAccountId = { __brand: 'usdc-faucet-account-id' };
+const nativeAccountId = { __brand: 'native-faucet-account-id' };
 // The swap registry's priced entries are bech32 ids: the cap matches every entry it compares
 // strictly, so an entry that failed to parse here would refuse every spend in this suite.
 const iethAccountId = { __brand: 'ieth-faucet-account-id' };
@@ -50,6 +66,7 @@ const ibtcAccountId = { __brand: 'ibtc-faucet-account-id' };
 const BECH32_BY_ACCOUNT_ID = new Map<unknown, string>([
   [sentinelAccountId, BECH32_FAUCET],
   [usdcAccountId, USDC_BECH32],
+  [nativeAccountId, NATIVE_BECH32],
   [iethAccountId, TOKEN_IETH.faucetId],
   [ibtcAccountId, TOKEN_IBTC.faucetId]
 ]);
@@ -114,6 +131,10 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     _resetNormalizedFaucetIdsForTest();
     process.env.MIDEN_E2E_TEST = 'true';
     mockNetwork = 'testnet';
+    jest.mocked(getNativeAssetId).mockResolvedValue(NATIVE_BECH32);
+    jest.mocked(getNativeAssetMetadata).mockResolvedValue({ symbol: 'MIDEN', decimals: 6 });
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+    jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(NATIVE_BECH32);
 
     // The metadata cache holds TST under the BECH32 key - the form every wallet-populated cache
     // entry uses (`getBech32AddressFromAccountId`), matching the E2E fixture's own faucet.
@@ -125,7 +146,13 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     // `getBech32AddressFromAccountId` already produces for every other faucet id this codebase
     // caches under. Anything else parsing to a different account id is not this faucet.
     mockFromHex.mockImplementation((hex: string) =>
-      hex === HEX_FAUCET ? sentinelAccountId : hex === MIDEN_USDC_FAUCET ? usdcAccountId : { __brand: 'other' }
+      hex === HEX_FAUCET
+        ? sentinelAccountId
+        : hex === MIDEN_USDC_FAUCET
+          ? usdcAccountId
+          : hex === NATIVE_HEX
+            ? nativeAccountId
+            : { __brand: 'other' }
     );
     mockFromAccountId.mockImplementation((accountId: unknown, iface: string) => ({
       toBech32: (network: string) => {
@@ -245,6 +272,31 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
     const valued = resolveSpendsUsd([{ faucetId: USDC_BECH32, amount: 25_000_000n }], 10);
     await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
     await expect(valued).rejects.toMatchObject({ symbol: 'USDC', cause: parseError });
+  });
+
+  it.each([
+    [NATIVE_BECH32, NATIVE_HEX],
+    [NATIVE_HEX, NATIVE_BECH32]
+  ])('values native USDCX when identity %s and SDK proof %s are canonical aliases', async (identity, proof) => {
+    jest.mocked(getNativeAssetId).mockResolvedValueOnce(identity);
+    jest.mocked(getNativeAssetMetadata).mockResolvedValueOnce({ symbol: 'USDCX', decimals: 6 });
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(proof);
+
+    await expect(resolveSpendsUsd([{ faucetId: NATIVE_BECH32, amount: 1_000_000n }], 10)).resolves.toBe(1_000_000n);
+    expect(mockGetAccountDetails).not.toHaveBeenCalled();
+  });
+
+  it('refuses native USDCX when its non-null SDK proof cannot be canonicalized', async () => {
+    jest.mocked(getNativeAssetMetadata).mockResolvedValueOnce({ symbol: 'USDCX', decimals: 6 });
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue('not-a-protocol-faucet');
+
+    const valued = resolveSpendsUsd([{ faucetId: NATIVE_BECH32, amount: 1_000_000n }], 10);
+    await expect(valued).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    await expect(valued).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: 'invalid bech32 address: not-a-protocol-faucet' })
+    });
   });
 
   it('refuses a spend whose own id the SDK cannot parse, named after that id (#1131 F-001)', async () => {

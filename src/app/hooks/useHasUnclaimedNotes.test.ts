@@ -24,6 +24,10 @@ let mockBaseFee: number | null = null;
 let mockAutoConsume = false;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
+  default: () => 'legacy-display'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
+  __esModule: true,
   default: () => mockFaucetId
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
@@ -81,6 +85,16 @@ describe('useHasUnclaimedNotes', () => {
 
     const { result } = renderHook(() => useHasUnclaimedNotes());
 
+    expect(result.current).toBe(true);
+  });
+
+  it('counts a legacy display note as manual while actual native auto-consume is enabled', () => {
+    mockAutoConsume = true;
+    mockBaseFee = 7;
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ id: 'legacy', faucetId: 'legacy-display', amount: '1000000' }]
+    });
+    const { result } = renderHook(() => useHasUnclaimedNotes());
     expect(result.current).toBe(true);
   });
 

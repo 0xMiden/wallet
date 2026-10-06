@@ -68,10 +68,12 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+let mockLegacyFeeIdentity: string | undefined;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
-  default: () => mockFaucetId
+  default: () => mockLegacyFeeIdentity ?? mockFaucetId
 }));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
   default: () => mockBaseFee
@@ -1282,6 +1284,27 @@ describe('Explore', () => {
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
+    it('fee identity: auto-consumes A while legacy B remains manual and sorts first', async () => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockAutoConsume = true;
+      mockBaseFee = 7;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [
+        { ...makeNote('actual-note', 'faucet-native'), amount: '1000000' },
+        { ...makeNote('legacy-note', 'legacy-B'), amount: '1000000' }
+      ];
+      mockAllBalances = [makeToken('faucet-native', 'USDCX'), makeToken('legacy-B', 'LEGACY')];
+      await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
+        'mtst1account',
+        expect.objectContaining({ id: 'actual-note' }),
+        expect.any(Boolean)
+      );
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
+      expect(screen.getAllByTestId('asset-row')[0]).toHaveAttribute('data-token', 'legacy-B');
+    });
+
     it('consumes matching, not-yet-claiming notes and dispatches via the SW on extension', async () => {
       mockAutoConsume = true;
       mockDelegateProof = true;
@@ -1459,4 +1482,8 @@ describe('Explore', () => {
       expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
     });
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

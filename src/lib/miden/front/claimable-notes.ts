@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getNoteHoldingTransactions } from 'lib/miden/activity';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
-import { isMidenFaucet } from '../assets';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
-import { AssetMetadata, MIDEN_METADATA } from '../metadata';
+import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
 import { fetchFromStorage, putToStorage } from './storage';
@@ -102,9 +103,10 @@ async function buildMetadataMapFromCache(
   cache: Record<string, AssetMetadata> | undefined
 ): Promise<Record<string, AssetMetadata>> {
   const map: Record<string, AssetMetadata> = {};
+  const nativeId = getNativeAssetIdSync();
   for (const n of notes) {
-    if (await isMidenFaucet(n.faucetId)) {
-      map[n.faucetId] = MIDEN_METADATA;
+    if (n.faucetId === nativeId) {
+      map[n.faucetId] = getNativeDisplayMetadataSync(cache?.[n.faucetId], n.faucetId);
     } else {
       const cached = cache?.[n.faucetId];
       if (cached) map[n.faucetId] = cached;
@@ -118,9 +120,9 @@ async function findMissingFaucetIds(
   metadataByFaucetId: Record<string, AssetMetadata>
 ): Promise<string[]> {
   const missing = new Set<string>();
+  const nativeId = getNativeAssetIdSync();
   for (const n of notes) {
-    const isMiden = await isMidenFaucet(n.faucetId);
-    if (!isMiden && !metadataByFaucetId[n.faucetId]) {
+    if (n.faucetId !== nativeId && !metadataByFaucetId[n.faucetId]) {
       missing.add(n.faucetId);
     }
   }
