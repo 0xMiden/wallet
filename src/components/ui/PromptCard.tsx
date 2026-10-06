@@ -10,7 +10,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 import { Card } from './Card';
 
-/** `receive`: money waiting for the wallet, drawn on the Receive tint with its ink. */
+/** `receive`: money waiting for the wallet, on the Receive tint with its ink. `warning`: something to
+ *  do for the wallet's safety (back up the recovery phrase), on the sand tint with its ink. */
 export type PromptCardVariant = 'default' | 'warning' | 'critical' | 'receive';
 export type PromptCardStatus = 'idle' | 'loading' | 'success' | 'failure';
 
@@ -73,7 +74,7 @@ const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> =
  * The tone of an icon bubble: the accent for anything neutral or in progress, the status green for
  * a finished one, the status red for a failed one.
  */
-type PromptIconTone = 'accent' | 'positive' | 'negative' | 'receive';
+type PromptIconTone = 'accent' | 'positive' | 'negative' | 'receive' | 'warning';
 
 const ICON_BUBBLE_TONE: Record<PromptIconTone, string> = {
   accent: 'bg-accent-primary/15 text-accent-primary',
@@ -81,7 +82,10 @@ const ICON_BUBBLE_TONE: Record<PromptIconTone, string> = {
   negative: 'bg-status-negative/15 text-status-negative',
   // On the Receive tint a tint bubble would vanish, so it is the solid Receive colour with its
   // on-colour glyph: the one solid bubble, for money waiting.
-  receive: 'bg-accent-receive text-accent-receive-on'
+  receive: 'bg-accent-receive text-accent-receive-on',
+  // The warning card's bubble: the sand tint's own ink as a solid disc, the glyph in the page colour
+  // (white on light, near-black on dark), so it reads on the sand tint in both themes.
+  warning: 'bg-pending-tint-ink text-page'
 };
 
 interface PromptIconBubbleProps {
@@ -249,7 +253,13 @@ export const PromptCard: FC<PromptCardProps> = ({
       padding="none"
       // On Card itself, not the child: the Slot only joins the two class lists, so the outline's
       // `bg-page` would win over a tint set on the child.
-      className={variant === 'receive' ? 'border-transparent bg-accent-receive-tint' : undefined}
+      className={
+        variant === 'receive'
+          ? 'border-transparent bg-accent-receive-tint'
+          : variant === 'warning'
+            ? 'border-transparent bg-pending-tint'
+            : undefined
+      }
     >
       <div
         ref={containerRef}
@@ -277,8 +287,8 @@ export const PromptCard: FC<PromptCardProps> = ({
       >
         {!hero && icon && (
           <PromptIconBubble
-            tone={variant === 'receive' ? 'receive' : 'accent'}
-            size={variant === 'receive' ? 44 : 36}
+            tone={variant === 'receive' ? 'receive' : variant === 'warning' ? 'warning' : 'accent'}
+            size={variant === 'receive' || variant === 'warning' ? 44 : 36}
             className={status === 'loading' ? 'animate-pulse' : undefined}
           >
             {/* The 44px Receive bubble carries a 14px glyph, as small inside it as the 36px one's. */}
@@ -286,7 +296,9 @@ export const PromptCard: FC<PromptCardProps> = ({
               name={icon}
               size="sm"
               fill="currentColor"
-              className={variant === 'receive' ? '!h-3.5 !w-3.5' : undefined}
+              className={
+                variant === 'receive' ? '!h-3.5 !w-3.5' : variant === 'warning' ? '!h-[18px] !w-[18px]' : undefined
+              }
             />
           </PromptIconBubble>
         )}
@@ -342,7 +354,12 @@ export const PromptCard: FC<PromptCardProps> = ({
           </motion.div>
         ) : (
           <Lockup className="flex flex-col gap-0.5 min-w-0 flex-1 text-left text-ink">
-            <div className={classNames('text-row-title truncate', variant === 'receive' && 'font-extrabold')}>
+            <div
+              className={classNames(
+                'text-row-title truncate',
+                (variant === 'receive' || variant === 'warning') && 'font-extrabold'
+              )}
+            >
               {title}
             </div>
             {(body || bodyValue) && (
@@ -352,7 +369,11 @@ export const PromptCard: FC<PromptCardProps> = ({
                     className={classNames(
                       'line-clamp-2 min-w-0 text-caption',
                       // The receive line in Nunito semibold: `face-heading` points the caption's own face there.
-                      variant === 'receive' ? 'face-heading font-semibold text-accent-receive-ink' : 'text-muted'
+                      variant === 'receive'
+                        ? 'face-heading font-semibold text-accent-receive-ink'
+                        : variant === 'warning'
+                          ? 'face-heading font-semibold text-pending-tint-ink'
+                          : 'text-muted'
                     )}
                   >
                     {body}
@@ -372,7 +393,10 @@ export const PromptCard: FC<PromptCardProps> = ({
               type="button"
               onClick={handleDismiss}
               aria-label={t('promptCardDismiss')}
-              className="flex h-5 w-5 items-center justify-center text-text-tertiary-token"
+              className={classNames(
+                'flex h-5 w-5 items-center justify-center',
+                variant === 'warning' ? 'text-pending-tint-ink' : 'text-text-tertiary-token'
+              )}
             >
               <Icon name={IconName.Close} className="w-3.5 h-3.5" fill="currentColor" />
             </button>

@@ -103,6 +103,22 @@ describe('PromptCard', () => {
     expect(screen.getByText('1 waiting')).not.toHaveClass('text-muted');
   });
 
+  it('draws the `warning` variant on the sand tint with its ink', () => {
+    const { container } = render(
+      <PromptCard
+        title="Back up your wallet"
+        body="Save your recovery phrase."
+        variant="warning"
+        icon={IconName.ShieldCheck}
+        onDismiss={jest.fn()}
+      />
+    );
+
+    expect(container.firstChild as HTMLElement).toHaveClass('bg-pending-tint', 'border-transparent');
+    expect(screen.getByText('Back up your wallet')).toHaveClass('font-extrabold');
+    expect(screen.getByText('Save your recovery phrase.')).toHaveClass('text-pending-tint-ink', 'font-semibold');
+  });
+
   it('runs the card action when its content is clicked', () => {
     const onClick = jest.fn();
     render(<PromptCard title="Fund your wallet" onClick={onClick} />);

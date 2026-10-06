@@ -110,6 +110,7 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
     bodyKey: 'verifySeedPhrasePromptBody',
     route: '/settings/verify-seed-phrase',
     variant: 'warning',
+    icon: IconName.ShieldCheck,
     dismissible: true
   },
   [WalletPromptType.HotKeyHardwareUnavailable]: {
