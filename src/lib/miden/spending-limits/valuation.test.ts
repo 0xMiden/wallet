@@ -6,6 +6,7 @@ import { _setSwapTokensForTest, TOKEN_IBTC, TOKEN_IETH, TOKEN_IMIDEN, TOKEN_IUSD
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getNativeAssetId,
+  getNativeAssetIdSync,
   getNativeAssetMetadata,
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
@@ -61,6 +62,7 @@ const base = (symbol: string, decimals: number, scaleIsUnknown?: boolean) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   jest.mocked(getNativeAssetId).mockResolvedValue('native-fee');
+  jest.mocked(getNativeAssetIdSync).mockReturnValue('native-fee');
   jest.mocked(getNativeAssetMetadata).mockResolvedValue({ symbol: 'MIDEN', decimals: 6 });
   jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
   jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue('native-fee');
@@ -458,5 +460,56 @@ describe('native identity readiness', () => {
     expect(mockedMetadata).not.toHaveBeenCalled();
     release();
     await expect(valued).resolves.toBe(1_000_000n);
+  });
+  it.each(['stable', 'metadata', 'price'])(
+    'counts both dollars across the preceding foreign %s boundary',
+    async boundary => {
+      jest.mocked(getNativeAssetMetadata).mockResolvedValue({ symbol: 'USDCX', decimals: 6 });
+      jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+      const invalidateLiveCache = () => {
+        jest.mocked(getNativeAssetIdSync).mockReturnValue(null);
+        jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
+      };
+      mockedMetadata.mockImplementation(async () => {
+        if (boundary === 'metadata') invalidateLiveCache();
+        return base('USDC', 6);
+      });
+      mockedPrice.mockImplementation(async symbol => {
+        if (boundary === 'price' && symbol === 'USDC') invalidateLiveCache();
+        return 1_000_000n;
+      });
+
+      await expect(
+        resolveSpendsUsd([
+          { faucetId: MIDEN_USDC_FAUCET, amount: 1_000_000n },
+          { faucetId: 'native-fee', amount: 1_000_000n }
+        ])
+      ).resolves.toBe(2_000_000n);
+      expect(mockedMetadata.mock.calls).toEqual([[MIDEN_USDC_FAUCET]]);
+      expect(mockedPrice.mock.calls).toEqual([
+        ['USDC', undefined],
+        ['USDCX', undefined]
+      ]);
+    }
+  );
+
+  it('refuses the second native spend when synchronized proof is lost during the first price await', async () => {
+    jest.mocked(getNativeAssetMetadata).mockResolvedValue({ symbol: 'USDCX', decimals: 6 });
+    jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    mockedMetadata.mockResolvedValue(base('USDC', 6));
+    mockedPrice.mockImplementationOnce(async () => {
+      jest.mocked(getNativeAssetIdSync).mockReturnValue(null);
+      jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
+      jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue(null);
+      return 1_000_000n;
+    });
+
+    await expect(
+      resolveSpendsUsd([
+        { faucetId: MIDEN_USDC_FAUCET, amount: 1_000_000n },
+        { faucetId: 'native-fee', amount: 1_000_000n }
+      ])
+    ).rejects.toBeInstanceOf(SpendingLimitPriceUnavailableError);
+    expect(mockedPrice.mock.calls).toEqual([['USDC', undefined]]);
   });
 });

@@ -83,6 +83,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     let symbol: string;
     let decimals: number;
     let scaleKnown: boolean;
+    let authenticatedNativeUsdcx = false;
     try {
       // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
       // several spellings of this faucet into one canonical hex id (the dApp custom path's
@@ -103,6 +104,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
         if (!syncedId || canonicalFaucetId(syncedId) !== faucetId) {
           throw new Error('native protocol identity has not been synchronized');
         }
+        authenticatedNativeUsdcx = true;
       }
       symbol = base.symbol;
       decimals = base.decimals;
@@ -113,7 +115,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
     if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
     let priceSymbol: string | undefined;
     try {
-      priceSymbol = strictPriceSymbolFor(faucetId, symbol);
+      priceSymbol = authenticatedNativeUsdcx ? 'USDCX' : strictPriceSymbolFor(faucetId, symbol);
     } catch (cause) {
       throw new SpendingLimitPriceUnavailableError(symbol, { cause });
     }
