@@ -959,26 +959,154 @@ describe('SDK evidence and metadata binding', () => {
   });
 });
 
-it.each(['scope', 'override'])(
-  'publishes %s ownership before synchronous listeners read native state',
-  async change => {
-    _g.__nativeAssetTest.rpcHeader = { verificationBaseFee: () => 7 };
+describe('endpoint change notifications', () => {
+  const readState = () => ({
+    id: getNativeAssetIdSync(),
+    metadata: getNativeAssetMetadataSync(),
+    fee: getVerificationBaseFeeSync(),
+    proof: getSdkSyncedNativeAssetIdSync()
+  });
+  const warmState = { id: 'bech32-A', metadata: { symbol: 'USDCX', decimals: 6 }, fee: 7, proof: 'bech32-A' };
+  beforeEach(async () => {
+    _g.__nativeAssetTest.configured = false;
+    Object.assign(_g.__nativeAssetTest.storage, {
+      'native_asset_id:v4:rpc-testnet|testnet': 'bech32-A',
+      'native_asset_synced_id:v1:rpc-testnet|testnet': 'bech32-A',
+      'native_asset_meta:v5:rpc-testnet|testnet': { faucetId: 'bech32-A', symbol: 'USDCX', decimals: 6 },
+      'native_asset_fee:v2:rpc-testnet|testnet': { faucetId: 'bech32-A', baseFee: 7 }
+    });
     await getNativeAssetId();
-    let reads = 0;
-    const stop = onNativeAssetChanged(() => {
-      reads++;
-      if (reads < 3) getNativeAssetIdSync();
+  });
+
+  it.each(['scope', 'override'])('invalidates %s state before notifying outside the getter', async change => {
+    expect(readState()).toEqual(warmState);
+    let reading = false;
+    const observations: Array<{
+      id: string;
+      reading: boolean;
+      nativeId: string | null;
+      metadata: ReturnType<typeof getNativeAssetMetadataSync>;
+      fee: number | null;
+      proof: string | null;
+      scope: string;
+    }> = [];
+    const stop = onNativeAssetChanged(id => {
+      observations.push({
+        id,
+        reading,
+        nativeId: getNativeAssetIdSync(),
+        metadata: getNativeAssetMetadataSync(),
+        fee: getVerificationBaseFeeSync(),
+        proof: getSdkSyncedNativeAssetIdSync(),
+        scope: captureNativeAssetSnapshot().scope
+      });
     });
     try {
       if (change === 'scope') _g.__nativeAssetTest.rpcUrl = 'rpc-B';
-      else _g.__nativeAssetTest.feeFaucetId = 'replacement';
+      else {
+        _g.__nativeAssetTest.configured = true;
+        _g.__nativeAssetTest.feeFaucetId = 'replacement';
+      }
+      reading = true;
       expect(getNativeAssetIdSync()).toBeNull();
-      expect(reads).toBe(1);
+      expect(getNativeAssetMetadataSync()).toBeNull();
+      expect(getVerificationBaseFeeSync()).toBeNull();
+      expect(getSdkSyncedNativeAssetIdSync()).toBe(change === 'scope' ? null : 'bech32-A');
+      reading = false;
+      expect(observations).toEqual([]);
+      await Promise.resolve();
+      expect(observations).toEqual([
+        {
+          id: '',
+          reading: false,
+          nativeId: null,
+          metadata: null,
+          fee: null,
+          proof: change === 'scope' ? null : 'bech32-A',
+          scope: change === 'scope' ? 'rpc-B|testnet' : 'rpc-testnet|testnet'
+        }
+      ]);
+    } finally {
+      reading = false;
+      stop();
+    }
+  });
+
+  it('coalesces rapid overrides and notifies the restored current identity', async () => {
+    expect(readState()).toEqual(warmState);
+    const notices: string[] = [];
+    const stop = onNativeAssetChanged(id => notices.push(id));
+    try {
+      _g.__nativeAssetTest.configured = true;
+      _g.__nativeAssetTest.feeFaucetId = 'replacement-X';
+      expect(getNativeAssetIdSync()).toBeNull();
+      _g.__nativeAssetTest.feeFaucetId = 'replacement-Y';
+      expect(getNativeAssetIdSync()).toBeNull();
+      _g.__nativeAssetTest.configured = false;
+      expect(getNativeAssetIdSync()).toBe('bech32-A');
+      expect(getNativeAssetMetadataSync()).toBeNull();
+      expect(getVerificationBaseFeeSync()).toBeNull();
+      expect(getSdkSyncedNativeAssetIdSync()).toBe('bech32-A');
+      expect(notices).toEqual([]);
+      await Promise.resolve();
+      expect(notices).toEqual(['bech32-A']);
     } finally {
       stop();
     }
-  }
-);
+  });
+
+  it('keeps reset synchronous and consumes a pending endpoint notice', async () => {
+    expect(readState()).toEqual(warmState);
+    const notices: Array<{ id: string; scope: string }> = [];
+    const order: string[] = [];
+    const stop = onNativeAssetChanged(id => {
+      order.push('notice');
+      notices.push({ id, scope: captureNativeAssetSnapshot().scope });
+    });
+    try {
+      _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+      expect(getNativeAssetIdSync()).toBeNull();
+      expect(notices).toEqual([]);
+      const reset = resetNativeAssetCache();
+      expect(notices).toEqual([{ id: '', scope: 'rpc-B|testnet' }]);
+      queueMicrotask(() => order.push('between notices'));
+      _g.__nativeAssetTest.rpcUrl = 'rpc-C';
+      expect(getNativeAssetIdSync()).toBeNull();
+      expect(notices).toHaveLength(1);
+      await Promise.resolve();
+      expect(notices).toEqual([
+        { id: '', scope: 'rpc-B|testnet' },
+        { id: '', scope: 'rpc-C|testnet' }
+      ]);
+      expect(order).toEqual(['notice', 'between notices', 'notice']);
+      await reset;
+      expect(notices).toHaveLength(2);
+    } finally {
+      stop();
+    }
+  });
+
+  it('keeps storage adoption synchronous and consumes a pending override notice', async () => {
+    expect(readState()).toEqual(warmState);
+    const notices: string[] = [];
+    const stop = onNativeAssetChanged(id => notices.push(id));
+    try {
+      _g.__nativeAssetTest.configured = true;
+      _g.__nativeAssetTest.feeFaucetId = 'replacement';
+      expect(getNativeAssetIdSync()).toBeNull();
+      expect(notices).toEqual([]);
+      const adopt = _g.__nativeAssetTest.storageListeners.get('native_asset_synced_id:v1:rpc-testnet|testnet');
+      expect(adopt).toBeDefined();
+      adopt('bech32-B');
+      expect(getSdkSyncedNativeAssetIdSync()).toBe('bech32-B');
+      expect(notices).toEqual(['']);
+      await Promise.resolve();
+      expect(notices).toEqual(['']);
+    } finally {
+      stop();
+    }
+  });
+});
 
 describe('publication acknowledgment recovery', () => {
   const idKey = 'native_asset_id:v4:rpc-testnet|testnet';

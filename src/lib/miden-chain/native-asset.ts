@@ -50,6 +50,7 @@ let feeProbeRetryAfterMs = 0;
 let cachedForScope: string | null = null;
 let cachedOverride: string | undefined;
 let revision = 0;
+let endpointNotification: object | null = null;
 let publisher: NativeAssetPublisher | undefined;
 let subscriptions: StorageChangeSubscription[] = [];
 let storageMutations: Promise<void> = Promise.resolve();
@@ -76,12 +77,23 @@ function isPlausibleBaseFee(fee: number): boolean {
 }
 
 function emit(): void {
+  endpointNotification = null;
   listeners.forEach(fn => {
     try {
       fn(memCache ?? '');
     } catch (err) {
       console.warn('native-asset listener error', err);
     }
+  });
+}
+
+function queueEndpointNotification(): void {
+  if (endpointNotification) return;
+  const pending = {};
+  endpointNotification = pending;
+  // Getters can invalidate endpoints during React render.
+  queueMicrotask(() => {
+    if (endpointNotification === pending) emit();
   });
 }
 
@@ -110,11 +122,11 @@ function invalidateOnEndpointChange(): void {
     memCache = storedId = sdkSyncedId = persistedSyncedId = null;
     hydrated = false;
     hydration = null;
-    emit();
+    queueEndpointNotification();
   } else if (overrideChanged) {
     clearIdentityData();
     memCache = override ? null : (sdkSyncedId ?? storedId);
-    emit();
+    queueEndpointNotification();
   }
 }
 
