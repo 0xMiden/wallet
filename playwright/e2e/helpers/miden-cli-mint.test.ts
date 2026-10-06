@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { MidenCli } from './miden-cli';
+import { MidenCli, transactionStatusIn } from './miden-cli';
 import { getEnvironmentConfig } from '../config/environments';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation } from '../harness/types';
@@ -42,14 +42,37 @@ function invocation(command: string, result: Partial<CLIInvocation> = {}): CLIIn
   };
 }
 
-/** Records every CLI command; each `mint` answers with the next scripted result. */
-function scriptedCli(workDir: string, mintResults: Partial<CLIInvocation>[]): { cli: MidenCli; commands: string[] } {
+/** A `miden-client tx` table as the CLI prints it (comfy-table UTF8_FULL), one row per transaction. */
+function txTable(rows: [id: string, status: string][]): string {
+  const header = '│ ID ┆ Status ┆ Account ID ┆ Script Root ┆ Input Notes Count ┆ Output Notes Count │';
+  const body = rows.map(([id, status]) => `│ ${id} ┆ ${status} ┆ 0xa5c2900b1895271109557de2d9ce04 ┆ - ┆ 0 ┆ 1 │`);
+  return ['┌──┐', header, '╞══╡', ...body, '└──┘'].join('\n');
+}
+
+/**
+ * Records every CLI command; each `mint` answers with the next scripted result, and `tx` lists every
+ * minted transaction under the status `statusOf` gives it (committed unless told otherwise).
+ */
+function scriptedCli(
+  workDir: string,
+  mintResults: Partial<CLIInvocation>[],
+  statusOf: (txId: string) => string = () => 'Committed (Block: 7)'
+): { cli: MidenCli; commands: string[] } {
   const commands: string[] = [];
+  const minted: string[] = [];
   let mints = 0;
   const runner = {
     run: async (command: string) => {
       commands.push(command);
-      return / mint /.test(command) ? invocation(command, mintResults[mints++]) : invocation(command);
+      if (/ mint /.test(command)) {
+        const result = mintResults[mints++];
+        if (result?.parsed?.transactionId) minted.push(result.parsed.transactionId);
+        return invocation(command, result);
+      }
+      if (/ tx$/.test(command)) {
+        return invocation(command, { stdout: txTable(minted.map(id => [id, statusOf(id)])) });
+      }
+      return invocation(command);
     }
   };
   const cli = new MidenCli({
@@ -89,6 +112,53 @@ describe('MidenCli.mint', () => {
 
     await expect(cli.mint(FAUCET, TARGET, 100n, 'public')).resolves.toEqual({ txId: 'mint-tx', noteId: 'mint-note' });
 
-    expect(commands.map(command => command.split(' ')[1])).toEqual(['sync', 'mint', 'sync', 'mint']);
+    expect(commands.map(command => command.split(' ')[1])).toEqual(['sync', 'mint', 'sync', 'mint', 'sync', 'tx']);
+  });
+
+  // The node can accept a mint and then drop it: a 0.17 transaction expires 20 blocks after its
+  // reference block, and on a 500 ms chain a slow proof arrives with a second to spare.
+  it('mints again when the node accepted a mint and then discarded it', async () => {
+    const { cli, commands } = scriptedCli(
+      workDir,
+      [
+        { parsed: { transactionId: '0xdropped', noteId: 'lost-note' } },
+        { parsed: { transactionId: '0xlanded', noteId: 'mint-note' } }
+      ],
+      txId => (txId === '0xdropped' ? 'Discarded (Expired)' : 'Committed (Block: 12)')
+    );
+    await cli.fundAccountForFees(TARGET);
+    commands.length = 0;
+
+    await expect(cli.mint(FAUCET, TARGET, 100n, 'public')).resolves.toEqual({ txId: '0xlanded', noteId: 'mint-note' });
+
+    expect(commands.map(command => command.split(' ')[1])).toEqual([
+      'sync',
+      'mint',
+      'sync',
+      'tx',
+      'sync',
+      'mint',
+      'sync',
+      'tx'
+    ]);
+  });
+});
+
+describe('transactionStatusIn', () => {
+  const table = txTable([
+    ['0xAAA', 'Pending'],
+    ['0xbbb', 'Committed (Block: 1822)'],
+    ['0xccc', 'Discarded (Expired)']
+  ]);
+
+  it('reads each status from the row whose id cell is the transaction', () => {
+    expect(transactionStatusIn(table, '0xaaa')).toBe('pending');
+    expect(transactionStatusIn(table, '0xbbb')).toBe('committed');
+    expect(transactionStatusIn(table, '0xccc')).toBe('discarded');
+  });
+
+  it('matches the whole id cell, not a prefix of another id', () => {
+    expect(transactionStatusIn(table, '0xbb')).toBeUndefined();
+    expect(transactionStatusIn('', '0xbbb')).toBeUndefined();
   });
 });

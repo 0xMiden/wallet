@@ -1,12 +1,12 @@
 import { getEnvironmentConfig } from '../../config/environments';
-import { expect, test } from '../../fixtures/two-wallets';
+import { expect, test } from '../../fixtures/hermetic-bridge';
 import { waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';
 import { type AccountAxis, guardianAxis, offChainAxis } from '../../helpers/money-path';
 import { swOf } from '../../helpers/swap';
 import { AnvilInstance } from '../../ios/helpers/anvil';
-import { installMockCompact } from '../../ios/helpers/evm-doubles';
+import { installMockCompact, installMockUsdc } from '../../ios/helpers/evm-doubles';
 
 /**
  * Epoch "Earn" DEPOSIT happy path — drives the REAL /earn UI (Chrome extension).
@@ -15,19 +15,22 @@ import { installMockCompact } from '../../ios/helpers/evm-doubles';
  * P2IDE note the wallet mints on the LOCAL Miden node, and the EVM lending leg
  * is solver-fulfilled (nothing is signed on EVM). The three hermetic doubles:
  *
- *   - FakeEpochAllocator (:8548) — stands in for EPOCH_ALLOCATOR_URL: quote
- *     (`/checkIfDepositNeeded`), collateral config (`/miden-recipient`),
- *     allocation (`/compact`), and the intent-status poll (`/intentStatus`).
- *   - FakeEpochPositions (:8549) — stands in for EPOCH_POSITIONS_URL: serves the
- *     DUMMY_LENDING vault catalog the Earn tab renders.
- *   - Anvil (:8545) + MockCompact — the deposit's ONE EVM read is
+ *   - FakeEpochAllocator (:8548), the served document's `epoch.allocatorUrl`:
+ *     quote (`/checkIfDepositNeeded`), collateral config (`/miden-recipient`),
+ *     allocation (`/compact`), the intent-status poll (`/intentStatus`) and the
+ *     `/health` the wallet's availability check reads.
+ *   - FakeEpochPositions (:8549), the served document's `epoch.positionsUrl`:
+ *     serves the DUMMY_LENDING vault catalog the Earn tab renders.
+ *   - Anvil (:8545) + MockCompact + MockUsdc: the deposit's one EVM read is
  *     `getForcedWithdrawalStatus` on The Compact (COMPACT_ADDRESS[999999999]);
  *     `solveIntent` requires it to report "Disabled" before it mints the note.
- *     Without this the read hits public Sepolia (fragile) or reverts (no code).
+ *     MockUsdc sits at the document's `epoch.evmUsdc`, whose code, symbol and
+ *     decimals the wallet checks before it offers Earn.
  *
- * All three URLs are baked into the bundle at BUILD time (vite defines read
- * EPOCH_ALLOCATOR_URL / EPOCH_POSITIONS_URL / E2E_EVM_RPC_URL), so the ports
- * here MUST match the build-time env the pr-e2e-earn workflow sets.
+ * The hermetic-bridge fixture serves that document on :8550, which the build
+ * reads through MIDEN_REMOTE_CONFIG_URL, and E2E_EVM_RPC_URL points the EVM
+ * reads at Anvil, so the ports here MUST match the document and the build-time
+ * env the pr-e2e-earn workflow sets.
  *
  * The earn `__TEST_*` hooks are `MIDEN_E2E_TEST`-gated and dead-stripped from
  * production builds.
@@ -40,7 +43,7 @@ const ANVIL_PORT = 8545;
 const ALLOCATOR_PORT = 8548;
 const POSITIONS_PORT = 8549;
 
-/** Collateral faucet: 6dp, mirrors MIDEN_USDC_DECIMALS. */
+/** Collateral faucet: 6dp, the decimals `__TEST_SET_EARN_FAUCET__` gives its override. */
 const COLLATERAL_DECIMALS = 6;
 /** Symbol of the CLI-deployed collateral faucet (see `createFaucet` below). */
 const COLLATERAL_SYMBOL = 'EUSDC';
@@ -71,9 +74,10 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
     test.beforeAll(async () => {
       anvil = await AnvilInstance.start({ port: ANVIL_PORT });
       // The Compact stub: getForcedWithdrawalStatus → (Disabled, 0). The deposit
-      // path does NOT broadcast an EVM tx (Miden collateral), so the AggLayer /
-      // USDC doubles the bridge-in harness installs are NOT needed here.
+      // path does NOT broadcast an EVM tx (Miden collateral); MockUsdc is there
+      // for the wallet's config checks on the document's `epoch.evmUsdc`.
       await installMockCompact(anvil.rpcUrl);
+      await installMockUsdc(anvil.rpcUrl);
       await allocator.start();
       await positions.start();
     });
@@ -127,8 +131,9 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       // see src/lib/store/index.ts) is applied just before confirming the deposit
       // (below), NOT here: `openEarnPosition` runs page-side and every `navigateTo`
       // is a full `page.goto` reload that resets page-module state, so the override
-      // has to be set AFTER the last navigation. The fixed MIDEN_USDC_FAUCET testnet
-      // id can't exist on the local node, so the wallet holds the CLI faucet instead.
+      // has to be set AFTER the last navigation. The served document names no
+      // `epoch.midenUsdcFaucet` (a testnet id can't exist on the local node), so the
+      // wallet holds the CLI faucet instead.
       const setEarnFaucet = async (h: string): Promise<void> => {
         await (
           globalThis as unknown as { __TEST_SET_EARN_FAUCET__?: (hex: string) => Promise<void> }
@@ -136,8 +141,8 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       };
 
       // 2. Program the fakes.
-      //    - Collateral recipient defaults to 0x2458…9ce1 (identical to the shipped
-      //      MIDEN_USDC_FAUCET constant, a valid AccountId) - no override needed.
+      //    - Collateral recipient defaults to a valid AccountId (the fake's
+      //      DEFAULT_MIDEN_RECIPIENT) - no override needed.
       //    - The Sepolia (destination, 11155111) leg reports "completed" so
       //      pollEarnIntentStatus flips the row's epochStatus pending → confirmed.
       //    - The positions fake serves a zero-balance DUMMY_LENDING vault to any
@@ -162,6 +167,9 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       //    the vault id from the row testid (the slug is derived downstream as
       //    `lenderChainSlug('DUMMY_LENDING','11155111')` - do NOT hardcode it).
       await walletA.navigateTo('/earn');
+      // Earn deposit is greyed out until the wallet has a collateral faucet, and the reload
+      // above dropped the override, so it is set here too, before the Deposit button.
+      await walletA.page.evaluate(setEarnFaucet, faucetHex);
       const vaultRow = walletA.page.locator('[data-testid^="earn-vault-row-"]').first();
       await expect(vaultRow).toBeVisible({ timeout: 30_000 });
       const rowTestId = await vaultRow.getAttribute('data-testid');
@@ -173,11 +181,9 @@ function defineEarnDepositSuite(axis: AccountAxis): void {
       await expect(depositBtn).toBeVisible({ timeout: 30_000 });
       await depositBtn.click();
 
-      // The deposit CTA lands on the amount screen (proves routing). Its
-      // SelectAmount confirm is balance-gated on the STATIC MIDEN_USDC_FAUCET,
-      // which the wallet never holds under a CLI-minted faucet - so we deep-link
-      // to the review route (whose confirm is gated only on amount>0 && vault.id)
-      // to actually place the deposit. See report item (b).
+      // The deposit CTA lands on the amount screen (proves routing). The deposit
+      // itself is placed from a deep link to the review route (whose confirm is
+      // gated only on amount>0 && vault.id), so it carries exactly DEPOSIT_AMOUNT.
       await expect(walletA.page.getByTestId('earn-deposit-amount-page')).toBeVisible({ timeout: 30_000 });
 
       await walletA.navigateTo(`/earn/vaults/${vaultId}/deposit/review?amount=${DEPOSIT_AMOUNT}`);

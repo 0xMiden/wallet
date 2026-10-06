@@ -61,7 +61,7 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-jest.mock('lib/settings/constants', () => ({ GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting' }));
+jest.mock('lib/settings/constants', () => ({}));
 
 // Non-guardian throughout: the standard signCallback dispatch path.
 const mockIsGuardianAccount = jest.fn(async (..._a: unknown[]) => false);

@@ -2,8 +2,10 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   fetchGuardianNoteRecoveryProgress,
@@ -14,6 +16,7 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { _setSwapTokensForTest, SWAP_TOKENS } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
 import type { WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import type { FaucetFundingMarker, PendingNoteValue } from 'lib/wallet-prompts';
 import {
   FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
@@ -58,6 +61,8 @@ const mockUnresolvedRefusal = (address: string, marker: FaucetFundingMarker, rep
 };
 
 let mockBaseFee: number | null = 0;
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -168,7 +173,12 @@ jest.mock('lib/miden/front/storage', () => ({
 jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => '0xnative' }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? '0xnative'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => '0xnative' }));
 
 const mockInitiateReplaceHotKeyTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
@@ -179,6 +189,11 @@ jest.mock('lib/miden/activity', () => ({
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zustand-provider' } }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
+
+// The banner has its own suite; here only whether Home mounts it matters.
+jest.mock('app/templates/GuardianNeedsUrlBanner', () => ({
+  GuardianNeedsUrlBanner: () => <div data-testid="guardian-needs-url-banner" />
+}));
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
@@ -418,6 +433,28 @@ describe('HomePrompts', () => {
     expect(screen.queryByRole('button', { name: 'dismiss-faucetPromptTitle' })).not.toBeInTheDocument();
   });
 
+  it('fee identity: actual native funding suppresses Fund despite an empty legacy display row', () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 7;
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    render(
+      <HomePrompts
+        account={account}
+        balances={
+          [
+            { tokenId: NATIVE_FAUCET_ID, balance: 1 },
+            { tokenId: 'legacy-B', balance: 0 }
+          ] as TokenBalanceData[]
+        }
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+  });
+
   it('still offers the faucet when the account holds tokens but none of the fee asset', () => {
     // Holding USDC is not the same as being funded: the fee comes out of the
     // native balance, so this account cannot transact and needs the faucet.
@@ -611,6 +648,31 @@ describe('HomePrompts', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('fee identity: faucet arrival still follows the legacy display override independently of the fee ID', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 0;
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const renderWith = (notes: PendingNoteValue[]) => (
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={notes}
+        fundingNotes={notes}
+        tokenPrices={tokenPrices}
+      />
+    );
+    const { rerender } = render(renderWith([]));
+    const card = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+    fireEvent.click(within(card).getByRole('button', { name: 'faucetPromptTitle' }));
+    await waitFor(() => expect(card).toHaveAttribute('data-hero', 'faucetPromptFunding'));
+    rerender(renderWith([{ ...pendingNotes[0]!, faucetId: NATIVE_FAUCET_ID }]));
+    expect(card).toHaveAttribute('data-hero', 'faucetPromptFunding');
+    rerender(renderWith([{ ...pendingNotes[0]!, faucetId: 'legacy-B' }]));
+    await waitFor(() => expect(card).toHaveAttribute('data-hero', 'faucetPromptFunded'));
   });
 
   it('shows the generic line for a native mint, even with MIDEN quoted, since no allowlist entry names it', async () => {
@@ -3922,6 +3984,49 @@ describe('HomePrompts', () => {
     errorSpy.mockRestore();
   });
 
+  it('mounts the guardian URL prompt only while the account is drifted', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const props = {
+      balances: fundedBalance,
+      balancesLoading: false,
+      claimableNotes: [],
+      fundingNotes: [],
+      tokenPrices: {}
+    };
+    const { rerender } = render(
+      <HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'needs-user-input' }} />
+    );
+    expect(screen.getByTestId('guardian-needs-url-banner')).toBeInTheDocument();
+
+    rerender(<HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'in-sync' }} />);
+    expect(screen.queryByTestId('guardian-needs-url-banner')).toBeNull();
+  });
+
+  it('runs no guardian status clock on Home', () => {
+    // The drift gate needs no freshness, so nothing on Home may re-render on the 15 s status tick.
+    const drifted = { ...account, guardianSyncStatus: 'needs-user-input' as const };
+    const previous = useWalletStore.getState().currentAccount;
+    useWalletStore.setState({ currentAccount: drifted });
+    const intervalSpy = jest.spyOn(global, 'setInterval');
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      render(
+        <HomePrompts
+          account={drifted}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      expect(intervalSpy.mock.calls.filter(([, delay]) => delay === 15_000)).toEqual([]);
+    } finally {
+      intervalSpy.mockRestore();
+      useWalletStore.setState({ currentAccount: previous });
+    }
+  });
+
   describe('Guardian history recovery card', () => {
     const recoveringAccount = { ...account, guardianNoteRecoveryPending: true } as WalletAccount;
     const renderCard = () =>
@@ -4042,4 +4147,8 @@ describe('HomePrompts', () => {
       }
     );
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

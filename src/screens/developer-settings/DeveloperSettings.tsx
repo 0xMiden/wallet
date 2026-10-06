@@ -14,8 +14,10 @@ import { ListRow } from 'components/ui/ListRow';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
+import { retireGuardianSyncPasses } from 'lib/miden/front/guardian-sync';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import {
   applyEndpointOverride,
@@ -190,6 +192,18 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // successful sync that puts the fuse out is the thing it stops giving itself the
       // chance to observe (#777).
       clearSyncFuseForEndpointChange();
+      // The other half of the same fact. The line above discards what the old node
+      // taught us; this one retires the passes still in flight against it, whose
+      // pending-rotation recheck would otherwise demote rows and roll the guardian
+      // binding back from chain reads taken before this save.
+      retireGuardianSyncPasses();
+      // And the durable write that loop cannot reach. The discard rollback runs in the BACKEND,
+      // takes no token, and spends a chain read and two operator probes before it rebinds the
+      // account; the loop's own retirement check only runs once that call has returned, so it
+      // suppresses the row settlement while the binding has already been rewritten. Mobile and
+      // desktop share one realm, so this is where their backend hears about the repoint. The
+      // extension hears it from the service worker's endpoint-override handler instead.
+      retireGuardianWritesForEndpointChange();
       // The native asset and its base fee belong to the node too. The caches drop
       // themselves on the next read (`invalidateOnEndpointChange`), but dropping them
       // notifies nobody - and `useVerificationBaseFee` only re-reads when discovery
@@ -384,6 +398,20 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
             <HealthNote url={form[field.key]} kind={field.health} />
           </div>
         ))}
+      </SubPageSection>
+
+      <SubPageSection>
+        <TextField
+          label={t('devEndpointFeeFaucet')}
+          data-testid="dev-endpoint-feeFaucetId"
+          value={form.feeFaucetId ?? ''}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          disabled={readOnly}
+          className="font-mono select-text"
+          onChange={e => setForm(prev => ({ ...prev, feeFaucetId: e.target.value, presetName: CUSTOM_PRESET }))}
+        />
       </SubPageSection>
 
       <SubPageSection title={t('devEndpointNetworkId')}>

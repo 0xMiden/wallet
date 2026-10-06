@@ -1,3 +1,25 @@
+# Fee faucet discovery and USDCX value
+
+- [x] Read discovery, repository rules, and decision profile; inspect all sync and pricing paths.
+- [x] Verify this isolated branch matches current `origin/next` and install frozen dependencies with Node 22.
+- [x] Record a green 146-test baseline and complete the independent plan check.
+- [x] Implement scoped sync-time discovery and cross-realm publication with RED/GREEN tests.
+- [x] Preserve authoritative native metadata, fixed $1 USDCX value and the actual Send fee reserve.
+- [x] Verify the uninjected devnet path with an empty market feed and an independent header read.
+- [x] Complete discovery, risk and adversarial code panels; correct all twelve grouped findings and reverify mutations.
+- [x] Finish focused and static validation of the metadata, startup-publication and render-notification corrections.
+- [ ] Run full tests, unchanged 95% coverage gates and browser regressions on the final PR head in CI only.
+- [x] Publish PR #1351 against `next` while completing review, as explicitly requested.
+- [x] Correct the confirmed stale-metadata bootstrap P1 and the explicitly reopened valuation snapshot P2.
+- [x] Default fresh native display to USDCX and a fixed $1 unit quote; require confirmed scale for quantities and fees.
+- [x] Update native fee, funding and auto-accept copy across all 14 locales and align default token selectors.
+- [x] Finish the remaining internal review on the corrected committed checkpoint; other P2/P3 findings remain nonblocking.
+- [ ] Babysit the PR to green and admin squash merge.
+- [ ] Babysit `origin/next` to green and publish wallet `v1.17.1` with all required assets verified.
+- Store publishing is handled by the user; preserve the existing `v1.17.0` release and tag.
+
+Local results are recorded in `tasks/fee-faucet-plan.md`. Final certification, merge and wallet `v1.17.1` release follow this source checkpoint and are recorded in the PR and release.
+
 # Issue #537 - guarded .mac account export
 
 ## Plan
@@ -289,3 +311,24 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
   decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
   earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
+# Faucet funding follow-up after v1.17.1
+
+- [x] Reproduce the reported testnet target and trace the server's amount-scaled difficulty.
+- [x] Confirm the user-approved grant: use each faucet's advertised `base_amount`.
+- [x] Add failing tests for metadata-selected grants, invalid metadata, cancellation and worker isolation.
+- [x] Fetch and validate the grant before requesting PoW; retain one amount through submission.
+- [x] Move nonce hashing into a bundled worker with abort, deadline and cleanup handling.
+- [x] Verify 222 focused tests across six suites and types locally; do not run coverage or browsers locally.
+- [x] Complete medium internal review; neither review found P0/P1 issues.
+- [x] Reproduce and correct the Windows patch-check failure with genuine stale-code refusal controls.
+- [ ] Open and admin squash-merge the follow-up PR without waiting for CI, as explicitly requested.
+- [ ] Re-cut the withdrawn v1.17.1 from new next without a next CI wait, then promote next to main.
+- [ ] Verify the new release packages and report any CI failures separately.
+
+## Evidence
+
+Testnet advertises `base_amount=10000`, decimals 6 and load difficulty 65536. The historical
+100000000-unit grant produces target 28144683202 exactly. A live base-grant challenge solved
+with the unmodified wallet solver in 1591 ms and passed an independent SHA-256 check; no mint
+was submitted. Devnet advertises a 100000000-unit base grant. Funding state disables only its
+card action; the nonce search currently executes in the UI realm.

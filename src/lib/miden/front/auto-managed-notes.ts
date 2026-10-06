@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
@@ -98,7 +98,7 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
  */
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
   const { data: allNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
 

@@ -6,8 +6,9 @@ import { concat, keccak256, stringToBytes } from 'viem';
  *
  * It cannot reuse `agglayerExitTxHashFromRowBytes`: that module imports the browser SDK entry
  * (`@miden-sdk/miden-sdk/lazy`), which this Node process cannot run, and Playwright has no module mock to put the
- * addon in its place the way exit-hash.real-sdk.test.ts does. So the formula is restated here, and held to the same
- * live vectors by exit-hash.test.ts beside this file.
+ * addon in its place the way exit-hash.real-sdk.test.ts does. So the formula is restated here, and exit-hash.test.ts
+ * beside this file holds it to the wallet's own, which the golden vectors pin on their 0.16 words: 0.17 changed the
+ * vault key's encoding, so the formula's agreement with a 0.17 bridge is checked at the first 0.17 deposit.
  */
 
 const EXIT_TX_HASH_DOMAIN = 'miden-agglayer/bridge-out/v1\0';

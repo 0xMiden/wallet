@@ -13,12 +13,25 @@ jest.mock('react-i18next', () => ({
 // The real SelectAmount renders its children below the amount field
 // (SelectAmount.tsx), which is where the form's warning lives.
 jest.mock('screens/send-flow/SelectAmount', () => ({
-  SelectAmount: ({ children }: { children?: React.ReactNode }) => <div data-testid="select-amount">{children}</div>
+  SelectAmount: ({ children, outputSymbol }: { children?: React.ReactNode; outputSymbol?: string }) => (
+    <div data-testid="select-amount" data-output-symbol={outputSymbol}>
+      {children}
+    </div>
+  )
 }));
 
 jest.mock('screens/send-flow/bridge-networks', () => ({
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'ETH'
+  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
+}));
+
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({
+  selectEvmUsdc: () => ({
+    address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+    symbol: 'USDC.e',
+    decimals: 18,
+    chainId: 1
+  })
 }));
 
 jest.mock('./EvmWalletHeader', () => ({
@@ -53,5 +66,22 @@ describe('EvmBridgeDepositForm (#875)', () => {
     expect(warning).toHaveAttribute('data-tone', 'warning');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('bridgeTestFundsTitle');
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeTestFundsBody');
+  });
+
+  it('says the deposit arrives as the output token the config names', () => {
+    render(
+      <EvmBridgeDepositForm
+        token={TOKEN}
+        amount=""
+        isValidAmount={false}
+        evmAddress="0xabc"
+        onAmountChange={jest.fn()}
+        onSelectToken={jest.fn()}
+        onSwitch={jest.fn()}
+        onContinue={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-output-symbol', 'USDC.e');
   });
 });

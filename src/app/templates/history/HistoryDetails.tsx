@@ -17,7 +17,6 @@ import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
-import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { isDisplayable } from 'lib/i18n/adaptive-precision';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { isOutcomeUnconfirmed, isUserCancelledTransaction, notConfirmedHintKey } from 'lib/miden/activity';
@@ -35,7 +34,8 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
-import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
+import { isUnconfirmedRotation, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -45,6 +45,8 @@ import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constan
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { TokenPrices } from 'lib/prices';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -263,6 +265,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
   const configuredNativeFaucet = useMidenFaucetId();
+  // An Earn withdrawal's redeemed USDC is priced through the collateral faucet the config names.
+  const earnCollateral = selectMidenUsdc(useBridgeConfigSnapshot());
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
@@ -284,7 +288,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenMetadataCache = useRef(new Map<string, Awaited<ReturnType<typeof getTokenMetadata>>>());
   const getCachedTokenMetadata = useCallback(
     async (faucetId: string) => {
-      if (faucetId === configuredNativeFaucet) return MIDEN_METADATA;
+      if (faucetId === getNativeAssetIdSync()) return getNativeDisplayMetadataSync(assetsMetadata[faucetId], faucetId);
       const current = resolveDisplayMetadata(faucetId, assetsMetadata, configuredNativeFaucet);
       if (hasKnownScale(current)) return current;
       const cache = tokenMetadataCache.current;
@@ -316,41 +320,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const tokenMetadata = !offeredSwapToken && tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
         if (cancelled) return;
 
-        // Resolved the same way as any other amount on this page, which for the native
-        // fee faucet means MIDEN's `decimals` -- `getTokenMetadata` short-circuits the
-        // native id to `MIDEN_METADATA`. That is deliberately NOT swapped for the
-        // chain-discovered native scale here: `fetchBalances` scales every native figure
-        // in the wallet by the same constant, so reading the fee off the chain alone
-        // would leave one number on the screen measured differently from the balance
-        // above it. If the native scale ever needs to come from the chain, it has to
-        // change in `fetchBalances` first, for all of them at once.
-        //
-        // Only for a row that actually recorded a fee: rows predating fees, and every
-        // row on a zero-fee chain, render no fee line at all, so resolving metadata for
-        // them would be a wasted round trip.
+        // Resolve the recorded fee asset's own scale, independently of display overrides.
         const resolvedFeeMetadata =
           tx.feeAmount !== undefined && tx.feeFaucetId ? await getCachedTokenMetadata(tx.feeFaucetId) : undefined;
         if (cancelled) return;
 
-        // A fee faucet that is neither native nor resolved has no honest scale, so the
-        // line is suppressed rather than formatted by the placeholder's guessed 6 --
-        // which would display one asset's quantity as another's. The receipt, given the
-        // same row, renders nothing too, so the two surfaces agree.
-        //
-        // The native fallback is not redundant with the short-circuit above, because
-        // the two disagree under one configuration: `getTokenMetadata` short-circuits
-        // on `getFaucetIdSetting()`, which honours the Developer Settings faucet-id
-        // OVERRIDE, while the chain's real fee faucet is what the row records. With an
-        // override set the fee faucet misses the short-circuit, and if its record is
-        // absent or in the unresolved-faucet backoff it lands on the placeholder and
-        // the fee line disappears. `MIDEN_METADATA` rather than the chain-discovered
-        // scale, for the reason above: consistency with every other native figure.
         const feeIsNative = tx.feeFaucetId !== undefined && tx.feeFaucetId === getNativeAssetIdSync();
         const feeMetadata =
           resolvedFeeMetadata !== undefined && hasKnownScale(resolvedFeeMetadata)
             ? resolvedFeeMetadata
             : feeIsNative
-              ? MIDEN_METADATA
+              ? getNativeDisplayMetadataSync(undefined, tx.feeFaucetId)
               : undefined;
         // Bridge metadata (route/provider, EVM destination, per-route status) lives
         // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
@@ -401,7 +381,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               : undefined,
           // Present only on rows recorded since fees were charged, and only on chains
           // that charge -- older rows simply render no fee line.
-          fee: feeMetadata ? feeTextFromTransaction(tx, feeMetadata.decimals, feeMetadata.symbol) : undefined,
+          fee:
+            feeMetadata && hasKnownScale(feeMetadata)
+              ? feeTextFromTransaction(tx, feeMetadata.decimals, feeMetadata.symbol)
+              : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
           faucetId: tx.faucetId,
@@ -409,6 +392,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           txType: tx.type,
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
+          guardianSwitchVerdict: rotationVerdict(tx)?.kind,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
           errorMessage: tx.error,
@@ -536,6 +520,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  const isUnconfirmedSwitch =
+    isGuardianSwitch &&
+    !entry?.isCancelled &&
+    entry?.guardianSwitchVerdict !== undefined &&
+    isUnconfirmedRotation(entry.guardianSwitchVerdict);
   // A device-key rotation changes the account's signer, not its co-signer, so it
   // draws the guardian once. Both are structural Guardian ops: neither moves
   // value, so neither gets the wallet From/To rows.
@@ -646,7 +635,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // side is priced through the Earn collateral faucet.
   const pricedFaucetId =
     earnWithdraw !== null && transaction !== undefined && earnWithdrawShowsSource(earnWithdraw, transaction.amount)
-      ? getEarnCollateralFaucet()
+      ? earnCollateral?.faucetId
       : entry?.faucetId;
   const approximateUsdAmount =
     pricedAmount !== undefined && entry?.token && !spansMultipleAssets
@@ -755,6 +744,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     status={earnDeposit.epochStatus ?? 'pending'}
                     data-testid="history-status-pill"
                   />
+                ) : isUnconfirmedSwitch ? (
+                  // Amber "Submitted" for a switch-guardian row whose commit was never confirmed:
+                  // the generic pill reads its Completed status as a green "Confirmed", the exact
+                  // claim the row cannot make.
+                  <StatusBadge size="md" live status="guardianSwitchSubmitted" data-testid="history-status-pill" />
                 ) : (
                   <StatusPill
                     status={entry.status}

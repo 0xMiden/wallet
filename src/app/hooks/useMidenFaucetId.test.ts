@@ -21,15 +21,17 @@ const mockOnNativeAssetChanged = onNativeAssetChanged as jest.MockedFunction<typ
 /** Creates a promise whose resolution is controlled by the returned `resolve`. */
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>(res => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe('useMidenFaucetId', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     // Safe defaults; individual tests override as needed.
     mockGetNativeAssetIdSync.mockReturnValue(null);
     mockGetFaucetIdSetting.mockResolvedValue(null);
@@ -72,7 +74,7 @@ describe('useMidenFaucetId', () => {
     mockGetNativeAssetIdSync.mockReturnValue(null);
     mockGetFaucetIdSetting.mockResolvedValue('initial-faucet-id');
 
-    let changeListener!: (id: string) => void | Promise<void>;
+    let changeListener!: (id: string) => void;
     mockOnNativeAssetChanged.mockImplementation(fn => {
       changeListener = fn;
       return jest.fn();
@@ -126,7 +128,7 @@ describe('useMidenFaucetId', () => {
     mockGetNativeAssetIdSync.mockReturnValue(null);
     mockGetFaucetIdSetting.mockResolvedValue('initial-faucet-id');
 
-    let changeListener!: (id: string) => void | Promise<void>;
+    let changeListener!: (id: string) => void;
     mockOnNativeAssetChanged.mockImplementation(fn => {
       changeListener = fn;
       return jest.fn();
@@ -143,7 +145,100 @@ describe('useMidenFaucetId', () => {
       await changeListener('another-id');
     });
 
-    // Listener fired after cancellation — the guard skips the state write.
+    // Listener fired after cancellation - the guard skips the state write.
     expect(result.current).toBe('initial-faucet-id');
+  });
+
+  it('keeps a notification result when the earlier mount read resolves last', async () => {
+    const initial = deferred<string | null>();
+    const current = deferred<string | null>();
+    mockGetFaucetIdSetting.mockReturnValueOnce(initial.promise).mockReturnValueOnce(current.promise);
+    let notify!: (id: string) => void;
+    mockOnNativeAssetChanged.mockImplementation(listener => {
+      notify = listener;
+      return jest.fn();
+    });
+    const { result } = renderHook(() => useMidenFaucetId());
+
+    act(() => {
+      notify('current-native');
+    });
+    await act(async () => current.resolve('current-display'));
+    expect(result.current).toBe('current-display');
+    await act(async () => initial.resolve('obsolete-display'));
+    expect(result.current).toBe('current-display');
+  });
+
+  it('keeps the newest notification when two event reads resolve out of order', async () => {
+    const earlier = deferred<string | null>();
+    const latest = deferred<string | null>();
+    mockGetFaucetIdSetting
+      .mockResolvedValueOnce('mounted-display')
+      .mockReturnValueOnce(earlier.promise)
+      .mockReturnValueOnce(latest.promise);
+    let notify!: (id: string) => void;
+    mockOnNativeAssetChanged.mockImplementation(listener => {
+      notify = listener;
+      return jest.fn();
+    });
+    const { result } = renderHook(() => useMidenFaucetId());
+    await waitFor(() => expect(result.current).toBe('mounted-display'));
+
+    act(() => {
+      notify('earlier-native');
+      notify('latest-native');
+    });
+    await act(async () => latest.resolve('latest-display'));
+    await act(async () => earlier.resolve('earlier-display'));
+    expect(result.current).toBe('latest-display');
+  });
+
+  it('retains the explicit display override when native identity changes', async () => {
+    mockGetNativeAssetIdSync.mockReturnValue('actual-fee-faucet');
+    mockGetFaucetIdSetting.mockResolvedValue('explicit-display-override');
+    let notify!: (id: string) => void;
+    mockOnNativeAssetChanged.mockImplementation(listener => {
+      notify = listener;
+      return jest.fn();
+    });
+    const { result } = renderHook(() => useMidenFaucetId());
+    await waitFor(() => expect(result.current).toBe('explicit-display-override'));
+    await act(async () => notify('new-actual-fee-faucet'));
+    expect(result.current).toBe('explicit-display-override');
+  });
+
+  it('rerenders consumers for a same-ID metadata notification', async () => {
+    mockGetFaucetIdSetting.mockResolvedValue('same-faucet');
+    let notify!: (id: string) => void;
+    mockOnNativeAssetChanged.mockImplementation(listener => {
+      notify = listener;
+      return jest.fn();
+    });
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useMidenFaucetId();
+    });
+    await waitFor(() => expect(result.current).toBe('same-faucet'));
+    const beforeNotification = renders;
+    await act(async () => notify('same-faucet'));
+    expect(result.current).toBe('same-faucet');
+    expect(renders).toBeGreaterThan(beforeNotification);
+  });
+
+  it('keeps the cached identity after a rejected read and recovers on notification', async () => {
+    mockGetNativeAssetIdSync.mockReturnValue('cached-display');
+    const failed = deferred<string | null>();
+    mockGetFaucetIdSetting.mockReturnValueOnce(failed.promise).mockResolvedValueOnce('recovered-display');
+    let notify!: (id: string) => void;
+    mockOnNativeAssetChanged.mockImplementation(listener => {
+      notify = listener;
+      return jest.fn();
+    });
+    const { result } = renderHook(() => useMidenFaucetId());
+    await act(async () => failed.reject(new Error('identity read failed')));
+    expect(result.current).toBe('cached-display');
+    await act(async () => notify('recovered-native'));
+    expect(result.current).toBe('recovered-display');
   });
 });

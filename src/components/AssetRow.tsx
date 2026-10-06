@@ -11,6 +11,7 @@ import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
+import { isFixedQuote } from 'lib/prices/fixed';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 
 export interface AssetRowProps {
@@ -56,7 +57,7 @@ export const AssetRow: FC<AssetRowProps> = ({
   const quote = quotedPrice(tokenPrices, priceSymbol);
   // Only a feed quote has a 24h move. The nominal rate is a dollar figure with no market behind it,
   // so it has no direction to colour anything by, like no quote at all.
-  const feedQuote = quote && !isNominalQuote(quote) ? quote : undefined;
+  const feedQuote = quote && !isNominalQuote(quote) && !isFixedQuote(quote) ? quote : undefined;
   const direction: 'positive' | 'negative' | null = feedQuote
     ? feedQuote.percentageChange24h >= 0
       ? 'positive'
@@ -69,7 +70,7 @@ export const AssetRow: FC<AssetRowProps> = ({
   const formatFiat = adaptiveFormatterFor(fiatValue);
 
   // An empty symbol is the hook's "fetch nothing".
-  const points = useTokenSparkline(sparkline ? priceSymbol : '', '1D');
+  const points = useTokenSparkline(sparkline && !isFixedQuote(quote) ? priceSymbol : '', '1D');
   const hasRealPoints = points.length > 1;
   const sparkPoints = hasRealPoints ? points : FLAT_SPARKLINE_POINTS;
   const sparkColor =
@@ -90,7 +91,11 @@ export const AssetRow: FC<AssetRowProps> = ({
           metadata.symbol
         )
       }
-      chart={sparkline ? <Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} /> : undefined}
+      chart={
+        sparkline && !isFixedQuote(quote) ? (
+          <Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} />
+        ) : undefined
+      }
       price={
         scaleIsKnown && quote ? (
           <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />

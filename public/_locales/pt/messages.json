@@ -805,15 +805,6 @@
     "message": "Entendo que essa chave não pode ser alterada nem revogada.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "Contas importadas ausentes deste arquivo de carteira antigo: $importedCount$. Restaure-as separadamente usando os backups das chaves privadas.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Editar nome da conta",
     "englishSource": "Edit Account Name"
@@ -2111,10 +2102,6 @@
     "message": "Digite a senha que você definiu ao exportar sua carteira. Isso descriptografará o arquivo e restaurará o acesso.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "Continuar importação",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "Escolha como você quer proteger sua carteira",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2732,6 +2719,18 @@
     "message": "Você realizou com sucesso a rotação do seu Guardian!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian trocado",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Mudança de Guardian enviada",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "Enviado",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "O que muda agora",
     "englishSource": "What changes now"
@@ -2881,16 +2880,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "Adicione MIDEN para ativar sua chave de uso diário",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "Adicione USDCX para ativar sua chave de uso diário",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "Ativar sua chave de uso diário é uma transação, e toda transação paga uma pequena taxa de rede em MIDEN. Envie MIDEN para o endereço desta conta abaixo. A carteira recebe o pagamento e conclui a ativação da sua chave automaticamente.",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "Ativar sua chave de uso diário é uma transação, e toda transação paga uma pequena taxa de rede em USDCX. Envie USDCX para o endereço desta conta abaixo. A carteira recebe o pagamento e conclui a ativação da sua chave automaticamente.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "Envie pelo menos um MIDEN d$amount$.",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "Envie pelo menos um USDCX d$amount$.",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2902,28 +2901,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "Aguardando a chegada do MIDEN…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "Aguardando a chegada do USDCX…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "O MIDEN que você recebeu é insuficiente para pagar a taxa de rede. Envie um pouco mais.",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "O USDCX que você recebeu é insuficiente para pagar a taxa de rede. Envie um pouco mais.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "MIDEN recebido. Estou reivindicando-o…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "USDCX recebido. Estou reivindicando-o…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "Ativando sua chave de uso diário…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "O MIDEN que você recebeu não pôde ser resgatado.",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "O USDCX que você recebeu não pôde ser resgatado.",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "A carteira não conseguiu confirmar se o MIDEN que você recebeu foi reivindicado. Aguarde um minuto para que a carteira sincronize antes de tentar novamente.",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "A carteira não conseguiu confirmar se o USDCX que você recebeu foi reivindicado. Aguarde um minuto para que a carteira sincronize antes de tentar novamente.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Tente novamente",
@@ -2952,6 +2951,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Esta conta ainda não tem um Guardian on-chain com que verificar.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "O seu Guardian mudou enquanto o endereço era verificado. Tente novamente.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian inacessível",
@@ -3083,28 +3086,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "Seu MIDEN é reservado para a taxa de rede. Receba mais MIDEN para enviar.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "Seu USDCX é reservado para a taxa de rede. Receba mais USDCX para enviar.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "Você precisa de MIDEN para pagar a taxa de rede. Receba alguns MIDEN para continuar.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "Você precisa de USDCX para pagar a taxa de rede. Receba alguns USDCX para continuar.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "O valor deve ser inferior ao saldo",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Aceitar automaticamente transferências MIDEN",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "Aceitar automaticamente transferências USDCX",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Aceita automaticamente as transferências MIDEN recebidas no seu saldo — tal como tocar em Aceitar. Não aceita com mais frequência, nem custa mais em taxas, do que tocar em Aceitar manualmente.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "Aceita automaticamente as transferências USDCX recebidas no seu saldo - tal como tocar em Aceitar. Não aceita com mais frequência, nem custa mais em taxas, do que tocar em Aceitar manualmente.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Criando seu arquivo de carteira…",
@@ -3540,6 +3543,14 @@
   "unavailable": {
     "message": "Indisponível",
     "englishSource": "Unavailable"
+  },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Temporariamente indisponível",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
+    "englishSource": "This external service is currently down. Please try again later."
   },
   "agglayerCheckingToken": {
     "message": "Verificando se este token suporta a rota Slow…",
@@ -4836,6 +4847,10 @@
     "message": "URL personalizada guardian",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Taxa faucet ID da conta",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Permitir a opção 'Sem responsável' na integração",
     "englishSource": "Allow 'No guardian' option in onboarding"
@@ -5433,8 +5448,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",

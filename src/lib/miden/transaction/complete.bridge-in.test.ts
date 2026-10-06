@@ -1,6 +1,7 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+// The registry's native-ETH faucet sends every bridge delivery.
+import { TEST_NATIVE_ETH_FAUCET as DELIVERY_SENDER } from 'lib/epoch/testing/bridge-config';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -22,7 +23,7 @@ const mockedTake = jest.mocked(takeAgglayerBridgeInInfo);
 const bridgeNote = (id: string, amount: bigint) => ({
   note: () => ({
     id: () => ({ toString: () => id }),
-    metadata: () => ({ sender: () => AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID, noteType: () => 0 }),
+    metadata: () => ({ sender: () => DELIVERY_SENDER, noteType: () => 0 }),
     assets: () => ({ fungibleAssets: () => [{ faucetId: () => 'eth-faucet', amount: () => amount }] })
   })
 });
@@ -65,7 +66,7 @@ it("pairs a single-delivery consume by that note's sender and amount", async () 
   expect(takeAgglayerBridgeInInfo).toHaveBeenCalledTimes(1);
   expect(takeAgglayerBridgeInInfo).toHaveBeenCalledWith({
     accountId: 'account',
-    senderAccountId: AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID,
+    senderAccountId: DELIVERY_SENDER,
     amount: 2n
   });
 });

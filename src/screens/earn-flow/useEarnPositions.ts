@@ -5,6 +5,8 @@ import { useSWRConfig } from 'swr';
 import { usePageActive } from 'app/layouts/page-active';
 import { carryForward, type EarnPositionsResult, fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { BridgeConfigUnavailableError, selectEarnMarket } from 'lib/remote-config/values';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 
@@ -23,6 +25,14 @@ interface KeyReads {
 }
 // Per SWR cache, so a test's fresh cache starts with none.
 const keyReads = new WeakMap<object, Map<string, KeyReads>>();
+
+// The failure a read would report for a config that names no positions host or Earn market, as the getters phrase it,
+// named from the snapshot the hook keys on: the getters read the realm's, which can differ.
+function unconfiguredError(positionsUrl: string | undefined, marketUid: string | undefined): string | undefined {
+  if (!positionsUrl) return new BridgeConfigUnavailableError('epoch.positionsUrl').message;
+  if (!marketUid) return new BridgeConfigUnavailableError('Earn market').message;
+  return undefined;
+}
 
 function readsOf(cache: object, id: string): KeyReads {
   const byKey = keyReads.get(cache) ?? new Map<string, KeyReads>();
@@ -90,11 +100,17 @@ export function useEarnPositions(): {
   const account = useAccount();
   const onScreen = usePageActive();
   const { cache } = useSWRConfig();
+  const config = useBridgeConfigSnapshot();
+  const positionsUrl = config.config?.epoch.positionsUrl;
+  const marketUid = selectEarnMarket(config)?.marketUid;
+  // Only a loading snapshot is a wait: a loaded one that names neither settles at once, as the read would have failed.
+  const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, marketUid) : undefined;
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook
-  // mounts, so a key with data reads again then only once its last read is 30 s old.
-  const key = ['earn-positions', account.publicKey, account.evmAddress];
+  // mounts, so a key with data reads again then only once its last read is 30 s old. The read goes to the configured
+  // host and market, so the key names them: none reads nothing, and a config that lands or moves them reads anew.
+  const key = ['earn-positions', account.publicKey, account.evmAddress, positionsUrl, marketUid];
   const id = JSON.stringify(key);
   const lastRead = keyReads.get(cache)?.get(id)?.at;
   const due = lastRead === undefined || Date.now() - lastRead >= READ_INTERVAL_MS;
@@ -104,7 +120,7 @@ export function useEarnPositions(): {
     isValidating,
     mutate
   } = useRetryableSWR(
-    onScreen ? key : null,
+    onScreen && positionsUrl && marketUid ? key : null,
     async (): Promise<EarnPositionsResult> => {
       const reads = readsOf(cache, id);
       reads.at = Date.now();
@@ -162,7 +178,7 @@ export function useEarnPositions(): {
     liveData !== undefined || swrError !== undefined ? { data: liveData, error: swrError } : undefined
   );
   const data = shown?.data;
-  const readError = shown?.error;
+  const readError = shown?.error ?? unconfigured;
   // No data and no error (live or kept): a page mounted covered reads as loading, not empty.
   const isLoading = data === undefined && !readError;
 

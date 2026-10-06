@@ -138,7 +138,9 @@ function isBridgePromptActive(tx: ITransaction): boolean {
 
 export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
   const rows = await Repo.transactions
-    .filter(tx => tx.type === 'bridged-send' && compareAccountIds(tx.accountId, accountId))
+    .where('type')
+    .equals('bridged-send')
+    .filter(tx => compareAccountIds(tx.accountId, accountId))
     .toArray();
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
@@ -319,7 +321,7 @@ async function backfillAgglayerExitTxHashes(rows: ITransaction[]): Promise<void>
  * early for a row with nothing left to settle.
  */
 export async function reconcileBridgedSends(): Promise<void> {
-  const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-send').toArray();
+  const rows = await Repo.transactions.where('type').equals('bridged-send').toArray();
   // A restored row keeps what the backup recorded, but must not drive work:
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
@@ -593,10 +595,8 @@ export async function clearFaucetFundingMarker(address: string): Promise<void> {
   await getStorageProvider().remove([faucetFundingMarkerKey(address)]);
 }
 
-// 100 MIDEN in base units (6 decimals).
-const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // Bail out of a hung faucet request. The timeout also aborts the underlying
-// work: the signal is linked into each fetch, checked per PoW iteration, and
+// work: the signal is linked into each fetch, terminates the PoW worker, and
 // cuts a 429 back-off short.
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 /**
@@ -724,7 +724,7 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, r
     }
     return mintFromMidenFaucet(
       address,
-      MIDEN_FAUCET_AMOUNT,
+      undefined,
       controller.signal,
       async () => {
         if (marker) {

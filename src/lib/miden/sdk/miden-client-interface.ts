@@ -38,11 +38,13 @@ import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
+  getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
+import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
@@ -80,6 +82,7 @@ import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
 import { isApplyAfterSubmitError, isSubmitCrossingUnrecorded, markErrorBeforeSubmit } from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
+import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
 import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
@@ -466,7 +469,16 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
   const entry: RealmReader = {
     generation,
     rpcUrl,
-    client: WasmWebClient.createClient(rpcUrl, undefined, undefined, undefined, undefined, false),
+    client: WasmWebClient.createClient(
+      rpcUrl,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      getEffectiveFeeFaucetId()
+    ),
     failures: cached && sameKey ? cached.failures : 0
   };
   realmReader = entry;
@@ -501,19 +513,26 @@ export class MidenClientInterface {
   client: MidenClient;
   network: string;
 
-  private constructor(client: MidenClient, network: string, liveness: ClientLiveness = { disposed: false }) {
+  private constructor(
+    client: MidenClient,
+    network: string,
+    liveness: ClientLiveness = { disposed: false },
+    scope = cacheScope()
+  ) {
     this.client = client;
     this.network = network;
     this.liveness = liveness;
+    bindFeeFaucetClientScope(client, scope);
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
     const network = getEffectiveNetworkName();
+    const scope = cacheScope();
 
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
       const sdk = await import('@miden-sdk/miden-sdk/lazy');
       const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
-      return new MidenClientInterface(mockClient, 'mock');
+      return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
     }
 
     const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
@@ -539,6 +558,7 @@ export class MidenClientInterface {
               : refuseKeystoreMember('sign')
           }
         : undefined,
+      feeFaucetId: getEffectiveFeeFaucetId(),
       proverUrl: getEffectiveProverUrl(),
       // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
       // of the SDK's Web-Worker shim. Two independent reasons:
@@ -572,7 +592,7 @@ export class MidenClientInterface {
       observer: createWalletSdkObserver()
     });
 
-    return new MidenClientInterface(midenClient, network, liveness);
+    return new MidenClientInterface(midenClient, network, liveness, scope);
   }
 
   static fromClient(client: MidenClient, network: string) {
@@ -727,8 +747,8 @@ export class MidenClientInterface {
   async importPublicMidenWalletFromSeed(seed: Uint8Array, auth?: AuthScheme) {
     // The SDK reconstructs the account from `seed` + `auth` (default Falcon
     // when omitted). For the wallet's mnemonic-restore path the caller
-    // PROBES with each known auth scheme to find which account id actually
-    // exists on chain — see `Vault.spawn`. Forwarding `auth` only when
+    // imports under the one current auth scheme to find whether the account
+    // exists on chain - see `Vault.spawn`. Forwarding `auth` only when
     // explicitly provided keeps any other call site behaving exactly as
     // before.
     const account = await this.client.accounts.import({
@@ -1374,8 +1394,15 @@ export class MidenClientInterface {
     });
   }
 
-  async syncState() {
-    return await this.client.sync();
+  async syncState(assertLive: AssertLive = noAssertLive) {
+    return syncAndRecordFeeFaucet(
+      this.client,
+      () => this.client.sync(),
+      () => {
+        if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('sync client was replaced'));
+        assertLive();
+      }
+    );
   }
 
   async exportNote(
@@ -1394,10 +1421,15 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    // 0.16: sendPrivate requires an explicit scan-after block hint. For one of this client's
-    // own output notes, sendPrivateOutput derives that hint from the note's stored expected
-    // height, so the recipient scans from at/below the note's commitment block.
-    await this.client.notes.sendPrivateOutput({ noteId: note.id().toString(), to });
+    // rc.5 verifies an inclusion proof and drops the scan-after hint.
+    // `sendPrivateOutput` reads the proof sync stored on this client's output
+    // note, which exists once `transactions.waitFor` has synced past the
+    // commitment. Callers wait for that commit before relaying. The call runs
+    // on the client that created the note, the same store the id lookup uses.
+    await this.client.notes.sendPrivateOutput({
+      noteId: note.id().toString(),
+      to: accountRefToSdk(to)
+    });
   }
 
   /**
@@ -1408,12 +1440,12 @@ export class MidenClientInterface {
    * transaction row, so requiring a `Note` would mean re-hydrating one purely to
    * read back the id that `sendPrivateOutput` wants anyway.
    *
-   * Safe to call repeatedly: the hint is re-derived from the note's stored
-   * `expected_height` on every call, so a re-push is as correct as the first push
-   * however late it runs.
+   * Safe to call repeatedly. `sendPrivateOutput` reads the inclusion proof sync
+   * stored on the output note, so a later call is as correct as the first once
+   * that proof is in this client's store.
    */
   async relayPrivateNoteById(noteId: string, to: string): Promise<void> {
-    await this.client.notes.sendPrivateOutput({ noteId, to });
+    await this.client.notes.sendPrivateOutput({ noteId, to: accountRefToSdk(to) });
   }
 
   /**
@@ -1514,7 +1546,7 @@ export class MidenClientInterface {
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
       try {
-        const syncResult = await this.client.sync();
+        const syncResult = await this.syncState();
         reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
       } catch (error) {
         // Before any request exists, so the attempt provably never crossed (#1081).

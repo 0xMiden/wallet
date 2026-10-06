@@ -1,0 +1,43 @@
+# Fee asset discovery
+
+- Apply an explicit final-review severity cutoff to new findings. Preserve lower-severity findings as deferred evidence without restarting the review or delaying the requested release.
+- When a user requests the PR during final review, open it at the current signed checkpoint and let CI run while the remaining corrections and review finish. Keep merge and release gates bound to the final head.
+- Check all native metadata consumers when fixing actual fee identity versus legacy display identity; uncached discovery, cached detailed metadata, search, notes and sync balances must agree.
+- Capture cold service-worker publication revisions after endpoint hydration. Scope validation before hydration can reject the first otherwise valid SDK publication.
+- Keep cache invalidation synchronous while deferring only notifications caused by render-time getter invalidation. Direct updates must consume pending notices to avoid duplicate callbacks.
+- Publish new scope and override ownership before notifying listeners. A listener can synchronously call the same getter; notification before ownership changes can recursively invalidate the cache.
+- Recheck the captured WASM hold and client generation after every caller-owned await before reading an SDK summary or another borrowed value. A check inside the awaited helper does not replace the caller's check.
+- Serialize scoped identity writes with reset. A pre-write revision check alone cannot stop a parked storage write from completing after a newer identity or reset.
+- Use authoritative native metadata for the actual fee identity even when a separate legacy display override is selected. Cached display decimals cannot set spend values or fee units.
+- Treat each offscreen publication as a fresh bounded attempt, and invalidate local persistence acknowledgements when either durable identity record changes.
+- Guard asynchronous fee hooks by generation so a parked result from the previous network cannot replace the current fee identity.
+- Authorize fixed native pricing with exact canonical synchronized identity. Missing or mismatched proof cannot turn a native spend into an unpriced zero-value allowance charge.
+- An ordinary cold native identity must not block an independently identified, allowlisted foreign price. Fatal identity errors retain their refusal behavior.
+- Apply the user's latest review-effort instruction to future seats for that issue. Preserve completed seat records and record the scoped exception without changing the global roster defaults.
+- Apply a cancellation to the named subtask while preserving the remaining authorized work. Confirm dependency connections from source before planning an integration change.
+- A release-version correction replaces the earlier publishing strategy. Update every product version and planned distribution step together, preserving prior releases unless removal is still explicitly requested.
+- When store publishing is assigned to the user, stop dashboard work and complete the independently authorized repository release and artifact checks.
+- Describe an unmerged version bump as the local branch prepared for that version. Reserve release wording for an actual published tag, and state push/merge status explicitly in progress updates.
+- When coverage is assigned to CI, stop local coverage immediately and use focused noncoverage checks for known failures. Never report an interrupted run as passing or reuse an earlier source checkpoint as current proof.
+- When a fee-identity hook changes, migrate fixtures in all indirect consumers, including manual-note badges and toast monitors. Use different native and display IDs so legacy-hook regressions remain observable.
+- Inventory every direct legacy selector call when separating fee identity from display identity. Classify mixed components before changing fee consumers.
+- Give every overlapping asynchronous fee read an ownership generation. Unmount cancellation cannot stop an older result replacing a newer one in the same effect.
+- Keep browser tests in CI when explicitly requested, and name mock versus live-network evidence before interpreting token symbols.
+- An explicit final-review severity cutoff makes lower-severity findings nonblocking. Finish accepted corrections already underway, then gate the final review on P0/P1 only.
+- A later request to fix a named deferred finding reopens that finding alone; retain the final-review cutoff for other lower-severity findings.
+- Native bootstrap must read chain metadata directly. A generic display-cache hit cannot prove the native asset scale.
+- Authenticate native identity and quote from the same valuation snapshot; clearing a live display cache during an earlier await must not erase a proven stablecoin charge.
+- Every headless review launch sets the repository and working directory explicitly, then checks the source head before invoking the provider.
+- Fresh-install requirements do not imply migration work for old stored balance rows. Keep that scope explicit.
+- Respect an explicit USDCX loading default and fixed $1 unit quote. Price per unit is separate from verified raw-unit scale; quantity, allowance and fee gates keep their own checks.
+- Audit native-token defaults together with fee warnings, funding prompts and settings copy. Update both locale message metadata and generated runtime bundles; keep genuine separate tokens and SDK identifiers intact.
+- Apply an explicit session change of review workflow immediately. Preserve completed evidence and stop launching the superseded workflow.
+- Preserve the canonical byte format of generated locale messages. A formatting-only difference can trigger an unnecessary translation commit and change the reviewed source head.
+# Faucet funding and responsiveness
+
+- Compare faucet metadata on every target network before choosing a funding amount. A grant that
+  works on devnet can be thousands of times harder to prove on testnet when `base_amount` differs.
+- An `await` on WebCrypto does not guarantee a browser task boundary. Chromium resolves digest
+  promises inline; keep unbounded nonce search in a worker with cancellation owned by its parent.
+- Windows patch application can insert CRLF into an otherwise LF SDK bundle. Normalize both the
+  source helper and installed bundle before comparing the relay patch, and retain stale-content tests.

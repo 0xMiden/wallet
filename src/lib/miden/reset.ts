@@ -3,20 +3,17 @@ import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
-import { DESKTOP_STORAGE_PREFIX, getStorageProvider } from 'lib/platform/storage-adapter';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
+import { BRIDGE_CONFIG_FLOOR_KEY } from 'lib/remote-config/source';
 import { storageCleared } from 'lib/storage-cleared';
 
 // Configuration, not wallet data, so a reset keeps it. The dev-settings endpoint override
 // selects the network a wallet is created for and is set BEFORE creation; losing it mints the
 // account on one network while the client resolves another. Developer Settings' reset takes it
-// with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards.
-export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY];
-
-// A wallet-setup reset also keeps the frozen legacy guardian URL until a setup succeeds: a
-// Guardian recovery with no pick and no probe result falls back to it, and a Retry after a
-// failed attempt must find the value the first attempt did. See `dropLegacyGuardianUrl`.
-export const SETUP_PRESERVED_STORAGE_KEYS: readonly string[] = [...PRESERVED_STORAGE_KEYS, GUARDIAN_URL_STORAGE_KEY];
+// with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards. The
+// bridge config floor is the highest config version each network has accepted; losing it would
+// let a reset wallet accept an older, superseded document.
+export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY, BRIDGE_CONFIG_FLOOR_KEY];
 
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
 // failure can lose it, and a failure rejects the reset rather than being swallowed.
@@ -56,7 +53,7 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
 /**
  * Soft storage reset called during wallet creation / spawn.
  *
- * Removes every platform key-value entry except `keep` (a setup keeps `SETUP_PRESERVED_STORAGE_KEYS`) and
+ * Removes every platform key-value entry except `keep` (by default `PRESERVED_STORAGE_KEYS`) and
  * then empties the `transactions` and `spendingLimits` tables, but deliberately keeps the TridentMain Dexie
  * connection alive. Using `db.delete()` here would fire a `versionchange` event
  * to every other open handle (notably the page's, which was opened lazily by the
@@ -73,7 +70,7 @@ function removeLocalStorageExcept(keep: readonly string[]): void {
  * If you need the full "throw away everything, including live connections
  * from other tabs/contexts" semantic, call `resetStorageDestructive` below.
  */
-export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = SETUP_PRESERVED_STORAGE_KEYS) {
+export async function clearStorage(clearDb: boolean = true, keep: readonly string[] = PRESERVED_STORAGE_KEYS) {
   await clearPlatformKeyValueStorage(keep);
   if (clearDb) {
     await Repo.transactions.clear();
@@ -87,12 +84,6 @@ export async function clearStorage(clearDb: boolean = true, keep: readonly strin
   // Rediscover now rather than on first use: the wallet being created or imported reads its
   // balance the moment it is Ready, and that read would otherwise wait on this RPC (#1123).
   primeNativeAssetId();
-}
-
-// Called once a setup has published its vault: every Guardian account it wrote carries its own
-// guardianEndpoint, so the fallback has nothing left to serve. A delete, never a write.
-export async function dropLegacyGuardianUrl(): Promise<void> {
-  await getStorageProvider().remove([GUARDIAN_URL_STORAGE_KEY]);
 }
 
 /**
@@ -144,7 +135,7 @@ export async function resetStorageDestructive({
 // and mobile those names are not in it, and the re-read finds nothing changed.
 export async function clearClientStorage(): Promise<void> {
   try {
-    removeLocalStorageExcept(SETUP_PRESERVED_STORAGE_KEYS);
+    removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
     sessionStorage.clear();
   } finally {
     await rereadStorageCache();

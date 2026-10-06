@@ -53,11 +53,12 @@ jobs:
       # broadcasts at the local Anvil the spec starts. Baked into the app bundle
       # at build time (config.ts override) and read by the counterparty at run.
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
-      # Point the Epoch SDK's allocator calls (quote / createAllocation /
-      # intentStatus) at the local FAKE allocator the Epoch spec starts. Baked at
-      # build time (config.ts EPOCH_ALLOCATOR_URL define); inert for the AggLayer
-      # spec (which never calls the allocator).
-      EPOCH_ALLOCATOR_URL: http://127.0.0.1:8548
+      # The config document the suite's global setup serves on :8550: the live
+      # testnet bridge account, indexer and USDC faucet, this job's Anvil bridge
+      # and USDC, and the local FAKE allocator (:8548) the Epoch spec starts for
+      # the SDK's quote / createAllocation / intentStatus calls. Baked at build
+      # time (MIDEN_REMOTE_CONFIG_URL define).
+      MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
       # Optional: give the headless counterparty its OWN relay projectId so it
       # doesn't double the app projectId's load on the relay (reduces
       # rate-limit trips) - per-projectId load relief only, never the fix for a
@@ -214,8 +215,8 @@ jobs:
         # flaky CDP setup on macos-26 AND transient relay rate-limit trips on the
         # connect step; each attempt is a fresh wallet + pairing + Anvil.
         #
-        # NON-BLOCKING for now: the deposit ships to users (isBridgeDepositEnabled
-        # is on), so this suite is its only E2E. Its WalletConnect handshake was
+        # NON-BLOCKING for now: the deposit ships to users (testnet.json switches
+        # bridge-in on), so this suite is its only E2E. Its WalletConnect handshake was
         # rejected with WS close 3000 ("Project not found"). Until #1259, an
         # unset WC_COUNTERPARTY_PROJECT_ID secret made the counterparty send a
         # blank project id, which alone produces that rejection; whether the

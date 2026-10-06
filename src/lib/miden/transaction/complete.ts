@@ -23,6 +23,7 @@ import {
   type PostSwitchAdopter,
   type PostSwitchLocalState
 } from 'lib/miden/guardian/post-switch-state';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
@@ -143,27 +144,27 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
 
-    // Relay every note FIRST, then wait for the commit once.
+    // Wait for the commit ONCE, then relay every note.
     //
-    // The wait used to sit inside the per-note loop, which made note N+1's relay
-    // wait out note N's commit — up to a full commit interval of extra exposure per
-    // note, during which a realm teardown or a closed service worker loses the
-    // remaining relays entirely. It also re-waited on the same transaction id once
-    // per note, which is the same answer every time.
-    //
-    // Ordering relays before the wait is otherwise unchanged, and NOT for the reason
-    // the old comment gave: under 0.15 the hint was the client's live sync height,
-    // so waiting first advanced it past the note's commitment block and the
-    // recipient — who scans FORWARD from the hint — silently never found the note.
-    // 0.16's `sendPrivateOutput` derives the hint from the note's stored
-    // `expected_height`, which does not move with sync. The order is kept because it
-    // is still the right shape (hand over the note the moment it exists, gate the
-    // row's status on the commit), not because delivery depends on it.
+    // rc.5's transport verifies an inclusion proof. `sendPrivateOutput` reads the
+    // proof sync stored once this client has synced past the commitment, and
+    // throws when that proof is missing. Relaying first can no longer hand the
+    // note over: the proof does not exist yet. One wait covers every note,
+    // because they share the transaction id.
     //
     // Relays route through `midenClientProxy` (issue #260, slice 7b): under the flag
     // the write ran offscreen, so each note is an APPLIED OUTPUT note of the
-    // OFFSCREEN client's store — and `sendPrivateOutput` resolves it by id out of
-    // that store — so the relay MUST run there, not on the dormant SW client.
+    // OFFSCREEN client's store, and `sendPrivateOutput` resolves it by id out of
+    // that store, so the relay runs there, not on the dormant SW client.
+    try {
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
+    } catch (error) {
+      console.warn('Commit wait failed before relaying private notes; the relay may find no proof', {
+        txId: transaction.id,
+        error
+      });
+    }
+
     for (const fullNote of notesToRelay) {
       try {
         await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
@@ -187,19 +188,6 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       await recordNoteDelivery(transaction.id, noteDelivery);
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, noteDelivery, error });
-    }
-
-    // Confirmation only, once, and after the relays have settled. Its failure says
-    // nothing about delivery, so it is caught separately — folding it in with the
-    // relay's catch (as before) made a healthy relay followed by a slow commit
-    // indistinguishable from a note that never reached the transport at all.
-    try {
-      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
-    } catch (error) {
-      console.warn('Commit wait failed after relaying private notes; relying on SDK reconcile', {
-        txId: transaction.id,
-        error
-      });
     }
   } else if (undeliveredNotes > 0) {
     // Private notes existed but none could be turned into a relayable note.
@@ -328,11 +316,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     if (settle) {
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
-        if (tx.type !== 'swap') return;
+        // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+        if (tx.type !== 'swap') return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
         };
+        return undefined;
       });
     }
   } catch (err) {
@@ -567,13 +557,28 @@ export const completeReplaceHotKeyTransaction = async (
 
     // The account now has both signers on-chain, so bring it up to the same
     // hardening a freshly-created 3-key account has (update_guardian threshold
-    // 2 — which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success. After an eviction it is
-    // skipped rather than rebuilding the service against the node that just
-    // parked: the next guardian sync lap re-runs the check, because the swap
-    // above changed the hot key that sync's once-per-session gate is keyed on.
+    // 2, which the update_signers rotation above can't carry). Best-effort and
+    // idempotent; never affects the rotation's success. After an eviction during
+    // re-register it is skipped rather than rebuilding the service against the
+    // node that just parked: the next guardian sync lap re-runs the check,
+    // because the swap above changed the hot key that sync's once-per-session
+    // gate is keyed on.
+    //
+    // Scoped when it does run. This call sits past the terminal status write.
+    // `ensureGuardianProcedureThresholds` re-throws a WASM client eviction, and
+    // the enclosing catch writes Failed, so an unscoped throw would flip a
+    // rotation that is already on chain and recorded Completed. The eviction is
+    // logged and the row stands.
     if (!reRegisterEvicted) {
-      await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+      try {
+        await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+      } catch (hardeningError) {
+        console.warn(
+          `[guardian] procedure-threshold hardening did not run after the hot-key rotation for ${tx.accountId}; ` +
+            `the rotation itself is complete and the guardian sync re-attempts the hardening:`,
+          hardeningError
+        );
+      }
     }
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
@@ -765,10 +770,9 @@ export const completeSwitchGuardianTransaction = async (
       );
     });
 
-    // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
-    // Guardian accounts on different operators aren't clobbered. Backend
-    // providers implement setGuardianEndpoint; the optional-call guard keeps a
-    // frontend provider without it from throwing.
+    // Persist the endpoint PER-ACCOUNT so other Guardian accounts on different
+    // operators aren't clobbered. Backend providers implement setGuardianEndpoint;
+    // the optional-call guard keeps a frontend provider without it from throwing.
     try {
       // BOUNDED, because a hang here is worse than a rejection. On the frontend
       // this provider method is an intercom request, and `request()` in
@@ -1069,17 +1073,18 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     }
 
     try {
-      // Relay BEFORE waiting for commit. Under 0.16 the hint comes from the note's
-      // stored `expected_height` rather than the client's live sync height, so this
-      // ordering is no longer what keeps the hint below the commitment block — but
-      // it is still right: it puts the irreversible, unrecoverable step first, while
-      // the wait is only a confirmation gate.
-      //
-      // Both the relay and the paired wait route through `midenClientProxy` (issue
-      // #260, slice 7b) so they run on the SAME client that created the note — the
-      // OFFSCREEN client flag-on, whose store holds it as an applied output note and
-      // is therefore the only one `sendPrivateOutput` can resolve it from; the SW
-      // client flag-off (each proxy call owns its WASM lock).
+      // The proof rc.5's transport verifies exists only after this commit wait
+      // syncs past the block. Both the wait and the relay route through
+      // `midenClientProxy` (issue #260, slice 7b) so they run on the client that
+      // created the note: the offscreen client when the flag is on, whose store
+      // holds the output note `sendPrivateOutput` reads.
+      await setTransactionStage(tx.id, 'confirming');
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
+    } catch (error) {
+      console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
+    }
+
+    try {
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
       noteDelivery = 'relayed';
     } catch (error) {
@@ -1115,19 +1120,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       await recordNoteDelivery(tx.id, noteDelivery);
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
-    }
-
-    // Confirmation only, and only once the relay has settled either way. Its own
-    // failure says nothing about delivery, so it must not disturb the state above.
-    try {
-      await setTransactionStage(tx.id, 'confirming');
-      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
-    } catch (error) {
-      // The on-chain tx may not be confirmed yet from this client's perspective;
-      // falling through to the normal Completed path is still correct because
-      // executedTx.id() is the canonical id and the chain is the source of truth —
-      // a subsequent sync reconciles it.
-      console.warn('Commit wait failed during private send; relying on SDK reconcile', { txId: tx.id, error });
     }
   } else if (isPrivateSend && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });
@@ -1448,7 +1440,8 @@ export const updateEarnWithdrawPhase = async (
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
-      return;
+      // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+      return false;
     }
     // Only the move INTO a terminal phase, so the idempotent same-phase patches
     // this function deliberately allows do not each report an outcome.
@@ -1456,6 +1449,7 @@ export const updateEarnWithdrawPhase = async (
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    return undefined;
   });
 
   // Reported from here because there is nowhere else it could be. This row is
@@ -1647,6 +1641,85 @@ export const updateBridgeClaimStatus = async (
   if (landed !== undefined) {
     reportVerifiedLanding(landed);
   }
+};
+
+/**
+ * Completed switch-guardian rows whose commit was never confirmed - the
+ * durable pending-rotation intents the recovery recheck works through. The
+ * Dexie row itself is the intent: it survives realm churn and vault locks and
+ * carries the on-chain transaction id and target endpoint, so no separate
+ * marker store exists to drift from it. Read through the verdict module, never
+ * the raw flags (the guardian claim fence).
+ */
+export const listUnconfirmedSwitchRows = async (accountId: string): Promise<SwitchGuardianTransaction[]> => {
+  // Entered through the `type` index rather than `accountId`. BOTH are indexed (v1.7
+  // added `type` for the bridge watcher), so the choice is which one narrows harder, and
+  // it is not close: an account's history is every send, claim and swap it has ever made,
+  // while `switch-guardian` rows are one per rotation. On a 3 s loop the old entry point
+  // walked that whole history every lap for a result that is almost always empty.
+  //
+  // Still filtered during the cursor walk rather than after a `toArray()`: materializing
+  // first also RETAINED each row, including the binary `requestBytes` / `resultBytes`
+  // payloads, which is the difference between touching the history and keeping it.
+  const rows = await Repo.transactions
+    .where('type')
+    .equals('switch-guardian')
+    .filter(row => row.accountId === accountId && rotationVerdict(row)?.kind === 'submitted-unconfirmed')
+    .toArray();
+  return rows.filter((row): row is SwitchGuardianTransaction => row.type === 'switch-guardian');
+};
+
+/**
+ * Settle a pending rotation once the node finally answered.
+ *
+ * `landed === true` upgrades the row to a confirmed rotation (the
+ * receipt/Activity copy follows via `rotationVerdict`).
+ *
+ * `landed === false` demotes it to Failed.
+ *
+ * THIS CALL IS THE POINT OF NO RETURN, and the caller has to have finished the
+ * vault side FIRST. Demoting sets `status = Failed`, and `rotationVerdict`
+ * answers `'failed'` on a Failed row before it ever looks at
+ * `commitUnconfirmed` - so the row drops out of `listUnconfirmedSwitchRows` the
+ * instant this resolves and no later pass can re-derive the repair from it. The
+ * completion persisted the NEW endpoint before it knew the commit was
+ * unconfirmed (the anti-stranding write above), so on a discarded rotation the
+ * vault names an operator with no on-chain authority; and drift reconciliation
+ * cannot repair that, because its cheap path returns `in-sync` the moment the
+ * stored commitment BASELINE equals the chain, and on a discarded rotation the
+ * baseline was never advanced - baseline == chain == the old operator, and the
+ * stored endpoint is never even read.
+ *
+ * So: roll the binding back, then call this. The reverse order buys a demoted
+ * row and a silently-unusable account whenever the vault write fails, with the
+ * only evidence of the repair already thrown away.
+ */
+export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<void> => {
+  if (landed) {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.displayMessage = 'Guardian switched';
+      tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    });
+    return;
+  }
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = 'Guardian switch discarded';
+    // Plain prose, like every other `tx.error` (the field carries thrown-error
+    // text and is rendered verbatim on the failure card). It says only what THIS
+    // function has established: that the node discarded THIS switch. Two earlier
+    // versions overreached - one claimed the wallet had been pointed back at the
+    // previous guardian, the next that the previous guardian was still active -
+    // and both are claims about CURRENT account state this function never reads.
+    // With two rotations unconfirmed at once (A to B discarded while B to C
+    // commits, the case the rollback below is conditional for) the previous
+    // guardian is not active, and the card said so anyway.
+    tx.error = 'The node discarded this guardian switch after submission.';
+    // Cleared for the same reason the landed path clears it: the flag means
+    // "completed with no evidence either way", and the node has now answered.
+    // The row's terminal status carries the outcome from here.
+    tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+  });
 };
 
 /**

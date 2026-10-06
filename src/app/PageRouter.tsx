@@ -14,7 +14,7 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
@@ -265,15 +265,11 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/bridge/deposit',
-    onlyReady(() =>
-      isBridgeDepositEnabled() ? (
-        <FullScreenPage>
-          <BridgeDeposit />
-        </FullScreenPage>
-      ) : (
-        <Woozie.Redirect to="/receive" />
-      )
-    )
+    onlyReady(() => (
+      <FullScreenPage>
+        <BridgeDeposit />
+      </FullScreenPage>
+    ))
   ],
   [
     '/history-details/:transactionId',

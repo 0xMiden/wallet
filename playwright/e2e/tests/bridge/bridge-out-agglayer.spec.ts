@@ -1,4 +1,3 @@
-import { MIDEN_AGGLAYER_FAUCET_ID } from '../../../../src/lib/agglayer/b2agg/constant';
 import { expect, test } from '../../fixtures/two-wallets';
 import {
   allowAgglayerFaucetForE2E,
@@ -13,6 +12,9 @@ import {
 } from '../../helpers/bridge';
 import { napiExitTxHashFromRequestBytes } from '../../helpers/exit-hash';
 import { newEvmDestination } from '../../helpers/sepolia';
+
+// The bridged-ETH faucet the live testnet registry lists (the published testnet.json names its bridge).
+const TESTNET_BRIDGED_ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
 
 /**
  * Bridge-OUT, Slow (AggLayer) — real Miden testnet bridge-send, UI only.
@@ -68,7 +70,7 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     timeline
   }) => {
     await walletA.createNewWallet();
-    await expectRegistryApproves(walletA.page, MIDEN_AGGLAYER_FAUCET_ID);
+    await expectRegistryApproves(walletA.page, TESTNET_BRIDGED_ETH_FAUCET);
     const { faucetHex } = await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
 
     const destination = newEvmDestination();
@@ -115,8 +117,9 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     expect(row!.extraInputs?.agglayerExitTxHash, 'the exit hash binding the row to its deposit').toMatch(
       /^0x[0-9a-f]{64}$/
     );
-    // The browser binding computed that hash. The vectors pin the formula on the napi addon only, so a browser-side
-    // divergence (FeltArray handling, felt order) would store a well-formed hash no deposit ever matches.
+    // The browser binding computed that hash. The vectors pin the formula on the napi addon only, over 0.16's words
+    // (0.17 changed the vault key's encoding; agreement with a 0.17 bridge is checked at the first 0.17 deposit), so a
+    // browser-side divergence (FeltArray handling, felt order) would store a well-formed hash no deposit ever matches.
     expect(row!.requestBytes, 'the request bytes the row was queued with').toBeDefined();
     expect(row!.extraInputs?.agglayerExitTxHash, 'the browser exit hash equals the napi SDK one').toBe(
       napiExitTxHashFromRequestBytes(Uint8Array.from(row!.requestBytes ?? []))

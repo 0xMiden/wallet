@@ -10,6 +10,7 @@ import {
   ITransactionType,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 
 /** A formatted secondary asset on a batch-consume row. */
@@ -118,6 +119,12 @@ export interface IHistoryEntry {
   // Guardian switch audit trail. The previous endpoint is absent on legacy rows.
   previousGuardianEndpoint?: ISwitchGuardianExtraInputs['previousGuardianEndpoint'];
   newGuardianEndpoint?: ISwitchGuardianExtraInputs['newGuardianEndpoint'];
+  /**
+   * The row's rotation verdict kind (`rotationVerdict`), projected at the
+   * mapping boundary so the views can qualify their claims - the outcome flags
+   * themselves deliberately do not cross this boundary.
+   */
+  guardianSwitchVerdict?: RotationVerdictKind;
   /** `replace-hot-key`: the device (hot) key the rotation installed, once it is known. */
   newHotPublicKey?: string;
   /** `replace-hot-key`: the guardian the rotation ran under, when the record carries it. */

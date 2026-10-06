@@ -24,6 +24,7 @@ import {
   ITransactionStatus,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
@@ -551,6 +552,7 @@ async function fetchTransactionsAsHistoryEntries(
       txType: tx.type,
       previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
+      guardianSwitchVerdict: rotationVerdict(tx)?.kind,
       errorMessage: tx.error,
       isCancelled,
       isUnconfirmed,
@@ -628,6 +630,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       txType: tx.type,
       previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
+      guardianSwitchVerdict: rotationVerdict(tx)?.kind,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,

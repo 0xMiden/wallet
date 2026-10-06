@@ -211,7 +211,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
     return { deferred: true, sourceFailures: 0, restored: 0, deferredSources: 0 };
   }
   const local = await transactions.where('accountId').equals(account.publicKey).toArray();
-  const current = await resolveGuardianEndpoint(account);
+  const current = resolveGuardianEndpoint(account);
   // Guardian history and backup files can name any host, so only rows this wallet made add operators.
   const previous: string[] = [];
   for (const row of local) {

@@ -6,9 +6,9 @@ import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { deserializeError, serializeError } from 'lib/intercom/helpers';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -33,10 +33,11 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
+let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string } = {
   amount: undefined,
   loading: false,
-  error: null
+  error: null,
+  symbol: 'USDC'
 };
 
 const mockWalletStoreState = {
@@ -64,6 +65,8 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
 // stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveRpcUrl: () => 'https://rpc.review.example',
@@ -186,13 +189,8 @@ jest.mock('lib/agglayer/b2agg', () => ({
   initiateB2AggBridge: jest.fn()
 }));
 
-jest.mock('lib/agglayer/b2agg/constant', () => ({
-  EVM_AGGLAYER_NETWORK_ID: 11155111
-}));
-
 jest.mock('lib/epoch', () => ({
-  bridgeEpochSend: jest.fn(),
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC'
+  bridgeEpochSend: jest.fn()
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -392,7 +390,7 @@ beforeEach(() => {
   mockBalanceData = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
-  mockEpochQuote = { amount: undefined, loading: false, error: null };
+  mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -600,7 +598,7 @@ describe('ReviewTransaction — rendering', () => {
 
   it('renders the fast bridge route loading state from the Epoch quote', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', loading: true, error: null };
+    mockEpochQuote = { amount: '4.8', loading: true, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
@@ -614,7 +612,7 @@ describe('ReviewTransaction — rendering', () => {
   // What arrives is the quote at most, so "you receive" rounds it down.
   it('rounds the Fast route quote down in "you receive", never up', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '10.655599', loading: false, error: null };
+    mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
@@ -622,6 +620,18 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByText('≈ 10.65 USDC')).toBeInTheDocument();
+  });
+
+  it('names the output token the quote names in "you receive"', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'USDC.e' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 2 USDC.e')).toBeInTheDocument();
   });
 
   // 12.3450 separates the kinds: down reads 12.34 and up 12.35, so only an exact 12.345 is typed.
@@ -818,13 +828,13 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('opens the unvalued challenge from a rejection that actually crossed the intercom port', async () => {
     // Unlike the raw-object rejections above (the in-process shape mobile/desktop reject with),
-    // this is what the extension's popup <-> SW port actually delivers: the real `serializeError`
-    // followed by the real `deserializeError`, round-tripping a price-unavailable refusal through
+    // this is what the extension's popup <-> SW port actually delivers: the real `serializeInternalError`
+    // followed by the real `deserializeInternalError`, round-tripping a price-unavailable refusal through
     // the intercom wire format rather than assuming it survives untouched.
     setValidRoute();
     initiateMock.mockRejectedValue(
-      deserializeError(
-        serializeError({
+      deserializeInternalError(
+        serializeInternalError({
           message: 'No current price is available for MDN',
           code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
           symbol: 'MDN'
@@ -899,6 +909,8 @@ describe('ReviewTransaction — onSubmit', () => {
         guardianProvider: zustandProvider
       })
     );
+    // The bridge build reads the destination network from the config; the review passes none.
+    expect(initiateB2AggBridgeMock.mock.calls[0]![0]).not.toHaveProperty('destinationNetwork');
     expect(initiateB2AggBridgeMock.mock.calls[0]?.[0].guardianProvider).toBe(zustandProvider);
   });
 

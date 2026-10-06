@@ -6,6 +6,42 @@
  * need the module to load when guardian/front code is transitively imported.
  */
 
+import type { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
+export const requestBoundBlockNum = (request: TransactionRequest): number | undefined => {
+  const authArg = request.authArg();
+  if (!authArg) return undefined;
+  const preimage = request.adviceMap().get(authArg);
+  return preimage?.length === 12 ? Number(preimage[0].asInt()) : undefined;
+};
+
+export class BoundBlockNotDeclaredError extends Error {
+  readonly code = 'bound_block_not_declared';
+  constructor(readonly boundBlockNum: number) {
+    super(
+      `The transaction request binds block ${boundBlockNum} in its multisig auth args but does ` +
+        'not declare it, so it cannot execute at a later chain tip. Build it with ' +
+        `feeAwareTransactionRequestBuilder or add withBlockNumbers([${boundBlockNum}])`
+    );
+    this.name = 'BoundBlockNotDeclaredError';
+  }
+}
+
+export class ChainBehindBoundBlockError extends Error {
+  readonly retryable = true;
+  readonly syncHeight: number;
+  readonly boundBlockNum: number;
+  constructor(details: { syncHeight: number; boundBlockNum: number }) {
+    super(
+      `the Miden client synced to block ${details.syncHeight}, below block ` +
+        `${details.boundBlockNum} the proposal binds; its node has not reached that block yet`
+    );
+    this.name = 'ChainBehindBoundBlockError';
+    this.syncHeight = details.syncHeight;
+    this.boundBlockNum = details.boundBlockNum;
+  }
+}
+
 export class MultisigClient {
   constructor(..._args: unknown[]) {}
   load = jest.fn();

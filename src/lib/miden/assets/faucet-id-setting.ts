@@ -4,22 +4,10 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { FAUCET_ID_STORAGE_KEY } from './constants';
 
 /**
- * Returns the faucet ID the wallet should treat as the native asset, or `null`
- * if discovery hasn't completed yet (first install + offline, or a transient
- * RPC failure).
- *
- * Resolution order:
- *   1. user override (dev-mode escape hatch, written from EditMidenFaucetId)
- *   2. discovered native asset ID (BlockHeader.feeFaucetId(), keyed per RPC node)
- *   3. `null`: callers must tolerate unknown-native-asset by falling through
- *      comparisons to "not MIDEN" so the rest of the UI still works
- *
- * No hardcoded fallback by design: if we guessed wrong, MIDEN-tagged UI
- * would render under the wrong token ID until discovery corrected it. Better
- * to show no MIDEN branding than to show it under a stale ID.
- *
- * A leaf module so the transaction layer can read it (#805): `./utils` imports the
- * `lib/miden/front` barrel, which loads the whole provider tree.
+ * Returns the legacy display faucet ID, honoring its optional settings override.
+ * Otherwise uses the scoped native identity, discovered through the SDK client's
+ * feeFaucetId() after a successful chain sync and cached per RPC endpoint and network.
+ * Returns null while unknown. Fee decisions use getNativeAssetId() directly.
  */
 export async function getFaucetIdSetting(): Promise<string | null> {
   const override = await fetchFromStorage<string>(FAUCET_ID_STORAGE_KEY);

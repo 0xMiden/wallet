@@ -1,7 +1,9 @@
 /**
- * Pure decision logic for the guardian request-auth self-heal (used by
- * `guardian-sync.ts`). Kept import-free so it is directly unit-testable without
- * mocking the store / SDK / guardian client that the sync module pulls in.
+ * The guardian request-auth self-heal's policy constants and its outcome
+ * contract, read by `guardian-sync.ts`. The decision itself is no longer here:
+ * the PERSISTENCE gate is the caller's `consecutiveAuthFailures` streak, and
+ * the bounded retry and the cooldown are the shared `selfHealLedger`
+ * (`guardian/attempt-ledger.ts`), which these constants configure.
  *
  * Background: a guardian account authenticates every request against a stored
  * `cosigner_commitments` allowlist. That allowlist is written both by an
@@ -18,16 +20,18 @@
  * stale-allowlist, clock-skew, and replay-protection failures into one
  * `authentication_failed`/401. So:
  *
- *  - PERSISTENCE: only after the 401 persists across `AUTH_FAILURE_THRESHOLD`
- *    consecutive sync ticks. Transient skew/replay/pre-canonicalization 401s
- *    clear within a tick or two, so requiring several in a row rules them out.
- *  - BOUNDED RETRY: `reRegisterCurrentStateOnGuardian` re-registers the CURRENT
- *    ON-CHAIN signer set, so it can only ever authorize a real on-chain signer.
- *    If it doesn't clear the 401 within `MAX_ATTEMPTS`, the local signer is
- *    genuinely not the on-chain signer (a corrupted local record) and
- *    re-registering can't help — stop, rather than loop forever.
- *  - COOLDOWN between attempts so a persistently-failing `/configure` can't
- *    storm the guardian.
+ *  - PERSISTENCE (the caller's, against `SELF_HEAL_AUTH_FAILURE_THRESHOLD`):
+ *    only after the 401 persists across that many consecutive sync ticks.
+ *    Transient skew, replay and pre-canonicalization 401s clear within a tick
+ *    or two, so requiring several in a row rules them out.
+ *  - BOUNDED RETRY and COOLDOWN (the ledger's, from `SELF_HEAL_MAX_ATTEMPTS`
+ *    and `SELF_HEAL_COOLDOWN_MS`): `reRegisterCurrentStateOnGuardian`
+ *    re-registers the CURRENT ON-CHAIN signer set, so it can only ever
+ *    authorize a real on-chain signer. If that does not clear the 401 within
+ *    the cap, the local signer genuinely is not the on-chain signer (a
+ *    corrupted local record) and re-registering cannot help, so the budget
+ *    closes rather than looping forever; the gap between attempts keeps a
+ *    persistently-failing `/configure` from storming the guardian.
  */
 
 /** Consecutive auth-rejections (401s) required before the first self-heal attempt. */
@@ -49,44 +53,37 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  *  - `attempted`            — `/configure` was issued (landed or threw); a real try.
  *  - `refused-permanently`  — this device is provably not the account's signer any
  *                             more; no later tick can change that, so stop asking.
- *  - `refused-transiently`  — could not tell (unreadable account/commitment); no
+ *  - `refused-transiently`  - could not tell (unreadable account/commitment); no
  *                             guardian traffic happened, so retry later for free.
  *                             Also a push whose finish found the account's key moved
  *                             on: a later rotation owns the pointer, so nothing is spent.
+ *  - `evicted`              - the WASM client was evicted AFTER `/configure` was
+ *                             issued. A SEPARATE outcome rather than one of the
+ *                             three above, because it is the only one that is not a
+ *                             statement about the OPERATOR at all, and the caller
+ *                             has to stop the pass: the abandoned call still holds
+ *                             a borrow of a client the mutex has already handed on.
+ *                             Folded into `attempted` it also reached the
+ *                             "the operator keeps rejecting this device" marking
+ *                             with a purely local failure.
+ *  - `evicted-preflight`    - the WASM client was evicted BEFORE `/configure` was
+ *                             issued. Split from `evicted` because the two settle
+ *                             the budget in opposite directions and the difference
+ *                             is the whole reason the budget exists. An eviction
+ *                             past the issue point must CHARGE: abandoned is not
+ *                             cancelled, so the POST may still land and a refund
+ *                             would let the next tick prepare a second one. An
+ *                             eviction before it prepared nothing, so charging it
+ *                             is the "three local read failures disable the repair
+ *                             for good" mistake `refused-transiently` exists to
+ *                             avoid, and worse, since the caller stops the pass on
+ *                             an eviction it never reaches the check that raises the
+ *                             prompt, leaving a spent budget with nothing on screen.
+ *                             Both stop the pass; only this one refunds.
  */
-export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently';
-
-export interface SelfHealAttemptState {
-  /** Number of cold re-register attempts already made for this account. */
-  attempts: number;
-  /** `monotonicNowMs()` of the last attempt. */
-  lastAttemptAt: number;
-}
-
-/**
- * Decide whether to attempt a cold re-register self-heal for an account right
- * now. Pure (all state passed in) so it is exhaustively unit-testable.
- *
- * @param now                     current `monotonicNowMs()`
- * @param consecutiveAuthFailures consecutive 401s observed for this account
- *                                (reset to 0 on any successful sync)
- * @param state                   prior attempt state, or `undefined` if none
- */
-export function decideColdReRegisterSelfHeal(
-  now: number,
-  consecutiveAuthFailures: number,
-  state: SelfHealAttemptState | undefined
-): boolean {
-  // Rule out transient 401s: require the failure to persist.
-  if (consecutiveAuthFailures < SELF_HEAL_AUTH_FAILURE_THRESHOLD) return false;
-
-  const attempts = state?.attempts ?? 0;
-  // Give up once re-registering the on-chain signer set has demonstrably not
-  // fixed it (the signer isn't the on-chain signer — nothing to re-authorize).
-  if (attempts >= SELF_HEAL_MAX_ATTEMPTS) return false;
-
-  // Rate-limit attempts.
-  if (state && now - state.lastAttemptAt < SELF_HEAL_COOLDOWN_MS) return false;
-
-  return true;
-}
+export type SelfHealOutcome =
+  | 'attempted'
+  | 'refused-permanently'
+  | 'refused-transiently'
+  | 'evicted'
+  | 'evicted-preflight';

@@ -2,7 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC } from 'lib/epoch/testing/bridge-config';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { navigate } from 'lib/woozie';
 
 import { EARN_DATA } from './data';
@@ -14,8 +15,16 @@ import EarnDepositAmount from './EarnDepositAmount';
 let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
 
-jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+let mockBaseFee: number | null = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? 'MIDEN-ID'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
@@ -100,7 +109,12 @@ jest.mock('./useEarnPositions', () => {
 // The deposit token comes from the account's USDC balance row. The row's stored fiatPrice is a
 // capture from when balances were read (0 here: read before any quote), which the screen must not
 // trust; its price comes from the live quote in the store.
-const USDC_ROW = { tokenId: MIDEN_USDC_FAUCET, balance: 200, fiatPrice: 0, metadata: { symbol: 'USDC', decimals: 6 } };
+const USDC_ROW = {
+  tokenId: TEST_MIDEN_USDC.faucetId,
+  balance: 200,
+  fiatPrice: 0,
+  metadata: { symbol: 'USDC', decimals: 6 }
+};
 let mockBalanceRows: unknown[] = [USDC_ROW];
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mm1testaccount', evmAddress: '0xabc' }),
@@ -114,13 +128,23 @@ jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
 
-// `lib/epoch` is the Epoch SDK barrel (wasm + network clients). Only the USDC
-// faucet constants and the id normalizer are used here.
+// `lib/epoch` is the Epoch SDK barrel (wasm + network clients). Only the id normalizer is used here.
 jest.mock('lib/epoch', () => ({
-  MIDEN_USDC_DECIMALS: 6,
-  MIDEN_USDC_FAUCET: jest.requireActual('lib/epoch/collateral').MIDEN_USDC_FAUCET,
   normalizeMidenIdToHex: (id: string) => id.toLowerCase()
 }));
+
+// The deposit collateral comes from the bridge config (an E2E run's injected faucet first).
+let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+const mockFeatureAvailability = jest.fn(
+  (feature: string, _options?: { hold?: boolean }): FeatureAvailability =>
+    feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' }
+);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => ({}),
+  useFeatureAvailability: (feature: string, options?: { hold?: boolean }) => mockFeatureAvailability(feature, options)
+}));
+jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
 
 const mockNavigate = navigate as jest.Mock;
 
@@ -132,9 +156,27 @@ beforeEach(() => {
   mockNavigate.mockClear();
   mockBalanceRows = [USDC_ROW];
   mockTokenPrices = USDC_QUOTE;
+  mockCollateral = TEST_MIDEN_USDC;
+  mockEarnDeposit = { state: 'available' };
 });
 
 describe('EarnDepositAmount', () => {
+  it.each([
+    [1, 0, 'true'],
+    [0, 1, 'false']
+  ])('fee identity: gates a deposit using actual A=%s despite legacy B=%s', (actual, legacy, valid) => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 7;
+    mockBalanceRows = [
+      USDC_ROW,
+      { ...USDC_ROW, tokenId: 'MIDEN-ID', balance: actual },
+      { ...USDC_ROW, tokenId: 'legacy-B', balance: legacy }
+    ];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('1');
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', valid);
+  });
+
   it('renders the page shell and resolves the vault matching vaultId', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
@@ -152,7 +194,7 @@ describe('EarnDepositAmount', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
     const select = screen.getByTestId('select-amount');
-    expect(select).toHaveAttribute('data-token-id', MIDEN_USDC_FAUCET);
+    expect(select).toHaveAttribute('data-token-id', TEST_MIDEN_USDC.faucetId);
     expect(select).toHaveAttribute('data-token-name', 'USDC');
     expect(select).toHaveAttribute('data-token-decimals', '6');
     expect(select).toHaveAttribute('data-token-balance', '200');
@@ -264,6 +306,17 @@ describe('EarnDepositAmount', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('blocks Continue under the notice while Earn deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'not-deployed', detail: 'evmUsdc has no code' };
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('150');
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-valid', 'false');
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableBody');
+    fireEvent.click(screen.getByTestId('confirm'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
   it('wires onSelectToken as a no-op that does not throw or navigate', () => {
     render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
 
@@ -322,6 +375,27 @@ describe('EarnDepositAmount after a failed load', () => {
   });
 });
 
+// The fast poll is held only for a greyed-out Continue, which the pending and vault-less failed branches never draw.
+describe('EarnDepositAmount fast-poll hold', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+  });
+
+  it.each<[string, string, { isLoading: boolean; error?: string; loadError?: string }, boolean]>([
+    ['a loaded vault', FOUND_VAULT.id, { isLoading: false }, true],
+    ['a vault kept over a failed load', FOUND_VAULT.id, { isLoading: false, error: 'boom', loadError: 'boom' }, true],
+    ['a first load in flight', 'no-such-vault', { isLoading: true }, false],
+    ['a failed load with no vault', 'no-such-vault', { isLoading: false, error: 'boom', loadError: 'boom' }, false]
+  ])('asks for it only where it draws the notice: %s', (_state, vaultId, loadState, hold) => {
+    mockLoadState = loadState;
+    mockEarnDeposit = { state: 'unavailable', reason: 'not-deployed', detail: 'evmUsdc has no code' };
+    render(<EarnDepositAmount vaultId={vaultId} />);
+
+    expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
+    expect(mockFeatureAvailability).toHaveBeenLastCalledWith('earnDeposit', { hold });
+  });
+});
+
 describe('EarnDepositAmount with no vault', () => {
   it('never continues a valid amount into a deposit for the placeholder vault', () => {
     render(<EarnDepositAmount vaultId="no-such-vault" />);
@@ -331,4 +405,35 @@ describe('EarnDepositAmount with no vault', () => {
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
   });
+  it('offers the collateral the config names, an injected E2E faucet included', () => {
+    const injected = { faucetId: '0x00000000000000000000000000e2e0', symbol: 'tUSDC', decimals: 2 };
+    mockCollateral = injected;
+    mockBalanceRows = [USDC_ROW, { tokenId: injected.faucetId, balance: 5, fiatPrice: 0, metadata: injected }];
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+
+    const select = screen.getByTestId('select-amount');
+    expect(select).toHaveAttribute('data-token-id', injected.faucetId);
+    expect(select).toHaveAttribute('data-token-name', 'tUSDC');
+    expect(select).toHaveAttribute('data-token-decimals', '2');
+    expect(select).toHaveAttribute('data-token-balance', '5');
+  });
+
+  it('offers no token, and no Continue, while the config names no collateral', () => {
+    mockCollateral = null;
+    render(<EarnDepositAmount vaultId={FOUND_VAULT.id} />);
+    setAmount('1');
+
+    const select = screen.getByTestId('select-amount');
+    expect(select).toHaveAttribute('data-token-name', '');
+    expect(select).toHaveAttribute('data-token-balance', '0');
+    expect(select).toHaveAttribute('data-valid', 'false');
+  });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
+});
+
+beforeEach(() => {
+  mockBaseFee = 0;
 });

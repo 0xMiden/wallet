@@ -3,7 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { useOnboardingFinishing } from 'app/onboarding-finish';
 import { Button } from 'components/Button';
@@ -51,9 +51,9 @@ import {
 /**
  * Full-app blocking gate for accounts that need a hot-key rotation.
  *
- * Guardian accounts recovered via seed phrase (and legacy accounts migrated on
- * unlock) carry `requiresHotKeyRotation`: they have no usable local hot key
- * and cannot sign, sync, or transact until a `replace_signer` rotation lands.
+ * Guardian accounts recovered via seed phrase carry `requiresHotKeyRotation`:
+ * they have no usable local hot key and cannot sign, sync, or transact until a
+ * `replace_signer` rotation lands.
  * While the CURRENT account carries the flag, this gate auto-initiates the
  * rotation and paints a full-screen overlay that blocks all wallet
  * interaction; the flag clearing (via `Vault.swapHotKey`, accountsUpdated,
@@ -207,7 +207,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   const inFlightRef = useRef<Promise<string | null> | null>(null);
   const { row } = useTransactionRow(txId ?? '');
   const { rotationRows, fundingRows, loaded: rowsLoaded } = useRotationGateRows(accountPublicKey);
-  const feeFaucetId = useMidenFaucetId();
+  const feeFaucetId = useNativeFeeFaucetId();
   const baseFee = useVerificationBaseFee();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balances, isLoading: balancesLoading } = useAllBalances(accountPublicKey, allTokensBaseMetadata);

@@ -8,7 +8,6 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Card } from 'components/ui/Card';
 import { IconButton } from 'components/ui/IconButton';
-import { Notice } from 'components/ui/Notice';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import {
@@ -77,7 +76,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
   const [walletFile, setWalletFile] = useState<WalletFile | null>(null);
   const [importError, setImportError] = useState<ImportError>();
   const [isDragging, setIsDragging] = useState(false);
-  const [pendingRestore, setPendingRestore] = useState<DecryptedWalletFile | null>(null);
   // The ref decides; this mirrors it for the button, so a restore that is still
   // winding down after a clear reads as busy instead of swallowing the press.
   const [isRestoring, setIsRestoring] = useState(false);
@@ -110,7 +108,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     // in-flight flag when it ends: until then nothing else may write.
     restoreGeneration.current += 1;
     setWalletFile(null);
-    setPendingRestore(null);
     setImportError(undefined);
     // The picker fires no change event for an unchanged value, so without this the
     // user cannot re-select the SAME file - which is exactly the retry they make
@@ -166,11 +163,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     };
 
     try {
-      if (pendingRestore) {
-        await importParsedWallet(pendingRestore);
-        return;
-      }
-
       setImportError(undefined);
       let derivedKey: CryptoKey;
       try {
@@ -209,11 +201,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       }
 
       if (!current()) return;
-
-      if (parsedWallet.formatVersion === undefined && (parsedWallet.omittedImportedAccountCount ?? 0) > 0) {
-        setPendingRestore(parsedWallet);
-        return;
-      }
 
       await importParsedWallet(parsedWallet);
     } finally {
@@ -278,7 +265,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
           if (!isWalletFile(jsonContent)) throw new Error('Invalid encrypted wallet file envelope');
 
           setWalletFile({ ...jsonContent, name: file.name });
-          setPendingRestore(null);
           setImportError(undefined);
         } catch (e) {
           console.error(e);
@@ -313,8 +299,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
           : importError === 'restore'
             ? t('encryptedWalletFileRestoreFailed')
             : errors.password?.message;
-  const omittedImportedCount =
-    pendingRestore?.formatVersion === undefined ? (pendingRestore?.omittedImportedAccountCount ?? 0) : 0;
 
   return (
     // The form wraps the whole step so the pinned Import button submits it.
@@ -328,9 +312,9 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             type="submit"
             isLoading={isSubmitting || isRestoring}
             className="max-w-none"
-            disabled={isSubmitting || isRestoring || (pendingRestore == null && (!isValid || !walletFile))}
+            disabled={isSubmitting || isRestoring || !isValid || !walletFile}
           >
-            {pendingRestore != null ? t('continueImport') : t('import')}
+            {t('import')}
           </Button>
         }
       >
@@ -377,7 +361,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
           </Card>
         )}
 
-        {walletFile != null && pendingRestore == null && (
+        {walletFile != null && (
           <TextField
             {...register('password', {
               required: PASSWORD_ERROR_CAPTION
@@ -394,19 +378,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             placeholder="********"
             error={errorCaption && errorCaption !== PASSWORD_ERROR_CAPTION ? errorCaption : undefined}
           />
-        )}
-
-        {pendingRestore != null && (
-          <Notice tone="negative" role="alert">
-            <span className="flex flex-col gap-2">
-              <span>
-                {t('encryptedFileImportedAccountsOmitted', {
-                  importedCount: String(omittedImportedCount)
-                })}
-              </span>
-              {importError === 'restore' && <span className="font-bold">{t('encryptedWalletFileRestoreFailed')}</span>}
-            </span>
-          </Notice>
         )}
       </OnboardingStepLayout>
     </form>

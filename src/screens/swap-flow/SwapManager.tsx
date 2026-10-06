@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTranslation } from 'react-i18next';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
@@ -51,7 +51,7 @@ const SwapManager: React.FC = () => {
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const feeAssetMissing = hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee);
 
@@ -72,8 +72,8 @@ const SwapManager: React.FC = () => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
-  // The account's spending-limit revision never crosses the intercom port - `serializeError` /
-  // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
+  // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
+  // / `deserializeInternalError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
   // `authorizationMatches` re-reads server-side at redemption.
   const openUnpricedChallenge = useCallback(

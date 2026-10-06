@@ -158,6 +158,7 @@ jest.mock('lib/settings/helpers', () => ({
 let mockBaseFee: number | null = 0;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetId: () => mockGetFaucetIdSetting(),
   getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
@@ -175,16 +176,17 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   return { ...actual, getEffectiveRpcUrl: () => mockRpcUrl ?? actual.getEffectiveRpcUrl() };
 });
 
+let mockLegacyFeeIdentity: string | undefined;
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
 jest.mock('../assets', () => ({
   ...jest.requireActual('../assets'),
-  getFaucetIdSetting: () => mockGetFaucetIdSetting()
+  getFaucetIdSetting: () =>
+    mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
 }));
 
 const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
 const mockInitiateConsumeBatch = jest.fn((..._args: any[]) => Promise.resolve('consume-batch-tx'));
 jest.mock('../transaction/initiate', () => ({
-  ...jest.requireActual('../transaction/initiate'),
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
   // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
   // temporal-dead-zone error because requireActual('../assets') transitively loads this
@@ -207,6 +209,11 @@ jest.mock('./transaction-processor', () => ({
 const mockSweepNoteDeliveries = jest.fn(() => Promise.resolve());
 jest.mock('../transaction/note-delivery-sweep', () => ({
   sweepNoteDeliveries: () => mockSweepNoteDeliveries()
+}));
+
+const mockTrimResultBytes = jest.fn(async () => 0);
+jest.mock('../transaction/trim-result-bytes', () => ({
+  runTrimTick: () => mockTrimResultBytes()
 }));
 
 // ── Imports under test ─────────────────────────────────────────────
@@ -1456,6 +1463,20 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).toHaveLength(20);
   });
 
+  it('fee identity: service worker auto-consumes actual native A instead of legacy B', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 7;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'actual-note', faucetId: 'native-faucet', amount: '1000000' }),
+      fakeNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '1000000' })
+    ]);
+    await doSync();
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'actual-note' })]);
+  });
+
   it('auto-consumes native notes in ONE transaction, following the user delegated-proving setting', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving
@@ -1590,4 +1611,33 @@ describe('doSync — native-note auto-consume', () => {
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockInitiateConsumeBatch).toHaveBeenCalled(); // the rejecting path WAS exercised
   });
+});
+
+describe('doSync drives the resultBytes reaper', () => {
+  // The extension's only periodic driver for the reaper is this one, so it must reach the reaper
+  // even on the laps where it does no network work at all.
+  beforeEach(() => {
+    mockTrimResultBytes.mockClear();
+  });
+
+  it('runs the reaper on a normal lap', async () => {
+    await doSync();
+
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+  });
+
+  it('runs the reaper even when the lap is short-circuited before any sync work', async () => {
+    // doSync coalesces onto an in-flight pass and returns early; the reaper is pure local Dexie
+    // maintenance and must not be gated behind that, or an extension whose node is unreachable
+    // would never reclaim a byte.
+    const first = doSync();
+    const second = doSync();
+    await Promise.all([first, second]);
+
+    expect(mockTrimResultBytes).toHaveBeenCalledTimes(2);
+  });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

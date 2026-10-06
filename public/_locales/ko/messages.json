@@ -805,15 +805,6 @@
     "message": "이 키는 변경하거나 취소할 수 없다는 점을 알고 있습니다.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "이 이전 지갑 파일에 포함되지 않은 가져온 계정: $importedCount$개. 각 개인 키 백업에서 별도로 복원하세요.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "계정 이름 편집",
     "englishSource": "Edit Account Name"
@@ -2111,10 +2102,6 @@
     "message": "지갑 내보내기 시 설정한 비밀번호를 입력하세요. 이렇게 하면 파일의 암호가 해독되고 액세스가 복원됩니다.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "계속 가져오기",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "지갑을 어떻게 보호할지 선택하세요",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2732,6 +2719,18 @@
     "message": "Guardian의 로테이션을 성공적으로 완료하셨습니다!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian 전환됨",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian 변경을 제출했습니다",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "제출됨",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "현재 변경 사항",
     "englishSource": "What changes now"
@@ -2881,16 +2880,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "MIDEN을 추가하여 일상용 키를 활성화하세요",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "USDCX을 추가하여 일상용 키를 활성화하세요",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "일상용 키를 활성화하는 것은 거래이며, 모든 거래에는 소액의 MIDEN 네트워크 수수료가 부과됩니다. 아래에 있는 이 계정의 주소로 MIDEN을 보내주십시오. 지갑이 이를 수령하면 키 활성화가 자동으로 완료됩니다.",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "일상용 키를 활성화하는 것은 거래이며, 모든 거래에는 소액의 USDCX 네트워크 수수료가 부과됩니다. 아래에 있는 이 계정의 주소로 USDCX을 보내주십시오. 지갑이 이를 수령하면 키 활성화가 자동으로 완료됩니다.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "$amount$의 MIDEN을 최소한 전송하십시오.",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "$amount$의 USDCX을 최소한 전송하십시오.",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2902,28 +2901,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "MIDEN이 도착하기를 기다리고 있습니다…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "USDCX이 도착하기를 기다리고 있습니다…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "수신하신 MIDEN은 네트워크 수수료를 지불하기에는 너무 적습니다. 조금 더 보내주세요.",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "수신하신 USDCX은 네트워크 수수료를 지불하기에는 너무 적습니다. 조금 더 보내주세요.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "MIDEN 수신. 청구 중…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "USDCX 수신. 청구 중…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "일상용 키 활성화…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "수령하신 MIDEN은 청구할 수 없었습니다.",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "수령하신 USDCX은 청구할 수 없었습니다.",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "지갑에서 수신한 MIDEN이 이미 청구되었는지 확인할 수 없습니다. 다시 시도하기 전에 지갑이 동기화될 때까지 1분 정도 기다려 주십시오.",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "지갑에서 수신한 USDCX이 이미 청구되었는지 확인할 수 없습니다. 다시 시도하기 전에 지갑이 동기화될 때까지 1분 정도 기다려 주십시오.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "다시 시도해 보세요",
@@ -2952,6 +2951,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "이 계정에는 아직 대조할 온체인 Guardian이 없습니다.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "주소를 확인하는 동안 Guardian이 변경되었습니다. 다시 시도해 주세요.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 접근 불가",
@@ -3083,28 +3086,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "사용자의 MIDEN은 네트워크 수수료로 예약되어 있습니다. 더 많은 MIDEN을 수령하여 송금하십시오.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "사용자의 USDCX은 네트워크 수수료로 예약되어 있습니다. 더 많은 USDCX을 수령하여 송금하십시오.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "네트워크 수수료를 지불하려면 USDCX이 필요합니다. 계속 진행하려면 USDCX을 일부 받으세요.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN 이체 자동 수락",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "USDCX 이체 자동 수락",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "수신된 MIDEN 이체를 자동으로 잔액에 반영합니다. 직접 수락을 누르는 것과 동일하며, 더 자주 수락하거나 수수료가 더 들지 않습니다.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "수신된 USDCX 이체를 자동으로 잔액에 반영합니다. 직접 수락을 누르는 것과 동일하며, 더 자주 수락하거나 수수료가 더 들지 않습니다.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "지갑 파일 생성 중…",
@@ -3540,6 +3543,14 @@
   "unavailable": {
     "message": "사용 불가",
     "englishSource": "Unavailable"
+  },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "일시적으로 이용 불가",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "이 외부 서비스는 현재 이용이 불가능합니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "This external service is currently down. Please try again later."
   },
   "agglayerCheckingToken": {
     "message": "이 토큰이 Slow 경로를 지원하는지 확인 중…",
@@ -4836,6 +4847,10 @@
     "message": "guardian 맞춤 URL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "수수료 faucet 계정 ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "온보딩 시 '보호자 없음' 옵션 허용",
     "englishSource": "Allow 'No guardian' option in onboarding"
@@ -5433,8 +5448,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",

@@ -4,10 +4,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
-jest.mock('lib/epoch', () => ({
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC',
-  EPOCH_DESTINATION_CHAIN_ID: 11155111
-}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -17,7 +13,6 @@ const MIDEN_ADDRESS = 'mtst1recipient';
 
 const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
-  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
   },

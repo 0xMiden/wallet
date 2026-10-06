@@ -124,8 +124,8 @@ export async function createNodeReads(): Promise<NodeReads> {
         // The node keeps about 50 blocks of account history; past it the read can only fail.
         const pruned = parts.some(part => /has been pruned/i.test(part));
         // A public account's read asks for its details, and the node answers an account with no header row at or
-        // before N with "account <id> not found at block N" instead of a non-inclusion witness. Node 0.16 never prunes
-        // header rows, so that answer proves the account absent at N; the judge takes it only for a deploy.
+        // before N with "account <id> not found at block N" instead of a non-inclusion witness. Nodes 0.16 and 0.17 never
+        // prune header rows, so that answer proves the account absent at N; the judge takes it only for a deploy.
         const absentAt = pruned ? undefined : absentAtBlock(parts, accountId);
         if (absentAt === undefined) {
           console.warn(`[reconcile] could not read account ${accountId} at block ${atBlock ?? 'tip'}`, error);
