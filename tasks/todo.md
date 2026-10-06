@@ -10,7 +10,8 @@
 - [x] Finish focused and static validation of the metadata, startup-publication and render-notification corrections.
 - [ ] Run full tests, unchanged 95% coverage gates and browser regressions on the final PR head in CI only.
 - [x] Publish PR #1351 against `next` while completing review, as explicitly requested.
-- [ ] Certify the corrected committed checkpoint with the final independent panel; only P0/P1 findings gate this final review.
+- [x] Correct the confirmed stale-metadata bootstrap P1 and the explicitly reopened valuation snapshot P2.
+- [ ] Certify the corrected committed checkpoint with the final independent panel; other P2/P3 findings remain nonblocking.
 - [ ] Babysit the PR to green and admin squash merge.
 - [ ] Babysit `origin/next` to green and publish wallet `v1.17.1` with all required assets verified.
 - Store publishing is handled by the user; preserve the existing `v1.17.0` release and tag.

@@ -57,7 +57,7 @@
 - [x] Build the earlier devnet checkpoint and verify output files and error-free logs. Current browser validation runs in CI; obtain a fresh CI screenshot before a visual completion claim.
 - [x] Run independent discovery, risk and adversarial code panels, apply actionable findings, and reverify their regressions.
 - [x] Open PR #1351 against `next` while the remaining corrections are prepared, as explicitly requested.
-- [ ] Certify the corrected committed source with the final independent panel at medium effort. Final review gates on P0/P1 only; P2/P3 findings are nonblocking by explicit request.
+- [ ] Certify the corrected committed source with the final independent panel at medium effort. Final review gates on P0/P1 plus the explicitly reopened valuation snapshot P2; other P2/P3 findings remain nonblocking.
 
 ## Final lifecycle corrections
 
@@ -66,6 +66,13 @@
 - [x] Defer scope-invalidation notifications during render while clearing native identity and price eligibility immediately.
 - [x] Complete focused assertion RED/GREEN and guard mutations.
 - [ ] Certify the frozen source with the final independent panel, gating on P0/P1 findings only.
+
+## Final financial corrections
+
+- [x] Read native metadata from the chain even when generic display metadata contains a stale cached scale.
+- [x] Retain the authenticated native USDCX fixed quote across an earlier foreign metadata or price await.
+- [x] Prove both defects with failing regressions, passing controls and exact restored-source mutations.
+- [ ] Run fresh PR CI and the final independent medium-effort panel on the corrected committed head.
 
 ## Task 4: Merge and release wallet 1.17.1
 
@@ -84,10 +91,11 @@
 - Baseline: 146 tests pass across four discovery and pricing suites.
 - The plan check completed with four independent reviewers; nine verified plan findings were incorporated.
 - Discovery, risk and adversarial panels each completed with four independent reviewers. Twelve grouped findings were corrected, including metadata precedence, native valuation scale, late hook results, durable publication recovery, bounded IPC and missing consumer/fatal-error coverage.
-- Earlier implementation checkpoint: 20,929 tests passed across 922 suites with statements/lines 98.35%, branches 96.17% and functions 97.65%. Current full tests and all four unchanged 95% coverage gates run in CI only by explicit request. The interrupted local rerun is not a current passing result.
+- The preceding signed PR checkpoint passed all 30 selected CI checks, with three expected skips: 20,987 unit tests across 923 suites, statements/lines 98.35%, branches 96.18% and functions 97.65%. All four coverage thresholds remain 95%. Local Chrome passed 20 tests and Guardian lifecycle passed 26 specs. These results do not certify the subsequent financial corrections; fresh full tests, coverage and browser validation run in CI only.
 - The preceding correction checkpoint passed 916 tests across the 13 fee-consumer suites, 24 tests across three indirect note fixtures and four relay-patch portability tests, plus TypeScript and static gates.
 - Final lifecycle corrections pass 300 focused tests across six suites. Fourteen targeted mutations reproduce the intended failures, and exact restored production bytes pass again. One shared full TypeScript check and zero-warning lint of all twelve corrected source/test files pass.
 - A fresh React unit probe using the actual native cache and token provider produces no render warning, clears obsolete price eligibility immediately and recovers current USDCX metadata and fee state. It does not certify a browser or device.
+- The final financial corrections pass 121 tests across three suites, full TypeScript, and zero-warning lint/format checks on all six corrected source/test files. The regressions cover stale native display-cache scale, RPC rejection, unknown chain scale, both earlier-spend await boundaries, and lost synchronized proof. Three targeted mutations reproduce the expected metadata, foreign-cache and valuation failures, followed by exact source restoration. SDK/parser/RPC and storage boundaries remain declared doubles in the focused runtime probes.
 - The preceding implementation checkpoint passed mock-client Chrome browser tests and built devnet Chrome and mobile bundles without errors; the extension manifest and mobile index exist. Full coverage and browser validation of the final corrected head run in CI only.
 - The earlier implementation checkpoint passed the uninjected devnet regression with an empty market feed. Natural funding and note consumption discover USDCX with six decimals, value 1 USDCX at $1, and display the fee reserve from an independent node-header read. No Send submission occurs.
 - Disabling only sync-time publication makes the devnet regression fail with a missing native ID after 60 seconds; the source was restored exactly. Review regressions include targeted guard mutations and positive controls.

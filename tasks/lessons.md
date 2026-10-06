@@ -24,3 +24,7 @@
 - Give every overlapping asynchronous fee read an ownership generation. Unmount cancellation cannot stop an older result replacing a newer one in the same effect.
 - Keep browser tests in CI when explicitly requested, and name mock versus live-network evidence before interpreting token symbols.
 - An explicit final-review severity cutoff makes lower-severity findings nonblocking. Finish accepted corrections already underway, then gate the final review on P0/P1 only.
+- A later request to fix a named deferred finding reopens that finding alone; retain the final-review cutoff for other lower-severity findings.
+- Native bootstrap must read chain metadata directly. A generic display-cache hit cannot prove the native asset scale.
+- Authenticate native identity and quote from the same valuation snapshot; clearing a live display cache during an earlier await must not erase a proven stablecoin charge.
+- Every headless review launch sets the repository and working directory explicitly, then checks the source head before invoking the provider.
