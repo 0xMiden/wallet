@@ -41,7 +41,14 @@ describe('updateBalancesFromSyncData', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(() => {
+    mockNativeAssetId = null;
+    mockNativeMetadata = null;
+  });
+
   it('converts vault assets to balances with MIDEN token', async () => {
+    mockNativeAssetId = MOCK_MIDEN_FAUCET_ID;
+    mockNativeMetadata = { symbol: 'MIDEN', decimals: 6 };
     const vaultAssets: SerializedVaultAsset[] = [{ faucetId: MOCK_MIDEN_FAUCET_ID, amountBaseUnits: '5000000000' }];
 
     await updateBalancesFromSyncData('account-1', vaultAssets);
@@ -300,6 +307,23 @@ describe('actual native sync balance with a separate legacy display selection', 
       balances.filter(row => row.tokenId === legacy).map(({ balance, tokenSlug }) => ({ balance, tokenSlug }))
     ).toEqual(selection === legacy ? [{ balance: 0, tokenSlug: 'LEGACY' }] : []);
   });
+  it.each([
+    { symbol: 'Unknown', name: 'Unknown', decimals: 8, scaleIsUnknown: true },
+    { symbol: 'STALE', name: 'Stale', decimals: 8 }
+  ])('preserves known foreign legacy metadata over incoming $symbol metadata', async metadata => {
+    await updateBalancesFromSyncData('native-account', [
+      { faucetId: actual, amountBaseUnits: '1000000', metadata: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } },
+      { faucetId: legacy, amountBaseUnits: '125', metadata }
+    ]);
+    const balances = useWalletStore.getState().balances['native-account']!;
+    const native = balances.find(row => row.tokenId === actual)!;
+    expect(native).toMatchObject({ balance: 1, fiatPrice: 1, metadata: { symbol: 'USDCX', decimals: 6 } });
+    const legacyBalance = balances.find(row => row.tokenId === legacy)!;
+    expect(legacyBalance).toMatchObject({ balance: 1.25, fiatPrice: 0, metadata: { symbol: 'LEGACY', decimals: 2 } });
+    expect(legacyBalance.metadata.scaleIsUnknown).not.toBe(true);
+    expect(useWalletStore.getState().assetsMetadata[legacy]).toMatchObject({ symbol: 'LEGACY', decimals: 2 });
+  });
+
   it('preserves native eight-decimal scale against cached six-decimal metadata', async () => {
     mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
     useWalletStore.setState({ assetsMetadata: { [actual]: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } } });

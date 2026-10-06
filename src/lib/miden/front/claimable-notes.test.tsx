@@ -38,8 +38,8 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: () => 'miden-faucet',
-  getNativeAssetMetadataSync: () => ({ symbol: 'MIDEN', decimals: 6 })
+  getNativeAssetIdSync: () => (globalThis as any).__cnTest.actualNativeId,
+  getNativeAssetMetadataSync: () => (globalThis as any).__cnTest.nativeMetadata
 }));
 
 jest.mock('lib/store', () => {
@@ -140,7 +140,7 @@ jest.mock('lib/miden/note-quarantine', () => ({
 }));
 
 jest.mock('../assets', () => ({
-  isMidenFaucet: jest.fn(async (id: string) => id === 'miden-faucet')
+  isMidenFaucet: jest.fn(async (id: string) => id === (globalThis as any).__cnTest.legacyId)
 }));
 
 jest.mock('../helpers', () => ({
@@ -214,6 +214,9 @@ beforeEach(() => {
   _g.__cnTest.walletState.extensionClaimingNoteIds = new Set();
   _g.__cnTest.walletState.assetsMetadata = {};
   _g.__cnTest.intercomRequest.mockReset().mockResolvedValue(undefined);
+  _g.__cnTest.actualNativeId = 'miden-faucet';
+  _g.__cnTest.legacyId = 'miden-faucet';
+  _g.__cnTest.nativeMetadata = { symbol: 'MIDEN', decimals: 6 };
   _g.__cnTest.metadataCache = {};
   _g.__cnTest.fetchMetadata = jest.fn(async () => ({ base: { decimals: 6, symbol: 'X', name: 'X' } }));
   _g.__cnTest.setTokensBaseMetadata = jest.fn(async () => undefined);
@@ -942,6 +945,66 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       expect.objectContaining({ id: 'cached-note', faucetId: 'other-faucet' })
     ]);
     // Non-miden faucet that is already cached must NOT be queued for prefetch.
+    expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+  });
+
+  it('discovers an uncached foreign legacy display faucet while retaining actual native metadata', async () => {
+    _g.__cnTest.actualNativeId = 'actual-A';
+    _g.__cnTest.legacyId = 'legacy-B';
+    _g.__cnTest.nativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    _g.__cnTest.consumableNotes = [
+      makeMockNote({ id: 'actual-note', faucetId: 'actual-A', amount: '1000000' }),
+      makeMockNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '125' })
+    ];
+    const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
+    _g.__cnTest.fetchMetadata.mockResolvedValue({ base: legacyMetadata });
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.lastFetchData).toEqual([
+      expect.objectContaining({
+        id: 'actual-note',
+        metadata: expect.objectContaining({ symbol: 'USDCX', decimals: 6 })
+      })
+    ]);
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    await mockRunWhenClientIdle.mock.calls[0]![0]();
+    expect(_g.__cnTest.fetchMetadata).toHaveBeenCalledTimes(1);
+    expect(_g.__cnTest.fetchMetadata).toHaveBeenCalledWith('legacy-B');
+    expect(_g.__cnTest.setTokensBaseMetadata).toHaveBeenCalledWith({ 'legacy-B': legacyMetadata });
+  });
+
+  it.each([false, true])(
+    'uses actual native note metadata under a divergent legacy selector, cached=%s',
+    async cached => {
+      _g.__cnTest.actualNativeId = 'actual-A';
+      _g.__cnTest.legacyId = 'legacy-B';
+      _g.__cnTest.nativeMetadata = { symbol: 'USDCX', decimals: 6 };
+      if (cached) _g.__cnTest.metadataCache['actual-A'] = { symbol: 'MIDEN', name: 'Miden', decimals: 8 };
+      _g.__cnTest.consumableNotes = [makeMockNote({ id: 'actual-note', faucetId: 'actual-A', amount: '1000000' })];
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      expect(_g.__cnTest.lastFetchData).toEqual([
+        expect.objectContaining({
+          id: 'actual-note',
+          metadata: expect.objectContaining({ symbol: 'USDCX', decimals: 6 })
+        })
+      ]);
+      expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preserves known foreign legacy note metadata without discovery', async () => {
+    _g.__cnTest.actualNativeId = 'actual-A';
+    _g.__cnTest.legacyId = 'legacy-B';
+    _g.__cnTest.nativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
+    _g.__cnTest.metadataCache['legacy-B'] = legacyMetadata;
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '125' })];
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.lastFetchData).toEqual([
+      expect.objectContaining({ id: 'legacy-note', metadata: legacyMetadata })
+    ]);
     expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
   });
 

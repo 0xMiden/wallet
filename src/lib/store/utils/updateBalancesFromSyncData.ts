@@ -47,7 +47,7 @@ export async function updateBalancesFromSyncData(
     // arriving on a later sync must be allowed to replace it. Preferring the
     // cache unconditionally is what made a single failed lookup permanent.
     const localMeta = hasKnownScale(cached) ? cached : undefined;
-    if (asset.faucetId === actualNativeId || isMiden) {
+    if (asset.faucetId === actualNativeId) {
       tokenMetadata = getNativeDisplayMetadataSync(asset.metadata ?? localMeta, asset.faucetId);
     } else if (localMeta) {
       tokenMetadata = localMeta;

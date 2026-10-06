@@ -263,7 +263,6 @@ export async function fetchBalances(
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
   const midenFaucetId = await getFaucetIdSetting();
   const actualNativeId = getNativeAssetIdSync();
-  const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId ?? ''], midenFaucetId);
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
@@ -274,12 +273,7 @@ export async function fetchBalances(
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
-        return (
-          assetId !== actualNativeId &&
-          assetId !== midenFaucetId &&
-          !localMetadatas[assetId] &&
-          shouldRetryUnresolved(assetId, now)
-        );
+        return assetId !== actualNativeId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
       })
       .map(async asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
@@ -323,6 +317,7 @@ export async function fetchBalances(
     // Can only fabricate a "0 MIDEN" row once discovery has learned the
     // native asset ID. Until then return [] and let the UI render a skeleton.
     if (!midenFaucetId) return [];
+    const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId);
     return [
       {
         tokenId: midenFaucetId,
@@ -343,6 +338,8 @@ export async function fetchBalances(
 
   // Build balance list
   let hasMiden = false;
+  const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId ?? ''], midenFaucetId);
+
   for (const asset of assets) {
     const tokenId = getBech32AddressFromAccountId(asset.faucetId());
     const isMiden = tokenId === midenFaucetId;

@@ -49,12 +49,13 @@ export function useAssetMetadata(_slug: string, assetId: string) {
   const fetchAssetMetadata = useWalletStore(s => s.fetchAssetMetadata);
 
   const isMidenFaucet = assetId === midenFaucetId;
+  const isNativeFaucet = assetId === getNativeAssetIdSync();
   const tokenMetadata = assetsMetadata[assetId] ?? null;
   const exist = Boolean(tokenMetadata);
 
   // Auto-fetch missing metadata
   useEffect(() => {
-    if (!isMidenFaucet && !exist && !autoFetchMetadataFails.has(assetId)) {
+    if (!isNativeFaucet && !exist && !autoFetchMetadataFails.has(assetId)) {
       autoFetchMetadataQueue
         .add(async () => {
           try {
@@ -72,10 +73,10 @@ export function useAssetMetadata(_slug: string, assetId: string) {
         })
         .catch(() => {});
     }
-  }, [assetId, exist, fetchAssetMetadata, setAssetsMetadata, isMidenFaucet]);
+  }, [assetId, exist, fetchAssetMetadata, setAssetsMetadata, isNativeFaucet]);
 
   // Preserve authoritative native metadata, including its scale.
-  if (isMidenFaucet) {
+  if (isMidenFaucet || isNativeFaucet) {
     return getNativeDisplayMetadataSync(tokenMetadata ?? undefined, assetId);
   }
 
@@ -187,7 +188,7 @@ export const useGetTokenMetadata = () => {
 
   return useCallback(
     (slug: string, id: string) => {
-      if (id === nativeId || isMidenAsset(slug)) {
+      if (id === nativeId || id === getNativeAssetIdSync() || isMidenAsset(slug)) {
         return getNativeDisplayMetadataSync(assetsMetadata[id], id);
       }
 
@@ -212,6 +213,8 @@ export function useDetailedAssetMetadata(assetSlug: string, assetId: string) {
   );
 
   useEffect(() => onStorageChanged(storageKey, mutate), [storageKey, mutate]);
+
+  if (assetId === getNativeAssetIdSync() && baseMetadata) return { ...detailedMetadata, ...baseMetadata };
 
   return detailedMetadata ?? baseMetadata;
 }
@@ -264,9 +267,10 @@ export function searchAssets(
     assets.map(({ slug, id }) => ({
       slug,
       id,
-      metadata: isMidenAsset(slug)
-        ? getNativeDisplayMetadataSync(allTokensBaseMetadata[id], id)
-        : allTokensBaseMetadata[id]
+      metadata:
+        id === getNativeAssetIdSync() || isMidenAsset(slug)
+          ? getNativeDisplayMetadataSync(allTokensBaseMetadata[id], id)
+          : allTokensBaseMetadata[id]
     })),
     {
       keys: [

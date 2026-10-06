@@ -743,6 +743,44 @@ describe('actual native balance with a separate legacy display selection', () =>
       balances.filter(row => row.tokenId === legacy).map(({ balance, tokenSlug }) => ({ balance, tokenSlug }))
     ).toEqual(selection === legacy ? [{ balance: 0, tokenSlug: 'LEGACY' }] : []);
   });
+  it('fetches uncached legacy display metadata without fetching or pricing it as the actual native asset', async () => {
+    jest
+      .requireMock('lib/miden/sdk/helpers')
+      .getBech32AddressFromAccountId.mockImplementation((id: string) => (id === legacy ? legacy : `bech32-${id}`));
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => 'native-A', amount: () => ({ toString: () => '1000000' }) },
+          { faucetId: () => legacy, amount: () => ({ toString: () => '125' }) }
+        ]
+      })
+    });
+    const legacyMetadata = { symbol: 'USDCX', name: 'Legacy', decimals: 2 };
+    mockFetchTokenMetadata.mockResolvedValue({ base: legacyMetadata, detailed: legacyMetadata });
+    const setAssetsMetadata = jest.fn();
+    const balances = (await fetchBalances(
+      'native-legacy-cache-miss',
+      {
+        [actual]: { symbol: 'MIDEN', name: 'Miden', decimals: 8 }
+      },
+      { tokenPrices: {}, setAssetsMetadata }
+    ))!;
+    expect(mockFetchTokenMetadata.mock.calls).toEqual([[legacy]]);
+    expect(setAssetsMetadata).toHaveBeenCalledWith({ [legacy]: legacyMetadata });
+    expect(balances.find(row => row.tokenId === legacy)).toMatchObject({
+      balance: 1.25,
+      metadata: legacyMetadata,
+      tokenSlug: 'USDCX',
+      fiatPrice: 0
+    });
+    expect(balances.find(row => row.tokenId === legacy)!.metadata.scaleIsUnknown).not.toBe(true);
+    expect(balances.find(row => row.tokenId === actual)).toMatchObject({
+      balance: 1,
+      metadata: { symbol: 'USDCX', decimals: 6 },
+      fiatPrice: 1
+    });
+  });
+
   it('preserves native eight-decimal scale against cached six-decimal metadata', async () => {
     mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
     mockGetAccount.mockResolvedValue({
