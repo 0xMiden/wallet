@@ -7,11 +7,19 @@ _g.__assetsTest = {
 
 const mockSetAssetsMetadata = jest.fn();
 const mockFetchAssetMetadata = jest.fn();
-const walletStoreState = {
+const mockWalletStoreState = {
+  tokenPrices: {},
+  balances: {},
   assetsMetadata: {} as Record<string, any>,
   setAssetsMetadata: mockSetAssetsMetadata,
   fetchAssetMetadata: mockFetchAssetMetadata
 };
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => 'miden-faucet-id',
+  getNativeAssetMetadataSync: jest.fn(() => ({ symbol: 'MIDEN', decimals: 6 })),
+  onNativeAssetChanged: jest.fn(() => () => {})
+}));
 
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
@@ -30,7 +38,11 @@ jest.mock('lib/platform/storage-adapter', () => ({
 }));
 
 jest.mock('lib/store', () => ({
-  useWalletStore: jest.fn()
+  useWalletStore: Object.assign(jest.fn(), {
+    setState: jest.fn((update: (state: typeof mockWalletStoreState) => Partial<typeof mockWalletStoreState>) =>
+      Object.assign(mockWalletStoreState, update(mockWalletStoreState))
+    )
+  })
 }));
 
 jest.mock('lib/swr', () => ({
@@ -89,8 +101,8 @@ const mockUsePassiveStorage = usePassiveStorage as jest.Mock;
 beforeEach(() => {
   for (const k of Object.keys(_g.__assetsTest.storage)) delete _g.__assetsTest.storage[k];
   jest.clearAllMocks();
-  walletStoreState.assetsMetadata = {};
-  mockUseWalletStore.mockImplementation((selector: any) => selector(walletStoreState));
+  mockWalletStoreState.assetsMetadata = {};
+  mockUseWalletStore.mockImplementation((selector: any) => selector(mockWalletStoreState));
   mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
   mockOnStorageChanged.mockReturnValue(() => {});
   mockUsePassiveStorage.mockReturnValue([{}, jest.fn()]);
@@ -155,12 +167,14 @@ describe('metadata hooks and provider', () => {
   it('returns gas token metadata for the configured miden faucet', () => {
     const { result } = renderHook(() => useAssetMetadata('miden', 'miden-faucet-id'));
 
-    expect(result.current).toEqual({ decimals: 6, symbol: 'MIDEN', name: 'Miden' });
+    expect(result.current).toEqual(
+      expect.objectContaining({ decimals: 6, symbol: 'MIDEN', name: 'Miden', scaleIsUnknown: false })
+    );
     expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('returns cached metadata for a known token asset', () => {
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
 
@@ -217,19 +231,21 @@ describe('metadata hooks and provider', () => {
   });
 
   it('returns a metadata lookup callback that handles miden and token assets', () => {
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
 
     const { result } = renderHook(() => useGetTokenMetadata());
 
-    expect(result.current('miden', 'miden-faucet-id')).toEqual({ decimals: 6, symbol: 'MIDEN', name: 'Miden' });
+    expect(result.current('miden', 'miden-faucet-id')).toEqual(
+      expect.objectContaining({ decimals: 6, symbol: 'MIDEN', name: 'Miden', scaleIsUnknown: false })
+    );
     expect(result.current('token', 'asset-1')).toEqual(baseMetadata);
   });
 
   it('returns detailed metadata when available and subscribes to storage changes', () => {
     const mutate = jest.fn();
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
     mockUseRetryableSWR.mockReturnValue({ data: detailedMetadata, mutate });
@@ -241,7 +257,7 @@ describe('metadata hooks and provider', () => {
   });
 
   it('falls back to base metadata when detailed metadata is missing', () => {
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
     mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
@@ -252,7 +268,7 @@ describe('metadata hooks and provider', () => {
   });
 
   it('returns all base metadata from the wallet store', () => {
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
 
@@ -263,7 +279,7 @@ describe('metadata hooks and provider', () => {
 
   it('returns token metadata helpers backed by a ref and persistence', async () => {
     const nextMetadata = { decimals: 9, symbol: 'NEXT', name: 'Next token' };
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
     mockFetchTokenMetadata.mockResolvedValue({

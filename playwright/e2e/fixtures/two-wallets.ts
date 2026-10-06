@@ -123,6 +123,7 @@ type FailureSnapshots = {
 };
 
 type TwoWalletFixtures = {
+  injectFeeFaucet: boolean;
   walletA: GuardianAwareWalletPage;
   walletB: GuardianAwareWalletPage;
   midenCli: MidenCli;
@@ -846,6 +847,7 @@ function cleanupStaleSessions(): void {
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 export const test = base.extend<TwoWalletFixtures>({
+  injectFeeFaucet: [true, { option: true }],
   envConfig: async ({}, use) => {
     const config = getEnvironmentConfig();
     await use(config);
@@ -942,9 +944,9 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletA: async ({ timeline, steps, failureSnapshots, midenCli }, use, testInfo) => {
+  walletA: async ({ timeline, steps, failureSnapshots, midenCli, injectFeeFaucet }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const feeFaucetId = await midenCli.ensureNativeFaucetId();
+    const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
     const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'A', steps.outputDir);
@@ -988,9 +990,9 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
+  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots, injectFeeFaucet }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const feeFaucetId = await midenCli.ensureNativeFaucetId();
+    const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
     const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'B', steps.outputDir);

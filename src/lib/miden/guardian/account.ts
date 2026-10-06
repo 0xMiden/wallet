@@ -3,6 +3,7 @@ import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 import { AccountInspector, EcdsaSigner, MultisigClient, type Multisig } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
+import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -457,7 +458,7 @@ export async function createGuardianAccount(
     const stateBase64 = u8ToB64(multisig.account.serialize());
 
     assertLive('before the sync');
-    await webClient.sync();
+    await syncAndRecordFeeFaucet(webClient, () => webClient.sync(), assertLive);
 
     // Cold goes through the standard SDK keystore so the WASM client can sign
     // with it on demand; the existing insertKeyCallback wraps it under the

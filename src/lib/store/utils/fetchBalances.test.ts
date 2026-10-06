@@ -14,6 +14,14 @@ import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
 
+let mockNativeAssetId = 'miden-faucet-id';
+let mockNativeMetadata = { symbol: 'MIDEN', decimals: 8 };
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetMetadataSync: () => mockNativeMetadata,
+  getSdkSyncedNativeAssetIdSync: () => mockNativeAssetId
+}));
+
 // Mock dependencies
 const mockGetAccount = jest.fn();
 const mockSyncState = jest.fn();
@@ -263,7 +271,7 @@ describe('fetchBalances', () => {
     expect(result[0]).toEqual({
       tokenId: 'miden-faucet-id',
       tokenSlug: 'MIDEN',
-      metadata: MIDEN_METADATA,
+      metadata: expect.objectContaining(MIDEN_METADATA),
       // MIDEN is not on the price feed: no price, never a $1 guess.
       fiatPrice: 0,
       balance: 0,
@@ -684,5 +692,71 @@ describe('fetchBalances', () => {
       expect(row).toBeDefined();
       expect(row!.metadata.symbol).toBe('Unknown');
     });
+  });
+});
+
+describe('actual native balance with a separate legacy display selection', () => {
+  const actual = 'bech32-native-A';
+  const legacy = 'legacy-B';
+  const foreign = 'bech32-foreign';
+  beforeEach(() => {
+    jest
+      .requireMock('lib/miden/sdk/helpers')
+      .getBech32AddressFromAccountId.mockReset()
+      .mockImplementation((id: string) => `bech32-${id}`);
+    mockGetAccount.mockReset();
+    mockFetchTokenMetadata.mockReset();
+    mockNativeAssetId = actual;
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue(legacy);
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => 'native-A', amount: () => ({ toString: () => '1000000' }) },
+          { faucetId: () => 'foreign', amount: () => ({ toString: () => '200000000' }) }
+        ]
+      })
+    });
+  });
+  afterEach(() => {
+    mockNativeAssetId = 'miden-faucet-id';
+    mockNativeMetadata = { symbol: 'MIDEN', decimals: 8 };
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue('miden-faucet-id');
+  });
+  it.each([legacy, actual, undefined])('uses actual native metadata with legacy selection %s', async selection => {
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue(selection);
+    const balances = (await fetchBalances(
+      'native-account',
+      {
+        [actual]: { symbol: 'MIDEN', name: 'Miden', decimals: 8 },
+        [legacy]: { symbol: 'LEGACY', name: 'Legacy', decimals: 2 },
+        [foreign]: { symbol: 'FOREIGN', name: 'Foreign', decimals: 8 }
+      },
+      { tokenPrices: {} }
+    ))!;
+    const native = balances.find(row => row.tokenId === actual)!;
+    expect(native.balance).toBe(1);
+    expect(native.metadata).toMatchObject({ symbol: 'USDCX', decimals: 6 });
+    expect(native.fiatPrice * native.balance).toBe(1);
+    expect(balances.find(row => row.tokenId === foreign)).toMatchObject({ balance: 2, tokenSlug: 'FOREIGN' });
+    expect(
+      balances.filter(row => row.tokenId === legacy).map(({ balance, tokenSlug }) => ({ balance, tokenSlug }))
+    ).toEqual(selection === legacy ? [{ balance: 0, tokenSlug: 'LEGACY' }] : []);
+  });
+  it('preserves native eight-decimal scale against cached six-decimal metadata', async () => {
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => 'native-A', amount: () => ({ toString: () => '100000000' }) }]
+      })
+    });
+    const native = (await fetchBalances(
+      'native-account',
+      { [actual]: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } },
+      { tokenPrices: {} }
+    ))!.find(row => row.tokenId === actual)!;
+    expect(native.balance).toBe(1);
+    expect(native.metadata.decimals).toBe(8);
+    expect(native.fiatPrice).toBe(1);
   });
 });

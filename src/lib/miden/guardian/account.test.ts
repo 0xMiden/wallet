@@ -23,6 +23,12 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
+import { bindFeeFaucetClientScope } from '../sdk/sync-and-record-fee-faucet';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: () => 'rpc|testnet',
+  captureNativeAssetSnapshot: () => ({ scope: 'rpc|testnet', revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
 
 // Mirrors the shape (and a couple of real URLs) of the real GUARDIAN_OPTIONS
 // in lib/miden-chain/constants, so guardianProviderFromEndpoint's reverse-map
@@ -407,10 +413,15 @@ describe('createGuardianAccount', () => {
     registerOnGuardian: jest.fn(async (_state?: string) => {})
   });
 
-  const makeWebClient = () => ({
-    sync: jest.fn(async () => {}),
-    keystore: { insert: jest.fn(async () => {}) }
-  });
+  const makeWebClient = () => {
+    const client = {
+      sync: jest.fn(async () => {}),
+      feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
+      keystore: { insert: jest.fn(async () => {}) }
+    };
+    bindFeeFaucetClientScope(client);
+    return client;
+  };
 
   // Runs the three phases as production does: fetch the key, build the account,
   // then register outside the hold.

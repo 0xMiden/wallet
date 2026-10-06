@@ -433,7 +433,11 @@ async function walletCacheEntry(page: Page, prefix: string): Promise<unknown> {
  */
 export async function walletDiscoveredBaseFee(page: Page): Promise<number | null> {
   const v = await walletCacheEntry(page, `${NATIVE_ASSET_FEE_CACHE}:`);
-  return typeof v === 'number' ? v : null;
+  if (!v || typeof v !== 'object' || !('faucetId' in v) || !('baseFee' in v)) return null;
+  const { faucetId, baseFee } = v;
+  if (typeof baseFee !== 'number' || !Number.isFinite(baseFee) || !Number.isInteger(baseFee) || baseFee < 0)
+    return null;
+  return faucetId === (await walletDiscoveredNativeFaucetId(page)) ? baseFee : null;
 }
 
 /**

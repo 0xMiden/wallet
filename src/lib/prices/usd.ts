@@ -2,6 +2,7 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 import { fetchTokenPrices, TokenPrices } from './binance';
 import { isE2eFixtureSymbol, KNOWN_SYMBOLS } from './constant';
+import { fixedQuote } from './fixed';
 
 /** One US dollar in the fixed-point unit every spending limit is denominated in. */
 export const USD_SCALE = 1_000_000n;
@@ -31,7 +32,7 @@ type UsdPriceCache = Record<string, CachedUsdPrice>;
  * read as covered: the value test is what decides, and a function is not a trading pair.
  */
 export const isCoveredSymbol = (symbol: string): boolean =>
-  typeof KNOWN_SYMBOLS[symbol] === 'string' || isE2eFixtureSymbol(symbol);
+  typeof KNOWN_SYMBOLS[symbol] === 'string' || fixedQuote(symbol) !== undefined || isE2eFixtureSymbol(symbol);
 
 export const toPriceMicro = (price: number): bigint | undefined => {
   if (!Number.isFinite(price) || price <= 0) return undefined;
@@ -113,6 +114,8 @@ export const getPriceMicro = async (
   symbol: string,
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<bigint | undefined> => {
+  const fixed = fixedQuote(symbol);
+  if (fixed !== undefined) return toPriceMicro(fixed.price);
   if (isE2eFixtureSymbol(symbol)) return USD_SCALE;
   const cached = cachedPriceMicro(await readCache(), symbol, now);
   if (cached !== undefined) return cached;

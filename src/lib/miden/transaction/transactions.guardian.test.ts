@@ -27,6 +27,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
+import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
@@ -289,6 +290,9 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: () => 'fixture-rpc|testnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true),
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
   getNativeAssetIdSync: jest.fn(() => '0xfee0000000000000000000000000000000'),
   getVerificationBaseFee: jest.fn(async () => 10000),
@@ -443,9 +447,17 @@ const makeTransactionsApi = (result: ReturnType<typeof makeResult>, apply = jest
 // from THIS builder rather than a fresh one.
 const FEE_AWARE_BUILDER = { kind: 'fee-aware-builder' };
 
+const withFeeIdentity = <T extends object>(client: T) => {
+  const scopedClient = Object.assign(client, {
+    feeFaucetId: jest.fn(async () => ({ toString: () => '0xfee0000000000000000000000000000000' }))
+  });
+  bindFeeFaucetClientScope(scopedClient, 'fixture-rpc|testnet');
+  return scopedClient;
+};
+
 const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(async () => {})) => {
   const transactions = makeTransactionsApi(result, apply);
-  return {
+  return withFeeIdentity({
     transactions,
     syncChain: jest.fn(async () => {}),
     getSyncHeight: jest.fn(async () => 100),
@@ -461,7 +473,7 @@ const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(as
         applyTransaction: transactions.apply
       })
     )
-  };
+  });
 };
 
 const makeGuardianProvider = (isGuardian: boolean) => {
@@ -2219,12 +2231,11 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
-    // freshSync: the bridged-send helper (like earn-deposit) measures the reclaim
-    // height against a fresh chain head, so mock client.sync().blockNum().
-    const client = Object.assign(makeClientApi(result), { sync: jest.fn(async () => ({ blockNum: () => 200 })) });
+    // The fresh-height proxy reads the summary returned by interface syncState.
+    const client = makeClientApi(result);
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
-      syncState: jest.fn(async () => {}),
+      syncState: jest.fn(async () => ({ blockNum: () => 200 })),
       client
     });
 
@@ -2300,12 +2311,10 @@ describe('generateTransaction — Guardian routing', () => {
         code: 'conflict_pending_delta'
       });
       mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-      const client = Object.assign(makeClientApi(makeResult()), {
-        sync: jest.fn(async () => ({ blockNum: () => 100 }))
-      });
+      const client = makeClientApi(makeResult());
       mockGetMidenClient.mockResolvedValue({
         getAccount: jest.fn(async () => undefined),
-        syncState: jest.fn(async () => {}),
+        syncState: jest.fn(async () => ({ blockNum: () => 100 })),
         client
       });
 
@@ -2363,10 +2372,10 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
 
-    const client = Object.assign(makeClientApi(makeResult()), { sync: jest.fn(async () => ({ blockNum: () => 200 })) });
+    const client = makeClientApi(makeResult());
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
-      syncState: jest.fn(async () => {}),
+      syncState: jest.fn(async () => ({ blockNum: () => 200 })),
       client
     });
 
@@ -7919,7 +7928,11 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
       syncState: jest.fn(async () => {}),
-      client: { transactions: api, syncChain: jest.fn(async () => {}), getSyncHeight: jest.fn(async () => 100) }
+      client: withFeeIdentity({
+        transactions: api,
+        syncChain: jest.fn(async () => {}),
+        getSyncHeight: jest.fn(async () => 100)
+      })
     });
 
     await generateTransaction(
@@ -7977,7 +7990,11 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
       syncState: jest.fn(async () => {}),
-      client: { transactions: api, syncChain: jest.fn(async () => {}), getSyncHeight: jest.fn(async () => 100) }
+      client: withFeeIdentity({
+        transactions: api,
+        syncChain: jest.fn(async () => {}),
+        getSyncHeight: jest.fn(async () => 100)
+      })
     });
 
     await generateTransaction(
@@ -8037,7 +8054,11 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetMidenClient.mockResolvedValue({
       getAccount: jest.fn(async () => undefined),
       syncState: jest.fn(async () => {}),
-      client: { transactions: api, syncChain: jest.fn(async () => {}), getSyncHeight: jest.fn(async () => 100) }
+      client: withFeeIdentity({
+        transactions: api,
+        syncChain: jest.fn(async () => {}),
+        getSyncHeight: jest.fn(async () => 100)
+      })
     });
 
     await generateTransaction(
@@ -8091,7 +8112,11 @@ describe('generateTransaction — Guardian routing', () => {
       return {
         getAccount: jest.fn(async () => undefined),
         syncState: jest.fn(async () => {}),
-        client: { transactions: api, syncChain: jest.fn(async () => {}), getSyncHeight: jest.fn(async () => 100) }
+        client: withFeeIdentity({
+          transactions: api,
+          syncChain: jest.fn(async () => {}),
+          getSyncHeight: jest.fn(async () => 100)
+        })
       };
     });
 
@@ -12676,7 +12701,7 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
       // this test is about. "Failed to fetch" is the wording that makes the
       // point: it is what a node-side transport failure looks like, and it is
       // also what a silent guardian looks like.
-      client: {
+      client: withFeeIdentity({
         syncChain: jest.fn(async () => {}),
         getSyncHeight: jest.fn(async () => 100),
         transactions: {
@@ -12692,7 +12717,7 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
             })
           }))
         }
-      }
+      })
     });
     jest.spyOn(console, 'error').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});

@@ -166,7 +166,10 @@ jest.mock('../sdk/helpers', () => ({
 }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  primeNativeAssetId: jest.fn()
+  primeNativeAssetId: jest.fn(),
+  cacheScope: () => 'rpc|devnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
 }));
 
 jest.mock('lib/miden/back/actions', () => ({
@@ -1339,5 +1342,47 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.sign_id).toBe('sign-y');
+  });
+});
+
+describe('scoped offscreen native identity relay', () => {
+  const id = '0x817edea77acc5d71616e493afecea3';
+  const publication = () => jest.requireMock('lib/miden-chain/native-asset').recordSyncedFeeFaucetId;
+  const invoke = (message: unknown, sender = ownSender, reply = jest.fn()) =>
+    capturedRuntimeListeners[0]?.(message, sender, reply);
+  it('acknowledges a same-scope SDK identity after durable adoption', async () => {
+    const reply = jest.fn();
+    expect(
+      invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'rpc|devnet' }, ownSender, reply)
+    ).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(publication()).toHaveBeenCalledWith(id, { scope: 'rpc|devnet', revision: 0 });
+    expect(reply).toHaveBeenCalledWith({ ok: true });
+  });
+  it.each([undefined, 7, '', 'bech32-untrusted', '0x123'])('refuses invalid plain IDs (%s)', badId => {
+    expect(invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id: badId, scope: 'rpc|devnet' })).toBe(false);
+    expect(publication()).not.toHaveBeenCalled();
+  });
+  it('refuses a message from another extension before adoption', () => {
+    expect(
+      invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'rpc|devnet' }, { id: 'other-extension' })
+    ).toBe(false);
+    expect(publication()).not.toHaveBeenCalled();
+  });
+  it('rejects an obsolete endpoint without publishing to the active cache', async () => {
+    const reply = jest.fn();
+    invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'old-rpc|devnet' }, ownSender, reply);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(publication()).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith({ ok: false });
+  });
+  it('reports storage failure to the offscreen publisher', async () => {
+    const reply = jest.fn();
+    publication().mockRejectedValueOnce(new Error('storage unavailable'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope: 'rpc|devnet' }, ownSender, reply);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(reply).toHaveBeenCalledWith({ ok: false });
+    warn.mockRestore();
   });
 });

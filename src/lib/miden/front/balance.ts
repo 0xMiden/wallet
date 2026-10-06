@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
@@ -7,7 +8,7 @@ import { useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
 
-import { AssetMetadata, MIDEN_METADATA } from '../metadata';
+import { AssetMetadata } from '../metadata';
 import { isTestSyncPaused } from './test-sync-pause';
 
 export interface TokenBalanceData {
@@ -32,12 +33,13 @@ const DEDUPING_INTERVAL = 10_000;
 function buildDefaultZeroBalance(tokenPrices: TokenPrices): TokenBalanceData[] {
   const midenFaucetId = getNativeAssetIdSync();
   if (!midenFaucetId) return [];
+  const nativeMetadata = getNativeDisplayMetadataSync();
   return [
     {
       tokenId: midenFaucetId,
-      tokenSlug: 'MIDEN',
-      metadata: MIDEN_METADATA,
-      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
+      tokenSlug: nativeMetadata.symbol,
+      metadata: nativeMetadata,
+      ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
       balance: 0
     }
   ];

@@ -33,8 +33,13 @@ _g.__cnTest = {
 };
 
 jest.mock('lib/platform', () => ({
-  isExtension: () => (globalThis as any).__cnTest.isExtension,
-  isIOS: () => (globalThis as any).__cnTest.isIOS
+  isExtension: () => (globalThis as any).__cnTest?.isExtension ?? false,
+  isIOS: () => (globalThis as any).__cnTest?.isIOS ?? false
+}));
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => 'miden-faucet',
+  getNativeAssetMetadataSync: () => ({ symbol: 'MIDEN', decimals: 6 })
 }));
 
 jest.mock('lib/store', () => {

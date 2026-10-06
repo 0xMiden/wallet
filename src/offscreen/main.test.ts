@@ -40,6 +40,24 @@ export {};
 // `hasInitThreadPool` flag (set before each `await import`), and delegates
 // every call to jest.fns on the `__off` control object so per-test behaviour
 // (resolve / reject / return values) is fully controllable.
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: () => 'offscreen-rpc|devnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  setNativeAssetPublisher: (publisher: (id: string, scope: string) => Promise<void>) => {
+    G.__off.nativePublisher = publisher;
+  },
+  recordSyncedFeeFaucetId: jest.fn(async (id: string, snapshot: { scope: string }, assertLive: () => void) => {
+    assertLive();
+    try {
+      await G.__off.nativePublisher(id, snapshot.scope);
+    } catch {
+      return false;
+    }
+    assertLive();
+    return true;
+  })
+}));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
@@ -496,7 +514,7 @@ function resetControl() {
     listBuilds: [] as number[],
     getMidenClient: jest.fn(async () => {
       const build = ++(globalThis as any).__off.clientBuilds;
-      return {
+      const instance = {
         __build: build,
         get isDisposed() {
           const off = (globalThis as any).__off;
@@ -504,7 +522,17 @@ function resetControl() {
         },
         markPoisoned: (...a: any[]) => (globalThis as any).__off.clientMarkPoisoned(...a),
         getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
-        syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
+        syncState: async (...a: any[]) => {
+          const sync = (globalThis as any).__off.clientSyncState;
+          const { syncAndRecordFeeFaucet } = jest.requireActual('lib/miden/sdk/sync-and-record-fee-faucet');
+          const summary = await syncAndRecordFeeFaucet(
+            instance.client,
+            () => sync(...a),
+            typeof a[0] === 'function' ? a[0] : () => {}
+          );
+          if (typeof summary?.blockNum === 'function') return summary;
+          return { ...summary, blockNum: () => 5000 };
+        },
         waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
         exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
         getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
@@ -528,6 +556,7 @@ function resetControl() {
         // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
         // reads drive directly.
         client: {
+          feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
           transactions: {
             executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
             submitProven: (proof: unknown, result: unknown) => G.__off.guardianSubmitProven(proof, result),
@@ -548,6 +577,10 @@ function resetControl() {
           }
         }
       };
+      jest
+        .requireActual('lib/miden/sdk/sync-and-record-fee-faucet')
+        .bindFeeFaucetClientScope(instance.client, 'offscreen-rpc|devnet');
+      return instance;
     })
   };
 }
@@ -1407,6 +1440,26 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.resultB64).toBeNull();
   });
 
+  it.each(['RuntimeError', 'WasmClientPoisonedError'])(
+    'commit-wait stops before listing transactions after a direct syncChain %s',
+    async errorName => {
+      await loadModule();
+      const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+      const error =
+        errorName === 'RuntimeError'
+          ? new WebAssembly.RuntimeError('sync trapped')
+          : new WasmClientPoisonedError('watchdog');
+      G.__off.clientSyncChain.mockRejectedValueOnce(error);
+      const reply = jest.fn();
+      capturedListener!(callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }), {}, reply);
+      await flush();
+      expect(reply).toHaveBeenCalledTimes(1);
+      expect(reply.mock.calls[0]?.[0]).toMatchObject({ ok: false, errorName });
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+      expect(G.__off.clientTransactionsList).not.toHaveBeenCalled();
+    }
+  );
+
   it('commit-wait keeps polling while pending, then resolves once the tx commits (follow-up #1)', async () => {
     await loadModule();
     jest.useFakeTimers();
@@ -2207,7 +2260,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     // Fresh → sync().blockNum(), never the cached getSyncHeight.
-    expect(G.__off.clientSync).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientSyncState).toHaveBeenCalledTimes(1);
     expect(G.__off.clientGetSyncHeight).not.toHaveBeenCalled();
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
@@ -2225,7 +2278,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const parkedSync = new Promise<void>(resolve => {
       releaseSync = resolve;
     });
-    G.__off.clientSync = jest.fn(async () => {
+    G.__off.clientSyncState = jest.fn(async () => {
       await parkedSync;
       return { blockNum: blockNumSpy };
     });
@@ -5236,4 +5289,83 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       ).toBe(true);
     });
   });
+});
+
+describe('offscreen fee identity transport', () => {
+  it('bounds a parked identity IPC at 15 seconds and lets the next successful sync publish', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      let messages = 0;
+      G.chrome.runtime.sendMessage.mockImplementation((message: { type?: string }) => {
+        if (message.type !== 'OFFSCREEN_NATIVE_ASSET_EVENT') return Promise.resolve(undefined);
+        messages++;
+        return messages === 1 ? new Promise(() => {}) : Promise.resolve({ ok: true });
+      });
+      const first = jest.fn();
+      const request = (op_id: string) => ({
+        target: 'offscreen',
+        type: 'OFFSCREEN_CALL',
+        op_id,
+        method: 'getSyncHeight',
+        argsB64: [encodeArg(true)],
+        deadlineMs: null
+      });
+      capturedListener!(request('parked-fee-ipc'), {}, first);
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(first).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(first.mock.calls[0]?.[0]).toMatchObject({ ok: true });
+      expect(JSON.parse(atob(first.mock.calls[0]?.[0].resultB64))).toBe(5000);
+      expect(messages).toBe(1);
+      const second = jest.fn();
+      capturedListener!(request('recovered-fee-ipc'), {}, second);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(second.mock.calls[0]?.[0]).toMatchObject({ ok: true });
+      expect(JSON.parse(atob(second.mock.calls[0]?.[0].resultB64))).toBe(5000);
+      expect(messages).toBe(2);
+      expect(G.__off.clientSyncState).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it.each(['syncState', 'waitForTransactionCommit', 'getSyncHeight'])(
+    'publishes a scoped plain ID through runtime after %s without storage',
+    async method => {
+      await loadModule();
+      G.chrome.runtime.sendMessage.mockImplementation(async (message: { type?: string }) =>
+        message.type === 'OFFSCREEN_NATIVE_ASSET_EVENT' ? { ok: true } : undefined
+      );
+      const argsB64 =
+        method === 'waitForTransactionCommit'
+          ? [encodeArg('0xtxid')]
+          : method === 'getSyncHeight'
+            ? [encodeArg(true)]
+            : [];
+      const reply = jest.fn();
+      capturedListener!(
+        {
+          target: 'offscreen',
+          type: 'OFFSCREEN_CALL',
+          op_id: 'fee-identity-transport',
+          method,
+          argsB64,
+          deadlineMs: null
+        },
+        {},
+        reply
+      );
+      await flush();
+      expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({
+        target: 'sw',
+        type: 'OFFSCREEN_NATIVE_ASSET_EVENT',
+        id: '0x817edea77acc5d71616e493afecea3',
+        scope: 'offscreen-rpc|devnet'
+      });
+      expect(reply.mock.calls[0]?.[0]).toMatchObject({ ok: true });
+    }
+  );
 });

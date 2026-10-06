@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.1 (TBD)
+
+### Fixes
+
+- [FIX][all] Discover the fee token after chain sync without a configured faucet, preserve its on-chain symbol and decimals, and show Send's maximum network fee on fee-charging chains. SDK-confirmed native USDCX is valued at $1 without a market feed, including spending limits.
+
 ## 1.17.0 (2026-10-05)
 
 ### Features

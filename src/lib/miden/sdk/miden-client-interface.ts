@@ -44,6 +44,7 @@ import {
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
+import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
@@ -81,6 +82,7 @@ import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
 import { isApplyAfterSubmitError, isSubmitCrossingUnrecorded, markErrorBeforeSubmit } from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
+import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
 import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
@@ -511,19 +513,26 @@ export class MidenClientInterface {
   client: MidenClient;
   network: string;
 
-  private constructor(client: MidenClient, network: string, liveness: ClientLiveness = { disposed: false }) {
+  private constructor(
+    client: MidenClient,
+    network: string,
+    liveness: ClientLiveness = { disposed: false },
+    scope = cacheScope()
+  ) {
     this.client = client;
     this.network = network;
     this.liveness = liveness;
+    bindFeeFaucetClientScope(client, scope);
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
     const network = getEffectiveNetworkName();
+    const scope = cacheScope();
 
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
       const sdk = await import('@miden-sdk/miden-sdk/lazy');
       const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
-      return new MidenClientInterface(mockClient, 'mock');
+      return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
     }
 
     const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
@@ -583,7 +592,7 @@ export class MidenClientInterface {
       observer: createWalletSdkObserver()
     });
 
-    return new MidenClientInterface(midenClient, network, liveness);
+    return new MidenClientInterface(midenClient, network, liveness, scope);
   }
 
   static fromClient(client: MidenClient, network: string) {
@@ -1385,8 +1394,15 @@ export class MidenClientInterface {
     });
   }
 
-  async syncState() {
-    return await this.client.sync();
+  async syncState(assertLive: AssertLive = noAssertLive) {
+    return syncAndRecordFeeFaucet(
+      this.client,
+      () => this.client.sync(),
+      () => {
+        if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('sync client was replaced'));
+        assertLive();
+      }
+    );
   }
 
   async exportNote(
@@ -1530,7 +1546,7 @@ export class MidenClientInterface {
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
       try {
-        const syncResult = await this.client.sync();
+        const syncResult = await this.syncState();
         reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
       } catch (error) {
         // Before any request exists, so the attempt provably never crossed (#1081).

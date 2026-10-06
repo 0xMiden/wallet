@@ -1,3 +1,17 @@
+# Fee faucet discovery and USDCX value
+
+- [x] Read discovery, repository rules, and decision profile; inspect all sync and pricing paths.
+- [x] Verify this isolated branch matches current `origin/next` and install frozen dependencies with Node 22.
+- [x] Record a green 146-test baseline and complete the independent plan check.
+- [x] Implement scoped sync-time discovery and cross-realm publication with RED/GREEN tests.
+- [x] Preserve authoritative native metadata, fixed $1 USDCX value and the actual Send fee reserve.
+- [x] Verify the uninjected devnet path with an empty market feed and an independent header read.
+- [x] Complete discovery, risk and adversarial code panels; correct all ten grouped findings and reverify mutations.
+- [x] Pass full tests/coverage, TypeScript, static and release gates, required builds and browser regressions.
+- [ ] Certify this committed checkpoint with the final independent panel and publish the PR against `next`.
+
+Local results are recorded in `tasks/fee-faucet-plan.md`. Final certification and publication follow this source checkpoint and are recorded in the PR.
+
 # Issue #537 - guarded .mac account export
 
 ## Plan

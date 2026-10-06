@@ -29,11 +29,17 @@ jest.mock('lib/miden/metadata', () => ({
 // other must read Unknown. Drive it per-test rather than through the real
 // module's process-lifetime memo cache.
 let mockNativeAssetId: string | null = null;
+let mockNativeMetadata = { symbol: 'MIDEN', decimals: 6 };
 
 // The native id now arrives through `useMidenFaucetId`, which re-renders when
 // discovery lands — the point of the change. Mocking the hook rather than the
 // sync accessor is what lets a test distinguish "not known yet" from "not
 // native", which the old accessor collapsed into the same `null`.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetMetadataSync: () => mockNativeMetadata
+}));
+
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
   default: () => mockNativeAssetId
@@ -157,6 +163,7 @@ describe('useTransactionSummaryBadgeContent', () => {
   beforeEach(() => {
     mockState.assetsMetadata = {};
     mockNativeAssetId = null;
+    mockNativeMetadata = { symbol: 'MIDEN', decimals: 6 };
     mockCollateral = { faucetId: 'mtst1collateral', symbol: 'USDC', decimals: 6 };
   });
 
@@ -209,6 +216,20 @@ describe('useTransactionSummaryBadgeContent', () => {
     // The accept wording SendSuccess shows for the same transaction, not "Consumed".
     expect(container.textContent).toContain('Accepted');
     expect(container.textContent).not.toContain('Consumed');
+    act(() => root.unmount());
+  });
+
+  it('scales and names a native claim from chain metadata before a stale MIDEN store row', async () => {
+    mockNativeAssetId = 'faucet-native';
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
+    mockState.assetsMetadata = { 'faucet-native': { symbol: 'MIDEN', decimals: 6 } };
+    mockFormatAmount.mockImplementationOnce((amount, decimals) =>
+      jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals ?? 0)
+    );
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 100_000_000n, faucetId: 'faucet-native' })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('1 USDCX');
     act(() => root.unmount());
   });
 
@@ -415,11 +436,11 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
-  it('falls back to the MIDEN symbol when there is no faucet metadata', async () => {
+  it('withholds quantity while the native identity is still unresolved', async () => {
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 42n, secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('42 MIDEN');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('MIDEN');
     act(() => root.unmount());
   });
 

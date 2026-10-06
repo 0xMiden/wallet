@@ -239,6 +239,8 @@ describe.each([
     current: `${NATIVE_ASSET_ID_CACHE}:https://rpc.devnet.miden.io|devnet`,
     otherScope: `${NATIVE_ASSET_ID_CACHE}:https://rpc.testnet.miden.io|testnet`,
     value: feeFaucetId,
+    storedValue: feeFaucetId,
+    companionEntries: {},
     staleValue: otherFaucetId
   },
   {
@@ -248,15 +250,21 @@ describe.each([
     current: `${NATIVE_ASSET_FEE_CACHE}:https://rpc.devnet.miden.io|devnet`,
     otherScope: `${NATIVE_ASSET_FEE_CACHE}:https://rpc.testnet.miden.io|testnet`,
     value: 10_000,
+    storedValue: { faucetId: feeFaucetId, baseFee: 10_000 },
+    companionEntries: { [`${NATIVE_ASSET_ID_CACHE}:https://rpc.devnet.miden.io|devnet`]: feeFaucetId },
     staleValue: 250
   }
-])('$name', ({ read, stale, current, otherScope, value, staleValue }) => {
+])('$name', ({ read, stale, current, otherScope, value, storedValue, staleValue, companionEntries }) => {
   it('returns the current-version entry, not a stale one stored before it', async () => {
-    await expect(read(cachePage({ [stale]: staleValue, [current]: value }))).resolves.toBe(value);
+    await expect(read(cachePage({ ...companionEntries, [stale]: staleValue, [current]: storedValue }))).resolves.toBe(
+      value
+    );
   });
 
   it('refuses two current-version scopes instead of letting key order pick one', async () => {
-    await expect(read(cachePage({ [current]: value, [otherScope]: staleValue }))).rejects.toThrow('ambiguous');
+    await expect(
+      read(cachePage({ ...companionEntries, [current]: storedValue, [otherScope]: staleValue }))
+    ).rejects.toThrow('ambiguous');
   });
 
   it('answers null when the wallet has not discovered it', async () => {
@@ -272,8 +280,32 @@ it('reads the cache names the wallet writes, so a version bump moves the harness
       NATIVE_ASSET_FEE_CACHE: 'native_asset_fee:v9'
     }));
     const truth = await import('./balance-truth');
-    const page = cachePage({ 'native_asset_id:v9:rpc|devnet': feeFaucetId, 'native_asset_fee:v9:rpc|devnet': 10_000 });
+    const page = cachePage({
+      'native_asset_id:v9:rpc|devnet': feeFaucetId,
+      'native_asset_fee:v9:rpc|devnet': { faucetId: feeFaucetId, baseFee: 10_000 }
+    });
     await expect(truth.walletDiscoveredNativeFaucetId(page)).resolves.toBe(feeFaucetId);
     await expect(truth.walletDiscoveredBaseFee(page)).resolves.toBe(10_000);
   });
+});
+
+it.each([
+  7,
+  { faucetId: otherFaucetId, baseFee: 7 },
+  { faucetId: feeFaucetId, baseFee: -1 },
+  { faucetId: feeFaucetId, baseFee: NaN }
+])('rejects a malformed or differently identified fee cache: %p', async stored => {
+  const page = cachePage({
+    [`${NATIVE_ASSET_ID_CACHE}:rpc|devnet`]: feeFaucetId,
+    [`${NATIVE_ASSET_FEE_CACHE}:rpc|devnet`]: stored
+  });
+  await expect(walletDiscoveredBaseFee(page)).resolves.toBeNull();
+});
+
+it('keeps a discovered zero fee distinct from missing discovery', async () => {
+  const page = cachePage({
+    [`${NATIVE_ASSET_ID_CACHE}:rpc|devnet`]: feeFaucetId,
+    [`${NATIVE_ASSET_FEE_CACHE}:rpc|devnet`]: { faucetId: feeFaucetId, baseFee: 0 }
+  });
+  await expect(walletDiscoveredBaseFee(page)).resolves.toBe(0);
 });

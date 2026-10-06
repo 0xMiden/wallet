@@ -7,6 +7,13 @@ import { useWalletStore } from 'lib/store';
 import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
 
 const MOCK_MIDEN_FAUCET_ID = 'miden-faucet-123';
+let mockNativeAssetId: string | null = null;
+let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetMetadataSync: () => mockNativeMetadata,
+  getSdkSyncedNativeAssetIdSync: () => mockNativeAssetId
+}));
 
 jest.mock('lib/miden/assets', () => ({
   ...jest.requireActual('lib/miden/assets'),
@@ -228,5 +235,80 @@ describe('updateBalancesFromSyncData', () => {
       const balances = useWalletStore.getState().balances['account-1']!;
       expect(balances.some(b => b.tokenId === FOREIGN)).toBe(true);
     });
+  });
+});
+
+describe('native chain metadata', () => {
+  it('preserves the native symbol and eight-decimal scale received from sync', async () => {
+    useWalletStore.setState({ balances: {}, assetsMetadata: {} });
+    await updateBalancesFromSyncData('native-account', [
+      {
+        faucetId: MOCK_MIDEN_FAUCET_ID,
+        amountBaseUnits: '123000000',
+        metadata: { symbol: 'USDCX', decimals: 8, name: 'USDCX', scaleIsUnknown: false }
+      }
+    ]);
+    expect(useWalletStore.getState().balances['native-account']?.[0]).toEqual(
+      expect.objectContaining({
+        tokenSlug: 'USDCX',
+        balance: 1.23,
+        metadata: expect.objectContaining({ symbol: 'USDCX', decimals: 8 })
+      })
+    );
+  });
+});
+
+describe('actual native sync balance with a separate legacy display selection', () => {
+  const actual = 'native-A';
+  const legacy = 'legacy-B';
+  beforeEach(() => {
+    mockNativeAssetId = actual;
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockResolvedValue(legacy);
+    useWalletStore.setState({
+      balances: {},
+      tokenPrices: {},
+      assetsMetadata: {
+        [actual]: { symbol: 'MIDEN', name: 'Miden', decimals: 8 },
+        [legacy]: { symbol: 'LEGACY', name: 'Legacy', decimals: 2 },
+        foreign: { symbol: 'FOREIGN', name: 'Foreign', decimals: 8 }
+      }
+    });
+  });
+  afterEach(() => {
+    mockNativeAssetId = null;
+    mockNativeMetadata = null;
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockResolvedValue(MOCK_MIDEN_FAUCET_ID);
+  });
+  it.each([legacy, actual, undefined])('uses actual native metadata with legacy selection %s', async selection => {
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockResolvedValue(selection);
+    await updateBalancesFromSyncData('native-account', [
+      { faucetId: actual, amountBaseUnits: '1000000', metadata: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } },
+      {
+        faucetId: 'foreign',
+        amountBaseUnits: '200000000',
+        metadata: { symbol: 'IGNORED', name: 'Ignored', decimals: 6 }
+      }
+    ]);
+    const balances = useWalletStore.getState().balances['native-account']!;
+    const native = balances.find(row => row.tokenId === actual)!;
+    expect(native.balance).toBe(1);
+    expect(native.metadata).toMatchObject({ symbol: 'USDCX', decimals: 6 });
+    expect(native.fiatPrice * native.balance).toBe(1);
+    expect(balances.find(row => row.tokenId === 'foreign')).toMatchObject({ balance: 2, tokenSlug: 'FOREIGN' });
+    expect(
+      balances.filter(row => row.tokenId === legacy).map(({ balance, tokenSlug }) => ({ balance, tokenSlug }))
+    ).toEqual(selection === legacy ? [{ balance: 0, tokenSlug: 'LEGACY' }] : []);
+  });
+  it('preserves native eight-decimal scale against cached six-decimal metadata', async () => {
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
+    useWalletStore.setState({ assetsMetadata: { [actual]: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } } });
+    await updateBalancesFromSyncData('native-account', [
+      { faucetId: actual, amountBaseUnits: '100000000', metadata: { symbol: 'USDCX', name: 'USDCX', decimals: 8 } }
+    ]);
+    const native = useWalletStore.getState().balances['native-account']!.find(row => row.tokenId === actual)!;
+    expect(native.balance).toBe(1);
+    expect(native.metadata.decimals).toBe(8);
+    expect(native.fiatPrice).toBe(1);
   });
 });

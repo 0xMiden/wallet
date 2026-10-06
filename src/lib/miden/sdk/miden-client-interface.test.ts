@@ -12,6 +12,11 @@ const requireProbes = () =>
 /** Never the mutex owner, so a catch handed it can never retire anything. */
 const NO_HOLD = {} as unknown as WasmLockHold;
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
+
 describe('MidenClientInterface', () => {
   afterEach(() => {
     jest.resetModules();
@@ -110,6 +115,7 @@ describe('MidenClientInterface', () => {
           }
         )
       ),
+      feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
       sync: jest.fn(async () => ({ blockNum: () => 5 })),
       getSyncHeight: jest.fn(async () => 5),
       storeIdentifier: jest.fn(() => 'test-store'),
@@ -425,6 +431,26 @@ describe('MidenClientInterface', () => {
       const entry = next.record({ path: 'local', durationMs: 10, fellBack: false });
       expect(entry?.proveStepMs).toBe(5_000);
     });
+  });
+
+  it('records the synchronized protocol faucet before returning the original summary', async () => {
+    const summary = { blockNum: () => 27152 };
+    const fakeMidenClient = buildFakeMidenClient({
+      sync: jest.fn(async () => summary),
+      feeFaucetId: jest.fn(async () => ({ toString: () => 'synced-fee-id' }))
+    });
+    const publication = jest.fn(async () => true);
+    jest.doMock('lib/miden-chain/native-asset', () => ({
+      ...jest.requireActual('lib/miden-chain/native-asset'),
+      recordSyncedFeeFaucetId: publication
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      MidenClient: { create: jest.fn(async () => fakeMidenClient) }
+    }));
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = await MidenClientInterface.create();
+    await expect(client.syncState()).resolves.toBe(summary);
+    expect(publication).toHaveBeenCalledWith('synced-fee-id', expect.any(Object), expect.any(Function));
   });
 
   it('creates client from existing MidenClient using fromClient', async () => {

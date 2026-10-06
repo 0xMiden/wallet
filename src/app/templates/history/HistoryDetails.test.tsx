@@ -57,6 +57,7 @@ interface MetadataStore {
 const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} }));
 let mockConfiguredNativeFaucet: string | null = 'configured-native';
 let mockChainNativeFaucet: string | null = 'chain-native';
+let mockNativeChainMetadata: { symbol: string; decimals: number } | null = { symbol: 'MIDEN', decimals: 6 };
 let mockMaxNetworkFee: string | undefined;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
@@ -168,7 +169,9 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getNativeAssetIdSync: () => mockChainNativeFaucet
+  getNativeAssetIdSync: () => mockChainNativeFaucet,
+  getNativeAssetMetadataSync: () => mockNativeChainMetadata,
+  getSdkSyncedNativeAssetIdSync: () => mockChainNativeFaucet
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -456,6 +459,7 @@ beforeEach(() => {
   mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} });
   mockConfiguredNativeFaucet = 'configured-native';
   mockChainNativeFaucet = 'chain-native';
+  mockNativeChainMetadata = { symbol: 'MIDEN', decimals: 6 };
   mockMaxNetworkFee = undefined;
 
   // Default: token metadata for the tx faucet; requested-faucet lookups get a
@@ -684,14 +688,16 @@ describe('HistoryDetails', () => {
       expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
     });
 
-    it('uses configured-native metadata before a conflicting store entry', async () => {
+    it('uses authoritative native USDCX scale before a conflicting store entry', async () => {
       mockConfiguredNativeFaucet = 'faucet-1';
+      mockChainNativeFaucet = 'faucet-1';
+      mockNativeChainMetadata = { symbol: 'USDCX', decimals: 8 };
       mockGetTokenMetadata.mockResolvedValue(MIDEN_METADATA);
       mockWalletStore.setState({ assetsMetadata: { 'faucet-1': resolved } });
       setMockRow({ ...baseSendTx, amount: 2_000_000n });
       await renderAndLoad();
 
-      expect(screen.getByText('2 MIDEN')).toBeInTheDocument();
+      expect(screen.getByText('0.02 USDCX')).toBeInTheDocument();
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
     });
 
@@ -3702,6 +3708,7 @@ describe('HistoryDetails earn-withdraw', () => {
 
   // Once credited the hero prints the native asset, which the feed does not quote whatever its faucet calls itself.
   it('prices no estimate for a received withdrawal credited in the native asset', async () => {
+    mockNativeChainMetadata = { symbol: 'USDC', decimals: 6 };
     mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
     setMockRow(nativeWithdrawTx({ phase: 'received' }, { amount: 999n }));
     await renderAndLoad();
@@ -3721,6 +3728,7 @@ describe('HistoryDetails earn-withdraw', () => {
 
   // Without extra inputs the hero prints the row's own native amount, so no Earn side is priced as USDC.
   it('prices no estimate for a restored withdrawal with no extra inputs', async () => {
+    mockNativeChainMetadata = { symbol: 'USDC', decimals: 6 };
     mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
     setMockRow(earnWithdrawTx({}, { faucetId: 'chain-native', extraInputs: undefined, restoredFromBackup: true }));
     await renderAndLoad();

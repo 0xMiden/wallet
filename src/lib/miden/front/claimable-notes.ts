@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getNoteHoldingTransactions } from 'lib/miden/activity';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -12,7 +13,7 @@ import { useRetryableSWR } from 'lib/swr';
 import { isMidenFaucet } from '../assets';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
-import { AssetMetadata, MIDEN_METADATA } from '../metadata';
+import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
 import { fetchFromStorage, putToStorage } from './storage';
@@ -104,7 +105,7 @@ async function buildMetadataMapFromCache(
   const map: Record<string, AssetMetadata> = {};
   for (const n of notes) {
     if (await isMidenFaucet(n.faucetId)) {
-      map[n.faucetId] = MIDEN_METADATA;
+      map[n.faucetId] = getNativeDisplayMetadataSync(cache?.[n.faucetId], n.faucetId);
     } else {
       const cached = cache?.[n.faucetId];
       if (cached) map[n.faucetId] = cached;

@@ -154,11 +154,7 @@ export async function setFeeFaucetIdForTest(id: string | undefined): Promise<voi
   }
 }
 
-/**
- * Fee faucet the 0.17 client executes under. Required for every non-mock client:
- * the node does not serve protocol config yet, and KNOWN_FEE_FAUCETS in the SDK
- * is empty until a public 0.17 genesis publishes one.
- */
+/** Optional fee identity override; a successful SDK sync supplies the chain's protocol identity. */
 export function getEffectiveFeeFaucetId(): string | undefined {
   if (e2eFeeFaucetId) return e2eFeeFaucetId;
   if (feeFaucetCache) return feeFaucetCache;
