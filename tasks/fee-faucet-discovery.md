@@ -1,6 +1,6 @@
 # Wallet 1.17 does not know its fee token unless it is configured
 
-Status: implementation, review fixes and all local validation gates pass at this source checkpoint. Final independent certification and PR publication follow the commit. Results are in `tasks/fee-faucet-plan.md`.
+Status: implementation and review fixes are prepared for wallet 1.17.1 on the local feature branch. Current focused validation and final independent certification precede PR publication. Full coverage runs in CI only. Results are in `tasks/fee-faucet-plan.md`.
 
 - Worktree: `~/wt-wallet-fee-faucet`, branch `fix/fee-faucet-from-sdk`, based on `origin/next` at `70f592724` (the v1.17.0 release commit).
 - Every claim below cites `path:line` at `v1.17.0` unless it says otherwise.
@@ -105,7 +105,8 @@ Design B was selected after the sync-path inventory and independent plan check. 
 - The offscreen document relays plain scoped identity to the service worker through runtime messaging. Other realms adopt the persisted identity through storage changes and re-read an early miss.
 - Identity-bound metadata/fee cache envelopes reject stale values. SDK-synced identity evidence is stored separately from explicit overrides.
 - Native metadata keeps its chain symbol and decimals. Recognized USDCX uses a fixed $1 quote across balances and spending limits; copied symbols and arbitrary overrides remain unpriced.
-- The Send reserve uses the actual fee asset, with known zero omitted and unknown fee kept distinct from zero.
+- Fee reserves, funding gates, automatic note consumption, rotation guards and claim grouping use the actual fee asset. Known zero is omitted in Send, and unknown fee remains distinct from zero.
+- Overlapping fee reads reject stale completions after a newer scope event. The legacy token setting remains available to display and sorting paths.
 - Developer Settings and the localhost injector remain explicit overrides. The stale endpoint comment has been updated.
 - The uninjected devnet regression discovers USDCX, values it with an empty market feed, and checks the Send fee bound against the live header. It stops before Send submission.
 - Remaining verification and publication steps are tracked in `tasks/todo.md` and `tasks/fee-faucet-plan.md`.

@@ -5,7 +5,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { NavigatorProvider, type Route } from 'components/Navigator';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
-import { getNativeAssetId, getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetId,
+  getNativeAssetIdSync,
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync,
+  onNativeAssetChanged
+} from 'lib/miden-chain/native-asset';
 import type { TokenPrices } from 'lib/prices';
 
 import { SendManager } from './SendManager';
@@ -45,8 +51,8 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
   getNativeAssetMetadataSync: () => ({ symbol: 'USDCX', decimals: 6 }),
   getSdkSyncedNativeAssetIdSync: () => 'current-native',
-  getVerificationBaseFee: () => Promise.resolve(7),
-  getVerificationBaseFeeSync: () => 7,
+  getVerificationBaseFee: jest.fn(),
+  getVerificationBaseFeeSync: jest.fn(),
   onNativeAssetChanged: jest.fn()
 }));
 
@@ -85,6 +91,14 @@ function deferred<T>() {
 
 const amountRoute: Route = { name: SendFlowStep.SelectAmount, animationIn: 'push', animationOut: 'pop' };
 
+beforeEach(() => {
+  jest.mocked(getNativeAssetId).mockReset();
+  jest.mocked(getNativeAssetIdSync).mockReset();
+  jest.mocked(getVerificationBaseFee).mockReset().mockResolvedValue(7);
+  jest.mocked(getVerificationBaseFeeSync).mockReset().mockReturnValue(7);
+  jest.mocked(onNativeAssetChanged).mockReset();
+});
+
 it('keeps the real Send reserve when an obsolete fee-identity read finishes after discovery', async () => {
   const initial = deferred<string>();
   const current = deferred<string>();
@@ -114,6 +128,44 @@ it('keeps the real Send reserve when an obsolete fee-identity read finishes afte
   expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
 
   await act(async () => initial.resolve('obsolete-native'));
+  expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 9.9997');
+  expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+  expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId('send-amount-max'));
+  expect(screen.getByTestId('send-amount-input')).toHaveValue('9.9997');
+  expect(screen.getByTestId('send-amount-confirm')).toBeEnabled();
+});
+
+it('keeps the real Send reserve when an obsolete base-fee read finishes after discovery', async () => {
+  const initial = deferred<number | null>();
+  const current = deferred<number | null>();
+  jest.mocked(getNativeAssetId).mockResolvedValue('current-native');
+  jest.mocked(getNativeAssetIdSync).mockReturnValue('current-native');
+  jest.mocked(getVerificationBaseFee).mockReturnValueOnce(initial.promise).mockReturnValueOnce(current.promise);
+  jest.mocked(getVerificationBaseFeeSync).mockReturnValue(null);
+  const listeners = new Set<(id: string) => void>();
+  jest.mocked(onNativeAssetChanged).mockImplementation(listener => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  });
+  render(
+    <NavigatorProvider routes={[amountRoute]} initialRouteName={SendFlowStep.SelectAmount}>
+      <SendManager isLoading={false} preselectedTokenId="current-native" />
+    </NavigatorProvider>
+  );
+  expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 10');
+
+  await act(async () => {
+    listeners.forEach(listener => listener('current-native'));
+    current.resolve(7);
+  });
+  expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 9.9997');
+  fireEvent.change(screen.getByTestId('send-amount-input'), { target: { value: '10' } });
+  expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+  expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();
+
+  await act(async () => initial.resolve(null));
   expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 9.9997');
   expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
   expect(screen.getByText('amountMustBeLessThanBalance')).toBeInTheDocument();

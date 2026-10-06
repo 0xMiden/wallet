@@ -52,10 +52,19 @@
 - [x] Add a devnet Playwright regression with `injectFeeFaucet: false` and an absent unscoped override precondition. Assert the independently synced identity, USDCX metadata, $1 valuation with an empty market feed, and the Send fee row according to the live header.
 - [x] Prove the regression by removing the fallback and observing failure, then restore and verify.
 - [x] Add one changelog entry under `1.17.1 (TBD)`.
-- [x] Run dependency integrity, TypeScript, lint/i18n, formatting, affected regression suites, and the configured coverage gate before pushing.
+- [ ] Finish dependency integrity, TypeScript, lint/i18n, formatting and affected regression checks. Run the configured coverage gate in CI only.
 - [x] Build the devnet extension and verify output files and error-free logs. Capture and inspect the current Send screen for any visual completion claim.
 - [x] Run independent discovery, risk and adversarial code panels, apply actionable findings, and reverify their regressions.
-- [ ] Certify this committed source with the final independent panel, push once, and open a PR against `next`. The PR records the resulting status; merging is outside this request.
+- [ ] Certify this committed source with the final independent panel at medium effort, push once, and open a PR against `next`.
+
+## Task 4: Merge and release wallet 1.17.1
+
+- [x] RED/GREEN: Normalize CRLF helper checkouts in the relay-patch checker; verify LF/CRLF parity and genuine stale-helper refusal with an actual-script regression.
+- [ ] Triage conflicts, review comments and CI failures until the PR is green; admin squash merge as explicitly authorized.
+- [ ] Babysit `origin/next` to green after the merge.
+- [x] Verify the documented build/publishing workflow and existing release surfaces.
+- [ ] Prepare consistent wallet `1.17.1` versions and publish `v1.17.1` from green `next`; verify all required jobs and release assets.
+- Store publishing is handled by the user. Preserve the existing `v1.17.0` release, tag, assets and store listing.
 
 ## Review and results
 
@@ -63,13 +72,14 @@
 - Dependencies use the frozen lockfile with Node 22; product dependencies are unchanged.
 - Baseline: 146 tests pass across four discovery and pricing suites.
 - The plan check completed with four independent reviewers; nine verified plan findings were incorporated.
-- Discovery, risk and adversarial panels each completed with four independent reviewers. Ten grouped findings were corrected, including metadata precedence, native valuation scale, late hook results, durable publication recovery, bounded IPC and missing consumer/fatal-error coverage.
-- Full coverage: 20,929 tests pass across 922 suites; statements 98.35%, branches 96.17%, functions 97.65%, and lines 98.35%. All four metrics clear the unchanged 95% gate; four existing tests remain skipped.
-- Dependency integrity, TypeScript, source lint, i18n lint, E2E harness lint, release-manifest validation, native-prover pin and consume-request equivalence pass.
+- Discovery, risk and adversarial panels each completed with four independent reviewers. Twelve grouped findings were corrected, including metadata precedence, native valuation scale, late hook results, durable publication recovery, bounded IPC and missing consumer/fatal-error coverage.
+- Earlier implementation checkpoint: 20,929 tests passed across 922 suites with statements/lines 98.35%, branches 96.17% and functions 97.65%. Current full tests and all four unchanged 95% coverage gates run in CI only by explicit request. The interrupted local rerun is not a current passing result.
+- Current focused verification passes: 916 tests across the 13 fee-consumer suites, 24 tests across three indirect note fixtures and four relay-patch portability tests. Fresh full TypeScript and scoped lint/format pass. Remaining full static/build/browser checks precede publication; their exact results stay with the review and PR.
 - Mock-client Chrome browser tests pass. Devnet Chrome and mobile bundles build without errors; the extension manifest and mobile index exist.
 - The uninjected devnet regression passes with an empty market feed. Natural funding and note consumption discover USDCX with six decimals, value 1 USDCX at $1, and display the fee reserve from an independent node-header read. No Send submission occurs.
 - Disabling only sync-time publication makes the devnet regression fail with a missing native ID after 60 seconds; the source was restored exactly. Review regressions include targeted guard mutations and positive controls.
 - Native USDCX valuation requires exact canonical SDK proof and authoritative decimals. Independently allowlisted foreign tokens keep their own price before native discovery; unknown assets and fatal native-identity errors still refuse valuation.
+- Actual native fee identity now drives reserves, funding, automatic note consumption, rotation guards and claim grouping. Overlapping fee reads reject stale completions. Legacy settings remain available for display and sorting.
 - Explicit overrides keep precedence. Scoped identity, metadata and fee records cannot migrate into another endpoint; native-only fixed pricing does not authorize copied stablecoin symbols.
 
-Final review certification and branch publication follow this committed source checkpoint. The PR records their final status; merging is outside this request.
+Final review certification, branch publication, the authorized admin squash merge and wallet `v1.17.1` release follow this committed source checkpoint. Their final status is recorded in the PR and release.

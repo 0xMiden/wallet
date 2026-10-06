@@ -6,11 +6,14 @@
 - [x] Implement scoped sync-time discovery and cross-realm publication with RED/GREEN tests.
 - [x] Preserve authoritative native metadata, fixed $1 USDCX value and the actual Send fee reserve.
 - [x] Verify the uninjected devnet path with an empty market feed and an independent header read.
-- [x] Complete discovery, risk and adversarial code panels; correct all ten grouped findings and reverify mutations.
-- [x] Pass full tests/coverage, TypeScript, static and release gates, required builds and browser regressions.
+- [x] Complete discovery, risk and adversarial code panels; correct all twelve grouped findings and reverify mutations.
+- [ ] Finish current focused, TypeScript, static, release and browser checks; run full tests and unchanged 95% coverage gates in CI only.
 - [ ] Certify this committed checkpoint with the final independent panel and publish the PR against `next`.
+- [ ] Babysit the PR to green and admin squash merge.
+- [ ] Babysit `origin/next` to green and publish wallet `v1.17.1` with all required assets verified.
+- Store publishing is handled by the user; preserve the existing `v1.17.0` release and tag.
 
-Local results are recorded in `tasks/fee-faucet-plan.md`. Final certification and publication follow this source checkpoint and are recorded in the PR.
+Local results are recorded in `tasks/fee-faucet-plan.md`. Final certification, merge and wallet `v1.17.1` release follow this source checkpoint and are recorded in the PR and release.
 
 # Issue #537 - guarded .mac account export
 

@@ -1,10 +1,10 @@
-import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -212,7 +212,13 @@ export const initiateRotationFundingClaim = async (
   if (notes.length === 0) {
     throw new Error('initiateRotationFundingClaim requires at least one note');
   }
-  const nativeFaucetId = await getFaucetIdSetting();
+  let nativeFaucetId: string | null;
+  try {
+    nativeFaucetId = await getNativeAssetId();
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    nativeFaucetId = null;
+  }
   if (!nativeFaucetId) {
     throw new Error('Rotation funding claim refused: the native asset is not known yet');
   }

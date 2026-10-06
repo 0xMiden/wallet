@@ -8,3 +8,12 @@
 - Guard asynchronous fee hooks by generation so a parked result from the previous network cannot replace the current fee identity.
 - Authorize fixed native pricing with exact canonical synchronized identity. Missing or mismatched proof cannot turn a native spend into an unpriced zero-value allowance charge.
 - An ordinary cold native identity must not block an independently identified, allowlisted foreign price. Fatal identity errors retain their refusal behavior.
+- Apply the user's latest review-effort instruction to future seats for that issue. Preserve completed seat records and record the scoped exception without changing the global roster defaults.
+- Apply a cancellation to the named subtask while preserving the remaining authorized work. Confirm dependency connections from source before planning an integration change.
+- A release-version correction replaces the earlier publishing strategy. Update every product version and planned distribution step together, preserving prior releases unless removal is still explicitly requested.
+- When store publishing is assigned to the user, stop dashboard work and complete the independently authorized repository release and artifact checks.
+- Describe an unmerged version bump as the local branch prepared for that version. Reserve release wording for an actual published tag, and state push/merge status explicitly in progress updates.
+- When coverage is assigned to CI, stop local coverage immediately and use focused noncoverage checks for known failures. Never report an interrupted run as passing or reuse an earlier source checkpoint as current proof.
+- When a fee-identity hook changes, migrate fixtures in all indirect consumers, including manual-note badges and toast monitors. Use different native and display IDs so legacy-hook regressions remain observable.
+- Inventory every direct legacy selector call when separating fee identity from display identity. Classify mixed components before changing fee consumers.
+- Give every overlapping asynchronous fee read an ownership generation. Unmount cancellation cannot stop an older result replacing a newer one in the same effect.
