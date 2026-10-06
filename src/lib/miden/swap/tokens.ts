@@ -1,10 +1,18 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
-import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { accountIdStringToSdk, accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetIdSync,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync
+} from 'lib/miden-chain/native-asset';
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
+import { isE2eFixtureSymbol } from 'lib/prices/constant';
+import { withRequestTimeout } from 'lib/remote-json';
+
+import { bridgePriceAllowlist } from './bridge-price-allowlist';
 
 /**
  * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
@@ -83,12 +91,13 @@ export const getSwapTokens = (): SwapToken[] => {
   if (!nativeAssetId || SWAP_TOKENS.some(token => token.faucetId === nativeAssetId)) return SWAP_TOKENS;
 
   const nativeMetadata = getNativeAssetMetadataSync();
+  if (!nativeMetadata || !hasKnownScale({ ...nativeMetadata, name: nativeMetadata.symbol })) return SWAP_TOKENS;
   return [
     {
-      symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
+      symbol: nativeMetadata.symbol,
       faucetId: nativeAssetId,
-      decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
-      logoSymbol: 'MIDEN'
+      decimals: nativeMetadata.decimals,
+      logoSymbol: nativeMetadata.symbol === 'USDCX' ? 'USDC' : 'MIDEN'
     },
     ...SWAP_TOKENS
   ];
@@ -121,47 +130,109 @@ export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
 // Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
-// stringify. A failed parse is not cached, so it is retried once the SDK can parse the id.
+// stringify. Only a parsed id is stored, so a failed parse is retried once the SDK can parse the id.
 const normalizedFaucetIds = new Map<string, string>();
 
 /** Test-only: forget every cached conversion. */
 export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
 
-/** The balance store's key for a registry faucet id; the raw id if the SDK cannot parse it yet. */
-export function normalizedFaucetId(faucetId: string): string {
+/**
+ * The SDK's bech32 form of a faucet id in any encoding (hex, bech32 or the composite
+ * `<address>_<suffix>`), so every spelling of one faucet reduces to one id. Throws when the SDK
+ * cannot parse the id, as it does for every id until its WASM has loaded.
+ */
+export function canonicalFaucetId(faucetId: string): string {
   const key = `${getEffectiveNetworkName()}:${faucetId}`;
   const cached = normalizedFaucetIds.get(key);
   if (cached !== undefined) return cached;
+  const canonical = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
+  normalizedFaucetIds.set(key, canonical);
+  return canonical;
+}
+
+/** The balance store's key for a faucet id: its canonical id, or the raw id if the SDK cannot parse it yet. */
+export function normalizedFaucetId(faucetId: string): string {
   try {
-    const normalized = getBech32AddressFromAccountId(accountIdStringToSdk(faucetId));
-    normalizedFaucetIds.set(key, normalized);
-    return normalized;
+    return canonicalFaucetId(faucetId);
   } catch {
     return faucetId;
   }
 }
 
 /**
- * The symbol to look a held token's price up under: a swap token's `priceSymbol` (IETH at ETH),
- * matched by faucet in either id encoding as the swap picker matches balances, else its own symbol.
+ * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it
+ * under: the swap registry's priced tokens (IETH at ETH, IBTC at BTC), and the Earn collateral USDC and
+ * the Agglayer-bridged ETH the bridge config names. Identity comes from the faucet id, never from the
+ * symbol a faucet gives itself, which anyone minting a token can set (#1131).
  */
-export function priceSymbolFor(faucetId: string, symbol: string): string {
-  const swapToken = getSwapTokens().find(
-    token => token.faucetId === faucetId || normalizedFaucetId(token.faucetId) === faucetId
-  );
-  return swapToken?.priceSymbol ?? symbol;
+function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
+  const nativeId = getNativeAssetIdSync();
+  const metadata = getNativeAssetMetadataSync();
+  const syncedId = !metadata || metadata.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
+  const fixedNative =
+    nativeId && syncedId && normalizedFaucetId(nativeId) === normalizedFaucetId(syncedId)
+      ? [{ faucetId: nativeId, priceSymbol: 'USDCX' }]
+      : [];
+  return [
+    ...fixedNative,
+    ...getSwapTokens().flatMap(token =>
+      token.priceSymbol ? [{ faucetId: token.faucetId, priceSymbol: token.priceSymbol }] : []
+    ),
+    ...bridgePriceAllowlist()
+  ];
+}
+
+function matchPriceSymbol(
+  canonicalId: string,
+  symbol: string,
+  canonicalize: (faucetId: string) => string
+): string | undefined {
+  const priced = pricedFaucets().find(entry => canonicalize(entry.faucetId) === canonicalId);
+  if (priced) return priced.priceSymbol;
+  return isE2eFixtureSymbol(symbol) ? symbol : undefined;
 }
 
 /**
- * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it.
- * Without a faucet id the token's own symbol is looked up.
+ * The symbol to look a held token's price up under, when the faucet and an allowlist entry reduce to
+ * one canonical id, whichever encoding each is spelled in; none for any other faucet, whatever its
+ * own symbol. The one exception is the E2E harness's fixture symbol, priced by symbol in E2E builds
+ * only. For display: an id the SDK cannot parse is compared as its raw text.
+ */
+export function priceSymbolFor(faucetId: string, symbol: string): string | undefined {
+  return matchPriceSymbol(normalizedFaucetId(faucetId), symbol, normalizedFaucetId);
+}
+
+/**
+ * `priceSymbolFor` for the spending cap, over any spelling of the spend's faucet id. The spend's id
+ * and every allowlist entry are canonicalized when it runs, under one network, so an id canonicalized
+ * before a network switch still matches.
+ * Either side the SDK cannot parse throws rather than dropping out of the match, since its raw text
+ * would miss and count a priced spend as nothing.
+ */
+export function strictPriceSymbolFor(faucetId: string, symbol: string): string | undefined {
+  return matchPriceSymbol(canonicalFaucetId(faucetId), symbol, canonicalFaucetId);
+}
+
+/**
+ * The distinct price symbols the allowlist matches faucets against - read by a test to catch a
+ * registry token whose `priceSymbol` the feed does not quote before it ships; the spending cap
+ * would otherwise refuse every spend of that faucet, and display surfaces would show it no price
+ * (#1131).
+ */
+export function _allowlistedPriceSymbolsForTest(): string[] {
+  return [...new Set(pricedFaucets().map(entry => entry.priceSymbol))];
+}
+
+/**
+ * A held token's quote: its price symbol's (IETH at ETH), or none when the feed does not quote it or
+ * the faucet is not one the wallet prices. A token without a faucet id has no quote.
  */
 export function tokenQuote(
   prices: TokenPrices,
   faucetId: string | undefined,
   symbol: string
 ): TokenPriceInfo | undefined {
-  return quotedPrice(prices, faucetId ? priceSymbolFor(faucetId, symbol) : symbol);
+  return faucetId ? quotedPrice(prices, priceSymbolFor(faucetId, symbol)) : undefined;
 }
 
 /**
@@ -193,7 +264,7 @@ export interface SwapEta {
  */
 const SWAP_ETA_BASE_URL = 'https://35-175-40-181.sslip.io';
 
-/** Abort a quote request that hasn't responded within this window. */
+/** Abort a quote request whose response and body have not both arrived within this window. */
 const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;
 
 export async function getSwapEta(
@@ -209,20 +280,14 @@ export async function getSwapEta(
     requested_amount: requestAmountRaw.toString()
   });
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SWAP_ETA_FETCH_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!res.ok) {
-    throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
-  }
-  const json: SwapEta = await res.json();
-  return json;
+  return withRequestTimeout(SWAP_ETA_FETCH_TIMEOUT_MS, async signal => {
+    const res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal });
+    if (!res.ok) {
+      throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
+    }
+    const json: SwapEta = await res.json();
+    return json;
+  });
 }
 
 /**

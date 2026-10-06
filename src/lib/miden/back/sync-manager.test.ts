@@ -49,7 +49,19 @@ jest.mock('lib/i18n', () => ({
 
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (input: any) =>
-    typeof input === 'string' ? input : input && typeof input.toString === 'function' ? input.toString() : 'bech32-stub'
+    typeof input === 'string'
+      ? input
+      : input && typeof input.toString === 'function'
+        ? input.toString()
+        : 'bech32-stub',
+  // Mirrors the real helper: an account id may carry a `_<suffix>` the other spelling lacks.
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
+}));
+
+// The worker store's account list, which the native pass reads for a rotation-pending account (#805).
+let mockStoreAccounts: Array<{ publicKey: string; requiresHotKeyRotation?: boolean }> = [];
+jest.mock('./store', () => ({
+  store: { getState: () => ({ accounts: mockStoreAccounts }) }
 }));
 
 const mockMarkConnectivityIssue = jest.fn();
@@ -146,6 +158,7 @@ jest.mock('lib/settings/helpers', () => ({
 let mockBaseFee: number | null = 0;
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetId: () => mockGetFaucetIdSetting(),
   getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
@@ -163,16 +176,17 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   return { ...actual, getEffectiveRpcUrl: () => mockRpcUrl ?? actual.getEffectiveRpcUrl() };
 });
 
+let mockLegacyFeeIdentity: string | undefined;
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
 jest.mock('../assets', () => ({
   ...jest.requireActual('../assets'),
-  getFaucetIdSetting: () => mockGetFaucetIdSetting()
+  getFaucetIdSetting: () =>
+    mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
 }));
 
 const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
 const mockInitiateConsumeBatch = jest.fn((..._args: any[]) => Promise.resolve('consume-batch-tx'));
 jest.mock('../transaction/initiate', () => ({
-  ...jest.requireActual('../transaction/initiate'),
   initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
   // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
   // temporal-dead-zone error because requireActual('../assets') transitively loads this
@@ -181,8 +195,11 @@ jest.mock('../transaction/initiate', () => ({
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsume(...args)
 }));
 
+// The unconfirmed reconciler (#1081) owns its own suite; here only whether the lap fires it.
+const mockReconcile = jest.fn(async () => {});
 jest.mock('./transaction-processor', () => ({
-  startTransactionProcessing: jest.fn(async () => {})
+  startTransactionProcessing: jest.fn(async () => {}),
+  reconcileUnconfirmedInWorker: () => mockReconcile()
 }));
 
 // The private-note delivery sweep rides on every sync tick. Mocked here (it owns a
@@ -194,16 +211,23 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
   sweepNoteDeliveries: () => mockSweepNoteDeliveries()
 }));
 
+const mockTrimResultBytes = jest.fn(async () => 0);
+jest.mock('../transaction/trim-result-bytes', () => ({
+  runTrimTick: () => mockTrimResultBytes()
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 
+import * as Repo from 'lib/miden/repo';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS
 } from 'lib/miden/sync-backoff';
-import { WalletMessageType } from 'lib/shared/types';
+import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
+import { ITransactionStatus } from '../db/types';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Helper: build a fake consumable note WASM record
@@ -259,6 +283,7 @@ beforeEach(() => {
   mockIsDelegateProofAsync.mockResolvedValue(true);
   mockGetFaucetIdSetting.mockResolvedValue(null);
   mockInitiateConsume.mockResolvedValue('consume-tx');
+  mockStoreAccounts = [];
 });
 
 describe('computeSyncBackoffMs (gap 14 — exponential backoff + jitter)', () => {
@@ -548,6 +573,21 @@ describe('doSync', () => {
     mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
     await doSync();
     expect(mockSweepNoteDeliveries).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
+  });
+
+  it('fires the unconfirmed reconciler after a successful lap only, never after a failed or evicted one (#1081)', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockReconcile.mockClear();
+    await doSync();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
+    await doSync();
+    mockClient.syncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    await doSync();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
     jest.restoreAllMocks();
   });
 
@@ -984,6 +1024,19 @@ describe('doSync — note metadata branches', () => {
     expect(mockStorageSet).toHaveBeenCalled();
   });
 
+  it('carries whether each note is a standard payment into the list it writes (#805)', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      { ...fakeNote({ id: 'standard' }), standardPayment: true },
+      { ...fakeNote({ id: 'custom' }), standardPayment: false }
+    ]);
+    await doSync();
+    const written: SyncData = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+    expect(written.notes.map(note => [note.id, note.standardPayment])).toEqual([
+      ['standard', true],
+      ['custom', false]
+    ]);
+  });
+
   it('stamps each sync it writes, so readers can tell a live result from an old snapshot', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
     const before = Date.now();
@@ -1342,6 +1395,55 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
+  it('leaves a note whose claim is held while the node decides out of the value check (#1081)', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 10000;
+    const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+    // Real Dexie: an Unconfirmed consume with an unjudged, provable entry holds its note (`holdsNotes`).
+    await Repo.transactions.put({
+      id: 'held-claim',
+      accountId: 'pk-1',
+      type: 'consume',
+      status: ITransactionStatus.Unconfirmed,
+      initiatedAt: 1,
+      displayIcon: 'RECEIVE',
+      noteId: 'held',
+      noteIds: ['held'],
+      submitEvidence: [
+        {
+          attemptId: 'a1',
+          capturedAt: Math.floor(Date.now() / 1000),
+          source: 'stage',
+          transactionId: hex(1),
+          initialCommitment: hex(2),
+          finalCommitment: hex(3),
+          initialNonce: '1',
+          outputNoteIds: [],
+          nullifiers: [hex(4)],
+          refBlock: 10,
+          refBlockCommitment: hex(5)
+        }
+      ]
+    });
+    try {
+      // Counted, the held note's value would carry the dust past the fee, and the dedup would then claim the
+      // dust alone for a full fee.
+      mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+        fakeNote({ id: 'held', faucetId: 'native-faucet', amount: String(10000 * 50) }),
+        fakeNote({ id: 'dust', faucetId: 'native-faucet', amount: '1' })
+      ]);
+
+      await doSync();
+
+      expect(mockGetFaucetIdSetting).toHaveBeenCalled();
+      expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+    } finally {
+      await Repo.transactions.clear();
+    }
+  });
+
   it('auto-consumes a backlog of individually-marginal native notes in one transaction', async () => {
     // Judged per note these were ALL refused; together they are comfortably worth one
     // transaction, which is what the wallet actually pays for.
@@ -1359,6 +1461,20 @@ describe('doSync — native-note auto-consume', () => {
 
     expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
     expect(mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).toHaveLength(20);
+  });
+
+  it('fee identity: service worker auto-consumes actual native A instead of legacy B', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 7;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'actual-note', faucetId: 'native-faucet', amount: '1000000' }),
+      fakeNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '1000000' })
+    ]);
+    await doSync();
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'actual-note' })]);
   });
 
   it('auto-consumes native notes in ONE transaction, following the user delegated-proving setting', async () => {
@@ -1380,6 +1496,50 @@ describe('doSync — native-note auto-consume', () => {
     expect((call[1] as { id: string }[]).map(n => n.id).sort()).toEqual(['native-a', 'native-b']);
     expect(call[0]).toBe('pk-1');
     expect(call[2]).toBe(false); // delegate follows the user setting
+  });
+
+  it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockStoreAccounts = [{ publicKey: 'pk-1', requiresHotKeyRotation: true }];
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockStorageSet).toHaveBeenCalled();
+  });
+
+  it('matches the worker store account however its id is spelled', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockStoreAccounts = [{ publicKey: 'pk-1_suffix', requiresHotKeyRotation: true }];
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('still claims for an account the worker store lists without the rotation flag', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockStoreAccounts = [
+      { publicKey: 'pk-1', requiresHotKeyRotation: false },
+      { publicKey: 'pk-other', requiresHotKeyRotation: true }
+    ];
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'native-note', faucetId: 'native-faucet' })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
   });
 
   it('does not auto-consume when the toggle is off', async () => {
@@ -1451,4 +1611,33 @@ describe('doSync — native-note auto-consume', () => {
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockInitiateConsumeBatch).toHaveBeenCalled(); // the rejecting path WAS exercised
   });
+});
+
+describe('doSync drives the resultBytes reaper', () => {
+  // The extension's only periodic driver for the reaper is this one, so it must reach the reaper
+  // even on the laps where it does no network work at all.
+  beforeEach(() => {
+    mockTrimResultBytes.mockClear();
+  });
+
+  it('runs the reaper on a normal lap', async () => {
+    await doSync();
+
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+  });
+
+  it('runs the reaper even when the lap is short-circuited before any sync work', async () => {
+    // doSync coalesces onto an in-flight pass and returns early; the reaper is pure local Dexie
+    // maintenance and must not be gated behind that, or an extension whose node is unreachable
+    // would never reclaim a byte.
+    const first = doSync();
+    const second = doSync();
+    await Promise.all([first, second]);
+
+    expect(mockTrimResultBytes).toHaveBeenCalledTimes(2);
+  });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

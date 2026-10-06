@@ -1,4 +1,5 @@
 import { ITransactionStatus, Transaction } from '../db/types';
+import { hasErrorBeforeSubmit } from '../sdk/sdk-error-code';
 import { queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { NoteTypeEnum } from '../types';
@@ -24,6 +25,7 @@ import {
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
   failInterruptedTransactions,
+  SESSION_STARTED_AT,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
   MAX_QUEUED_AGE,
@@ -31,7 +33,12 @@ import {
   REMOTE_PROVER_TIMEOUT_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
   RETRY_COOLDOWN_SEC,
-  MAX_RETRY_BACKOFF_SEC
+  MAX_RETRY_BACKOFF_SEC,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  INVALID_NOTE_ERROR
 } from './index';
 
 jest.mock('../spending-limits/queue', () => ({
@@ -196,7 +203,9 @@ describe('transactions utilities', () => {
 
       mockTransactionsFilter
         .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(completedTxs) })
-        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(failedTxs) });
+        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce(failedTxs) })
+        // The Unconfirmed read (#1081).
+        .mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([]) });
 
       const result = await getCompletedTransactions('acc-1', undefined, undefined, true);
 
@@ -232,9 +241,11 @@ describe('transactions utilities', () => {
       mockTransactionsWhere
         // 1) cancelTransactionById's own lookup
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
-        // 2) cancelTransaction's finalized-guard lookup (non-finalized → falls through)
+        // 2) recordOutOfBandEnd's guarded write, before the cancel (#1081)
+        .mockReturnValueOnce({ modify: jest.fn() })
+        // 3) cancelTransaction's finalized-guard lookup (non-finalized → falls through)
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(undefined) })
-        // 3) cancelTransaction's actual .modify()
+        // 4) cancelTransaction's actual .modify()
         .mockReturnValueOnce({ modify: mockModify });
 
       await cancelTransactionById('tx-1', 'Test cancellation');
@@ -303,6 +314,38 @@ describe('transactions utilities', () => {
       // else can catch that: the clone equals the row, so every field assertion
       // above passes either way.
       expect(mockModify.mock.results[0]?.value).toBe(false);
+    });
+
+    // At stage 'proving' the classifier rewrites any string error into prover copy
+    // ("Local/Remote proving failed") and moves the real reason to rawError. A
+    // reason the wallet wrote itself must be stored exactly as written instead,
+    // whether it is a final reason (invalid note) or an unconfirmed one (stuck,
+    // interrupted, force-cancelled), since the row's stage says nothing about why
+    // the wallet itself gave up on it.
+    it.each([
+      TRANSACTION_STUCK_ERROR,
+      INVALID_NOTE_ERROR,
+      TRANSACTION_INTERRUPTED_ERROR,
+      TRANSACTION_EXPIRED_ERROR,
+      TRANSACTION_FORCE_CANCELLED_ERROR
+    ])('stores %p on a consume row at stage proving exactly as written, with no rawError', async reason => {
+      const dbTx: Record<string, unknown> = {};
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn(dbTx));
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          first: jest.fn().mockResolvedValueOnce({
+            id: 'tx-1',
+            type: 'consume',
+            status: ITransactionStatus.GeneratingTransaction,
+            stage: 'proving'
+          })
+        })
+        .mockReturnValueOnce({ modify: mockModify });
+
+      await cancelTransaction({ id: 'tx-1', type: 'consume' } as Transaction, reason);
+
+      expect(dbTx.error).toBe(reason);
+      expect(dbTx.rawError).toBeUndefined();
     });
   });
 
@@ -402,7 +445,11 @@ describe('transactions utilities', () => {
       );
     });
 
-    it('refuses to overwrite a row that went terminal between the read and the write', async () => {
+    it.each<[string, Record<string, unknown>]>([
+      ['Failed', { status: ITransactionStatus.Failed, error: 'Transaction expired', displayIcon: 'FAILED' }],
+      // Its pipeline has stopped and only the reconciler's writers move it (#1081).
+      ['Unconfirmed', { status: ITransactionStatus.Unconfirmed, stage: 'sending' }]
+    ])('refuses to overwrite a row that went %s between the read and the write', async (_label, landed) => {
       // The read above and the write below are separate Dexie transactions, and
       // the terminal writer is no longer always inside the loop lock: the requeue
       // wake's ceiling can fail a stale row from outside it. Lose that race
@@ -415,9 +462,7 @@ describe('transactions utilities', () => {
       let callbackResult: unknown;
       mockTransactionsWhere.mockReturnValueOnce({
         modify: jest.fn(async (cb: (t: Record<string, unknown>) => unknown) => {
-          row.status = ITransactionStatus.Failed;
-          row.error = 'Transaction expired';
-          row.displayIcon = 'FAILED';
+          Object.assign(row, landed);
           callbackResult = cb(row);
         })
       });
@@ -425,8 +470,7 @@ describe('transactions utilities', () => {
       await expect(updateTransactionStatus('tx-1', ITransactionStatus.Completed, {})).rejects.toThrow(
         'Transaction already in a finalized state'
       );
-      expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.displayIcon).toBe('FAILED');
+      expect(row).toEqual({ id: 'tx-1', ...landed });
       // `false`, not a bare `return`: Dexie only skips the put on that exact
       // value, so a bare return would re-put the clone and fire a `liveQuery`
       // event for a write that changed nothing. Invisible in the field
@@ -605,6 +649,7 @@ describe('transactions utilities', () => {
         true,
         undefined,
         authorization,
+        undefined,
         burn
       );
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
@@ -631,6 +676,31 @@ describe('transactions utilities', () => {
         )
       ).rejects.toThrow('persisted request and note id');
       expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
+    });
+
+    it('stores the Agglayer exit hash on the bridged-send row it queues (#1325)', async () => {
+      await initiateBridgedSendTransaction(
+        'account-a',
+        10n,
+        'faucet-a',
+        '0xrecipient',
+        0,
+        'agglayer',
+        new Uint8Array([1]),
+        true,
+        undefined,
+        undefined,
+        '0xexit'
+      );
+
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'bridged-send',
+          extraInputs: expect.objectContaining({ claimStatus: 'pending', agglayerExitTxHash: '0xexit' })
+        }),
+        [{ faucetId: 'faucet-a', amount: 10n }],
+        undefined
+      );
     });
 
     it('routes Earn deposit through the atomic outgoing queue with its authorization', async () => {
@@ -855,7 +925,8 @@ describe('transactions utilities', () => {
       });
       const rowRef: Record<string, unknown> = {
         nextEligibleAt: Math.floor(Date.now() / 1000) + 300,
-        unauthorizedRetryUntil: Math.floor(Date.now() / 1000) - 60
+        unauthorizedRetryUntil: Math.floor(Date.now() / 1000) - 60,
+        requeueStreak: { arm: 'guardian-rate-limited', count: 2 }
       };
       const backedOff = {
         id: 'backed-off-tx',
@@ -879,6 +950,8 @@ describe('transactions utilities', () => {
       // while it sat here would otherwise get no automatic attempt at all on the
       // retry the user just asked for.
       expect(rowRef.unauthorizedRetryUntil).toBeUndefined();
+      // Or the guardian backoff, so the tapped row's next requeue waits its arm's base cooldown (#1223).
+      expect(rowRef.requeueStreak).toBeUndefined();
     });
 
     it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {
@@ -1150,6 +1223,11 @@ describe('transactions utilities', () => {
     });
   });
 
+  // Dexie skips the put when a modify callback returns `false`, which is how the out-of-band end's write (#1081)
+  // declines a row with no attempt, so these sweeps count the writes that applied rather than the calls.
+  const appliedWrites = (modify: jest.Mock): number =>
+    modify.mock.results.filter(result => result.value !== false).length;
+
   describe('cancelStuckTransactions', () => {
     it('cancels transactions that exceed MAX_WAIT_BEFORE_CANCEL', async () => {
       const nowInSeconds = Math.floor(Date.now() / 1000);
@@ -1170,13 +1248,13 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([stuckTx, recentTx])
       });
 
-      const mockModify = jest.fn();
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn({}));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
       // Should only cancel the stuck transaction
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
     });
 
     it('does nothing when no transactions are stuck', async () => {
@@ -1201,19 +1279,52 @@ describe('transactions utilities', () => {
         toArray: jest.fn().mockResolvedValueOnce([crashedTx])
       });
 
-      const mockModify = jest.fn();
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn({}));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
+    });
+
+    /** Runs cancelStuckTransactions against one send row stamped a second beyond the threshold ahead of a pinned clock; returns the row as written. */
+    async function reapFarFutureSend(id: string, nowSeconds: number) {
+      const row = {
+        id,
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: nowSeconds - 10,
+        processingStartedAt: nowSeconds + MAX_WAIT_BEFORE_CANCEL + 1
+      };
+      const dbTx: Record<string, unknown> = { ...row };
+      mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([row]) });
+      mockTransactionsWhere.mockReturnValue({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: Record<string, unknown>) => unknown) => fn(dbTx))
+      });
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(nowSeconds * 1000);
+      try {
+        await cancelStuckTransactions();
+      } finally {
+        nowSpy.mockRestore();
+      }
+      return { row, dbTx };
+    }
+
+    it('leaves a far-future row untouched, whoever started it (#1202)', async () => {
+      // The reaper keeps main's signed rule: a stamp ahead of the clock is never reaped here.
+      // Only the cold-start sweep fails such a row (failInterruptedTransactions).
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const { row, dbTx } = await reapFarFutureSend('far-future-not-started-here', nowSeconds);
+
+      expect(dbTx).toEqual(row);
     });
   });
 
   describe('failInterruptedTransactions', () => {
     it('leaves a freshly-orphaned send untouched under cancelStuckTransactions (documents the #282 gap)', async () => {
       // A private send orphaned when the browser closed mid-prove has
-      // processingStartedAt set to "now" (stamped atomically at
+      // processingStartedAt set just before this session started (stamped atomically at
       // generateTransaction). The 30-min gate means the reaper does nothing,
       // so the row sits on "Sending" with no feedback until it finally ages out.
       const nowSec = Math.floor(Date.now() / 1000);
@@ -1223,7 +1334,7 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.GeneratingTransaction,
         stage: 'sending',
         initiatedAt: nowSec - 5,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
@@ -1245,19 +1356,19 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.GeneratingTransaction,
         stage: 'sending',
         initiatedAt: nowSec - 5,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
         toArray: jest.fn().mockResolvedValueOnce([orphan])
       });
       const dbTx: any = { transactionId: 'preexisting-should-not-be-touched' };
-      const mockModify = jest.fn(async (fn: (t: any) => void) => fn(dbTx));
+      const mockModify = jest.fn((fn: (t: any) => unknown) => fn(dbTx));
       mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await failInterruptedTransactions();
 
-      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(1);
       expect(dbTx.status).toBe(ITransactionStatus.Failed);
       expect(dbTx.displayMessage).toMatch(/interrupted/i);
       // We do NOT resubmit, so cancelTransaction must not stamp or alter an on-chain tx id.
@@ -1283,7 +1394,7 @@ describe('transactions utilities', () => {
         type: 'send',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: nowSec - 1,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
       const queued = { id: 'queued', type: 'send', status: ITransactionStatus.Queued, initiatedAt: nowSec - 2 };
       const completed = { id: 'done', type: 'send', status: ITransactionStatus.Completed, initiatedAt: nowSec - 3 };
@@ -1297,15 +1408,82 @@ describe('transactions utilities', () => {
       const modifiedIds: string[] = [];
       mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
         first: jest.fn().mockResolvedValue(undefined),
-        modify: jest.fn(async (fn: (t: any) => void) => {
-          modifiedIds.push(id);
-          fn({});
+        modify: jest.fn(async (fn: (t: any) => unknown) => {
+          if (fn({}) !== false) modifiedIds.push(id);
         })
       }));
 
       await failInterruptedTransactions();
 
       expect(modifiedIds).toEqual(['gen']);
+    });
+
+    it('fails the rows an earlier process left and spares every row this session started (#1202)', async () => {
+      const base = {
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: SESSION_STARTED_AT - 10
+      };
+      const rows = [
+        { ...base, id: 'orphan', processingStartedAt: SESSION_STARTED_AT - 1 },
+        { ...base, id: 'legacy' },
+        { ...base, id: 'same-second', processingStartedAt: SESSION_STARTED_AT },
+        { ...base, id: 'started-this-session', processingStartedAt: SESSION_STARTED_AT + 30 },
+        { ...base, id: 'at-threshold', processingStartedAt: SESSION_STARTED_AT + 60 + MAX_WAIT_BEFORE_CANCEL },
+        { ...base, id: 'past-threshold', processingStartedAt: SESSION_STARTED_AT + 61 + MAX_WAIT_BEFORE_CANCEL },
+        { ...base, id: 'far-future', processingStartedAt: SESSION_STARTED_AT + 60 + MAX_WAIT_BEFORE_CANCEL + 3600 }
+      ];
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn().mockResolvedValueOnce(rows.filter(pred))
+      }));
+      const modifiedIds: string[] = [];
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: any) => unknown) => {
+          if (fn({}) !== false) modifiedIds.push(id);
+        })
+      }));
+      // The cutoff is when the module loaded, not when the sweep runs.
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT + 60) * 1000);
+      try {
+        await failInterruptedTransactions();
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(modifiedIds.sort()).toEqual(['far-future', 'legacy', 'orphan', 'past-threshold']);
+    });
+
+    it('bounds a future stamp by the clock read after the table read (#1202)', async () => {
+      const row = {
+        id: 'stamped-during-read',
+        type: 'send',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: SESSION_STARTED_AT - 10,
+        processingStartedAt: SESSION_STARTED_AT + 61 + MAX_WAIT_BEFORE_CANCEL
+      };
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue((SESSION_STARTED_AT + 60) * 1000);
+      mockTransactionsFilter.mockImplementationOnce((pred: (t: any) => boolean) => ({
+        toArray: jest.fn(async () => {
+          nowSpy.mockReturnValue((SESSION_STARTED_AT + 61) * 1000);
+          return [row].filter(pred);
+        })
+      }));
+      const modifiedIds: string[] = [];
+      mockTransactionsWhere.mockImplementation(({ id }: { id: string }) => ({
+        first: jest.fn().mockResolvedValue(undefined),
+        modify: jest.fn(async (fn: (t: any) => void) => {
+          modifiedIds.push(id);
+          fn({});
+        })
+      }));
+      try {
+        await failInterruptedTransactions();
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      expect(modifiedIds).toEqual([]);
     });
 
     it('leaves a row that completed between the snapshot and the sweep untouched (finalized guard)', async () => {
@@ -1315,10 +1493,11 @@ describe('transactions utilities', () => {
         type: 'send',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: nowSec - 1,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
       mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([gen]) });
-      const mockModify = jest.fn();
+      const raced: Record<string, unknown> = { id: 'raced', status: ITransactionStatus.Completed };
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn(raced));
       // The row was marked Completed after the snapshot → cancelTransaction's finalized
       // guard must block the downgrade so the on-chain-landed tx isn't flipped to Failed.
       mockTransactionsWhere.mockReturnValue({
@@ -1328,7 +1507,10 @@ describe('transactions utilities', () => {
 
       await failInterruptedTransactions();
 
-      expect(mockModify).not.toHaveBeenCalled();
+      // Only the out-of-band end's write runs, and declines: the cancel stops at its read (#1081).
+      expect(mockModify).toHaveBeenCalledTimes(1);
+      expect(appliedWrites(mockModify)).toBe(0);
+      expect(raced).toEqual({ id: 'raced', status: ITransactionStatus.Completed });
     });
 
     it('keeps the interrupted error (not a prover-failure) for a tx interrupted mid-prove', async () => {
@@ -1341,7 +1523,7 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.GeneratingTransaction,
         stage: 'proving',
         initiatedAt: nowSec - 1,
-        processingStartedAt: nowSec
+        processingStartedAt: SESSION_STARTED_AT - 1
       };
       mockTransactionsFilter.mockReturnValueOnce({ toArray: jest.fn().mockResolvedValueOnce([orphan]) });
       const dbTx: any = {};
@@ -1564,6 +1746,97 @@ describe('transactions utilities', () => {
       expect(syncIdx).toBeGreaterThanOrEqual(0);
       expect(syncIdx).toBeLessThan(lastStatusIdx);
       expect(mockSyncState).toHaveBeenCalled();
+    });
+
+    describe('the in-realm submit crossing (#1081)', () => {
+      const guardianProvider = {
+        getAccounts: async () => [],
+        getPublicKeyForCommitment: async () => '',
+        signWord: async () => ''
+      };
+      const send = {
+        id: 'tx-cross',
+        type: 'send',
+        accountId: 'acc-1',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: BigInt(1),
+        delegateTransaction: true
+      };
+
+      // A stored row whose write fails when `fails` says so, and an in-realm leaf that stamps each stage before its
+      // submit the way the interface does, passing `submitting` as its 'submitting' detail.
+      const arrange = (fails: (draft: Record<string, unknown>, stored: Record<string, unknown>) => boolean) => {
+        const stored: Record<string, unknown> = { ...send, status: ITransactionStatus.Queued };
+        mockTransactionsWhere.mockReturnValue({
+          first: jest.fn(async () => stored),
+          modify: jest.fn(async (fn: (draft: Record<string, unknown>) => unknown) => {
+            const stamps = stored.stageTimestamps;
+            const draft = { ...stored, ...(typeof stamps === 'object' ? { stageTimestamps: { ...stamps } } : {}) };
+            if (fn(draft) === false) return;
+            if (fails(draft, stored)) throw new Error('QuotaExceededError');
+            Object.assign(stored, draft);
+          })
+        });
+        const submit = jest.fn();
+        const leaf = (submitting: { reliable?: boolean }) =>
+          mockGetMidenClient.mockResolvedValue({
+            syncState: mockSyncState,
+            sendTransaction: jest.fn(
+              async (_tx: unknown, onStage?: (stage: string, detail?: object) => Promise<void>) => {
+                await onStage?.('executing');
+                await onStage?.('proving');
+                await onStage?.('submitting', submitting);
+                submit();
+                throw new Error('stopped after the submit');
+              }
+            )
+          });
+        return { stored, submit, leaf };
+      };
+      const run = () =>
+        generateTransaction({ ...send } as never, jest.fn(), false, guardianProvider).catch((error: unknown) => error);
+
+      it('an in-realm send whose crossing write rejects never calls submit and fails pre-submit', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { stored, submit, leaf } = arrange(
+          (draft, before) => draft.mayHaveSubmitted === true && before.mayHaveSubmitted !== true
+        );
+        leaf({});
+
+        const error = await run();
+
+        expect(submit).not.toHaveBeenCalled();
+        expect(hasErrorBeforeSubmit(error)).toBe(true);
+        expect(stored.mayHaveSubmitted).toBeUndefined();
+        warn.mockRestore();
+      });
+
+      it("a failed 'proving' stamp still continues to the submit", async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { stored, submit, leaf } = arrange(draft => draft.stage === 'proving');
+        leaf({});
+
+        await run();
+
+        expect(submit).toHaveBeenCalledTimes(1);
+        expect(stored.stageTimestamps).not.toHaveProperty('proving');
+        expect(stored.mayHaveSubmitted).toBe(true);
+        warn.mockRestore();
+      });
+
+      it("a replayed 'submitting' stamp whose crossing write rejects still continues to the submit", async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const { submit, leaf } = arrange(
+          (draft, before) => draft.mayHaveSubmitted === true && before.mayHaveSubmitted !== true
+        );
+        leaf({ reliable: false });
+
+        await run();
+
+        expect(submit).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+      });
     });
   });
 });
@@ -1855,7 +2128,9 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       initiatedAt: Date.now(),
       displayIcon: 'DEFAULT',
       displayMessage: 'Executing',
-      requestBytes: new Uint8Array([6])
+      requestBytes: new Uint8Array([6]),
+      // A guardian streak from earlier requeues: this one is the locked arm's, so it ends the streak (#1223).
+      requeueStreak: { arm: 'guardian-unreachable', count: 2 }
     });
 
     const result6 = await generateTransactionsLoop(signCallback, false, guardianProvider);
@@ -1869,6 +2144,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx6.stageTimestamps).toBeUndefined();
     expect(tx6.nextEligibleAt).toBeGreaterThanOrEqual(lockedRequeueStartedAt + 15);
     expect(tx6.nextEligibleAt).toBeLessThanOrEqual(lockedRequeueFinishedAt + 15);
+    expect(tx6.requeueStreak).toBeUndefined();
     expect(mockCancelTransactionAfterPipelineStopped).toHaveBeenCalledTimes(2);
 
     // ---- Phase 7: a PERMANENT node rejection is not deferred ----

@@ -5,7 +5,7 @@ import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { springs, useMotion } from 'lib/animation';
+import { useSettleLayoutTransition } from 'app/layouts/page-active';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
@@ -33,6 +33,11 @@ export interface ActivityRowProps {
     /** Token symbol, rendered in the neutral heading color next to the value. */
     symbol?: string;
     direction?: ActivityAmountDirection;
+    /**
+     * The value is already a display string from `formatMoneyAmount`, so it is shown as given
+     * instead of re-rounded to three decimals (which would turn an Earn withdrawal's 0.0012 into 0.001).
+     */
+    preformatted?: boolean;
     /**
      * Further assets appended inline after the first, comma-separated and in the
      * same colour — a batch claim of several tokens reads "+20 A, +10 B". Each
@@ -123,7 +128,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   // comes to rest with no overshoot. Under reduced motion `useMotion`
   // collapses it to an instant tween, so a filter change still swaps the
   // list, only without the movement.
-  const transition = useMotion(springs.settle);
+  const transition = useSettleLayoutTransition();
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
@@ -184,7 +189,9 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         {amount && (
           <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
             {amount.value !== '' && (
-              <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
+              <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>
+                {amount.preformatted ? amount.value : formatDisplayAmount(amount.value)}
+              </span>
             )}
             {amount.symbol ? (
               <span className="text-ink">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>

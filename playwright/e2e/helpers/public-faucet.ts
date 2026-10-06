@@ -41,13 +41,22 @@ export function publicFaucetApiUrl(network: string): string | undefined {
   return FAUCET_API_BY_NETWORK[network];
 }
 
-async function faucetFetch(url: string): Promise<Response> {
+/**
+ * Fetches `url` and runs `read` on the response inside one bound, as the app's faucetFetch does: the timer runs
+ * through the body read and aborts with a TimeoutError naming the bound, and the request is aborted once `read`
+ * settles, which ends any body it left unread.
+ */
+async function faucetFetch<T>(url: string, read: (response: Response) => Promise<T>): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(new DOMException(`Request timed out after ${FETCH_TIMEOUT_MS} ms`, 'TimeoutError')),
+    FETCH_TIMEOUT_MS
+  );
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await read(await fetch(url, { signal: controller.signal }));
   } finally {
     clearTimeout(timer);
+    controller.abort();
   }
 }
 
@@ -102,12 +111,36 @@ export async function solvePow(
 /** Grant attempts when the faucet answers 5xx; each starts from a fresh challenge. */
 const GRANT_ATTEMPTS = 3;
 const GRANT_RETRY_DELAY_MS = 5_000;
+/**
+ * Total time a grant may spend waiting out 429s. The faucet rate-limits a SHARED cooldown, not the
+ * target account: on the first run of the devnet suites on next, four parallel jobs each had their
+ * first grant for a brand-new account refused with "Account is rate limited for 25 more seconds".
+ */
+const RATE_LIMIT_BUDGET_MS = 180_000;
+/** Wait assumed when a 429 does not say how long. */
+const RATE_LIMIT_FALLBACK_MS = 30_000;
 
 /** The faucet failed on its own side (5xx), so the same grant can succeed on a later attempt. */
 class FaucetServerError extends Error {}
 
+/** The faucet refused for now (429) and said, or implied, when to come back. */
+class FaucetRateLimitedError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number
+  ) {
+    super(message);
+  }
+}
+
 async function failedResponse(label: string, response: Response): Promise<Error> {
-  const message = `${label} (${response.status}): ${await response.text()}`;
+  // The status decides whether a retry can help; a body that fails or stalls only loses the explanation.
+  const message = `${label} (${response.status}): ${await response.text().catch(() => '')}`;
+  if (response.status === 429) {
+    // "Account is rate limited for 25 more seconds." A second over, so the retry lands after it.
+    const seconds = message.match(/(\d+)\s+more\s+seconds?/i)?.[1];
+    return new FaucetRateLimitedError(message, seconds ? (Number(seconds) + 1) * 1000 : RATE_LIMIT_FALLBACK_MS);
+  }
   return response.status >= 500 ? new FaucetServerError(message) : new Error(message);
 }
 
@@ -116,13 +149,16 @@ async function requestGrant(
   accountId: string,
   amount: bigint
 ): Promise<{ txId: string; noteId: string }> {
-  const powResponse = await faucetFetch(
-    `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`
+  const { challenge, target } = await faucetFetch(
+    `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`,
+    async response => {
+      if (!response.ok) {
+        throw await failedResponse('Public faucet PoW request failed', response);
+      }
+      const json: { challenge: string; target: number } = await response.json();
+      return json;
+    }
   );
-  if (!powResponse.ok) {
-    throw await failedResponse('Public faucet PoW request failed', powResponse);
-  }
-  const { challenge, target } = (await powResponse.json()) as { challenge: string; target: number };
   const nonce = await solvePow(challenge, BigInt(target));
 
   const params = new URLSearchParams({
@@ -132,12 +168,13 @@ async function requestGrant(
     challenge,
     nonce: nonce.toString()
   });
-  const response = await faucetFetch(`${baseUrl}/get_tokens?${params}`);
-  if (!response.ok) {
-    throw await failedResponse('Public faucet mint failed', response);
-  }
-  const json = (await response.json()) as { tx_id: string; note_id: string };
-  return { txId: json.tx_id, noteId: json.note_id };
+  return faucetFetch(`${baseUrl}/get_tokens?${params}`, async response => {
+    if (!response.ok) {
+      throw await failedResponse('Public faucet mint failed', response);
+    }
+    const json: { tx_id: string; note_id: string } = await response.json();
+    return { txId: json.tx_id, noteId: json.note_id };
+  });
 }
 
 /**
@@ -147,20 +184,30 @@ async function requestGrant(
  *
  * A 5xx is the faucet's own failure (testnet answered `500 Internal error` and `502 Bad Gateway`
  * during incidents), so the grant is retried from a new challenge, which also avoids replaying one
- * that may have expired. A 4xx answers this request and fails at once.
+ * that may have expired. A 429 is waited out for as long as the faucet asks, within
+ * `RATE_LIMIT_BUDGET_MS`, and does not count against the 5xx attempts. Any other 4xx answers this
+ * request and fails at once.
  */
 export async function mintFromPublicFaucet(
   baseUrl: string,
   accountId: string,
   amount: bigint = PUBLIC_FAUCET_GRANT,
-  retryDelayMs: number = GRANT_RETRY_DELAY_MS
+  retryDelayMs: number = GRANT_RETRY_DELAY_MS,
+  sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
 ): Promise<{ txId: string; noteId: string }> {
-  for (let attempt = 1; ; attempt++) {
+  let serverFailures = 0;
+  let rateLimitedMs = 0;
+  for (;;) {
     try {
       return await requestGrant(baseUrl, accountId, amount);
     } catch (error) {
-      if (!(error instanceof FaucetServerError) || attempt >= GRANT_ATTEMPTS) throw error;
-      await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt));
+      if (error instanceof FaucetRateLimitedError && rateLimitedMs + error.retryAfterMs <= RATE_LIMIT_BUDGET_MS) {
+        rateLimitedMs += error.retryAfterMs;
+        await sleep(error.retryAfterMs);
+        continue;
+      }
+      if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) throw error;
+      await sleep(retryDelayMs * serverFailures);
     }
   }
 }

@@ -27,5 +27,8 @@ describe('ProviderLogo', () => {
     expect(container.querySelector('img')).toBeNull();
     // protocol.charAt(0) → 'C'
     expect(container.firstChild).toHaveTextContent('C');
+    // In ink, not inherited: inside a CardButton the initial would take the button's UA text colour,
+    // black on the dark theme's card.
+    expect(container.firstChild).toHaveClass('text-ink');
   });
 });

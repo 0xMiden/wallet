@@ -34,10 +34,15 @@ import {
 } from './cancel';
 import { markMayHaveSubmitted, setTransactionStage, updateTransactionStatus } from './helper';
 import { isUnverifiableSendRetryError, requeueFailedTransaction } from './retry';
+import {
+  notifyBackgroundTransactionFailed,
+  notifyBackgroundTransactionNotConfirmed
+} from '../back/background-notification';
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 
 jest.mock('../back/background-notification', () => ({
-  notifyBackgroundTransactionFailed: jest.fn()
+  notifyBackgroundTransactionFailed: jest.fn(),
+  notifyBackgroundTransactionNotConfirmed: jest.fn()
 }));
 
 jest.mock('../back/miden-client-proxy', () => ({
@@ -71,6 +76,7 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/mobile/background-time', () => ({
+  ...jest.requireActual('lib/mobile/background-time'),
   hiddenSecondsSince: () => globalThis.__testHiddenSeconds ?? 0
 }));
 
@@ -526,6 +532,9 @@ describe('the stuck reaper does not pin the request of a send it reaps for good'
     await markMayHaveSubmitted('reaped-submitted');
 
     await cancelStuckTransactions();
+    // A reaped row that may have landed is announced as not confirmed, not as failed (#1250).
+    expect(notifyBackgroundTransactionNotConfirmed).toHaveBeenCalledTimes(1);
+    expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
     await lapseMarker('reaped-submitted');
     await requeueFailedTransaction('reaped-submitted');
 
@@ -1028,7 +1037,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
 
     await expect(requeueFailedTransaction('reaped-later')).rejects.toThrow(/may already have reached the network/);
 
-    await requeueFailedTransaction('reaped-later', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('reaped-later', { acknowledged: { attemptId: null } });
     expect((await read('reaped-later')).status).toBe(ITransactionStatus.Queued);
   });
 
@@ -1048,7 +1057,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     expect(row.mayHaveSubmitted).toBe(true);
     expect(row.cancelledInFlightAt).toBeGreaterThan(0);
 
-    await expect(requeueFailedTransaction('poison-live', { acknowledgeUnverifiedSend: true })).rejects.toMatchObject({
+    await expect(requeueFailedTransaction('poison-live', { acknowledged: { attemptId: null } })).rejects.toMatchObject({
       name: 'UnverifiableSendRetryError'
     });
     // Refused means refused: the markers survive for the next attempt.
@@ -1068,7 +1077,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     });
 
     await expect(requeueFailedTransaction('poison-lapsed')).rejects.toThrow(/may already have reached the network/);
-    await requeueFailedTransaction('poison-lapsed', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('poison-lapsed', { acknowledged: { attemptId: null } });
     const after = await read('poison-lapsed');
     expect(after.status).toBe(ITransactionStatus.Queued);
     expect(after.mayHaveSubmitted).toBeUndefined();
@@ -1101,7 +1110,7 @@ describe('a refused send is not a dead end', () => {
   it('proceeds once the user confirms the send never arrived', async () => {
     await refused('ack-2');
 
-    await requeueFailedTransaction('ack-2', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('ack-2', { acknowledged: { attemptId: null } });
 
     expect((await read('ack-2')).status).toBe(ITransactionStatus.Queued);
   });
@@ -1118,7 +1127,7 @@ describe('a refused send is not a dead end', () => {
       r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - (MAX_WAIT_BEFORE_CANCEL + 60);
     });
 
-    await requeueFailedTransaction('ack-3', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('ack-3', { acknowledged: { attemptId: null } });
 
     const row = await read('ack-3');
     expect(row.mayHaveSubmitted).toBeUndefined();
@@ -1127,7 +1136,7 @@ describe('a refused send is not a dead end', () => {
 
   it('is retryable again after the acknowledged attempt fails once more', async () => {
     await refused('ack-4');
-    await requeueFailedTransaction('ack-4', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('ack-4', { acknowledged: { attemptId: null } });
     await Repo.transactions.where({ id: 'ack-4' }).modify(r => {
       r.status = ITransactionStatus.Failed;
       r.stage = 'sending';
@@ -1144,7 +1153,7 @@ describe('a refused send is not a dead end', () => {
     await refused('ack-5');
     mockVerifySendLanded.mockResolvedValue('landed');
 
-    await requeueFailedTransaction('ack-5', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('ack-5', { acknowledged: { attemptId: null } });
 
     expect((await read('ack-5')).status).toBe(ITransactionStatus.Completed);
   });
@@ -1152,7 +1161,7 @@ describe('a refused send is not a dead end', () => {
   it('does not make a non-retryable type retryable', async () => {
     await Repo.transactions.add(inFlightSend('ack-6', { type: 'earn-deposit', status: ITransactionStatus.Failed }));
 
-    await expect(requeueFailedTransaction('ack-6', { acknowledgeUnverifiedSend: true })).rejects.toThrow(
+    await expect(requeueFailedTransaction('ack-6', { acknowledged: { attemptId: null } })).rejects.toThrow(
       /not retryable/
     );
   });

@@ -1,10 +1,13 @@
 import React from 'react';
 
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react';
 import { SWRConfig } from 'swr';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import type { EarnPositionsResult } from 'lib/epoch';
 import { fetchEarnPositions, getEarnDepositEvmAddresses } from 'lib/epoch';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BridgeConfig } from 'lib/remote-config/schema';
 
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
@@ -19,6 +22,7 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 jest.mock('lib/epoch', () => ({
+  carryForward: jest.requireActual<typeof import('lib/epoch/positions')>('lib/epoch/positions').carryForward,
   fetchEarnPositions: jest.fn(),
   getEarnDepositEvmAddresses: jest.fn()
 }));
@@ -26,6 +30,66 @@ jest.mock('lib/epoch', () => ({
 jest.mock('lib/swr', () => ({
   useRetryableSWR: (...args: unknown[]) => mockUseRetryableSWR(...args)
 }));
+
+// The realm's getters find both values, so only a hook that names what its own snapshot lacks reports an error.
+jest.mock('lib/remote-config/values', () => {
+  const actual = jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values');
+  return {
+    ...actual,
+    getEpochPositionsUrl: () => 'https://positions.test',
+    getEarnMarket: () => ({
+      marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
+      underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+      chainId: 11155111
+    })
+  };
+});
+
+const POSITIONS_URL = 'https://positions.test';
+const MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+const READY_CONFIG: BridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  evm: { chainId: 11155111 },
+  agglayer: {},
+  epoch: {
+    positionsUrl: POSITIONS_URL,
+    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+    earnProtocol: 'dummy-lending'
+  },
+  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false }
+};
+const READY: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'ready',
+  config: READY_CONFIG,
+  derived: null,
+  lastFetch: null
+};
+const LOADING: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'loading',
+  config: null,
+  derived: null,
+  lastFetch: null
+};
+let mockConfigSnapshot = READY;
+const mockConfigListeners = new Set<() => void>();
+const publishConfig = (next: BridgeConfigSnapshot) => {
+  mockConfigSnapshot = next;
+  mockConfigListeners.forEach(listener => listener());
+};
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const subscribe = (listener: () => void) => {
+    mockConfigListeners.add(listener);
+    return () => {
+      mockConfigListeners.delete(listener);
+    };
+  };
+  return { useBridgeConfigSnapshot: () => useSyncExternalStore(subscribe, () => mockConfigSnapshot) };
+});
 
 const position = {
   owner: '0xabcdef',
@@ -65,6 +129,7 @@ describe('useEarnPositions', () => {
     jest.clearAllMocks();
     mockAccount.publicKey = 'miden-account';
     mockAccount.evmAddress = '0xABCDEF';
+    mockConfigSnapshot = READY;
   });
 
   it('maps live positions and vaults into display data', () => {
@@ -114,6 +179,21 @@ describe('useEarnPositions', () => {
 
     expect(result.current.loadError).toBe('owner unavailable');
     expect(result.current.error).toBe('owner unavailable');
+  });
+
+  it('reports a failed load only when every queried owner failed, whatever vaults it shows', () => {
+    const twoOwners = { ...liveResult, owners: ['0xabcdef', '0xother'] };
+    mockUseRetryableSWR.mockReturnValue({ data: twoOwners, isLoading: false });
+    const { result, rerender } = renderHook(() => useEarnPositions());
+
+    expect(result.current.loadError).toBeUndefined();
+
+    const bothFailed = [...liveResult.errors, { owner: '0xabcdef', error: 'positions request failed (429)' }];
+    mockUseRetryableSWR.mockReturnValue({ data: { ...twoOwners, errors: bothFailed }, isLoading: false });
+    rerender();
+
+    expect(result.current.vaults).toHaveLength(1);
+    expect(result.current.loadError).toBe('owner unavailable');
   });
 
   it('reports a request failure as both loadError and error', () => {
@@ -177,20 +257,32 @@ describe('useEarnPositions', () => {
 
     renderHook(() => useEarnPositions());
 
+    // The first render's, before the fetcher records a read. The mocked tests share SWR's default cache, and so the
+    // hook's record of it, so no later one may assume this key has none.
+    expect(receivedConfig).toEqual({
+      revalidateIfStale: true,
+      refreshInterval: 0,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 3_000,
+      shouldRetryOnError: false
+    });
     if (!loadPositions) throw new Error('positions fetcher was not registered');
     await loadPositions();
 
-    expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF']);
-    expect(receivedConfig).toEqual({
-      revalidateOnMount: true,
-      refreshInterval: 10_000,
-      dedupingInterval: 3_000
-    });
+    expect(receivedKey).toEqual(['earn-positions', 'miden-account', '0xABCDEF', POSITIONS_URL, MARKET_UID]);
     expect(getEarnDepositEvmAddresses).toHaveBeenCalledWith('miden-account');
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
       owners: ['0xabcdef', '0xhistorical']
     });
+
+    // A covered page holds a null key, not a paused one.
+    renderHook(() => useEarnPositions(), {
+      wrapper: ({ children }: { children: React.ReactNode }) =>
+        React.createElement(PageActiveContext.Provider, { value: false }, children)
+    });
+    expect(receivedKey).toBeNull();
   });
 
   it('uses only historical owners when the wallet has no derived EVM address', async () => {
@@ -211,6 +303,74 @@ describe('useEarnPositions', () => {
     expect(fetchEarnPositions).toHaveBeenCalledWith({
       accountId: 'miden-account',
       owners: ['0xhistorical']
+    });
+  });
+
+  describe('before the config names the positions host, with the real SWR', () => {
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(SWRConfig, { value: { provider: () => new Map(), dedupingInterval: 0 } }, children);
+
+    it('reads nothing and shows no error, then reads at once when the config lands', async () => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+      jest.mocked(fetchEarnPositions).mockImplementation(async () => {
+        if (!mockConfigSnapshot.config) throw new Error('The bridge config has no usable epoch.positionsUrl.');
+        return liveResult;
+      });
+      publishConfig(LOADING);
+      const { result } = renderHook(() => useEarnPositions(), { wrapper });
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
+      expect(fetchEarnPositions).not.toHaveBeenCalled();
+      expect(result.current.error).toBeUndefined();
+      expect(result.current.isLoading).toBe(true);
+
+      act(() => publishConfig(READY));
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    });
+
+    it.each<[string, BridgeConfig | null, string]>([
+      ['names no config', null, 'The bridge config has no usable epoch.positionsUrl.'],
+      [
+        'names no positions host',
+        { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: undefined } },
+        'The bridge config has no usable epoch.positionsUrl.'
+      ],
+      [
+        'names the positions host but no Earn market',
+        { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, earnProtocol: undefined } },
+        'The bridge config has no usable Earn market.'
+      ]
+    ])(
+      'settles at once as a failed load, reading nothing, when a loaded snapshot %s',
+      async (_case, config, message) => {
+        mockUseRetryableSWR.mockImplementation(realSWR);
+        publishConfig({ ...READY, config });
+        const { result } = renderHook(() => useEarnPositions(), { wrapper });
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(result.current.loadError).toBe(message);
+        expect(result.current.error).toBe(message);
+        expect(result.current.isLoading).toBe(false);
+        expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
+        expect(fetchEarnPositions).not.toHaveBeenCalled();
+      }
+    );
+
+    it('reads again at once when the config moves the positions host', async () => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result } = renderHook(() => useEarnPositions(), { wrapper });
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      const moved = { ...READY_CONFIG, epoch: { ...READY_CONFIG.epoch, positionsUrl: 'https://moved.test' } };
+      act(() => publishConfig({ ...READY, config: moved }));
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
     });
   });
 
@@ -238,6 +398,466 @@ describe('useEarnPositions', () => {
 
       expect(result.current.positions).toEqual([]);
       expect(result.current.vaults).toEqual([]);
+    });
+  });
+
+  describe('on and off screen, with the real SWR', () => {
+    type Earn = ReturnType<typeof useEarnPositions>;
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+
+    function Probe({ report }: { report: (earn: Earn) => void }) {
+      report(useEarnPositions());
+      return null;
+    }
+    const page = (onScreen: boolean, report: (earn: Earn) => void) =>
+      React.createElement(PageActiveContext.Provider, { value: onScreen }, React.createElement(Probe, { report }));
+
+    beforeEach(() => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+    });
+
+    it('retries on the page that is showing when a covered page of the same account mounted first', async () => {
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      // One cache for both, as the app's pages share one: the covered Earn pane under a slide earn page.
+      const cache = new Map();
+      let showing: Earn | undefined;
+      await act(async () => {
+        render(
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            page(false, () => undefined),
+            page(true, earn => (showing = earn))
+          )
+        );
+      });
+      await waitFor(() => expect(showing?.loadError).toBe('lookup down'));
+      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(1);
+
+      await act(async () => showing?.refetch());
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+    });
+
+    // One hook whose page each test puts on or off screen, in a cache of its own.
+    let onScreen = true;
+    const renderOnPage = () => {
+      const cache = new Map();
+      return renderHook(() => useEarnPositions(), {
+        wrapper: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            React.createElement(PageActiveContext.Provider, { value: onScreen }, children)
+          )
+      });
+    };
+    // Past the hook's own 3 s dedupe window, so a read again is SWR revalidating a key that comes back.
+    const pastDedupe = () => act(() => new Promise(resolve => setTimeout(resolve, 3_100)));
+    const settle = () => act(() => new Promise(resolve => setTimeout(resolve, 100)));
+    // Date.now only: SWR's dedupe and poll timers stay real.
+    const thirtySecondsOn = () => {
+      const realNow = Date.now;
+      jest.spyOn(Date, 'now').mockImplementation(() => realNow() + 30_000);
+    };
+
+    beforeEach(() => {
+      onScreen = true;
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('never reads while its page is covered', async () => {
+      onScreen = false;
+      await act(async () => {
+        renderOnPage();
+      });
+
+      expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
+      expect(fetchEarnPositions).not.toHaveBeenCalled();
+    });
+
+    it('reads nothing when its page comes back within 30 s of its last read', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      onScreen = false;
+      rerender();
+      await pastDedupe();
+      onScreen = true;
+      rerender();
+      await settle();
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    }, 10_000);
+
+    it('reads again once when its page comes back 30 s after its last read', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      onScreen = false;
+      rerender();
+      await pastDedupe();
+      thirtySecondsOn();
+      onScreen = true;
+      rerender();
+      await waitFor(() => expect(fetchEarnPositions).toHaveBeenCalledTimes(2));
+      await settle();
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(2);
+    }, 10_000);
+
+    it('reads nothing when another Earn page mounts within 30 s of the last read', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const cache = new Map();
+      let first: Earn | undefined;
+      const pages = (second: boolean) =>
+        React.createElement(
+          SWRConfig,
+          { value: { provider: () => cache } },
+          page(true, earn => (first = earn)),
+          second ? page(true, () => undefined) : null
+        );
+      const { rerender } = render(pages(false));
+      await waitFor(() => expect(first?.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      await pastDedupe();
+      rerender(pages(true));
+      await settle();
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    }, 10_000);
+
+    it('reads nothing on a reconnect', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+
+      await pastDedupe();
+      act(() => {
+        window.dispatchEvent(new Event('online'));
+      });
+      await settle();
+      expect(fetchEarnPositions).toHaveBeenCalledTimes(1);
+    }, 10_000);
+
+    it('reads again when its page comes back after a load that failed before any request', async () => {
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(1);
+
+      onScreen = false;
+      rerender();
+      await pastDedupe();
+      onScreen = true;
+      rerender();
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+    }, 10_000);
+
+    it('keeps showing what it loaded while its page is covered', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      onScreen = false;
+      rerender();
+
+      expect(result.current.positions).toHaveLength(1);
+      expect(result.current.vaults).toHaveLength(1);
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    it('keeps showing its error while its page is covered', async () => {
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      onScreen = false;
+      rerender();
+
+      expect(result.current.loadError).toBe('lookup down');
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    it("never shows the previous account's error once the account switches", async () => {
+      jest
+        .mocked(getEarnDepositEvmAddresses)
+        .mockRejectedValueOnce(new Error('lookup down'))
+        .mockReturnValueOnce(new Promise(() => undefined));
+      const { result, rerender } = renderOnPage();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      mockAccount.publicKey = 'another-account';
+      mockAccount.evmAddress = '0x123456';
+      rerender();
+
+      expect(result.current.loadError).toBeUndefined();
+      expect(result.current.isLoading).toBe(true);
+    });
+
+    it('reads as loading, not empty, when mounted on a covered page', () => {
+      onScreen = false;
+      const { result } = renderOnPage();
+
+      expect(result.current.isLoading).toBe(true);
+    });
+
+    describe('on a fake clock', () => {
+      // Every read starts with the owner lookup, so its calls count the reads.
+      const reads = () => jest.mocked(getEarnDepositEvmAddresses).mock.calls.length;
+      // Moves the clock, and SWR's timers and the hook's with it, settling every read that starts on the way.
+      const advance = (ms: number) => act(() => jest.advanceTimersByTimeAsync(ms));
+
+      beforeEach(() => {
+        jest.useFakeTimers();
+        jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      });
+
+      afterEach(() => {
+        cleanup();
+        jest.useRealTimers();
+      });
+
+      it('polls 30 s after the last read began, not sooner', async () => {
+        renderOnPage();
+        await advance(0);
+        expect(reads()).toBe(1);
+
+        await advance(29_900);
+        expect(reads()).toBe(1);
+        await advance(200);
+        expect(reads()).toBe(2);
+      });
+
+      it('a Retry moves the next poll to 30 s after it', async () => {
+        const { result } = renderOnPage();
+        await advance(0);
+        expect(result.current.error).toBe('owner unavailable');
+
+        await advance(20_000);
+        act(() => result.current.refetch());
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        await advance(29_900);
+        expect(reads()).toBe(2);
+        await advance(200);
+        expect(reads()).toBe(3);
+      });
+
+      it('a failed read is retried 30 s after it began, and nothing sooner', async () => {
+        // SWR's first error retry, were it on, would wait a random share of its interval; this pins it at 2x.
+        jest.spyOn(Math, 'random').mockReturnValue(0.9);
+        jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+        const { result } = renderOnPage();
+        await advance(0);
+        expect(result.current.loadError).toBe('lookup down');
+
+        await advance(29_900);
+        expect(reads()).toBe(1);
+        await advance(200);
+        expect(reads()).toBe(2);
+      });
+
+      it('no automatic read while the document is hidden', async () => {
+        const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        renderOnPage();
+        await advance(0);
+
+        await advance(90_000);
+        expect(reads()).toBe(1);
+
+        visibility.mockReturnValue('visible');
+        await advance(30_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('no automatic read while the device is offline', async () => {
+        const online = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+        renderOnPage();
+        await advance(0);
+
+        await advance(90_000);
+        expect(reads()).toBe(1);
+
+        online.mockReturnValue(true);
+        await advance(30_000);
+        expect(reads()).toBe(2);
+      });
+
+      it('no automatic read while its page is covered', async () => {
+        const { rerender } = renderOnPage();
+        await advance(10_000);
+        expect(reads()).toBe(1);
+
+        onScreen = false;
+        rerender();
+        await advance(90_000);
+        expect(reads()).toBe(1);
+        // And no timer left waiting to start one.
+        expect(jest.getTimerCount()).toBe(0);
+
+        // Back on screen a read begins and re-arms every hook registered for the key; covered again, none is left.
+        onScreen = true;
+        rerender();
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        onScreen = false;
+        rerender();
+        await advance(3_100);
+        expect(jest.getTimerCount()).toBe(0);
+      });
+
+      it('an unmounted page starts no read', async () => {
+        const cache = new Map();
+        let showing: Earn | undefined;
+        const pages = (both: boolean) =>
+          React.createElement(
+            SWRConfig,
+            { value: { provider: () => cache } },
+            both ? page(true, () => undefined) : null,
+            page(true, earn => (showing = earn))
+          );
+        const { rerender, unmount } = render(pages(true));
+        await advance(10_000);
+        expect(reads()).toBe(1);
+
+        rerender(pages(false));
+        await advance(10_000);
+        act(() => showing?.refetch());
+        await advance(0);
+        expect(reads()).toBe(2);
+
+        await advance(10_000);
+        expect(reads()).toBe(2);
+        await advance(20_100);
+        expect(reads()).toBe(3);
+
+        // The remaining page leaves too, after reads that re-armed every hook registered for the key: none is left.
+        unmount();
+        await advance(3_100);
+        expect(jest.getTimerCount()).toBe(0);
+      });
+
+      it('an account switch re-arms from the new key', async () => {
+        const { rerender } = renderOnPage();
+        await advance(10_000);
+        expect(reads()).toBe(1);
+
+        mockAccount.publicKey = 'another-account';
+        mockAccount.evmAddress = '0x123456';
+        rerender();
+        await advance(0);
+        expect(reads()).toBe(2);
+        expect(getEarnDepositEvmAddresses).toHaveBeenLastCalledWith('another-account');
+
+        await advance(29_900);
+        expect(reads()).toBe(2);
+        await advance(200);
+        expect(reads()).toBe(3);
+      });
+    });
+  });
+
+  describe('a retry after a failed load, with the real SWR', () => {
+    const realSWR = jest.requireActual('lib/swr').useRetryableSWR;
+    const renderInCache = () => {
+      const cache = new Map();
+      return renderHook(() => useEarnPositions(), {
+        wrapper: ({ children }: { children: React.ReactNode }) =>
+          React.createElement(SWRConfig, { value: { provider: () => cache } }, children)
+      });
+    };
+
+    beforeEach(() => {
+      mockUseRetryableSWR.mockImplementation(realSWR);
+      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+    });
+
+    it('keeps the error and reports no loading while the retry is out', async () => {
+      jest
+        .mocked(getEarnDepositEvmAddresses)
+        .mockRejectedValueOnce(new Error('lookup down'))
+        .mockReturnValue(new Promise(() => undefined));
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+
+      // SWR's own isLoading is true here (a read out, no data): the hook's is not, since an error is kept.
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.loadError).toBe('lookup down');
+    });
+
+    it('sends no second request when Retry is tapped again while its read is out', async () => {
+      jest
+        .mocked(getEarnDepositEvmAddresses)
+        .mockRejectedValueOnce(new Error('lookup down'))
+        .mockReturnValue(new Promise(() => undefined));
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2));
+      await act(async () => result.current.refetch());
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)));
+
+      expect(getEarnDepositEvmAddresses).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps what its sole owner last loaded when a Retry finds that owner failed, stale until a read loads it', async () => {
+      jest
+        .mocked(fetchEarnPositions)
+        .mockResolvedValueOnce(liveResult)
+        .mockResolvedValueOnce({
+          positions: [],
+          vaults: [],
+          totalDepositsUSD: 0,
+          owners: ['0xabcdef'],
+          errors: [{ owner: '0xabcdef', error: 'positions request failed (429)' }]
+        })
+        .mockResolvedValueOnce(liveResult);
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.error).toBe('positions request failed (429)'));
+
+      expect(result.current.positions).toHaveLength(1);
+      expect(result.current.vaults).toHaveLength(1);
+      expect(result.current.loadError).toBe('positions request failed (429)');
+      expect(result.current.positions[0]?.stale).toBe(true);
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.loadError).toBeUndefined());
+      expect(result.current.positions[0]?.stale).toBe(false);
+    });
+
+    it('marks what it keeps under a failed read stale until a read loads', async () => {
+      jest.mocked(fetchEarnPositions).mockResolvedValue(liveResult);
+      const { result } = renderInCache();
+      await waitFor(() => expect(result.current.positions).toHaveLength(1));
+
+      jest.mocked(getEarnDepositEvmAddresses).mockRejectedValueOnce(new Error('lookup down'));
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.loadError).toBe('lookup down'));
+
+      expect(result.current.positions).toHaveLength(1);
+      expect(result.current.positions[0]?.stale).toBe(true);
+
+      await act(async () => result.current.refetch());
+      await waitFor(() => expect(result.current.loadError).toBeUndefined());
+      expect(result.current.positions[0]?.stale).toBe(false);
     });
   });
 });

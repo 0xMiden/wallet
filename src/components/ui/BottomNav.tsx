@@ -1,6 +1,5 @@
 import React, { FC, ReactNode } from 'react';
 
-import { cva } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
@@ -26,57 +25,42 @@ export interface BottomNavProps {
   items: BottomNavItem[];
   activeId: string;
   onChange: (id: string) => void;
-  /** Dock the bar to the bottom edge — full width, hairline top rule, no pill
-   *  rounding or shadow — instead of floating it as a pill. The bottom padding
-   *  reaches the body's safe-area floor into the device's bottom inset, with an 8px
-   *  floor of its own, so the bar's background runs under the home indicator. */
-  docked?: boolean;
-  /** Docked only: end the tabs 8px above the device's bottom inset and the corner at it, instead of
-   *  letting both reach into it. Android's inset is the system navigation bar (three buttons, or the
-   *  gesture handle), which a tab must not sit on; iOS's is the home indicator, which the tabs may
-   *  overlap. */
-  clearInset?: boolean;
-  /** Drawn over the bar's lower-right corner, taking no layout space (the test-network ribbon). It
-   *  sits in a box clipped to the bar's own shape that lets taps through; whatever it renders
-   *  decides which of its parts take taps (`pointer-events-auto`). */
-  corner?: ReactNode;
   className?: string;
 }
 
-// The bar's own geometry, unchanged from before the design system: 80 x 56 tabs (a 72 x 48 pill
-// plus 4px), 8px above them, and docked, a bottom padding that reaches the body's safe-area floor
-// (--app-safe-bottom, declared in mobile.html) minus 16px, with an 8px floor of its own. On an
-// iPhone 17 Pro that is 1 + 8 + 56 + 18 = 83px. With `clearInset` the padding is the whole inset
-// plus 8px instead, so on Android the tabs end 8px above the system navigation bar (1 + 8 + 56 + 8,
-// plus the inset). Anything drawn over it (the corner ribbon) adapts to this, never the other way
-// around.
-const bar = cva('relative flex items-center bg-page', {
-  variants: {
-    docked: {
-      true: 'w-full px-4 pt-2 border-t border-hairline',
-      false: 'justify-center rounded-3xl px-4 py-2 shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.15)]'
-    },
-    clearInset: { true: '', false: '' }
-  },
-  compoundVariants: [
-    {
-      docked: true,
-      clearInset: false,
-      class: 'pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))]'
-    },
-    { docked: true, clearInset: true, class: 'pb-[calc(env(safe-area-inset-bottom)+0.5rem)]' }
-  ]
-});
+// One shape on every platform: a floating capsule. The tabs are 64 x 48 (a 56 x 40 highlight plus
+// 4px), 4px apart, with 4px of bar around them: 58px tall with its edge. The owner sets the position
+// of the capsule and its distance from the screen edge (TabLayout).
+//
+// The surface is glass, in five parts:
+// - the fill: white at 2% over a 6px blur of the content under the bar.
+// - the edge: a 1px white border at 30%.
+// - the shadow: a soft drop, a lit line inside the top edge, a faint line inside the bottom edge,
+//   and a thin white glow from the edge inward. The glow stays thin (12px blur, 2px spread, 12%):
+//   the bar is only 58px tall, and a larger glow fills it with white.
+// - `before`: a 1px highlight along the top that fades out at the two ends.
+// - `after`: a 1px highlight down the left side that fades out in the middle.
+//
+// Dark mode uses the same parts with much less white. At the light values the bar is a white slab
+// on the dark page.
+//
+// The blur is written as plain values, not a Tailwind backdrop utility: Tailwind v4 composes those
+// from @property variables read with an empty fallback, which an Android WebView at Chrome 113
+// computes to none, and iOS before 18 reads only the -webkit- property.
+const BAR_GLASS_CLASS_NAME = [
+  'overflow-hidden border border-pure-white/30 bg-pure-white/2 dark:border-pure-white/10',
+  '[backdrop-filter:blur(6px)] [-webkit-backdrop-filter:blur(6px)]',
+  'shadow-[0_8px_32px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(255,255,255,0.1),inset_0_0_12px_2px_rgba(255,255,255,0.12)]',
+  'dark:shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(255,255,255,0.04),inset_0_0_12px_2px_rgba(255,255,255,0.02)]',
+  "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:content-['']",
+  'before:bg-linear-to-r before:from-transparent before:via-pure-white/80 before:to-transparent',
+  'dark:before:via-pure-white/25',
+  "after:pointer-events-none after:absolute after:top-0 after:left-0 after:h-full after:w-px after:content-['']",
+  'after:bg-linear-to-b after:from-pure-white/80 after:via-transparent after:to-pure-white/30',
+  'dark:after:from-pure-white/25 dark:after:to-pure-white/10'
+].join(' ');
 
-// Docked, the tabs share the full width; floating, they sit side by side.
-const tabRow = cva('flex items-center gap-2', {
-  variants: {
-    docked: {
-      true: 'flex-1 justify-around',
-      false: 'justify-center'
-    }
-  }
-});
+const BAR_CLASS_NAME = cn('relative flex items-center justify-center rounded-full p-1', BAR_GLASS_CLASS_NAME);
 
 interface BottomNavTabProps {
   item: BottomNavItem;
@@ -85,7 +69,7 @@ interface BottomNavTabProps {
 }
 
 /**
- * One tab: an 80 x 56 hit area around the 72 x 48 highlight, with a 24px icon that pops when the tab
+ * One tab: a 64 x 48 hit area around the 56 x 40 highlight, with a 24px icon that pops when the tab
  * becomes active. `HighlightItem` (asChild) clones this button, adds the sliding highlight and wraps
  * the icon, so the whole tab — highlight included — dips when pressed.
  */
@@ -108,7 +92,7 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
         {...motionTokens.press}
         transition={motionTokens.highlight}
         className={cn(
-          'group flex h-14 w-20 items-center justify-center rounded-full p-1 transition-colors',
+          'group flex h-12 w-16 items-center justify-center rounded-full p-1 transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/30',
           active ? 'text-accent-primary' : 'text-muted'
         )}
@@ -143,20 +127,12 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
   );
 };
 
-export const BottomNav: FC<BottomNavProps> = ({
-  items,
-  activeId,
-  onChange,
-  docked = false,
-  clearInset = false,
-  corner,
-  className
-}) => {
+export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, className }) => {
   const motionTokens = useTabBarMotion();
 
   return (
-    <nav className={cn(bar({ docked, clearInset }), className)}>
-      <div className={tabRow({ docked })}>
+    <nav className={cn(BAR_CLASS_NAME, className)}>
+      <div className="flex items-center justify-center gap-1">
         {/* One highlight shared by every tab slides to the active one. Controlled and click-free:
             the owner decides whether a tap navigates (and buzzes), and `activeId` follows. */}
         <Highlight
@@ -174,20 +150,6 @@ export const BottomNav: FC<BottomNavProps> = ({
           ))}
         </Highlight>
       </div>
-      {/* Over the tabs, in the bar's own shape (`rounded-[inherit]` clips it to the floating pill's
-          radius), and transparent to taps outside whatever the corner content opts in. With
-          `clearInset` it ends where the inset starts, so its content stays tappable. */}
-      {corner && (
-        <div
-          data-slot="bottom-nav-corner"
-          className={cn(
-            'pointer-events-none absolute overflow-hidden rounded-[inherit]',
-            docked && clearInset ? 'inset-x-0 top-0 bottom-[env(safe-area-inset-bottom)]' : 'inset-0'
-          )}
-        >
-          {corner}
-        </div>
-      )}
     </nav>
   );
 };

@@ -5,7 +5,7 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
@@ -13,6 +13,7 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -127,12 +128,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
   // Hide the floating BottomNav once the user moves past recipient selection,
-  // so the step CTAs can sit at the actual bottom of the screen. Gated on the
-  // pathname because SendManager stays mounted inside HomeSwipeContainer even
-  // when another home-group page is centered — without the gate, a send flow
-  // left mid-step would hide the navbar on Overview too.
+  // so the step CTAs can sit at the actual bottom of the screen. SendManager
+  // stays mounted inside HomeSwipeContainer while another home-group page is
+  // centred; the hook releases the hold while this page is not active.
   const currentStep = cardStack[cardStack.length - 1]?.name;
-  const pastRecipientStep = pathname === '/send' && currentStep !== SendFlowStep.SelectRecipient;
+  const pastRecipientStep = currentStep !== SendFlowStep.SelectRecipient;
   useHideNavbarWhileOpen(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {
@@ -384,9 +384,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
   // WHY a quote is missing instead of on the "$" the fee happens to render.
-  // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced
-  // or unscaled one, no amount, or no quote - and all paint the same empty-value placeholder, so a test gated on
-  // the rendered text cannot tell a quote-service outage from a token that never
+  // `fastFeeUsd` below is undefined for unrelated reasons - no token, an unpriced, unscaled or
+  // nominally priced one, no amount, or no quote - and all paint the same empty-value placeholder,
+  // so a test gated on the rendered text cannot tell a quote-service outage from a token that never
   // loaded. `useEpochQuote` already captures the failure reason and nothing reads
   // it. Mirrors the __TEST_STORE__ / __TEST_SET_SHARE_PRIVATELY__ gate; zero
   // production impact.
@@ -407,8 +407,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
   const fastFeeUsd = useMemo(() => {
-    // Unpriced (0) or unscaled, the input has no dollar value, and a fee from it is invented.
-    if (!token || !token.scaleIsKnown || !(token.fiatPrice > 0) || !amount || epochQuote.amount == null) {
+    // Unpriced (0), unscaled or at the nominal $1 (a display figure, not a quote), the input has no
+    // dollar value, and a fee from it is invented.
+    if (
+      !token ||
+      !token.scaleIsKnown ||
+      !(token.fiatPrice > 0) ||
+      token.fiatPriceIsNominal ||
+      !amount ||
+      epochQuote.amount == null
+    ) {
       return undefined;
     }
     const input = parseFloat(amount) * token.fiatPrice;
@@ -421,7 +429,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
@@ -443,10 +451,31 @@ export const SendManager: React.FC<SendManagerProps> = ({
     const held = balanceData.find(t => t.tokenId === current.id);
     // A token that left a loaded snapshot has nothing to send; its old balance would still confirm.
     if (!held && balancesLoading) return;
-    const refreshed = held ? uiTokenFromBalance(held, tokenPrices) : { ...current, balance: 0 };
+    const metadata = resolveDisplayMetadata(
+      current.id,
+      {
+        [current.id]: allTokensBaseMetadata[current.id] ?? {
+          symbol: current.name,
+          name: current.name,
+          decimals: current.decimals,
+          scaleIsUnknown: !current.scaleIsKnown
+        }
+      },
+      nativeFaucetId
+    );
+    const refreshed = uiTokenFromBalance(held ?? { tokenId: current.id, metadata, balance: 0 }, tokenPrices);
     if (sameUIToken(refreshed, current)) return;
     setValue('token', refreshed);
-  }, [preselectedTokenId, balanceData, balancesLoading, tokenPrices, setValue, getValues]);
+  }, [
+    preselectedTokenId,
+    balanceData,
+    balancesLoading,
+    tokenPrices,
+    allTokensBaseMetadata,
+    nativeFaucetId,
+    setValue,
+    getValues
+  ]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -853,6 +882,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
           return (
             <SendRoute
               usdcxAvailable={usdcxAvailable}
+              faucetId={spendableToken?.id ?? ''}
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}

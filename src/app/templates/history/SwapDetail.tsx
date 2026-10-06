@@ -334,6 +334,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             <StatusPill
               status={entry.status}
               isCancelled={entry.isCancelled}
+              isUnconfirmed={entry.isUnconfirmed}
               swapSettlement={entry.swapSettlement}
               testId="history-status-pill"
             />
@@ -433,16 +434,19 @@ export const SwapDetail: FC<SwapDetailProps> = ({
           </div>
         </section>
 
-        {entry.status === ITransactionStatus.Failed && entry.errorMessage && (
-          <section className="mt-6">
-            <div className="mb-5 h-1 w-full rounded-full bg-tx-swap" />
-            <TransactionFailureCard
-              errorMessage={entry.errorMessage}
-              rawErrorMessage={entry.rawErrorMessage}
-              isCancelled={entry.isCancelled}
-            />
-          </section>
-        )}
+        {(entry.status === ITransactionStatus.Failed || entry.status === ITransactionStatus.Unconfirmed) &&
+          entry.errorMessage && (
+            <section className="mt-6">
+              <div className="mb-5 h-1 w-full rounded-full bg-tx-swap" />
+              <TransactionFailureCard
+                errorMessage={entry.errorMessage}
+                rawErrorMessage={entry.rawErrorMessage}
+                isCancelled={entry.isCancelled}
+                isUnconfirmed={entry.isUnconfirmed}
+                hintKey={entry.notConfirmedHint}
+              />
+            </section>
+          )}
 
         <section className="mt-6 pb-2">
           <div className="mb-5 h-1 w-full rounded-full bg-tx-swap" />

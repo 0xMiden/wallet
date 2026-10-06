@@ -10,7 +10,7 @@ export enum Table {
 
 /**
  * The 1.7 store definitions - the last schema before the spending-limits primary-key change.
- * Exported so the 1.7 -> 1.9 migration-proving test in repo.test.ts seeds a database in this
+ * Exported so the migration-proving tests in repo.test.ts seed a database in this
  * EXACT shape rather than a hand-typed duplicate that could silently drift from what
  * `defineSchema` below actually declares.
  */
@@ -28,6 +28,9 @@ export const TRANSACTIONS_V17_STORE = indexes(
   'spendingLimitAuthorizationId'
 );
 export const SPENDING_LIMITS_V17_STORE = indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision');
+
+/** The current `transactions` shape (2): the 1.7 indexes plus `type`. */
+export const TRANSACTIONS_V2_STORE = indexes(TRANSACTIONS_V17_STORE, 'type');
 
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
@@ -87,7 +90,11 @@ function defineSchema(target: Dexie): void {
         .table<any, string>(Table.Transactions)
         .toCollection()
         .modify(t => {
-          if (t.type !== 'bridge') return;
+          // `false`, not a bare return - dexie re-puts an unchanged deep clone for anything else, so
+          // a bare return here rewrote EVERY transaction row, `resultBytes` blobs included, inside
+          // the versionchange transaction on the critical path of `db.open()`. Same rule as
+          // `setTransactionStage` and `markCancelledInFlight` in transaction/helper.ts.
+          if (t.type !== 'bridge') return false;
           const prev = t.extraInputs ?? {};
           t.type = 'bridged-send';
           t.extraInputs = {
@@ -99,6 +106,7 @@ function defineSchema(target: Dexie): void {
             // still need an L1 claim; anything else never reached that point.
             claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
           };
+          return undefined;
         });
     });
 
@@ -125,9 +133,10 @@ function defineSchema(target: Dexie): void {
         .table<any, string>(Table.Transactions)
         .toCollection()
         .modify(t => {
-          if (t.type === 'consume' && t.noteId && !Array.isArray(t.noteIds)) {
-            t.noteIds = [t.noteId];
-          }
+          // `false` on the declining path, for the same reason as v1.3 above.
+          if (t.type !== 'consume' || !t.noteId || Array.isArray(t.noteIds)) return false;
+          t.noteIds = [t.noteId];
+          return undefined;
         });
     });
 
@@ -190,6 +199,15 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 
+  // v2 - type-scoped reads. The app-root bridge watcher asks for the `bridged-receive` and
+  // `bridged-send` rows every eight seconds, and without an index each ask walked the whole
+  // history. No upgrade step: IndexedDB builds a new index over the rows already stored.
+  // `spendingLimits` is named again at its 1.9 shape so this version does not drop that table.
+  target.version(2).stores({
+    [Table.Transactions]: TRANSACTIONS_V2_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+  });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -219,8 +237,21 @@ function defineSchema(target: Dexie): void {
   });
 }
 
-export const db = new Dexie('TridentMain');
-defineSchema(db);
+// The one construction path, so the production db and `createSchemaFor`'s replay cannot differ.
+// `modifyChunkSize` caps how many records dexie's `modify` materialises at once (`getMany` +
+// `deepClone` per chunk). It defaults to 200, which is also the reaper's batch size, so one trim
+// held ~200 x ~237 KB of result blobs resident inside a single write transaction. Capping the
+// chunk bounds that without changing how many rows a pass selects - the reaper's drain rate is
+// governed by its own batch size, and tuning one constant from two directions is how these two
+// concerns collide. It applies to every `modify` on this database, including the schema upgrades
+// above, which walk the whole table.
+function buildTridentDb(name: string): Dexie {
+  const target = new Dexie(name, { modifyChunkSize: 25 });
+  defineSchema(target);
+  return target;
+}
+
+export const db = buildTridentDb('TridentMain');
 
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
@@ -242,9 +273,7 @@ export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.Spe
  * hand-authored duplicate - see `defineSchema`'s doc comment for why that distinction matters.
  */
 export function createSchemaFor(name: string): Dexie {
-  const target = new Dexie(name);
-  defineSchema(target);
-  return target;
+  return buildTridentDb(name);
 }
 
 function indexes(...items: string[]) {
@@ -307,11 +336,8 @@ const isTaggedBigInt = (value: object): value is TaggedBigInt => {
 };
 
 /**
- * Byte fields stay plain number arrays, which is the shape the previous format
- * emitted for `requestBytes` — so a file written by an older build still imports.
- * `resultBytes` rode the untouched rest-spread back then, and `JSON.stringify`
- * turns a `Uint8Array` into `{"0":1,"1":2}` rather than an array, so the legacy
- * shape for that one is an index-keyed object.
+ * Byte fields are written as plain number arrays (`toSerializable` turns every
+ * `Uint8Array` into one) and restored by name.
  */
 const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes']);
 
@@ -339,33 +365,6 @@ const isByteValue = (value: unknown): value is number =>
 const bytesFromArray = (value: unknown[], key: string): Uint8Array => {
   if (!value.every(isByteValue)) throw new Error(`importDb: ${key} contains a value that is not a byte`);
   return Uint8Array.from(value);
-};
-
-/**
- * `{"0":1,"1":2}` — what `JSON.stringify` makes of a `Uint8Array`, and so the
- * legacy on-disk shape for `resultBytes`.
- *
- * The indices have to be dense and cover exactly `0…n-1`. The previous decoder
- * sized the array by key COUNT and then read indices `0…count-1`, so a gap made
- * it read past the keys the file actually had: `{"0":1,"2":3}` restored as
- * `[1,0]`, inventing a zero and dropping the byte at 2 without a word. `{}` is
- * legitimate and stays legitimate — an empty `Uint8Array` serializes to exactly
- * that.
- */
-const bytesFromIndexKeyed = (value: object, key: string): Uint8Array => {
-  const entries = Object.entries(value);
-  const bytes = new Uint8Array(entries.length);
-  const seen = new Set<number>();
-  for (const [index, entry] of entries) {
-    const position = Number(index);
-    if (!Number.isInteger(position) || position < 0 || position >= entries.length || seen.has(position)) {
-      throw new Error(`importDb: ${key} is not a dense byte sequence`);
-    }
-    if (!isByteValue(entry)) throw new Error(`importDb: ${key} contains a value that is not a byte`);
-    seen.add(position);
-    bytes[position] = entry;
-  }
-  return bytes;
 };
 
 const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
@@ -396,7 +395,7 @@ const fromSerializable = (value: unknown, key?: string, depth = 0): unknown => {
   }
   if (typeof value === 'object' && value !== null) {
     if (isTaggedBigInt(value)) return BigInt(value[BIGINT_TAG]);
-    if (isByteField) return bytesFromIndexKeyed(value, key);
+    if (isByteField) throw new Error(`importDb: ${key} is not a byte array`);
     const sole = soleKeyOf(value);
     if (sole !== undefined && ESCAPED_BIGINT_TAG.test(sole)) {
       return { [sole.slice(0, -1)]: fromSerializable(Reflect.get(value, sole), undefined, depth + 1) };
@@ -551,6 +550,8 @@ export async function importDb(dump: string): Promise<void> {
     // and `spendingLimits` (added in v1.7) is untouched by import - a wallet-file backup restores
     // transaction history, not local device settings. The rows are written into the current
     // schema either way.
+    const { clearGuardianHistoryCheckpoints } = await import('./guardian/history-storage');
+    await clearGuardianHistoryCheckpoints();
     await db.transaction('rw', transactions, async () => {
       await transactions.clear();
       await transactions.bulkAdd(transactionsToImport);

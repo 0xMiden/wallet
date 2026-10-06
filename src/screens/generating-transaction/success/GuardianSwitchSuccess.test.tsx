@@ -1,9 +1,11 @@
 import React from 'react';
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { accentForTransactionType } from 'components/flow/accent';
-import { ITransaction } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 
 import { GuardianSwitchSuccess } from './GuardianSwitchSuccess';
 import type { TransactionSuccessLayoutProps } from './TransactionSuccessLayout';
@@ -98,7 +100,9 @@ const switchGuardianTx = (overrides: TxOverrides = {}): ITransaction =>
     id: 'tx-guardian-1',
     type: 'switch-guardian',
     accountId: 'acct',
-    status: 0,
+    // The receipt only ever renders for a completed row, and the verdict the
+    // component consults keys on that status.
+    status: ITransactionStatus.Completed,
     initiatedAt: 0,
     displayIcon: 'GUARDIAN',
     extraInputs: { previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT, newGuardianEndpoint: KODA_ENDPOINT },
@@ -314,6 +318,195 @@ describe('GuardianSwitchSuccess', () => {
       expect(body()).toHaveTextContent('guardianSwitchUnconfirmedInfo3');
     });
 
+    // #1233: the switch reached the network, but its local apply failed and this device could not
+    // save the account's new state. Sharper than the unconfirmed state, whose body advises running
+    // the switch again, which a device holding the pre-switch account cannot do.
+    it('says the new state is not saved on this device, and never advises running the switch again', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedTitle');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+    });
+
+    it("says a direct switch's new state cannot be recovered on this device, and never promises a background repair", () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+      // "You can rotate again at any time" contradicts "do not run the switch again".
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo4');
+
+      cleanup();
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchSuccessInfo4');
+    });
+
+    it('keeps the unrecoverable copy over a failed registration (#1233)', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              registerFailed: true,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo4');
+    });
+
+    // Every row the wallet writes with a lost-state flag today also carries commitUnconfirmed, which
+    // shows the warning on its own; these rows pin the receipt's conditions without it.
+    it('warns on a row whose only flag is the unrecoverable state', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateUnrecoverable: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo4');
+    });
+
+    it('names the unsaved address beside the unrecoverable state without an unconfirmed commit', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateUnrecoverable: true,
+              endpointPersistFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateUnrecoverableBody');
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+    });
+
+    it('warns on a row whose only flag is the unsaved state', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedTitle');
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+    });
+
+    it('names the unsaved address beside the unsaved state without an unconfirmed commit', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              localStateNotSaved: true,
+              endpointPersistFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+    });
+
+    it('outranks every other warning and still names an unsaved address', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              endpointPersistFailed: true,
+              registerFailed: true,
+              localStateNotSaved: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchLocalStateNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
+    });
+
     it('outranks the post-commit warnings, whose copy asserts the confirmation it lacks', () => {
       render(
         <GuardianSwitchSuccess
@@ -431,5 +624,50 @@ describe('GuardianSwitchSuccess', () => {
     // both: the prop is actually wired, and its value is the derived one.
     expect(mockLayoutProps!.accent).not.toBeUndefined();
     expect(mockLayoutProps!.accent).toBe(accentForTransactionType('switch-guardian'));
+  });
+});
+
+// The translation job rendered the switch in these two bodies as hardware or a toggle (commutateur, スイッチ,
+// 开关), so they are written by hand; an entry whose englishSource matches en.json survives the job's next run.
+// Read from disk, since the t() mock above never reaches a bundle.
+describe('Guardian-switch receipt bodies in each locale (#1233)', () => {
+  const LOCALES_DIR = path.join(__dirname, '../../../../public/_locales');
+  const RECEIPT_BODY_KEYS = ['guardianSwitchLocalStateNotSavedBody', 'guardianSwitchLocalStateUnrecoverableBody'];
+  // Each locale's term for the switch, as its shipped Guardian-switch strings already use it.
+  const SWITCH_TERMS: [string, RegExp][] = [
+    ['de', /Guardian-Wechsel/iu],
+    ['es', /cambio de Guardian/iu],
+    ['fr', /changement de Guardian/iu],
+    ['ja', /Guardianの変更/iu],
+    ['ko', /Guardian 변경/iu],
+    ['pl', /zmian\p{L}* Guardiana/iu],
+    ['pt', /mudança de Guardian/iu],
+    ['ru', /смен\p{L}* Guardian/iu],
+    ['tr', /Guardian değişikliğ\p{L}*/iu],
+    ['uk', /змін\p{L}* Guardian/iu],
+    ['zh_CN', /Guardian 切换/iu],
+    ['zh_TW', /Guardian 切換/iu]
+  ];
+  const HARDWARE_SENSE =
+    /commutateur|conmutador|przełącznik|anahtar|スイッチ|스위치|переключатель|перемикач|коммутатор|комутатор|交换机|开关|switch|切換器|切換功能|開關|交換機/iu;
+
+  type LocaleEntry = { message: string; englishSource?: string };
+  function readLocaleFile<T>(file: string): T {
+    return JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, file), 'utf8'));
+  }
+  const en: Record<string, string | undefined> = readLocaleFile('en/en.json');
+
+  it.each(SWITCH_TERMS)('%s names the switch with its own term, never as hardware or a toggle', (locale, term) => {
+    const messages: Record<string, LocaleEntry | undefined> = readLocaleFile(`${locale}/messages.json`);
+    const bundle: Record<string, string | undefined> = readLocaleFile(`${locale}/${locale}.json`);
+
+    for (const key of RECEIPT_BODY_KEYS) {
+      const message = messages[key]?.message;
+      expect(message).toMatch(term);
+      expect(message).not.toMatch(HARDWARE_SENSE);
+      expect(typeof en[key]).toBe('string');
+      expect(messages[key]?.englishSource).toBe(en[key]);
+      expect(bundle[key]).toBe(message);
+    }
   });
 });

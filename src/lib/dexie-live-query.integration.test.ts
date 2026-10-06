@@ -11,7 +11,7 @@ jest.mock('lib/miden/activity', () =>
 );
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('lib/miden/sdk/miden-client', () => ({}));
-jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ PswapLineageState: {} }));
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ PswapLineageState: {}, InputNoteState: {} }));
 
 let failuresRemaining = 0;
 let failedReads = 0;

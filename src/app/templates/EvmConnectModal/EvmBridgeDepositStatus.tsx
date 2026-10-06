@@ -3,15 +3,20 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Hash, isHash } from 'viem';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { usePageActive } from 'app/layouts/page-active';
-import { formatBridgeOutputAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
+import { creditedAmount, formatMoneyAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { useBridgeTracker } from 'lib/agglayer/use-bridge-tracker';
-import { IBridgedReceiveExtraInputs, IBridgeProvider } from 'lib/miden/db/types';
+import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransaction } from 'lib/miden/db/types';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { useWalletStore } from 'lib/store';
 import { fetchXReserveAttestations, findAttestationForDomain } from 'lib/usdcx/attestation';
 import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
 import { ATTESTATION_POLL_MS } from 'lib/usdcx/use-attestation';
@@ -25,6 +30,27 @@ interface EvmBridgeDepositStatusProps {
   txId: string;
   onDone: () => void;
 }
+
+/**
+ * The badge's output side: the stored "you receive" amount in flight, and what was credited once the
+ * note is received, so the quote never shows beside Received. An unscalable faucet withholds the
+ * number; its record is the placeholder's, so the row's own output symbol names the asset.
+ */
+const outputLabel = (
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  assetsMetadata: Record<string, AssetMetadata>,
+  nativeFaucetId: string | null
+): string => {
+  if (inputs.phase === 'received') {
+    const metadata = resolveDisplayMetadata(row.faucetId, assetsMetadata, nativeFaucetId);
+    const symbol = hasKnownScale(metadata) ? metadata.symbol : (inputs.outputSymbol ?? metadata.symbol);
+    const amount = creditedAmount(row.amount, metadata);
+    return amount === undefined ? symbol : `${amount} ${symbol}`;
+  }
+  if (!inputs.outputAmount) return 'Miden';
+  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${inputs.outputSymbol ?? ''}`.trim();
+};
 
 /**
  * The deposit hash to poll Circle's attestation API for. Only a USDCx row that
@@ -52,6 +78,8 @@ function routeLabelOf(provider: IBridgeProvider, t: (key: string) => string): st
 export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ txId, onDone }) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
+  const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const nativeFaucetId = useMidenFaucetId();
   const pageActive = usePageActive();
   const [attested, setAttested] = useState(false);
 
@@ -78,11 +106,13 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
       </div>
     );
 
-  // The Fast route stores the exact 18-decimal quote and is rounded here the way Activity
-  // does; the Slow route stores what was typed (already capped at 6 decimals), so it is shown unchanged.
-  const roundedSourceAmount =
-    inputs.provider === 'epoch' ? formatBridgeOutputAmount(inputs.sourceAmount) : inputs.sourceAmount;
-  const sourceLabel = `${roundedSourceAmount} ${inputs.sourceSymbol}`;
+  // A Fast deposit is what the wallet signed for, so it rounds up; a Slow amount is what was typed.
+  const sourceAmount = formatMoneyAmount(
+    inputs.sourceAmount,
+    inputs.provider === 'epoch' ? 'pays' : 'typed',
+    inputs.sourceSymbol
+  );
+  const sourceLabel = `${sourceAmount} ${inputs.sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = routeLabelOf(inputs.provider, t);
@@ -129,7 +159,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             on a screen about money arriving. */}
         <TransactionSummaryBadge
           lhs={sourceLabel}
-          rhs={inputs.outputAmount ? `${inputs.outputAmount} ${inputs.outputSymbol ?? ''}`.trim() : 'Miden'}
+          rhs={outputLabel(row, inputs, assetsMetadata, nativeFaucetId)}
           fillForArrow={TRANSACTION_COLORS.bridge}
           className="mt-4"
         />

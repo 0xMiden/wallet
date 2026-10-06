@@ -22,7 +22,7 @@ export interface EvmBridgeDepositReviewProps {
   fiat?: number;
   /** Selected bridge route — drives the route label + arrival ETA. */
   route: IBridgeProvider;
-  /** Forward-quoted output the recipient receives on Miden (Fast route). undefined while quoting. */
+  /** Output the recipient receives on Miden, as typed on every route. undefined while quoting. */
   outputAmount?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;

@@ -17,7 +17,16 @@ export const ARC_TESTNET = defineChain({
   testnet: true
 });
 
-export const WC_PROJECT_ID = process.env.WALLETCONNECT_PROJECT_ID ?? '';
+/** The Reown project id every bundle uses unless `WALLETCONNECT_PROJECT_ID` is set at build time. */
+const DEFAULT_WC_PROJECT_ID = 'd18d112eb50cbe764f03e51a90210611';
+
+/**
+ * `WALLETCONNECT_PROJECT_ID`: the vite defines bake this into app bundles at build
+ * time, while Node consumers (the Playwright counterparty, jest) read it from
+ * their own process env when this module loads. Both trim it and treat an unset,
+ * empty or blank value as unset, falling back to `DEFAULT_WC_PROJECT_ID`.
+ */
+export const WC_PROJECT_ID = (process.env.WALLETCONNECT_PROJECT_ID ?? '').trim() || DEFAULT_WC_PROJECT_ID;
 
 export type EvmChain = {
   id: number;
@@ -36,20 +45,21 @@ const E2E_EVM_RPC_URL = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E
 const RPC = (id: number) =>
   E2E_EVM_RPC_URL || `https://rpc.walletconnect.org/v1?chainId=eip155:${id}&projectId=${WC_PROJECT_ID}`;
 
+// Sepolia stays first: it is the default chain, and the WalletConnect RPC URL is read off it.
 export const SUPPORTED_CHAINS: EvmChain[] = [
-  {
-    id: ARC_TESTNET.id,
-    name: ARC_TESTNET.name,
-    rpcUrl: ARC_TESTNET.rpcUrls.default.http[0],
-    explorer: ARC_TESTNET.blockExplorers.default.url,
-    nativeCurrency: ARC_TESTNET.nativeCurrency
-  },
   {
     id: 11155111,
     name: 'Sepolia',
     rpcUrl: RPC(11155111),
     explorer: 'https://sepolia.etherscan.io',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'SepoliaETH', decimals: 18 }
+  },
+  {
+    id: ARC_TESTNET.id,
+    name: ARC_TESTNET.name,
+    rpcUrl: ARC_TESTNET.rpcUrls.default.http[0],
+    explorer: ARC_TESTNET.blockExplorers.default.url,
+    nativeCurrency: ARC_TESTNET.nativeCurrency
   }
 ];
 

@@ -39,6 +39,8 @@ export interface TextFieldProps extends SharedFieldAttrs {
   onBlur?: (event: React.FocusEvent<TextFieldElement>) => void;
   /** 13px bold `muted` label above the field, associated to it via `htmlFor`/`id`. */
   label?: ReactNode;
+  /** `md` draws the label as the 16px section label (`text-row-title`, Nunito) instead of the 13px one. */
+  labelSize?: 'sm' | 'md';
   /** Helper copy below the field. Hidden while `error` is set. */
   hint?: ReactNode;
   /** Error copy below the field: switches the field to a `negative` ring and renders as `role="alert"`. */
@@ -84,7 +86,7 @@ const SecretCover: React.FC<{ multiline: boolean; onReveal: () => void }> = ({ m
       onClick={onReveal}
       className={cn(
         'absolute inset-0 flex cursor-text flex-col items-center justify-center gap-1',
-        'bg-page/60 backdrop-blur-sm',
+        'bg-page/60 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)]',
         multiline ? 'rounded-lg-token' : 'rounded-full'
       )}
     >
@@ -124,6 +126,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       defaultValue,
       onChange,
       label,
+      labelSize = 'sm',
       hint,
       error,
       errorTestId,
@@ -253,7 +256,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     return (
       <div className={cn('flex w-full flex-col gap-1.5', containerClassName)}>
         {label && (
-          <label htmlFor={fieldId} className="text-label text-muted">
+          <label htmlFor={fieldId} className={cn(labelSize === 'md' ? 'text-row-title' : 'text-label', 'text-muted')}>
             {label}
           </label>
         )}
@@ -308,7 +311,12 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
         </div>
 
         {error ? (
-          <p id={errorId} role="alert" data-testid={errorTestId} className="text-caption text-negative-ink">
+          <p
+            id={errorId}
+            role="alert"
+            data-testid={errorTestId}
+            className="text-caption wrap-break-word text-negative-ink"
+          >
             {error}
           </p>
         ) : hint ? (

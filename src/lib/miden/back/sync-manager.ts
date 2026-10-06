@@ -14,7 +14,7 @@ import {
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -28,16 +28,17 @@ import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
 import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
+import { isRotationPendingAccount } from './rotation-pending';
 import { Vault } from './vault';
-import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
-import { getUncompletedTransactions } from '../transaction/get';
+import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { runTrimTick } from '../transaction/trim-result-bytes';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -162,6 +163,17 @@ async function getVault() {
 }
 
 export function doSync(force = false): Promise<void> {
+  // Reclaim finished transactions' result blobs. This is the extension realm's ONLY driver for it
+  // - the `miden-sync` alarm and the popup's SyncRequest both arrive here - so removing this call
+  // stops the extension reclaiming anything at all.
+  //
+  // Ahead of every early return below, and deliberately not inside `runSync`: this is pure local
+  // Dexie maintenance with no network dependency and no WASM lock, so neither the in-flight
+  // coalescing, nor the circuit breaker, nor the #777 fuse - which can hold this realm off the
+  // node for 30 minutes at a time - has any business gating it. Self-throttled and fire-and-forget,
+  // so it can neither slow a sync nor fail one.
+  void runTrimTick();
+
   if (inFlight) {
     if (!force) return inFlight;
     if (!queuedForcedSync) {
@@ -390,6 +402,17 @@ async function runSync(force: boolean): Promise<void> {
       }
     }
 
+    // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten so a slow node or Guardian
+    // never holds the lap: node reads, and for each kept Guardian candidate the pass releases, a short WASM-lock read
+    // to build the cold service, a bounded Guardian abandon and up to 60 s of polling. Only after a successful sync,
+    // and skipped after an evicted one like the sweep. transaction-processor is imported dynamically, as below, to keep
+    // the service worker's init order acyclic; it holds the vault-backed Guardian provider the release needs.
+    if (syncSucceededAt !== undefined && !(inlineWasm && syncHoldEvicted)) {
+      void import('./transaction-processor')
+        .then(({ reconcileUnconfirmedInWorker }) => reconcileUnconfirmedInWorker())
+        .catch(err => console.warn('[SyncManager] unconfirmed reconcile failed', err));
+    }
+
     const intercom = getIntercom()!;
     const vault2 = await getVault();
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
@@ -486,6 +509,7 @@ async function runSync(force: boolean): Promise<void> {
                 senderAddress: note.senderAccountId ?? '',
                 noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
                 recallableAtMs: note.recallableAtMs,
+                standardPayment: note.standardPayment,
                 swapOrder: swapOrders.get(noteId)
               };
             })
@@ -578,10 +602,14 @@ async function runSync(force: boolean): Promise<void> {
       // worth one on its own. See `initiateConsumeNotesTransaction`.
       let nativeAutoConsumeBaseFee: number | null = null;
       try {
-        if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
-          const nativeFaucetId = await getFaucetIdSetting();
+        if (
+          !isRotationPendingAccount(accountPubKey) &&
+          (await areBackgroundSettingsMirrored()) &&
+          (await isAutoConsumeEnabledAsync())
+        ) {
+          const nativeFaucetId = await getNativeAssetId();
           if (nativeFaucetId) {
-            // Notes already covered by an uncompleted consume row are excluded BEFORE
+            // Notes already held by a consume row (live, or awaiting its verdict) are excluded BEFORE
             // the value check, because the enqueue below drops exactly those at its
             // dedup gate -- so counting them measured a set larger than the one that
             // gets claimed. Chain-sync lag keeps a consumed note visible for a lap or
@@ -589,7 +617,7 @@ async function runSync(force: boolean): Promise<void> {
             // newly-arrived dust note rode in on the in-flight batch's value and was
             // then claimed by itself for a full fee.
             const notesBeingClaimed = new Set(
-              (await getUncompletedTransactions(accountPubKey))
+              (await getNoteHoldingTransactions(accountPubKey))
                 .filter(tx => tx.type === 'consume')
                 .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
             );
@@ -602,7 +630,8 @@ async function runSync(force: boolean): Promise<void> {
             //
             // The frontend applies the same rule to live notes in `selectAutoConsumeBatch`
             // (front/auto-managed-notes.ts), which also decides what its claim prompts
-            // leave out; change the two together.
+            // leave out; change the two together. Both callers skip a rotation-pending
+            // account, as this pass does above.
             const candidates = parsedNotes.filter(
               n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
             );

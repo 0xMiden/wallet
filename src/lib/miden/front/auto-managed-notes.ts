@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { isAutoConsumeEnabled } from 'lib/settings/helpers';
@@ -36,6 +36,9 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
  * Notes already being claimed are left out BEFORE the value check, which has to measure
  * the set that will actually be claimed: counting an in-flight note let a lone new dust
  * note ride in on the in-flight batch's value and be claimed alone for a full fee.
+ *
+ * None of the three calls this for a seed-recovered account whose everyday-key rotation
+ * is pending: its rotation gate claims those notes with the recovery key (#805).
  *
  * The value check runs on the BATCH TOTAL, because the batch is one transaction paying
  * one fee; judged per note, a backlog of individually marginal notes was refused in
@@ -95,7 +98,7 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
  */
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
   const { data: allNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
 

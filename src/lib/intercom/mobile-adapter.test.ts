@@ -6,6 +6,9 @@ import { WalletMessageType } from 'lib/shared/types';
 import { MobileIntercomAdapter } from './mobile-adapter';
 
 // Mock the dependencies
+jest.mock('lib/miden/back/transaction-processor', () => ({
+  startTransactionProcessing: jest.fn().mockResolvedValue(undefined)
+}));
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn().mockResolvedValue(undefined),
   getFrontState: jest.fn().mockResolvedValue({ accounts: [], settings: {} }),
@@ -142,17 +145,10 @@ describe('MobileIntercomAdapter', () => {
         password: 'test123',
         mnemonic: 'word1 word2 word3',
         walletAccounts: [],
-        formatVersion: 2,
         importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
-        'test123',
-        'word1 word2 word3',
-        [],
-        2,
-        importedAccounts
-      );
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', [], importedAccounts);
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 
@@ -451,7 +447,19 @@ describe('MobileIntercomAdapter', () => {
         newHotPubKey: 'new-pub'
       } as any);
 
-      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub');
+      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', undefined);
+      expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
+    });
+
+    it('handles SwapHotKeyRequest with its expectation (#1233)', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'pub-key-123',
+        newHotPubKey: 'new-pub',
+        expectedHotPubKey: 'old-pub'
+      } as any);
+
+      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub', 'old-pub');
       expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
     });
 

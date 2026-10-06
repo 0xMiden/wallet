@@ -27,6 +27,10 @@ export interface EndpointOverride {
   allowNoGuardian: boolean; // dev-only: expose a "No guardian" card in onboarding
   networkName: MIDEN_NETWORK_NAME; // the "network id": drives NetworkId + endpoint-default seeding
   presetName: string; // 'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
+  // 0.17 moved the fee asset out of the block header. A client cannot be created
+  // without naming the chain's fee faucet. Optional so a stored 1.16 override still
+  // loads; production and E2E must fill it.
+  feeFaucetId?: string;
 }
 
 // Build-time NTL env override (mirrors the precedence in constants.getNoteTransportUrl).
@@ -133,6 +137,42 @@ export function getEffectiveAllowNoGuardian(): boolean {
   return overrideCache?.allowNoGuardian ?? false;
 }
 
+const FEE_FAUCET_ENV = process.env.MIDEN_FEE_FAUCET_ID || '';
+export const FEE_FAUCET_STORAGE_KEY = 'fee_faucet_id';
+let e2eFeeFaucetId: string | undefined;
+let feeFaucetCache: string | undefined;
+
+/** E2E-only: genesis faucet id is random, so the harness injects it before client create. */
+export async function setFeeFaucetIdForTest(id: string | undefined): Promise<void> {
+  e2eFeeFaucetId = id;
+  feeFaucetCache = id;
+  const storage = getStorageProvider();
+  if (id) {
+    await storage.set({ [FEE_FAUCET_STORAGE_KEY]: id });
+  } else {
+    await storage.remove([FEE_FAUCET_STORAGE_KEY]);
+  }
+}
+
+/** Optional fee identity override; a successful SDK sync supplies the chain's protocol identity. */
+export function getEffectiveFeeFaucetId(): string | undefined {
+  if (e2eFeeFaucetId) return e2eFeeFaucetId;
+  if (feeFaucetCache) return feeFaucetCache;
+  if (overrideCache?.feeFaucetId) return overrideCache.feeFaucetId;
+  if (FEE_FAUCET_ENV) return FEE_FAUCET_ENV;
+  return undefined;
+}
+
+async function loadFeeFaucetId(): Promise<void> {
+  try {
+    const items = await getStorageProvider().get([FEE_FAUCET_STORAGE_KEY]);
+    const raw = items[FEE_FAUCET_STORAGE_KEY];
+    feeFaucetCache = typeof raw === 'string' && raw ? raw : feeFaucetCache;
+  } catch {
+    // Keep whatever the in-memory cache already holds.
+  }
+}
+
 /**
  * Effective-network default guardian endpoint (custom override first), or '' if
  * none. Non-throwing (mirrors the old `DEFAULT_GUARDIAN_ENDPOINT` const's
@@ -195,6 +235,7 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
+  await loadFeeFaucetId();
   if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
     overrideCache = null;
     return;
@@ -205,18 +246,26 @@ export async function loadEndpointOverrides(): Promise<void> {
     const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
     overrideCache = isEndpointOverride(raw) ? raw : null;
   } catch {
-    overrideCache = null;
+    // Deliberate: see the comment above applyEndpointOverride.
   }
 }
 
+// No rejected storage call moves the cache. Both writes store before they touch it, so a rejected
+// write leaves the session on the endpoints that are actually stored, not ones a restart would drop;
+// a rejected read in loadEndpointOverrides keeps what the realm had loaded (null on its first load).
 export async function applyEndpointOverride(override: EndpointOverride): Promise<void> {
-  overrideCache = override;
   await getStorageProvider().set({ [ENDPOINT_OVERRIDE_STORAGE_KEY]: override });
+  overrideCache = override;
 }
 
+/**
+ * Remove the stored override. Only the tests that reset their fixture with it call it. The destructive
+ * reset must not: the dev reset takes the override with the wipe (`keepEndpointOverride: false`), and a
+ * separate clear after it could fail after the wallet is already gone.
+ */
 export async function clearEndpointOverride(): Promise<void> {
-  overrideCache = null;
   await getStorageProvider().remove([ENDPOINT_OVERRIDE_STORAGE_KEY]);
+  overrideCache = null;
 }
 
 export async function isEndpointOverrideActive(): Promise<boolean> {

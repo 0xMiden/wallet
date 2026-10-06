@@ -6,18 +6,20 @@ const mockGetEpochReadOnlySdk = jest.fn();
 const mockGetCurrentMidenBlock = jest.fn();
 const mockMarkBridgedSendFailed = jest.fn();
 const mockUpdateBridgeClaimStatus = jest.fn();
+// The suites below were written against a 6-decimal output token; the config now supplies it.
+const mockUsdc = {
+  address: '0x2222222222222222222222222222222222222222',
+  symbol: 'USDC',
+  decimals: 6,
+  chainId: 11155111
+};
+const mockGetEvmUsdc = jest.fn(() => mockUsdc);
 
 jest.mock('./bridge', () => ({
   getCrossChainQuote: (...args: unknown[]) => mockGetCrossChainQuote(...args),
   buildCrossChainIntent: (...args: unknown[]) => mockBuildCrossChainIntent(...args)
 }));
-jest.mock('./bridgeable-token', () => ({
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS: '0x2222222222222222222222222222222222222222',
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS: 6,
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC',
-  EPOCH_DESTINATION_CHAIN_ID: 11155111,
-  isBridgeableEvmTokenConfigured: () => true
-}));
+jest.mock('lib/remote-config/values', () => ({ getEvmUsdc: () => mockGetEvmUsdc() }));
 jest.mock('./chain', () => ({
   getCurrentMidenBlock: () => mockGetCurrentMidenBlock(),
   MIDEN_MIN_RECLAIM_BLOCKS: 1000,
@@ -32,10 +34,8 @@ jest.mock('lib/miden/activity', () => ({
   updateBridgeClaimStatus: (...args: unknown[]) => mockUpdateBridgeClaimStatus(...args)
 }));
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({ CollateralType: { Miden: 'Miden' } }));
-jest.mock('viem', () => ({ formatUnits: (value: bigint) => value.toString() }));
-jest.mock('lib/i18n/numbers', () => ({ toAdaptiveFixed: (value: string) => value }));
 
-import { bridgeEpochSend } from './epoch-send';
+import { bridgeEpochSend, quoteEpochSendOutput } from './epoch-send';
 
 const authorization = {
   kind: 'usd' as const,
@@ -100,5 +100,106 @@ describe('bridgeEpochSend spending-limit authorization', () => {
     await expect(bridgeEpochSend(args())).rejects.toBe(error);
     expect(mockMarkBridgedSendFailed).not.toHaveBeenCalled();
     expect(mockUpdateBridgeClaimStatus).not.toHaveBeenCalled();
+  });
+});
+
+// The quote is stored and returned exact (at the mocked token's 6 decimals); screens format it.
+describe('the Epoch quote amount', () => {
+  const destinationAddress: `0x${string}` = '0x1111111111111111111111111111111111111111';
+  const quoteArgs = { amount: 250n, faucetId: 'mtst1faucet', destinationAddress, senderPublicKey: 'mtst1sender' };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetEpochReadOnlySdk.mockResolvedValue({});
+    mockGetCurrentMidenBlock.mockResolvedValue(1000);
+    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '10655599' } });
+    mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      await options.createMidenP2IDENote('0xfaucet', '250', '0xallocator', 5_000, [1n]);
+      return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
+    });
+  });
+
+  it('stores the exact quote on the bridged-send row, not a display string', async () => {
+    await bridgeEpochSend(args());
+
+    expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+      'tx-1',
+      'not-applicable',
+      expect.objectContaining({ outputAmount: '10.655599', outputSymbol: 'USDC' })
+    );
+  });
+
+  it('returns the exact quote for the Review to format', async () => {
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '10.655599', symbol: 'USDC' });
+  });
+
+  it('reads a zero quote as 0, not a padded 0.00', async () => {
+    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '0' } });
+
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '0', symbol: 'USDC' });
+  });
+});
+
+describe('the configured output token', () => {
+  const quoteArgs = {
+    amount: 250n,
+    faucetId: 'mtst1faucet',
+    destinationAddress: '0x1111111111111111111111111111111111111111' as const,
+    senderPublicKey: 'mtst1sender'
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetEpochReadOnlySdk.mockResolvedValue({});
+    mockGetCurrentMidenBlock.mockResolvedValue(1000);
+    mockCreateBridgeP2IDENote.mockResolvedValue({ success: true, noteId: 'note-1', txId: 'tx-1' });
+    mockBuildCrossChainIntent.mockImplementation(async (_sdk, options) => {
+      await options.createMidenP2IDENote('0xfaucet', '250', '0xallocator', 5_000, [1n]);
+      return { solveResult: { hash: '0xhash', nonce: 'nonce-1' } };
+    });
+  });
+
+  it('quotes and sends into the token and chain the config names', async () => {
+    mockGetEvmUsdc.mockReturnValue({
+      address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+      symbol: 'USDC.e',
+      decimals: 18,
+      chainId: 84532
+    });
+    mockGetCrossChainQuote.mockResolvedValue({ quoteResult: { tokenOut: '1500000000000000000' } });
+
+    await expect(quoteEpochSendOutput(quoteArgs)).resolves.toEqual({ amount: '1.5', symbol: 'USDC.e' });
+    await bridgeEpochSend(args());
+
+    expect(mockGetCrossChainQuote).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        destinationChainId: 84532,
+        outputTokenAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+        outputTokenDecimals: 18
+      }),
+      quoteArgs.destinationAddress
+    );
+    expect(mockCreateBridgeP2IDENote).toHaveBeenCalledWith(expect.objectContaining({ destinationNetwork: 84532 }));
+    expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
+      'tx-1',
+      'not-applicable',
+      expect.objectContaining({ outputAmount: '1.5', outputSymbol: 'USDC.e' })
+    );
+    mockGetEvmUsdc.mockReturnValue(mockUsdc);
+  });
+
+  it('refuses before any SDK or note work while the config names no output token', async () => {
+    mockGetEvmUsdc.mockImplementationOnce(() => {
+      throw new Error('no output token');
+    });
+    await expect(quoteEpochSendOutput(quoteArgs)).rejects.toThrow('no output token');
+    mockGetEvmUsdc.mockImplementationOnce(() => {
+      throw new Error('no output token');
+    });
+    await expect(bridgeEpochSend(args())).rejects.toThrow('no output token');
+    expect(mockGetEpochReadOnlySdk).not.toHaveBeenCalled();
+    expect(mockCreateBridgeP2IDENote).not.toHaveBeenCalled();
   });
 });

@@ -86,6 +86,16 @@ export type UIToken = {
   balance: number;
   fiatPrice: number;
   /**
+   * Whether `fiatPrice` is the nominal $1 an unquoted token takes with Developer Settings' switch
+   * on (`isNominalQuote`) rather than a feed quote, and so fit only for a display figure: a dollar
+   * computation such as the Fast route's fee reads the token as unpriced.
+   *
+   * Optional, not required like `scaleIsKnown`, because only `uiTokenFromBalance` prices through
+   * the quote that can be nominal; an omitted field reads as a feed quote or no price (0), which
+   * that computation already handles.
+   */
+  fiatPriceIsNominal?: boolean;
+  /**
    * Whether `decimals` is what the faucet reported, rather than the unknown-token
    * placeholder's guess of 6.
    *

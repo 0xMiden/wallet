@@ -111,6 +111,7 @@ export async function initiateUsdcxBurn(args: {
     true,
     undefined,
     spendingLimitAuthorization,
+    undefined,
     {
       noteId: built.burnNoteId,
       destinationDomain: USDCX_WITHDRAWAL_DESTINATION.domain,

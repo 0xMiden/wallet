@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { goBack, navigate } from 'lib/woozie';
 
 // Imported after the mocks above are registered (jest hoists jest.mock).
@@ -25,6 +26,15 @@ const mockRefetch = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+const mockFeatureAvailability = jest.fn(
+  (feature: string, _options?: { hold?: boolean }): FeatureAvailability =>
+    feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' }
+);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useFeatureAvailability: (feature: string, options?: { hold?: boolean }) => mockFeatureAvailability(feature, options)
 }));
 
 // Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
@@ -77,12 +87,20 @@ jest.mock('./components', () => {
       label: string;
       meta?: React.ReactNode;
     }) => R.createElement('section', { 'data-testid': 'earn-hero', id: labelId }, value, ' ', label, ' ', meta),
-    // The token mark that replaced the "{asset} on {network}" pill in the header.
-    EarnAssetMark: ({ asset, network }: { asset: string; network: string }) =>
+    earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+    EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
+      `${subject.asset} on ${subject.network}`,
+    // The token mark, which names the pair for assistive tech unless it is decorative, as the real one does.
+    EarnAssetMark: ({ asset, network, decorative }: { asset: string; network: string; decorative?: boolean }) =>
       R.createElement(
         'span',
-        { 'data-testid': 'earn-asset-mark', 'data-asset': asset, 'data-network': network },
-        'earnAssetOnNetwork'
+        {
+          'data-testid': 'earn-asset-mark',
+          'data-asset': asset,
+          'data-network': network,
+          'data-decorative': String(Boolean(decorative))
+        },
+        decorative ? null : 'earnAssetOnNetwork'
       )
   };
 });
@@ -209,6 +227,7 @@ const metricValue = (label: string) => {
 describe('EarnVaultDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEarnDeposit = { state: 'available' };
   });
 
   // Guardian accounts are supported: earn deposits are built as a recallable
@@ -243,12 +262,8 @@ describe('EarnVaultDetail', () => {
     // Page root.
     expect(screen.getByTestId('earn-vault-detail-page')).toBeInTheDocument();
 
-    // Header: the protocol alone, so the title holds one line, plus the asset's compact mark.
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Aave');
-    // The asset belongs to the mark; naming it twice wrapped the header onto a second line.
-    expect(heading).not.toHaveTextContent('•');
-    // The mark rides the header row, in place of the pill that took the title's width.
+    // Header: the protocol as the title, as on every earn page, and the asset's compact mark beside it.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Aave$/);
     const mark = screen.getByTestId('earn-asset-mark');
     expect(mark).toHaveAttribute('data-asset', 'USDC');
     expect(mark).toHaveAttribute('data-network', 'Ethereum');
@@ -279,6 +294,16 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByText('5.24%', { selector: 'div.text-badge' })).toBeInTheDocument();
   });
 
+  it('says the asset on its network once, on the line under the protocol, with the mark beside it decorative', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    const banner = screen.getByRole('banner');
+    expect(within(banner).getAllByText('USDC on Ethereum')).toHaveLength(1);
+    const mark = within(banner).getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-decorative', 'true');
+    expect(banner).not.toHaveTextContent('earnAssetOnNetwork');
+  });
+
   it('renders the unaudited vault with flat chart data (padding fallback + "No")', () => {
     render(<EarnVaultDetail vaultId="v-unaudited" />);
 
@@ -303,6 +328,7 @@ describe('EarnVaultDetail', () => {
     // route, and the empty id disables the Deposit CTA.
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^earnDeposit$/);
     expect(screen.queryByTestId('earn-asset-mark')).toBeNull();
+    expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
     expect(metricValue('earnTvlLabel')).toHaveTextContent('—');
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
   });
@@ -319,6 +345,24 @@ describe('EarnVaultDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
     expect(navigate).toHaveBeenCalledWith('/earn/vaults/v-audited/deposit');
+  });
+
+  it('greys out Deposit under the notice while Earn deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  it('holds Deposit, with no notice, while availability is loading', () => {
+    mockEarnDeposit = { state: 'loading' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
   });
 
   // No timeframe row: no chart on this screen reads a timeframe, so the control changed nothing.
@@ -368,8 +412,8 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeEnabled();
   });
 
-  it('keeps the failure said while a retry is loading, and names only the route in the header', () => {
-    mockLoadState = { isLoading: true, error: 'boom', loadError: 'boom' };
+  it('keeps the failure said while a retry is out, and names only the route in the header', () => {
+    mockLoadState = { isLoading: false, error: 'boom', loadError: 'boom' };
     render(<EarnVaultDetail vaultId="does-not-exist" />);
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -386,6 +430,28 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();
     expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+});
+
+// The fast poll is held only for a greyed-out Deposit, which the pending and vault-less failed branches never draw.
+describe('EarnVaultDetail fast-poll hold', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+    mockEarnDeposit = { state: 'available' };
+  });
+
+  it.each<[string, string, { isLoading: boolean; error?: string; loadError?: string }, boolean]>([
+    ['a loaded vault', 'v-audited', { isLoading: false }, true],
+    ['a vault kept over a failed load', 'v-audited', { isLoading: false, error: 'boom', loadError: 'boom' }, true],
+    ['a first load in flight', 'does-not-exist', { isLoading: true }, false],
+    ['a failed load with no vault', 'does-not-exist', { isLoading: false, error: 'boom', loadError: 'boom' }, false]
+  ])('asks for it only where it draws the notice: %s', (_state, vaultId, loadState, hold) => {
+    mockLoadState = loadState;
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId={vaultId} />);
+
+    expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
+    expect(mockFeatureAvailability).toHaveBeenLastCalledWith('earnDeposit', { hold });
   });
 });
 
@@ -407,7 +473,8 @@ describe('EarnVaultDetail with no vault to name', () => {
     const headings = screen.getAllByRole('heading', { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveTextContent(/^earnDeposit$/);
-    expect(screen.queryByText(`${EARN_PLACEHOLDER} • ${EARN_PLACEHOLDER}`)).toBeNull();
+    // No subtitle names a placeholder subject: the header's line reads "<asset> on <network>".
+    expect(within(screen.getByRole('banner')).queryByText(/ on /)).toBeNull();
     expect(screen.queryByText(/earnAssetOnNetwork/)).toBeNull();
   });
 });

@@ -1,6 +1,10 @@
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
+import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
+import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
 
 import { compareAccountIds } from './utils';
 import {
@@ -90,10 +94,11 @@ async function pollIntentNoteId(intent: PendingBridgeInIntent): Promise<string |
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
     const sdk = await getEpochReadOnlySdk(intent.userAddress);
-    const results = await sdk.getIntentStatus(intent.userAddress, intent.intentNonce);
+    // Bounded: consume completion awaits this under the transaction loop's lock.
+    const results = await readEpochIntentStatus(sdk, intent.userAddress, intent.intentNonce);
     return extractMidenNoteId(results ?? []);
   } catch (err) {
-    console.warn('[bridge-in] one-shot intent poll failed', err);
+    console.warn('[bridge-in] one-shot intent poll failed', intent.userAddress, intent.intentNonce, err);
     return undefined;
   }
 }
@@ -156,8 +161,9 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
 /**
  * E2E-only override for the AggLayer delivery sender. Production leaves this
  * null (the hook that sets it is installed only under MIDEN_E2E_TEST), so the
- * hardcoded testnet sender is used. The bridge-in localnet harness sets it to a
- * runtime-created "solver" account whose id isn't known until test time.
+ * bridge registry's native-ETH faucet is the sender. The bridge-in localnet
+ * harness sets it to a runtime-created "solver" account whose id isn't known
+ * until test time.
  */
 let e2eAgglayerSenderOverride: string | null = null;
 export function setAgglayerSenderForE2E(senderAccountId: string): void {
@@ -165,19 +171,65 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
 }
 
 /**
+ * How long a deposit waits for its delivery: the reconciler times out an unsettled tracker past it, and no
+ * delivery adopts an older one.
+ */
+export const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** What the bridge delivers for a deposit tracked in wei: floored at the native-ETH faucet's registry scale (#1326). */
+export function agglayerDeliveredAmount(trackedWei: bigint, scale: number): bigint {
+  return trackedWei / 10n ** BigInt(scale);
+}
+
+/**
+ * Whether `sender` sent an AggLayer delivery, by the config this realm holds: the registered faucet whose origin is
+ * native ETH on network 0 mints bridged ETH and sends its delivery notes. Matching stays off while the config cannot
+ * name that faucet, so an ordinary incoming note is never mistaken for a bridge delivery. A path that runs without a
+ * user action reads it through `isAgglayerDeliverySender`, which waits for this realm's config first.
+ */
+export function isAgglayerBridgeDelivery(sender: string): boolean {
+  if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
+  const faucet = selectNativeEthFaucet(getBridgeConfigSnapshot());
+  if (!faucet) return false;
+  try {
+    // The consume reads its sender in bech32 and the registry names the faucet in hex: both go through the SDK, as
+    // sameWalletAccountId compares, so the match never rests on the registry's text matching the SDK's.
+    return accountRefToSdk(sender).toString().toLowerCase() === accountRefToSdk(faucet).toString().toLowerCase();
+  } catch (error) {
+    console.warn('[bridge-in] could not compare the delivery sender', sender, error);
+    return false;
+  }
+}
+
+async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
+  // A consume can land before this realm hydrated the config; from storage, never the network.
+  await initBridgeConfig();
+  return isAgglayerBridgeDelivery(sender);
+}
+
+/**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
- * The fixed sender is authoritative; amount + recipient prevent two deposits
- * to the same wallet from being paired in the wrong order. The sender delivers
- * bridged ETH, so only native ETH trackers are compatible: an ERC-20 deposit
- * with the same base-unit amount must not adopt its note.
+ * The delivery sender is authoritative; amount + recipient prevent two deposits
+ * to the same wallet from being paired in the wrong order. A tracker holds the
+ * deposit in wei and the bridge delivers it at the native-ETH faucet's registry
+ * scale, so the two are compared through `agglayerDeliveredAmount`. The sender
+ * delivers bridged ETH, so only native ETH trackers are compatible: an ERC-20
+ * deposit with the same amount must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
   senderAccountId: string;
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
-  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
-  if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
+  if (!(await isAgglayerDeliverySender(args.senderAccountId))) return undefined;
+  // Matching stays off while the registry names no native-ETH faucet: without its scale no tracker's amount can be
+  // compared with the delivery's.
+  const scale = selectNativeEthToken(getBridgeConfigSnapshot())?.scale;
+  if (scale === undefined) return undefined;
+
+  // A `ready` tracker is never polled again, so the reconciler's timeout never fails it; a tracker whose delivery came
+  // long ago would otherwise take the next deposit of the same amount.
+  const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   const matches = await Repo.transactions
     .filter(tx => {
@@ -193,7 +245,9 @@ export async function takeAgglayerBridgeInInfo(args: {
         inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed' &&
-        tx.amount === args.amount
+        tx.initiatedAt >= cutoffSec &&
+        tx.amount !== undefined &&
+        agglayerDeliveredAmount(tx.amount, scale) === args.amount
       );
     })
     .toArray();
@@ -255,14 +309,20 @@ export async function applyBridgeInInfoForNotes(
   const consumedKeys = new Set(noteIds.map(noteIdKey));
   const discovered = new Map<string, string>();
   if (!snapshot.some(intent => intent.midenNoteId && consumedKeys.has(noteIdKey(intent.midenNoteId)))) {
-    for (const intent of snapshot) {
-      if (intent.midenNoteId) continue;
-      const noteId = await pollIntentNoteId(intent);
-      if (noteId) {
-        discovered.set(registryIdentity(intent), noteId);
-        if (consumedKeys.has(noteIdKey(noteId))) break;
-      }
-    }
+    // All at once, and only until a read finds a consumed note: consume completion waits here under the transaction
+    // loop's lock, so neither the number of unresolved intents nor an unrelated read that hangs extends the wait.
+    const unresolved = snapshot.filter(intent => !intent.midenNoteId);
+    await new Promise<void>(resolve => {
+      let pending = unresolved.length;
+      if (pending === 0) resolve();
+      unresolved.forEach(intent => {
+        void pollIntentNoteId(intent).then(noteId => {
+          pending -= 1;
+          if (noteId) discovered.set(registryIdentity(intent), noteId);
+          if (pending === 0 || (noteId && consumedKeys.has(noteIdKey(noteId)))) resolve();
+        });
+      });
+    });
   }
   return withBridgeInRegistryLock(async () => {
     const registry = await readRegistry();

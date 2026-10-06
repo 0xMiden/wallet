@@ -10,6 +10,8 @@ import { IconButton } from 'components/ui/IconButton';
 export interface PageHeaderProps {
   /** Omit when the page's body owns its heading, so there is never an empty `<h1>`. */
   title?: React.ReactNode;
+  /** A muted line under the title, naming what the page is about when the title alone cannot, e.g. an earn vault's asset and network. */
+  subtitle?: React.ReactNode;
   /** Back button, left. */
   onBack?: () => void;
   /** Close button, right. */
@@ -37,6 +39,7 @@ export interface PageHeaderProps {
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
+  subtitle,
   onBack,
   onClose,
   actions,
@@ -66,14 +69,23 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           />
         )}
         {title ? (
-          <h1
-            ref={titleRef}
-            tabIndex={focusTitleOnMount ? -1 : undefined}
-            // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
-            className="line-clamp-2 min-w-0 flex-1 text-title-tab break-words text-ink outline-none"
-          >
-            {title}
-          </h1>
+          // One column in the title's slot whether or not a subtitle is given, so a subtitle that
+          // arrives or leaves never recreates the h1 (and drops the focus `focusTitleOnMount` put
+          // there). With one, the two stack one line each and the row keeps its 60px.
+          <div className="flex min-w-0 flex-1 flex-col">
+            <h1
+              ref={titleRef}
+              tabIndex={focusTitleOnMount ? -1 : undefined}
+              className={clsx(
+                'text-title-tab text-ink outline-none',
+                // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
+                subtitle ? 'truncate' : 'line-clamp-2 break-words'
+              )}
+            >
+              {title}
+            </h1>
+            {subtitle && <p className="truncate text-caption-heading text-muted">{subtitle}</p>}
+          </div>
         ) : (
           <span className="flex-1" />
         )}

@@ -65,20 +65,50 @@ describe('mintFromPublicFaucet', () => {
     fetchSpy = undefined;
   });
 
+  /** A response, or one built from the request's signal. */
+  type Reply = Response | ((signal: AbortSignal | undefined) => Response);
+
   function reply(status: number, body: unknown): Response {
     return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
   }
 
+  /** A body read that settles only when the request's signal aborts, as a stalled stream does. */
+  function stalledBody(signal: AbortSignal | undefined): Promise<never> {
+    return new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)));
+  }
+
+  /** Answers with `status`, and a body that never arrives. */
+  function stalledReply(status: number): Reply {
+    return signal =>
+      Object.assign(new Response(null, { status }), {
+        json: () => stalledBody(signal),
+        text: () => stalledBody(signal)
+      });
+  }
+
   /** Answers each request with the next response in order and records every requested URL. */
-  function serve(responses: Response[]): string[] {
+  function serve(responses: Reply[]): string[] {
     const urls: string[] = [];
-    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async input => {
+    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
       urls.push(String(input));
       const next = responses.shift();
       if (!next) throw new Error(`unexpected request ${String(input)}`);
-      return next;
+      return typeof next === 'function' ? next(init?.signal ?? undefined) : next;
     });
     return urls;
+  }
+
+  function track(promise: Promise<unknown>) {
+    const state: { outcome: unknown } = { outcome: 'pending' };
+    void promise.then(
+      value => {
+        state.outcome = value;
+      },
+      (error: unknown) => {
+        state.outcome = error;
+      }
+    );
+    return state;
   }
 
   it('retries a 5xx grant from a fresh challenge', async () => {
@@ -118,5 +148,103 @@ describe('mintFromPublicFaucet', () => {
       'Public faucet mint failed (502): Bad Gateway'
     );
     expect(urls).toHaveLength(6);
+  });
+
+  it('waits out a 429 for as long as the faucet asks, then retries from a fresh challenge', async () => {
+    const urls = serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(429, 'Account is rate limited for 25 more seconds.'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+    const waits: number[] = [];
+
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async ms => {
+        waits.push(ms);
+      })
+    ).resolves.toEqual({ txId: '0xtx', noteId: '0xnote' });
+
+    expect(waits).toEqual([26_000]);
+    expect(urls[3]).toContain('challenge=bb');
+  });
+
+  it('does not count 429s against the 5xx attempts', async () => {
+    const limited = () => reply(429, 'Account is rate limited for 1 more seconds.');
+    serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      limited(),
+      reply(200, { challenge: 'cc', target: EASY_TARGET }),
+      limited(),
+      reply(200, { challenge: 'dd', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'ee', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async () => {})).resolves.toEqual({
+      txId: '0xtx',
+      noteId: '0xnote'
+    });
+  });
+
+  it('gives up with the 429 once waiting would exceed its budget', async () => {
+    const responses: Response[] = [];
+    for (let i = 0; i < 8; i++) {
+      responses.push(reply(200, { challenge: `c${i}`, target: EASY_TARGET }));
+      responses.push(reply(429, 'Account is rate limited for 59 more seconds.'));
+    }
+    serve(responses);
+    const waits: number[] = [];
+
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async ms => {
+        waits.push(ms);
+      })
+    ).rejects.toThrow('Public faucet mint failed (429): Account is rate limited for 59 more seconds.');
+    expect(waits).toEqual([60_000, 60_000, 60_000]);
+  });
+
+  describe('with a body that stalls', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('ends the request at the 15 s bound, which runs through the body read', async () => {
+      serve([stalledReply(200)]);
+
+      const grant = track(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0));
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(grant.outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(grant.outcome).toMatchObject({ name: 'TimeoutError', message: 'Request timed out after 15000 ms' });
+    });
+
+    it('still retries a 5xx whose body stalls, from a fresh challenge', async () => {
+      const urls = serve([
+        reply(200, { challenge: 'aa', target: EASY_TARGET }),
+        stalledReply(503),
+        reply(200, { challenge: 'bb', target: EASY_TARGET }),
+        reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+      ]);
+
+      const grant = track(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0));
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(grant.outcome).toBe('pending');
+      expect(urls).toHaveLength(2);
+      // The bound ends the body at 15 000 ms; the retry's 0 ms delay runs as a 1 ms timer after it.
+      await jest.advanceTimersByTimeAsync(100);
+
+      expect(grant.outcome).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(urls).toHaveLength(4);
+      expect(urls[3]).toContain('challenge=bb');
+    });
   });
 });

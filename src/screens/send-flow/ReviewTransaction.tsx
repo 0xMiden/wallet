@@ -6,6 +6,7 @@ import { formatUnits, parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
@@ -14,12 +15,13 @@ import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Skeleton } from 'components/ui/Skeleton';
+import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
-import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -31,6 +33,7 @@ import {
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -43,7 +46,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
-import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import { getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
@@ -243,8 +246,8 @@ export const ReviewTransaction: React.FC = () => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
-  // The account's spending-limit revision never crosses the intercom port - `serializeError` /
-  // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
+  // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
+  // / `deserializeInternalError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
   // `authorizationMatches` re-reads server-side at redemption.
   const openUnpricedChallenge = useCallback(
@@ -385,12 +388,16 @@ export const ReviewTransaction: React.FC = () => {
           if (isExtension()) requestSWTransactionProcessing();
           goToGeneratingTransaction(txId);
         } else if (route === 'agglayer') {
+          // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
+          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl()))) {
+            throw new Error(t('agglayerTokenUnsupported'));
+          }
           const txId = await initiateB2AggBridge({
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
-            destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
+            guardianProvider: zustandProvider,
             spendingLimitAuthorization: authorization
           });
           if (isExtension()) requestSWTransactionProcessing();
@@ -468,7 +475,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction('Confirm your send'))) {
+      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector))) {
         setIsSubmitting(false);
         return;
       }
@@ -569,14 +576,16 @@ export const ReviewTransaction: React.FC = () => {
     return rel.charAt(0).toUpperCase() + rel.slice(1);
   })();
 
-  // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
-  // USDC output. Show a skeleton only while the Fast quote is still loading.
+  // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
+  // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
+  // skeleton only while the Fast quote is still loading. A USDCx burn has no quote at all.
   const youReceiveLoading = isBridge && route === 'epoch' && epochQuote.loading;
-  const youReceiveAmount = route === 'agglayer' ? amount : epochQuote.amount;
+  const youReceiveAmount =
+    route === 'agglayer'
+      ? formatMoneyAmount(amount, 'typed')
+      : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
   const youReceiveLabel =
-    youReceiveAmount != null
-      ? `≈ ${youReceiveAmount} ${BRIDGE_OUTPUT_TOKEN_SYMBOL}`.trim()
-      : BRIDGE_OUTPUT_TOKEN_SYMBOL;
+    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${epochQuote.symbol}`.trim() : epochQuote.symbol;
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
   const burnValidationError = !isUsdcxBurn

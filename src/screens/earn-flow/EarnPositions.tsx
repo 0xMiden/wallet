@@ -9,7 +9,7 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { goBack, navigate } from 'lib/woozie';
 
-import { EarnSummaryPanel } from './components';
+import { EarnSubjectSubtitle, earnSubjectTitle, EarnSummaryPanel } from './components';
 import { formatApy, usdFigureFormatter } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ProviderLogo } from './ProviderLogo';
@@ -36,6 +36,7 @@ const EarnPositions: FC = () => {
       ) : pending ? null : empty ? (
         <EmptyState
           surface="dashed"
+          size="compact"
           icon={IconName.Earn}
           title={t('earnNoActivePositionsTitle')}
           description={t('earnNoActivePositionsBody')}
@@ -74,9 +75,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="truncate text-row-title text-ink">
-            {position.protocol} &bull; {position.asset}
-          </div>
+          <div className="truncate text-row-title text-ink">{earnSubjectTitle(position)}</div>
         </div>
         {/* The APY reads as a figure, like the tab page's card: the tinted ink, not the raw
             #90BA89 fill, which is 2.2:1 under text. */}
@@ -86,6 +85,9 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
           format={apr => t('earnPositionsApy', { apy: formatApy(apr) })}
           placeholder={t('earnPositionsApy', { apy: position.apy })}
         />
+      </div>
+      <div className="truncate text-caption text-muted">
+        <EarnSubjectSubtitle subject={position} />
       </div>
 
       <AnimatedNumber

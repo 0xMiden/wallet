@@ -2,10 +2,13 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
 
 import { deferred, SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
+import { storageCleared } from 'lib/storage-cleared';
 
 import {
   fetchFromStorage,
   inStorageTurn,
+  inVerdictTurn,
+  preloadStorage,
   putToStorage,
   onStorageChanged,
   usePassiveStorage,
@@ -30,14 +33,11 @@ const mockStorage = {
   }
 };
 
-// Mock webextension-polyfill with default export for dynamic imports
-jest.mock('webextension-polyfill', () => ({
-  __esModule: true,
-  default: {
-    storage: mockStorage
-  },
-  storage: mockStorage
-}));
+const mockPolyfillModule = () => ({ __esModule: true, default: { storage: mockStorage }, storage: mockStorage });
+
+// Mock webextension-polyfill with default export for dynamic imports. An inline arrow, not mockPolyfillModule
+// itself, because @swc/jest hoists jest.mock above every const.
+jest.mock('webextension-polyfill', () => mockPolyfillModule());
 
 // Mock storage adapter to use the mock storage
 jest.mock('lib/platform/storage-adapter', () => ({
@@ -154,7 +154,8 @@ describe('storage utilities', () => {
 
     it('chains awaited functional updates on the value each one wrote', async () => {
       mockStorage.local.set.mockResolvedValue(undefined);
-      await mutate('chained-key', 'base', { revalidate: false });
+      mockStorage.local.get.mockResolvedValue({ 'chained-key': 'base' });
+      await preloadStorage(['chained-key']);
       mockUseRetryableSWR.mockReturnValue({ data: 'base', mutate: jest.fn() });
 
       const { result } = renderHook(() => useStorage<string>('chained-key'));
@@ -164,6 +165,21 @@ describe('storage utilities', () => {
       });
 
       expect(mockStorage.local.set).toHaveBeenLastCalledWith({ 'chained-key': 'base-1-2' });
+    });
+
+    it('builds a functional update on a value written through putToStorage, not the one read before it', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      mockStorage.local.get.mockResolvedValue({ 'direct-then-update-key': 'read' });
+      await preloadStorage(['direct-then-update-key']);
+      await putToStorage('direct-then-update-key', 'direct');
+      mockUseRetryableSWR.mockReturnValue({ data: 'read', mutate: jest.fn() });
+
+      const { result } = renderHook(() => useStorage<string>('direct-then-update-key'));
+      await act(async () => {
+        await result.current[1](prev => `${prev}-updated`);
+      });
+
+      expect(mockStorage.local.set).toHaveBeenLastCalledWith({ 'direct-then-update-key': 'direct-updated' });
     });
 
     it('keeps the setter identity when the value changes', () => {
@@ -220,12 +236,24 @@ describe('storage utilities', () => {
 
     it('returns cleanup function', async () => {
       const callback = jest.fn();
+      let registeredHandler!: (
+        changes: Record<string, { newValue?: unknown; oldValue?: unknown }>,
+        areaName: string
+      ) => void;
+      mockStorage.onChanged.addListener.mockImplementation(handler => {
+        registeredHandler = handler;
+      });
 
       const cleanup = onStorageChanged('my-key', callback);
 
       // The cleanup function is returned synchronously
       // (though the actual listener removal is async)
       expect(typeof cleanup).toBe('function');
+
+      await flushPromises();
+      cleanup();
+
+      expect(mockStorage.onChanged.removeListener).toHaveBeenCalledWith(registeredHandler);
     });
 
     it('calls callback when key changes in local storage', async () => {
@@ -285,15 +313,63 @@ describe('storage utilities', () => {
       expect(callback).not.toHaveBeenCalled();
     });
 
-    it('returns no-op cleanup on mobile/desktop', () => {
+    it('does not register the extension listener on mobile/desktop', () => {
       mockIsExtension.mockReturnValue(false);
       const callback = jest.fn();
 
       const cleanup = onStorageChanged('my-key', callback);
 
       expect(typeof cleanup).toBe('function');
-      // Should not register listener on mobile/desktop
       expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+    });
+
+    it('re-reads its key and calls back with the value once this document wipes the platform store', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({ 'my-key': 'restored-value' });
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).toHaveBeenCalledWith('restored-value');
+    });
+
+    it('calls back with undefined, not null, when the re-read finds nothing', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({});
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).toHaveBeenCalledWith(undefined);
+    });
+
+    it('stops calling back once its cleanup unsubscribes', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockResolvedValue({ 'my-key': 'restored-value' });
+
+      const cleanup = onStorageChanged('my-key', callback);
+      cleanup();
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it('calls back nothing when the re-read fails', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const callback = jest.fn();
+      mockStorage.local.get.mockRejectedValue(new Error('boom'));
+
+      onStorageChanged('my-key', callback);
+      storageCleared();
+      await flushPromises();
+
+      expect(callback).not.toHaveBeenCalled();
     });
   });
 
@@ -361,6 +437,329 @@ describe('storage utilities', () => {
           await Promise.all([accountA, accountB]);
         }
       });
+    });
+  });
+
+  describe('inVerdictTurn (#1081)', () => {
+    /** A LockManager with what the verdict lock uses: exclusive names, ifAvailable and an abort signal. */
+    class FakeLocks {
+      held = new Set<string>();
+      queue = new Map<string, Array<() => void>>();
+      requests: Array<{ name: string; ifAvailable?: boolean; signal?: AbortSignal }> = [];
+      async request<T>(
+        name: string,
+        options: { ifAvailable?: boolean; signal?: AbortSignal },
+        callback: (lock: object | null) => T
+      ): Promise<Awaited<T>> {
+        this.requests.push({ name, ...options });
+        if (options.ifAvailable && this.held.has(name)) return await callback(null);
+        if (this.held.has(name)) {
+          await new Promise<void>((resolve, reject) => {
+            const waiters = this.queue.get(name) ?? [];
+            waiters.push(resolve);
+            this.queue.set(name, waiters);
+            options.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          });
+        }
+        this.held.add(name);
+        try {
+          return await callback({});
+        } finally {
+          this.held.delete(name);
+          this.queue.get(name)?.shift()?.();
+        }
+      }
+    }
+
+    afterEach(() => {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+      jest.useRealTimers();
+    });
+
+    it('takes the row`s own lock name, and ifAvailable skips a row whose lock is held', async () => {
+      const locks = new FakeLocks();
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+      const held = deferred<void>();
+      const first = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+      await flushPromises();
+      await expect(inVerdictTurn('row-1', async () => 'ran', { ifAvailable: true })).resolves.toEqual({ ran: false });
+      held.resolve();
+      await expect(first).resolves.toEqual({ ran: true, value: undefined });
+      expect(locks.requests[0]?.name).toBe('miden-tx-verdict:row-1');
+    });
+
+    it('a waiter that gives up after waitMs never runs later', async () => {
+      jest.useFakeTimers();
+      const locks = new FakeLocks();
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+      const held = deferred<void>();
+      void inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+      let ran = false;
+      const waiter = inVerdictTurn(
+        'row-1',
+        async () => {
+          ran = true;
+        },
+        { waitMs: 10_000 }
+      );
+      await jest.advanceTimersByTimeAsync(10_001);
+      await expect(waiter).resolves.toEqual({ ran: false });
+      held.resolve();
+      await jest.advanceTimersByTimeAsync(10);
+      expect(ran).toBe(false);
+    });
+
+    it('with Web Locks, a turn whose operation throws rejects with its error and frees the lock', async () => {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: new FakeLocks() });
+      await expect(
+        inVerdictTurn(
+          'row-1',
+          async () => {
+            throw new Error('boom');
+          },
+          { waitMs: 10_000 }
+        )
+      ).rejects.toThrow('boom');
+      await expect(inVerdictTurn('row-1', async () => 'free', { ifAvailable: true })).resolves.toEqual({
+        ran: true,
+        value: 'free'
+      });
+    });
+
+    describe('without Web Locks', () => {
+      beforeEach(() => {
+        Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+      });
+
+      it('serializes a pass and a Retry on one row, and lets other rows through', async () => {
+        const order: string[] = [];
+        const held = deferred<void>();
+        const pass = inVerdictTurn(
+          'row-1',
+          async () => {
+            order.push('pass:start');
+            await held.promise;
+            order.push('pass:end');
+          },
+          { waitMs: 10_000 }
+        );
+        const retry = inVerdictTurn(
+          'row-1',
+          async () => {
+            order.push('retry');
+          },
+          { waitMs: 10_000 }
+        );
+        const other = inVerdictTurn(
+          'row-2',
+          async () => {
+            order.push('other');
+          },
+          { waitMs: 10_000 }
+        );
+        try {
+          await flushPromises();
+          expect(order).toEqual(['pass:start', 'other']);
+        } finally {
+          held.resolve();
+        }
+        await Promise.all([pass, retry, other]);
+        expect(order).toEqual(['pass:start', 'other', 'pass:end', 'retry']);
+      });
+
+      it('ifAvailable reports a held row', async () => {
+        const held = deferred<void>();
+        const holder = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+        try {
+          await flushPromises();
+          await expect(inVerdictTurn('row-1', async () => 'x', { ifAvailable: true })).resolves.toEqual({ ran: false });
+        } finally {
+          held.resolve();
+          await holder;
+        }
+      });
+
+      it('a waiter past 10 s gives up and never runs later', async () => {
+        jest.useFakeTimers();
+        const held = deferred<void>();
+        const holder = inVerdictTurn('row-1', () => held.promise, { waitMs: 10_000 });
+        let ran = false;
+        const waiter = inVerdictTurn(
+          'row-1',
+          async () => {
+            ran = true;
+          },
+          { waitMs: 10_000 }
+        );
+        try {
+          await jest.advanceTimersByTimeAsync(10_001);
+          await expect(waiter).resolves.toEqual({ ran: false });
+        } finally {
+          held.resolve();
+          await holder;
+        }
+        await jest.advanceTimersByTimeAsync(10);
+        expect(ran).toBe(false);
+      });
+
+      it('a waiter that gave up passes its place on: the next one runs as soon as the holder ends', async () => {
+        jest.useFakeTimers();
+        const held = deferred<void>();
+        const holder = inVerdictTurn('row-3', () => held.promise, { waitMs: 10_000 });
+        const waiter = inVerdictTurn('row-3', async () => 'second', { waitMs: 10_000 });
+        await jest.advanceTimersByTimeAsync(10_001);
+        await expect(waiter).resolves.toEqual({ ran: false });
+        let thirdRan = false;
+        const third = inVerdictTurn(
+          'row-3',
+          async () => {
+            thirdRan = true;
+            return 'third';
+          },
+          { waitMs: 10_000 }
+        );
+        held.resolve();
+        await jest.advanceTimersByTimeAsync(10);
+        expect(thirdRan).toBe(true);
+        await expect(Promise.all([holder, third])).resolves.toEqual([
+          { ran: true, value: undefined },
+          { ran: true, value: 'third' }
+        ]);
+      });
+
+      it('a turn whose operation throws rejects with its error and frees the row', async () => {
+        const failed = inVerdictTurn(
+          'row-4',
+          async () => {
+            throw new Error('boom');
+          },
+          { waitMs: 1_000 }
+        );
+        const next = inVerdictTurn('row-4', async () => 'next', { waitMs: 1_000 });
+        await expect(failed).rejects.toThrow('boom');
+        await expect(next).resolves.toEqual({ ran: true, value: 'next' });
+        await flushPromises();
+        await expect(inVerdictTurn('row-4', async () => 'free', { ifAvailable: true })).resolves.toEqual({
+          ran: true,
+          value: 'free'
+        });
+      });
+    });
+  });
+
+  describe('the page change listener (#1177)', () => {
+    it('attaches before the page issues its first read', async () => {
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+
+      await jest.isolateModulesAsync(async () => {
+        const { preloadStorage: preloadFresh } = await import('./storage');
+        await preloadFresh(['k']);
+      });
+
+      const [attachedAt] = mockStorage.onChanged.addListener.mock.invocationCallOrder;
+      const [readAt] = mockStorage.local.get.mock.invocationCallOrder;
+      expect(attachedAt).toBeLessThan(readAt!);
+    });
+
+    it('resets an attach whose addListener throws, so a later read attaches and settles changes', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+      mockStorage.onChanged.addListener.mockImplementationOnce(() => {
+        throw new Error('no storage events');
+      });
+      try {
+        await jest.isolateModulesAsync(async () => {
+          const { preloadStorage: preloadFresh } = await import('./storage');
+          const { SWRConfig } = await import('swr');
+
+          await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+          await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+          expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(2);
+          expect(warn).toHaveBeenCalledTimes(1);
+
+          const [, [listener]] = mockStorage.onChanged.addListener.mock.calls;
+          listener({ k: { newValue: 'changed' } }, 'local');
+          expect(SWRConfig.defaultValue.cache.get('k')?.data).toBe('changed');
+        });
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('resolves with nothing to reread and touches neither the read nor the listener', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const { rereadStorageCache: rereadFresh } = await import('./storage');
+        await expect(rereadFresh()).resolves.toBeUndefined();
+      });
+
+      expect(mockStorage.local.get).not.toHaveBeenCalled();
+      expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+    });
+
+    it('logs a failed attach, lets the read through, and attaches on the next read', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockStorage.local.get.mockResolvedValue({ k: 'v' });
+      let imports = 0;
+      // A mock the registry already holds would be reused, so the failing one needs a fresh registry.
+      jest.resetModules();
+      jest.doMock('webextension-polyfill', () => {
+        imports += 1;
+        if (imports === 1) throw new Error('chunk failed to load');
+        return mockPolyfillModule();
+      });
+      try {
+        const { preloadStorage: preloadFresh } = await import('./storage');
+        const { SWRConfig } = await import('swr');
+
+        await expect(preloadFresh(['k'])).resolves.toBeUndefined();
+        expect(SWRConfig.defaultValue.cache.get('k')?.data).toBe('v');
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(mockStorage.onChanged.addListener).not.toHaveBeenCalled();
+
+        await preloadFresh(['k']);
+        expect(mockStorage.onChanged.addListener).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+        jest.doMock('webextension-polyfill', mockPolyfillModule);
+        jest.resetModules();
+      }
+    });
+  });
+
+  describe('re-reads registered for a wipe', () => {
+    it('resolves only once every registered re-read has', async () => {
+      await jest.isolateModulesAsync(async () => {
+        const { registerStorageReread, rereadStorageCache: rereadFresh } = await import('./storage');
+        const held = deferred<void>();
+        registerStorageReread(() => held.promise);
+
+        let settled = false;
+        const reread = rereadFresh().then(() => {
+          settled = true;
+        });
+        await flushPromises();
+        expect(settled).toBe(false);
+
+        held.resolve();
+        await reread;
+        expect(settled).toBe(true);
+      });
+    });
+
+    it('resolves when a registered re-read rejects, and logs it', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await jest.isolateModulesAsync(async () => {
+          const { registerStorageReread, rereadStorageCache: rereadFresh } = await import('./storage');
+          const failure = new Error('store unreadable');
+          registerStorageReread(() => Promise.reject(failure));
+
+          await expect(rereadFresh()).resolves.toBeUndefined();
+          expect(warn).toHaveBeenCalledWith(expect.any(String), failure);
+        });
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 });

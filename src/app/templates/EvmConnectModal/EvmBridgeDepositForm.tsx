@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
-import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, BRIDGE_OUTPUT_TOKEN_SYMBOL } from 'screens/send-flow/bridge-networks';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectEvmUsdc } from 'lib/remote-config/values';
+import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
 
@@ -13,6 +15,8 @@ import { EvmWalletHeader } from './EvmWalletHeader';
 interface EvmBridgeDepositFormProps {
   token: UIToken;
   network?: BridgeNetwork;
+  /** The symbol the deposit arrives as on Miden. Defaults to the bridge config's USDC symbol. */
+  outputSymbol?: string;
   amount: string;
   isValidAmount: boolean;
   error?: string;
@@ -29,6 +33,7 @@ interface EvmBridgeDepositFormProps {
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
   network = DEFAULT_BRIDGE_NETWORK,
+  outputSymbol: outputSymbolOverride,
   amount,
   isValidAmount,
   error,
@@ -39,6 +44,8 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
+  const configUsdcSymbol = selectEvmUsdc(useBridgeConfigSnapshot())?.symbol ?? '';
+  const outputSymbol = outputSymbolOverride ?? configUsdcSymbol;
   const title = <EvmWalletHeader address={evmAddress} onSwitch={onSwitch} />;
 
   return (
@@ -49,7 +56,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       error={error}
       isBridge
       network={network}
-      outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
+      outputSymbol={outputSymbol}
       title={title}
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}

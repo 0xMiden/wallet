@@ -2,7 +2,7 @@ import type { Browser } from 'webextension-polyfill';
 
 import { isDesktop, isMobile } from 'lib/platform';
 
-import { deserializeError } from './helpers';
+import { deserializeInternalError } from './helpers';
 import { MessageType, RequestMessage } from './types';
 
 /**
@@ -214,7 +214,7 @@ export class IntercomClient implements IIntercomClient {
       const listener = (msg: any) => {
         if (msg?.reqId !== reqId) return;
         if (msg?.type === MessageType.Res) resolve(msg.data);
-        else if (msg?.type === MessageType.Err) reject(deserializeError(msg.data));
+        else if (msg?.type === MessageType.Err) reject(deserializeInternalError(msg.data));
         cleanup();
       };
       const onAbort = () => {

@@ -16,9 +16,7 @@
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass};
 use jni::sys::jbyteArray;
-use miden_client::transaction::{
-    LocalTransactionProver, ProvenTransaction, ProvingOptions, TransactionInputs,
-};
+use miden_client::transaction::{LocalTransactionProver, ProvenTransaction, TransactionInputs};
 use miden_client::utils::{Deserializable, Serializable};
 
 /// JNI entry point. Caller passes input bytes as a Java `byte[]`; on
@@ -63,7 +61,10 @@ pub extern "system" fn Java_com_miden_nativeprover_MidenNativeProverPlugin_prove
     // return a future that had to be driven by `futures_executor::block_on`,
     // and the prove was always CPU-bound (no async I/O) so the executor was
     // only ever a driver. Mirrors web-sdk's `crates/mobile-prover`.
-    let prover = LocalTransactionProver::new(ProvingOptions::default());
+    // `LocalTransactionProver::default()`, not `new(ProvingOptions::default())`:
+    // 0.17 dropped `ProvingOptions` from this crate, and default() tracks the
+    // client's hash function the same way the iOS C ABI prover does.
+    let prover = LocalTransactionProver::default();
     let proven: ProvenTransaction = match prover.prove(inputs) {
         Ok(p) => p,
         Err(e) => {

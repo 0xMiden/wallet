@@ -87,6 +87,63 @@
     "message": "Die Verbrennungsrichtlinie des USDCx-faucets kann nicht gelesen werden. Überprüfen Sie den Antrag erneut, um es noch einmal zu versuchen.",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
   },
+  "activityFetchingHistoryAndNotes": {
+    "message": "Abrufen Ihres Transaktionsverlaufs und von „notes“",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Swap",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Brücke heraus",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Einlage verzinsen",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian geändert",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Geräteschlüssel rotiert",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Konto gesichert",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Ausgeführt",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "Wiederherstellung des Verlaufs von $operator$. Transaktionen unter $count$ wurden wiederhergestellt.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "Die Wiederherstellung des Transaktionsverlaufs wurde unterbrochen, da das Netzwerk oder ein „Guardian“-Betreiber diese nicht bereitstellen kann. Die Wiederherstellung wird nicht automatisch erneut versucht.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ Transaktionen wurden wiederhergestellt. Einige „Guardian“-Quellen konnten nicht gelesen werden. Die Wiederherstellung wird beim nächsten Entsperren der Wallet erneut versucht.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Nutzlast",
     "englishSource": "Payload"
@@ -267,18 +324,6 @@
   "unlockBrandName": {
     "message": "Brot",
     "englishSource": "Bread"
-  },
-  "earnPositionHeaderTitle": {
-    "message": "Meine „$protocol$“ • „$asset$“-Position",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
   },
   "earnAssetOnNetwork": {
     "message": "$asset$ auf $network$",
@@ -462,8 +507,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Gesamtbetrag der gesammelten Prämien",
-    "englishSource": "Total Earned Rewards"
+    "message": "Gesamtverdienst",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "$apy$-gemischter APY erzielen",
@@ -528,8 +573,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Ausgewählte Tresore",
-    "englishSource": "Featured Vaults"
+    "message": "Verfügbare Tresore",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -566,34 +611,6 @@
   "createAccount": {
     "message": "Konto erstellen",
     "englishSource": "Create Account"
-  },
-  "importAccount": {
-    "message": "Konto importieren",
-    "englishSource": "Import account"
-  },
-  "accountName": {
-    "message": "Kontoname",
-    "englishSource": "Account name"
-  },
-  "accountNameInputPlaceholder": {
-    "message": "z. B. Ersparnisse",
-    "englishSource": "e.g. Savings"
-  },
-  "accountNameInputInvalid": {
-    "message": "Verwende 1 bis 16 Zeichen und beginne nicht mit Leerraum oder einem Bindestrich.",
-    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
-  },
-  "privateKeyInputDescription": {
-    "message": "Der private Schlüssel des Kontos, das du importieren möchtest.",
-    "englishSource": "The private key of the account you want to import."
-  },
-  "privateKeyInputPlaceholder": {
-    "message": "z. B. APrivateKey1zkp...",
-    "englishSource": "e.g. APrivateKey1zkp..."
-  },
-  "privateKeyClipboardNotCleared": {
-    "message": "Ihr privater Schlüssel konnte nicht aus der Zwischenablage gelöscht werden. Löschen Sie ihn selbst, bevor Sie fortfahren.",
-    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
   },
   "settings": {
     "message": "Einstellungen",
@@ -688,6 +705,22 @@
   "cancelled": {
     "message": "Abgesagt",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "Nicht bestätigt",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Die Wallet konnte nicht bestätigen, ob dieser Vorgang erfolgreich war. Möglicherweise wird er noch abgeschlossen; überprüfen Sie daher die Wallet nach der Synchronisierung, bevor Sie es erneut versuchen.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "Die Wallet konnte nicht feststellen, ob dies erfolgreich war, und überprüft dies nicht. Überprüfen Sie die Wallet, bevor Sie es erneut versuchen.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "Dies wurde aus einem Backup wiederhergestellt, daher kann die Wallet nicht überprüfen, ob der Vorgang erfolgreich war, und ihn nicht wiederholen. Überprüfen Sie die Wallet, bevor Sie den Vorgang wiederholen.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Vollständigen Fehler anzeigen",
@@ -860,15 +893,6 @@
     "message": "Ich habe verstanden, dass dieser Schlüssel weder geändert noch widerrufen werden kann.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "In dieser älteren Wallet-Datei fehlende importierte Konten: $importedCount$. Stellen Sie sie separat aus den Sicherungskopien ihrer privaten Schlüssel wieder her.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Kontonamen bearbeiten",
     "englishSource": "Edit Account Name"
@@ -956,6 +980,14 @@
   "transactionStepSyncingGuardian": {
     "message": "Synchronisierung mit Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "guardianBusyStep": {
+    "message": "Warten auf Ihren „Guardian“",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Ihr „Guardian“ schließt gerade noch Ihre vorherige Transaktion ab. Diese wird automatisch fortgesetzt.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ Sek.",
@@ -1966,12 +1998,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Überprüfen Sie Ihre Wiederherstellungsphrase",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Erstellen Sie ein Backup Ihrer Wallet",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Notieren Sie sich Ihre Wiederherstellungsphrase und vergewissern Sie sich, dass Sie das erste und das letzte Wort kennen, damit Sie diese Wallet später wiederherstellen können.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Speichern Sie Ihre Wiederherstellungsphrase, damit Sie diese Wallet auf einem neuen Gerät wiederherstellen können.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Sichere Signatur nicht verfügbar",
@@ -2158,10 +2190,6 @@
     "message": "Geben Sie das Passwort ein, das Sie beim Exportieren Ihres Wallets festgelegt haben. Dadurch wird die Datei entschlüsselt und der Zugriff wiederhergestellt.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "Fahren Sie mit dem Import fort",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "Entscheiden Sie, wie Sie Ihr Portemonnaie schützen möchten",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2238,6 +2266,50 @@
     "message": "Die biometrische Entsperrung ist auf diesem Gerät nicht verfügbar.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Richten Sie in den Einstellungen die Fingerabdruck- oder Gesichtsentsperrung für die Arbeit ein, um sie hier nutzen zu können.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "Richten Sie in den Einstellungen einen Fingerabdruck oder eine Gesichtserkennung ein, um die biometrische Entsperrung zu nutzen.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "Die für die Arbeit eingerichtete Gesichts- oder Fingerabdruck-Entsperrung ist nicht sicher genug, um eine Wallet zu schützen. Richten Sie in den Einstellungen „Fingerabdruck“ für die Arbeit ein, um ihn hier zu verwenden.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "Die auf diesem Gerät eingerichtete Entsperrung per Gesichtserkennung oder Fingerabdruck ist nicht sicher genug, um eine Wallet zu schützen. Richten Sie in den Einstellungen einen Fingerabdruck ein, um die biometrische Entsperrung zu nutzen.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "Die biometrischen Funktionen dieses Geräts können eine Wallet nicht schützen. Verwenden Sie stattdessen einen Passcode.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "Der biometrische Sensor ist derzeit nicht verfügbar. Versuchen Sie es erneut oder verwenden Sie einen Passcode.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID oder Touch ID ist nicht verfügbar. Falls diese Funktion für diese App deaktiviert ist, aktiviere sie in den Einstellungen oder verwende einen Passcode.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Installieren Sie das neueste Sicherheitsupdate, um die biometrische Entsperrung zu nutzen.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Legen Sie in den Einstellungen einen Gerätepasscode fest, um die biometrische Entsperrung zu nutzen.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "Die biometrische Entsperrung wird nach zu vielen Versuchen gesperrt. Entsperren Sie Ihr Gerät und versuchen Sie es dann erneut.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Einstellungen öffnen",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Wählen Sie Ihre „Guardian“",
     "englishSource": "Choose your Guardian"
@@ -2278,31 +2350,6 @@
     "message": "Ein „Guardian“ speichert den Status Ihres Kontos und hilft Ihnen, diesen wiederherzustellen. Stellen Sie sich das wie einen Server vor, der ein Backup für Sie erstellt, aber niemals Zugriff auf Ihr Guthaben hat.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "Der derzeit schnellste Betreiber unter $operators$",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Der Betreiber dieses Netzwerks",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Die „Guardian“ kann Ihr Guthaben nicht eigenständig bewegen",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Die „Guardian“ sichert den Status Ihres Kontos",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "Mit Ihrer Wiederherstellungsphrase können Sie den Guardian jederzeit wechseln",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Mal sehen, welcher Betreiber am schnellsten antwortet…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2314,30 +2361,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Ich würde lieber ein vollständig privates Konto einrichten",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Wählen Sie eine andere „Guardian“",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Ein unabhängiger Betreiber von Guardian auf Miden.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin ist ein blockchain-Sicherheitsunternehmen hinter weit verbreiteten Smart-Contract-Bibliotheken für Ethereum.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm baut und betreibt eine „blockchain“-Infrastruktur für Netzwerke und Rollups.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass ist ein Ingenieurbüro, das fortschrittliche Kryptografie- und „blockchain“-Infrastruktur entwickelt.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA) ist ein regulierter Verwahrer digitaler Vermögenswerte in Südkorea.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Erfahren Sie mehr über das „Guardian“",
@@ -2382,6 +2405,19 @@
   "meetGuardianYourGuardian": {
     "message": "Ihr Guardian",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Ändern",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ sichert Ihr Konto. Es kann Ihr Guthaben niemals bewegen, und Sie können jederzeit wechseln.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Ein „Guardian“ ist ein unabhängiger Dienst, der <b>jede Transaktion</b> aus Ihrer Wallet mitunterzeichnet und so ein Sicherheitsnetz bietet, ohne dass Sie die Selbstverwahrung aufgeben müssen.",
@@ -2506,6 +2542,18 @@
   "creatingYourWallet": {
     "message": "Ihre Geldbörse wird erstellt…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Wiederherstellung Ihrer Wallet…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Einrichten Ihrer Wallet…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Öffne deine Wallet, um die Wiederherstellung abzuschließen.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Passwort eingeben",
@@ -2759,6 +2807,18 @@
     "message": "Sie haben Ihre „Guardian“ erfolgreich rotiert!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian gewechselt",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian-Wechsel übermittelt",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "Übermittelt",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "Was sich nun ändert",
     "englishSource": "What changes now"
@@ -2778,6 +2838,22 @@
   "guardianSwitchUnconfirmedBody": {
     "message": "Der Wechsel wurde übermittelt, aber dieses Gerät konnte nicht bestätigen, dass er on chain wirksam wurde. Die Wallet kann das nicht für Sie bestätigen — Ihre Guardian-Einstellungen und der Aktivitätseintrag dieser Transaktion nennen in beiden Fällen den neuen Guardian. Wenn eine spätere Transaktion abgelehnt wird, weil sie nicht mitsigniert werden konnte, führen Sie den Wechsel erneut aus.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "Noch nicht auf diesem Gerät gespeichert.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Der Guardian-Wechsel hat das Netzwerk erreicht, aber dieses Gerät konnte den neuen Status Ihres Kontos noch nicht speichern. Die Wallet versucht es im Hintergrund weiter, und bis dies gelingt, werden Transaktionen von diesem Gerät möglicherweise nicht ausgeführt. Sie müssen den Guardian-Wechsel nicht erneut ausführen.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "Nicht auf diesem Gerät gespeichert.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Der Guardian-Wechsel hat das Netzwerk erreicht, aber dieses Gerät konnte den neuen Status Ihres Kontos nicht speichern und kann ihn nicht selbst wiederherstellen. Führen Sie den Guardian-Wechsel nicht erneut aus. Wenden Sie sich an den Support.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Dieses Gerät konnte außerdem die Adresse des neuen Guardians nicht speichern und zeigt daher weiterhin die vorherige an. Die Wallet wird Sie bitten, sie erneut einzugeben — diese Abfrage startet keinen weiteren Wechsel.",
@@ -2876,12 +2952,73 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Beim Rotieren Ihres Alltagsschlüssels ist ein Fehler aufgetreten.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Beim Rotieren Ihres Alltagsschlüssels ist ein Fehler aufgetreten. Ihr Guthaben ist sicher, und Sie können es jetzt erneut versuchen.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Tägliche Schlüsselrotation nicht bestätigt",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Die Wallet konnte nicht bestätigen, ob die Rotation erfolgreich war. Ihr Guthaben ist sicher, auch wenn möglicherweise die Netzwerkgebühr bezahlt wurde. Warten Sie eine Minute, bis die Wallet synchronisiert ist, bevor Sie es erneut versuchen.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Erneut versuchen",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Fügen Sie USDCX hinzu, um Ihren Alltagsschlüssel zu aktivieren",
+    "englishSource": "Add USDCX to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Die Aktivierung Ihres Alltagsschlüssels ist eine Transaktion, und bei jeder Transaktion fällt eine geringe Netzwerkgebühr in USDCX an. Senden Sie USDCX an die unten angegebene Adresse dieses Kontos. Die Wallet nimmt die Zahlung entgegen und schließt die Aktivierung Ihres Schlüssels automatisch ab.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "Senden Sie mindestens $amount$ USDCX.",
+    "englishSource": "Send at least $amount$ USDCX.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Ihre Kontoadresse",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "Ich warte darauf, dass USDCX eintrifft…",
+    "englishSource": "Waiting for USDCX to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Der USDCX-Betrag, den Sie erhalten haben, reicht nicht aus, um die Netzwerkgebühr zu bezahlen. Senden Sie etwas mehr.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "USDCX empfangen. Ich beanspruche es…",
+    "englishSource": "USDCX received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Aktivieren Ihres Alltagsschlüssels…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "Das USDCX, das Sie erhalten haben, konnte nicht beansprucht werden.",
+    "englishSource": "The USDCX you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Die Wallet konnte nicht bestätigen, ob das von Ihnen erhaltene USDCX bereits beansprucht wurde. Warten Sie eine Minute, bis die Wallet synchronisiert ist, bevor Sie es erneut versuchen.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Versuchen Sie es erneut",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Noch einmal überprüfen",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian geändert",
@@ -2902,6 +3039,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Für dieses Konto gibt es noch keinen Guardian on-chain, gegen den geprüft werden könnte.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "Ihr Guardian hat sich geändert, während die Adresse geprüft wurde. Bitte versuchen Sie es erneut.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian nicht erreichbar",
@@ -3033,24 +3174,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "Ihr MIDEN ist für die Netzwerkgebühr reserviert. Erhalten Sie mehr MIDEN, um Guthaben zu versenden.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "Ihr USDCX ist für die Netzwerkgebühr reserviert. Erhalten Sie mehr USDCX, um Guthaben zu versenden.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "Sie benötigen MIDEN, um die Netzwerkgebühr zu bezahlen. Erhalten Sie etwas MIDEN, um fortzufahren.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "Sie benötigen USDCX, um die Netzwerkgebühr zu bezahlen. Erhalten Sie etwas USDCX, um fortzufahren.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN-Überweisungen automatisch akzeptieren",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "USDCX-Überweisungen automatisch akzeptieren",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Nimmt eingehende MIDEN-Überweisungen automatisch in Ihr Guthaben auf — genau wie ein Tippen auf „Akzeptieren“. Es wird nicht häufiger akzeptiert und es fallen keine höheren Gebühren an, als wenn Sie selbst auf „Akzeptieren“ tippen.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "Nimmt eingehende USDCX-Überweisungen automatisch in Ihr Guthaben auf - genau wie ein Tippen auf „Akzeptieren“. Es wird nicht häufiger akzeptiert und es fallen keine höheren Gebühren an, als wenn Sie selbst auf „Akzeptieren“ tippen.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Erstellen Ihrer Wallet-Datei…",
@@ -3482,6 +3627,30 @@
   "slow": {
     "message": "Langsam",
     "englishSource": "Slow"
+  },
+  "unavailable": {
+    "message": "Nicht verfügbar",
+    "englishSource": "Unavailable"
+  },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Vorübergehend nicht verfügbar",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "Dieser externe Dienst ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
+  "agglayerCheckingToken": {
+    "message": "Überprüfung, ob dieses Token den Slow-Weg unterstützt…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Dieses Token unterstützt den Slow-Weg nicht.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Dieses Token konnte nicht überprüft werden. Gehen Sie zurück und versuchen Sie es erneut.",
+    "englishSource": "Could not check this token. Go back and try again."
   },
   "seconds": {
     "message": "Sekunden",
@@ -3930,6 +4099,14 @@
     "message": "Fingerabdruck",
     "englishSource": "Fingerprint"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Gesichtsentsperrung",
+    "englishSource": "Face unlock"
+  },
   "cameraPermissionDenied": {
     "message": "Kamera-Berechtigung verweigert",
     "englishSource": "Camera permission denied"
@@ -3997,6 +4174,14 @@
   "transactionFailedNotificationBody": {
     "message": "Eine Transaktion konnte nicht abgeschlossen werden. Öffnen Sie die Wallet, um dies zu überprüfen.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "Transaktion nicht bestätigt",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Die Wallet konnte nicht bestätigen, ob eine Transaktion erfolgreich durchgeführt wurde. Öffnen Sie die Wallet, bevor Sie es erneut versuchen.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Tippen Sie hier, um sie zu akzeptieren",
@@ -4342,6 +4527,10 @@
     "message": "Teilen",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Adresse teilen",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Kopieren",
     "englishSource": "Copy"
@@ -4419,8 +4608,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "ca. 6 Stunden",
-    "englishSource": "~6 hours"
+    "message": "ca. 30 Minuten",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Sie tätigen eine Einzahlung",
@@ -4598,6 +4787,14 @@
     "message": "unbestätigt",
     "englishSource": "unverified"
   },
+  "unverifiedToken": {
+    "message": "Nicht verifiziert",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Dieses Token ist nicht in der Liste der verifizierten Token von Miden enthalten. Jeder kann ein Token mit einem beliebigen Namen erstellen; überprüfen Sie daher die ID unter faucet, bevor Sie dem Token vertrauen.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
   "couldNotVerifyBySimulation": {
     "message": "Konnte nicht durch Simulation überprüft werden. Die unten aufgeführten Mengen entsprechen den Angaben der Website.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
@@ -4762,9 +4959,17 @@
     "message": "Benutzerdefinierte URL für „guardian“",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Gebührenfaucet-Konto-ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Erlauben Sie beim Onboarding die Option „Kein Vormund“.",
     "englishSource": "Allow 'No guardian' option in onboarding"
+  },
+  "devNominalUnquotedPrice": {
+    "message": "Bewerte nicht in Anführungszeichen gesetzte Token mit 1 $ (nur Testnetzwerke)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
   },
   "devEndpointChecking": {
     "message": "Wird geprüft…",
@@ -4782,6 +4987,10 @@
     "message": "Speichern und fortfahren",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Diese Endpunkte konnten nicht gespeichert werden. Versuchen Sie es erneut.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Auf Standardwerte zurücksetzen",
     "englishSource": "Reset to defaults"
@@ -4789,6 +4998,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Auf Standardwerte zurücksetzen und erneut einrichten",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Das Zurücksetzen wurde nicht abgeschlossen. Versuchen Sie es erneut.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Netzwerkendpunkte",
@@ -4978,6 +5191,38 @@
     "message": "Nicht jetzt",
     "englishSource": "Not now"
   },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
+  },
   "activityAcceptTransfer": {
     "message": "Überweisung akzeptieren",
     "englishSource": "Accept Transfer"
@@ -5076,14 +5321,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ – über dieses Netzwerk",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Token haben keinen echten Wert",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Wiederherstellen",
@@ -5311,8 +5560,41 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
+  },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
   },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
@@ -5396,12 +5678,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Die Überprüfung der Entsperrmethode dieser Wallet dauert länger als gewöhnlich. Um es erneut zu versuchen, gehen Sie zurück und öffnen Sie diese Seite erneut.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
+    "message": "Die Entsperrmethode dieser Wallet konnte nicht überprüft werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "Farbe des QR-Codes ändern",
@@ -5516,5 +5794,67 @@
   "revealRecoveryPhrase": {
     "message": "Wiederherstellungsphrase anzeigen",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Token ausblenden",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Token einblenden",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Vor dem Home verborgen. Es verbleibt in Ihrer Wallet, und die damit getätigten Überweisungen können weiterhin beansprucht werden.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Versteckte Vermögenswerte",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Versteckte Vermögenswerte ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Einblenden",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$ wieder einblenden",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Versteckte Token konnten nicht aktualisiert werden. Bitte versuche es erneut.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Versteckte Token konnten nicht geladen werden.",
+    "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "Bestätigen Sie Ihre Überweisung",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "Bestätigen Sie Ihren Wechsel",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "Bestätigen Sie diese Transaktion",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "Bestätigen Sie Ihre Einzahlung",
+    "englishSource": "Confirm your deposit"
   }
 }

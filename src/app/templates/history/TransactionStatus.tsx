@@ -36,16 +36,24 @@ export const ExternalLinkValue: FC<{
  * moment the order note is created: the place-order transaction confirmed, the
  * swap did not. The history list already draws that distinction, so without this
  * the same order reads "Pending" in the list and "Confirmed" on its own receipt.
+ *
+ * `isUnconfirmed` (`isOutcomeUnconfirmed`) wins over everything else: a row whose
+ * outcome the wallet cannot rule out is not confirmed-failed and not confirmed-cancelled,
+ * so it is checked ahead of both.
  */
 export const transactionStatusOf = ({
   status,
   isCancelled,
+  isUnconfirmed,
   swapSettlement: reportedSettlement
 }: {
   status?: ITransactionStatus;
   isCancelled?: boolean;
+  isUnconfirmed?: boolean;
   swapSettlement?: 'pending' | 'reclaimed';
 }): Status => {
+  if (isUnconfirmed) return 'unconfirmed';
+  if (status === ITransactionStatus.Unconfirmed) return 'unconfirmed';
   // A user cancellation is recorded as a failure (`cancel.ts`), so it is checked first.
   if (isCancelled) return 'cancelled';
   // A swap that failed never placed its order, so it has no settlement to
@@ -64,13 +72,14 @@ export const transactionStatusOf = ({
 export const StatusPill: FC<{
   status?: ITransactionStatus;
   isCancelled?: boolean;
+  isUnconfirmed?: boolean;
   swapSettlement?: 'pending' | 'reclaimed';
   testId?: string;
-}> = memo(({ status, isCancelled, swapSettlement, testId }) => (
+}> = memo(({ status, isCancelled, isUnconfirmed, swapSettlement, testId }) => (
   <StatusBadge
     size="md"
     live
-    status={transactionStatusOf({ status, isCancelled, swapSettlement })}
+    status={transactionStatusOf({ status, isCancelled, isUnconfirmed, swapSettlement })}
     data-testid={testId}
   />
 ));

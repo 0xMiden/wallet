@@ -13,18 +13,32 @@
  * vault before `pay_fee` takes from it, so claiming the native note funds the groups that follow. A
  * non-native group attempted first on an empty vault fails on the fee while a native note that would
  * have paid for it sits unclaimed. The other groups keep note-arrival order.
+ *
+ * A note for which `claimAlone` holds gets a group of its own, after the native group and in arrival order
+ * with the rest. An Agglayer bridge delivery is one: its consume is paired with a deposit tracker by that
+ * note's own amount, which a batch's total is not.
  */
 export function groupNotesForClaim<T extends { faucetId: string }>(
   notes: readonly T[],
-  nativeFaucetId: string | null
+  nativeFaucetId: string | null,
+  claimAlone?: (note: T) => boolean
 ): T[][] {
+  const groups: T[][] = [];
   const byFaucet = new Map<string, T[]>();
   for (const note of notes) {
+    if (claimAlone?.(note)) {
+      groups.push([note]);
+      continue;
+    }
     const group = byFaucet.get(note.faucetId);
-    if (group) group.push(note);
-    else byFaucet.set(note.faucetId, [note]);
+    if (group) {
+      group.push(note);
+      continue;
+    }
+    const created = [note];
+    byFaucet.set(note.faucetId, created);
+    groups.push(created);
   }
-  return [...byFaucet.entries()]
-    .sort(([a], [b]) => Number(b === nativeFaucetId) - Number(a === nativeFaucetId))
-    .map(([, group]) => group);
+  const nativeGroup = nativeFaucetId === null ? undefined : byFaucet.get(nativeFaucetId);
+  return groups.sort((a, b) => Number(b === nativeGroup) - Number(a === nativeGroup));
 }

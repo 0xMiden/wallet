@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next';
 
 import { earnWithdrawalRetryKind, EarnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import {
+  acknowledgementOf,
   cancelTransactionById,
   isCancellableTransaction,
   isRequeueableTransaction,
-  isUnverifiableSendRetryError,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   retryEarnWithdrawReceive,
@@ -42,9 +42,12 @@ export interface TransactionActions {
   earnRetryKind: EarnWithdrawalRetryKind | undefined;
   isRetrying: boolean;
   retryError: string | null;
-  /** The refusal took the user's word for it; offer the acknowledged retry. */
-  needsSendAcknowledgement: boolean;
-  onRetry: (acknowledgeUnverifiedSend?: boolean) => void;
+  /**
+   * The acknowledgement the last refusal offered, exactly as rendered: it answers the attempt the user was shown
+   * (#1081). Null when the refusal offers none, as the liveness refusal never does.
+   */
+  acknowledgement: { attemptId: string | null } | null;
+  onRetry: (acknowledged?: { attemptId: string | null }) => void;
 
   /** Take a live swap order's offered tip back (swap rows only). */
   isCancellingOrder: boolean;
@@ -63,7 +66,7 @@ export const useTransactionActions = (
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
+  const [acknowledgement, setAcknowledgement] = useState<{ attemptId: string | null } | null>(null);
   const [isCancellingOrder, setIsCancellingOrder] = useState(false);
   const [cancelOrderError, setCancelOrderError] = useState<string | null>(null);
 
@@ -82,16 +85,16 @@ export const useTransactionActions = (
   }, [t, transactionId]);
 
   const handleRetry = useCallback(
-    async (acknowledgeUnverifiedSend = false) => {
+    async (acknowledged?: { attemptId: string | null }) => {
       if (!entry) return;
       setIsRetrying(true);
       setRetryError(null);
-      setNeedsSendAcknowledgement(false);
+      setAcknowledgement(null);
       try {
         if (entry.txType === 'earn-withdraw') {
           await retryEarnWithdrawReceive(transactionId);
         } else {
-          await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
+          await requeueFailedTransaction(transactionId, acknowledged === undefined ? {} : { acknowledged });
           requestSWTransactionProcessing();
           navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
           return;
@@ -99,7 +102,7 @@ export const useTransactionActions = (
       } catch (error) {
         console.error('[HistoryDetails] Failed to retry transaction:', error);
         setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
+        setAcknowledgement(acknowledgementOf(error));
       } finally {
         setIsRetrying(false);
       }
@@ -164,8 +167,8 @@ export const useTransactionActions = (
     earnRetryKind,
     isRetrying,
     retryError,
-    needsSendAcknowledgement,
-    onRetry: (acknowledgeUnverifiedSend = false) => void handleRetry(acknowledgeUnverifiedSend),
+    acknowledgement,
+    onRetry: acknowledged => void handleRetry(acknowledged),
     isCancellingOrder,
     cancelOrderError,
     onCancelOrder: () => void handleCancelOrder()

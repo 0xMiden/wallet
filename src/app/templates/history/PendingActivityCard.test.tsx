@@ -178,7 +178,7 @@ describe('PendingActivityCard', () => {
       const decline = screen.getByRole('button', { name: 'activityRejectTransfer' });
       expect(decline).toHaveClass('w-2/5');
       // No animated wrapper left to replay: the button sits directly in the static footer row.
-      expect(decline.parentElement).toHaveClass('flex', 'gap-2.5');
+      expect(decline.parentElement).toHaveClass('flex', 'border-t', 'border-hairline');
       expect(decline.parentElement?.className).not.toContain('overflow-hidden');
     });
 
@@ -189,6 +189,42 @@ describe('PendingActivityCard', () => {
       expect(accept).not.toBeDisabled();
       expect(accept).toHaveAttribute('aria-busy', 'true');
       expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    });
+
+    it('a held claim offers Retry, enabled and not loading, and hands the item back (#1081)', () => {
+      const onRetryHeld = jest.fn();
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={onRetryHeld} />);
+      const button = screen.getByRole('button', { name: 'retry' });
+      expect(button).not.toBeDisabled();
+      // A loading Button refuses taps through pointer events, which jsdom does not apply, so the class is the check.
+      expect(button).not.toHaveClass('pointer-events-none');
+      fireEvent.click(button);
+      expect(onRetryHeld).toHaveBeenCalledWith(item);
+    });
+
+    it('a held claim without a refusal says it is not confirmed yet, not that it waits to be accepted (#1081)', () => {
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('transactionNotConfirmedHint');
+      expect(hint).not.toHaveTextContent('activityNotYetAccepted');
+    });
+
+    it('a refusal replaces the hint and opens the folded section (#1081)', () => {
+      const item: PendingActivityItem = {
+        note,
+        status: 'claiming',
+        txId: 'tx-held',
+        held: true,
+        retryError: 'The Guardian is still holding this transaction.'
+      };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('The Guardian is still holding this transaction.');
+      expect(hint).toHaveAttribute('data-tone', 'negative');
+      expect(hint).toHaveAttribute('role', 'alert');
     });
   });
 
@@ -268,22 +304,23 @@ describe('PendingActivityCard', () => {
       // Nothing subordinate to say, so there is no empty second line under it.
       expect(notice.querySelector('[data-slot="body"]')).toBeNull();
     });
-    it('draws Decline and Accept as the app own pill buttons, at the row action size', () => {
+    it('runs Decline and Accept edge to edge along the card foot, under a hairline', () => {
       renderCard('pending');
 
       for (const name of ['activityRejectTransfer', 'activityAcceptTransfer']) {
         const button = screen.getByRole('button', { name });
-        // The shared `sm` size — the same one the Pending list's Accept All uses — not the 48px
-        // page CTA, which took over a card whose whole row above it is 40px, and not a
-        // squared-off panel with its shape argued away.
-        expect(button).toHaveClass('h-9', 'rounded-full', 'text-cta-sm');
-        expect(button).not.toHaveClass('h-12', 'text-cta');
+        // Square-cornered 48px halves of one action bar: the card's own rounded clip shapes the
+        // outer corners, so the buttons carry none of their own.
+        expect(button).toHaveClass('h-12', 'rounded-none', 'text-cta-sm');
+        expect(button).not.toHaveClass('rounded-full', 'text-cta');
         expect(button.className).not.toContain('!');
-        expect(button.className).not.toContain('text-sm');
       }
-      // The footer's bottom padding came down with them, so a shorter button leaves no band of
-      // empty space under the card.
-      expect(screen.getByRole('button', { name: 'activityRejectTransfer' }).parentElement).toHaveClass('pb-3');
+      // Decline is the quiet half: no fill and no outline of its own inside the bar.
+      expect(screen.getByRole('button', { name: 'activityRejectTransfer' })).toHaveClass('border-0');
+      // The bar sits flush on the card's foot: no side or bottom padding around it.
+      const bar = screen.getByRole('button', { name: 'activityRejectTransfer' }).parentElement;
+      expect(bar).toHaveClass('border-t', 'border-hairline');
+      expect(bar?.className).not.toMatch(/\bp[xb]-/);
     });
   });
 });

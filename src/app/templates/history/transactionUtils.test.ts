@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import fs from 'fs';
 import path from 'path';
 
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -13,18 +14,19 @@ import {
   bridgeRowDisplay,
   bridgeStatusOf,
   claimAccentColor,
+  creditedAmount,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   fontColorForType,
-  formatBridgeOutputAmount,
   formatDate,
-  formatEarnWithdrawAmount,
+  formatMoneyAmount,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetMintTransaction,
   isFaucetRequest,
   isReceiveEntry,
+  MoneyKind,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf,
@@ -210,30 +212,21 @@ describe('resolveSwapHistoryFields', () => {
     expect(result.requestedToken).toBe('Unknown');
   });
 
-  it('falls back to wallet metadata, defaults missing faucet ids to null, and omits absent amounts', async () => {
-    // Registry misses on both sides => the `?? await getTokenMetadata(...)` path.
+  it('does not label missing swap assets as the native token', async () => {
     mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
-    mockGetTokenMetadata.mockImplementation(async (tokenId: string | null) => {
-      if (tokenId === null) return swapToken('NATIVE', 5) as any;
-      return swapToken('WALLET', 3) as any;
-    });
-
-    // No extraInputs (=> {}), no faucetId (=> null), no amount, no requestedAmount.
-    const tx: any = { amount: undefined };
-
+    const tx: ITransaction = {
+      id: 'recovered-swap',
+      accountId: 'account',
+      type: 'swap',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SWAP'
+    };
     const result = await resolveSwapHistoryFields(tx);
-
-    expect(result).toEqual({
-      amount: undefined,
-      token: 'NATIVE',
-      requestedAmount: undefined,
-      requestedToken: 'NATIVE',
-      requestedFaucetId: undefined
-    });
-    // Both faucet ids were undefined => coalesced to null for the metadata lookup.
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(1, null);
-    expect(mockGetTokenMetadata).toHaveBeenNthCalledWith(2, null);
-    expect(mockFormatAmount).not.toHaveBeenCalled();
+    expect(result.token).toBeUndefined();
+    expect(result.requestedToken).toBeUndefined();
+    expect(result.requestedAmount).toBeUndefined();
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('mixes a registry-resolved offered side with a wallet-metadata requested side', async () => {
@@ -474,6 +467,11 @@ const bridgeEntry = (overrides: Partial<IHistoryEntry>): IHistoryEntry => ({
   ...overrides
 });
 
+// A restore keeps a row's extraInputs as the dump recorded them, so a hand-edited backup can put a
+// number, or a BigInt from a `$bigint` tag, in an amount field every reader types as a string.
+const restoredEntry = (overrides: Partial<IHistoryEntry>, stored: Record<string, unknown>): IHistoryEntry =>
+  Object.assign(bridgeEntry(overrides), stored);
+
 describe('isCompletedTransaction', () => {
   it.each(['Sent', 'Received', 'Reclaimed', 'Executed'])('treats %s as completed', message => {
     expect(isCompletedTransaction(message)).toBe(true);
@@ -484,28 +482,133 @@ describe('isCompletedTransaction', () => {
   });
 });
 
-describe('formatBridgeOutputAmount', () => {
-  it('passes undefined through', () => {
-    expect(formatBridgeOutputAmount(undefined)).toBeUndefined();
+// One rule for every Bridge and Earn amount. 10.6555 separates the three kinds: down reads
+// 10.65, up reads 10.66 and half-up would read 10.66 too, so only an exact 10.6555 is typed.
+describe('formatMoneyAmount', () => {
+  const kinds: MoneyKind[] = ['receives', 'pays', 'typed'];
+  const rounded: MoneyKind[] = ['receives', 'pays'];
+  const separating: [MoneyKind, string][] = [
+    ['receives', '10.65'],
+    ['pays', '10.66'],
+    ['typed', '10.6555']
+  ];
+
+  it.each(separating)('reads 10.6555 %s as %s', (kind, expected) => {
+    expect(formatMoneyAmount('10.6555', kind)).toBe(expected);
   });
 
-  // Rounds DOWN, so the hero can never claim the user sent or received more than
-  // they did. Half-up would render 1.239999… as "1.24".
-  it('truncates a full-precision value to 2 decimals rather than rounding up', () => {
-    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.23');
-    expect(formatBridgeOutputAmount('0')).toBe('0.00');
+  // Parsed from its text, never through Number(): as a double, 1.239999999999999999 is 1.24.
+  it('rounds an eighteen-digit received amount down from its exact text', () => {
+    expect(formatMoneyAmount('1.239999999999999999', 'receives')).toBe('1.23');
   });
 
-  it('pads a whole number to 2 decimals', () => {
-    expect(formatBridgeOutputAmount('12')).toBe('12.00');
+  it.each(kinds)('trims zeros and never pads (%s)', kind => {
+    expect(formatMoneyAmount('12.5000', kind)).toBe('12.5');
+    expect(formatMoneyAmount('12.00', kind)).toBe('12');
+    expect(formatMoneyAmount('0', kind)).toBe('0');
   });
 
-  it('expands precision for a small non-zero output', () => {
-    expect(formatBridgeOutputAmount('0.00126')).toBe('0.0012');
+  it('expands a tiny amount to two significant places, down or up by kind', () => {
+    expect(formatMoneyAmount('0.000001234', 'receives')).toBe('0.0000012');
+    expect(formatMoneyAmount('0.000001234', 'pays')).toBe('0.0000013');
+    expect(formatMoneyAmount('0.000001234', 'typed')).toBe('0.000001234');
   });
 
-  it('passes non-numeric input through unchanged', () => {
-    expect(formatBridgeOutputAmount('not-a-number')).toBe('not-a-number');
+  it('keeps six decimals for ETH and WETH, the typed-amount cap', () => {
+    expect(formatMoneyAmount('0.015', 'receives', 'ETH')).toBe('0.015');
+    expect(formatMoneyAmount('0.015', 'receives', 'USDC')).toBe('0.01');
+    expect(formatMoneyAmount('0.123456789', 'receives', 'ETH')).toBe('0.123456');
+    expect(formatMoneyAmount('0.123456789', 'pays', 'ETH')).toBe('0.123457');
+    expect(formatMoneyAmount('0.123456789', 'receives', 'WETH')).toBe('0.123456');
+  });
+
+  it('shows a typed amount as typed, without grouping, a trailing separator or trailing zeros', () => {
+    expect(formatMoneyAmount('1,234.50', 'typed')).toBe('1234.5');
+    expect(formatMoneyAmount('1.', 'typed')).toBe('1');
+    expect(formatMoneyAmount('10.65555555', 'typed', 'ETH')).toBe('10.65555555');
+  });
+
+  it('reads an empty or non-numeric typed amount as 0', () => {
+    expect(formatMoneyAmount('', 'typed')).toBe('0');
+    expect(formatMoneyAmount('not-a-number', 'typed')).toBe('0');
+  });
+
+  it.each(rounded)('passes a non-numeric %s amount through unchanged', kind => {
+    expect(formatMoneyAmount('not-a-number', kind)).toBe('not-a-number');
+  });
+
+  it.each(kinds)('passes undefined through (%s)', kind => {
+    expect(formatMoneyAmount(undefined, kind)).toBeUndefined();
+  });
+
+  // Expanding 9e9999999 would build ten million digits during render.
+  it.each(['1e41', '1e-41', '9e9999999', '1e-9999999'])(
+    'reads %s, outside the display window, as non-numeric without expanding it',
+    value => {
+      expect(formatMoneyAmount(value, 'typed')).toBe('0');
+      expect(formatMoneyAmount(value, 'receives')).toBe(value);
+      expect(formatMoneyAmount(value, 'pays')).toBe(value);
+    }
+  );
+
+  it('still expands a value at the edge of the display window', () => {
+    expect(formatMoneyAmount('1e40', 'typed')).toBe(`1${'0'.repeat(40)}`);
+    expect(formatMoneyAmount('1e-40', 'typed')).toBe(`0.${'0'.repeat(39)}1`);
+    expect(formatMoneyAmount('1e40', 'receives')).toBe(`1${'0'.repeat(40)}`);
+  });
+
+  // The Slow detail hero formats a stored source amount; a throw here takes the page down.
+  describe('a stored amount a restored backup left as a number or a BigInt', () => {
+    const stored = (value: unknown) => restoredEntry({}, { bridgeInSourceAmount: value }).bridgeInSourceAmount;
+
+    it.each(separating)('reads the number 10.6555 %s as %s', (kind, expected) => {
+      expect(formatMoneyAmount(stored(10.6555), kind)).toBe(expected);
+    });
+
+    it('reads a typed number exactly', () => {
+      expect(formatMoneyAmount(stored(0.015), 'typed', 'ETH')).toBe('0.015');
+      expect(formatMoneyAmount(stored(1e21), 'typed')).toBe('1000000000000000000000');
+    });
+
+    it.each(kinds)('reads a BigInt as its value (%s)', kind => {
+      expect(formatMoneyAmount(stored(12n), kind)).toBe('12');
+    });
+
+    // A one-element array stringifies to its element, so only the type check keeps ['12'] from reading 12.
+    it('reads any other shape as 0 when typed and passes it through when rounded', () => {
+      const shape = { amount: '12' };
+      const list = ['12'];
+      expect(formatMoneyAmount(stored(shape), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(list), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(null), 'typed')).toBe('0');
+      expect(formatMoneyAmount(stored(shape), 'receives')).toBe(shape);
+      expect(formatMoneyAmount(stored(shape), 'pays')).toBe(shape);
+      expect(formatMoneyAmount(stored(list), 'receives')).toBe(list);
+      expect(formatMoneyAmount(stored(list), 'pays')).toBe(list);
+    });
+  });
+});
+
+// What a received row credited: its base-unit amount scaled by the delivered faucet, rounded down.
+describe('creditedAmount', () => {
+  it('scales the amount by the faucet and rounds it down at the asset precision', () => {
+    mockFormatAmount.mockReturnValueOnce('150.126456');
+
+    expect(creditedAmount(150_126_456n, { symbol: 'USDC', name: 'USDC', decimals: 6 })).toBe('150.12');
+    expect(mockFormatAmount).toHaveBeenCalledWith(150_126_456n, 6);
+  });
+
+  it('keeps six decimals for a credited ETH amount', () => {
+    mockFormatAmount.mockReturnValueOnce('0.015123456789');
+
+    expect(creditedAmount(15_123_456_789_000_000n, { symbol: 'ETH', name: 'Ether', decimals: 18 })).toBe('0.015123');
+  });
+
+  it('withholds the amount when the faucet scale is a guess or the row has no amount', () => {
+    expect(creditedAmount(100n, UNKNOWN_METADATA)).toBeUndefined();
+    expect(creditedAmount(100n, undefined)).toBeUndefined();
+    expect(creditedAmount(undefined, { symbol: 'USDC', name: 'USDC', decimals: 6 })).toBeUndefined();
+    expect(mockFormatAmount).not.toHaveBeenCalled();
   });
 });
 
@@ -573,6 +676,16 @@ describe('bridgeRowDisplay', () => {
       network: 'Sepolia',
       status: 'confirmed'
     });
+  });
+
+  it('rounds a stored quote down and drops the padding of a legacy display string', () => {
+    const quoted = (bridgeOutputAmount: string) =>
+      bridgeRowDisplay(bridgeEntry({ token: 'MIDEN', amount: '5', bridgeProvider: 'epoch', bridgeOutputAmount }))
+        .outAmount;
+
+    expect(quoted('10.655599')).toBe('10.65');
+    expect(quoted('12.00')).toBe('12');
+    expect(quoted('0.00')).toBe('0');
   });
 
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
@@ -664,6 +777,82 @@ describe('bridgeInRowDisplay', () => {
     ).toBe('7');
   });
 
+  // The list row and the detail hero both read this, so a received amount is rounded here, once.
+  it("rounds a received bridge-in's credited amount down at the asset precision", () => {
+    const received = (amount: string, symbol: string) =>
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'received',
+          amount,
+          bridgeInOutputAmount: '99',
+          bridgeInOutputSymbol: symbol,
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount;
+
+    expect(received('150.126456', 'USDC')).toBe('150.12');
+    expect(received('0.0151236567', 'ETH')).toBe('0.015123');
+  });
+
+  it('shows an in-flight "you receive" amount as typed, without padding', () => {
+    const inFlight = (bridgeInOutputAmount: string) =>
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          amount: '10',
+          bridgeInOutputAmount,
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount;
+
+    expect(inFlight('10.6555')).toBe('10.6555');
+    // A row written before the stored value went exact holds a padded display string.
+    expect(inFlight('12.00')).toBe('12');
+  });
+
+  // Activity and Token Detail build this row during render, so a throw here takes the list down.
+  it('shows an in-flight "you receive" a restored backup left as a number or a BigInt', () => {
+    const inFlight = (bridgeInOutputAmount: unknown) =>
+      bridgeInRowDisplay(
+        restoredEntry(
+          { txType: 'bridged-receive', bridgeInPhase: 'delivering', amount: '10', bridgeInProvider: 'epoch' },
+          { bridgeInOutputAmount }
+        )
+      ).outAmount;
+
+    expect(inFlight(10.6555)).toBe('10.6555');
+    expect(inFlight(12n)).toBe('12');
+  });
+
+  // With no stored "you receive" the row's own amount shows: a Slow row's is the typed amount, any other row's
+  // (a row with no provider reads as Epoch) is the quote's tokenOut, which rounds down.
+  describe('an in-flight bridge-in with no stored "you receive"', () => {
+    const fallback = (bridgeInProvider: IHistoryEntry['bridgeInProvider'], amount: string) =>
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          amount,
+          bridgeInOutputSymbol: 'USDC',
+          bridgeInProvider
+        })
+      ).outAmount;
+
+    it('rounds a Fast row down', () => {
+      expect(fallback('epoch', '9.987654')).toBe('9.98');
+    });
+
+    it('rounds a row with no provider down, as Fast', () => {
+      expect(fallback(undefined, '9.987654')).toBe('9.98');
+    });
+
+    it('shows a Slow row as typed', () => {
+      expect(fallback('agglayer', '1.234567')).toBe('1.234567');
+    });
+  });
+
   // Rows written before the fix carry the allocator's token `name` as a symbol,
   // which for Sepolia USDC is the contract address.
   it('ignores a stored symbol that is an EVM contract address', () => {
@@ -708,7 +897,7 @@ describe('bridgeInRowDisplay', () => {
     ).toEqual({
       inSymbol: 'USDC',
       outSymbol: 'USDCx',
-      outAmount: '5.00',
+      outAmount: '5',
       providerLabel: 'Circle xReserve',
       network: 'Miden',
       status: 'pending'
@@ -765,20 +954,6 @@ describe('earn withdraw helpers', () => {
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'earn-deposit' }))).toBe(false);
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'send' }))).toBe(false);
   });
-
-  it('trims a human decimal amount to two places, rounding down', () => {
-    expect(formatEarnWithdrawAmount('2.50000000')).toBe('2.5');
-    expect(formatEarnWithdrawAmount('1.239')).toBe('1.23');
-    expect(formatEarnWithdrawAmount('7')).toBe('7');
-  });
-
-  it('expands precision for a small non-zero withdrawal amount', () => {
-    expect(formatEarnWithdrawAmount('0.001239')).toBe('0.0012');
-  });
-
-  it('passes a non-numeric amount through unchanged', () => {
-    expect(formatEarnWithdrawAmount('not-a-number')).toBe('not-a-number');
-  });
 });
 
 describe('earnWithdrawAmountFields', () => {
@@ -786,7 +961,8 @@ describe('earnWithdrawAmountFields', () => {
     phase: 'redeeming' as const,
     evmOwner: '0x1111111111111111111111111111111111111111',
     marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
-    sourceAmount: '10.500000',
+    // A remainder above half: rounded down it reads 10.5, typed 10.509 and rounded up 10.51.
+    sourceAmount: '10.509000',
     sourceSymbol: 'USDC',
     destinationFaucetId: 'native-id'
   };
@@ -804,24 +980,27 @@ describe('earnWithdrawAmountFields', () => {
     }
   );
 
-  it('switches to the delivered destination amount once the note is received', () => {
+  it('switches to the delivered destination amount, rounded down, once the note is received', () => {
+    mockFormatAmount.mockReturnValueOnce('2.599999');
+
     // The consume path patches the row with what actually landed; the consume
     // row itself is suppressed, so this row must not keep claiming the USDC side.
     expect(earnWithdrawAmountFields({ ...extra, phase: 'received' }, 250_000_000n, destinationMetadata)).toEqual({
-      amount: formatAmount(250_000_000n, 8),
+      amount: '2.59',
       token: 'MIDEN'
     });
+    expect(mockFormatAmount).toHaveBeenCalledWith(250_000_000n, 8);
   });
 
   // This branch exists BECAUSE the received leg is denominated in the
   // destination faucet's asset, so its decimals are the whole point. Without
-  // them there is no scale to apply — `formatAmount`'s own default is a
-  // statement about a different token. The asset is still named from the
-  // recorded output symbol, so the row says what landed, just not how much.
+  // them there is no scale to apply: `formatAmount`'s own default is a
+  // statement about a different token. Nor is there a name: the stored output
+  // symbol is the bridged note's source token, not the asset that arrived.
   it('withholds the amount when the destination faucet never resolved', () => {
-    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, undefined)).toEqual({
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'USDC' }, 100n, undefined)).toEqual({
       amount: undefined,
-      token: 'MDN'
+      token: undefined
     });
   });
 

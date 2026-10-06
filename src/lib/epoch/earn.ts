@@ -5,18 +5,20 @@ import {
   SolveIntentParams,
   TaskType
 } from '@epoch-protocol/epoch-intents-sdk';
-import { keccak256, toBytes } from 'viem';
 
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import { type IEarnDepositExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import { type EarnMarket, getEarnMarket, getEvmChainId } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
+import { readEpochIntentStatus } from './intent-status';
 import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
@@ -32,35 +34,10 @@ import type { IntentResult } from './types';
  * `marketUid`/`action`/`payAsset` extraData, and a non-zero `protocolHashIdentifier`.
  */
 
-// Miden-side collateral token (the wallet's USDC faucet) and its decimals.
-export const MIDEN_USDC_FAUCET = '0x537c15a622074e91188aa894456c52';
-export const MIDEN_USDC_DECIMALS = 6;
-
-// E2E-only collateral-faucet override. The fixed `MIDEN_USDC_FAUCET` testnet id
-// can't exist on a local e2e node, and the CLI-minted faucet id is only known at
-// test time — so the harness injects it at runtime via `setEarnCollateralFaucetForTest`
-// (mirrors `setAgglayerSenderForE2E`). Unset in production, so `getEarnCollateralFaucet()`
-// returns `MIDEN_USDC_FAUCET` and behavior is byte-identical.
-let earnCollateralFaucetOverride: string | undefined;
-
-export function setEarnCollateralFaucetForTest(faucetHex: string | undefined): void {
-  earnCollateralFaucetOverride = faucetHex;
+/** The collateral faucet as the wallet's spending-limit and history code keys it (bech32). */
+export function earnCollateralFaucetId(collateral: MidenUsdc): string {
+  return ifHextoBech32(collateral.faucetId);
 }
-
-export function getEarnCollateralFaucet(): string {
-  return earnCollateralFaucetOverride ?? MIDEN_USDC_FAUCET;
-}
-
-export function getEarnCollateralFaucetId(): string {
-  return ifHextoBech32(getEarnCollateralFaucet());
-}
-
-// Lending market the deposit targets (testnet `DUMMY_LENDING`). `EARN_UNDERLYING`
-// matches `BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS` (Sepolia USDC).
-export const EARN_MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
-export const EARN_UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-export const EARN_DESTINATION_CHAIN_ID = 11155111;
-export const EARN_PROTOCOL_HASH = keccak256(toBytes('dummy-lending'));
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -69,7 +46,7 @@ export interface EarnIntentParams {
   midenSourceAccount: string;
   /** Miden faucet of the collateral token. */
   midenFaucetId: string;
-  /** Collateral amount in faucet base units (`MIDEN_USDC_DECIMALS`), as a string. */
+  /** Collateral amount in the collateral faucet's base units, as a string. */
   depositAmount: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: `0x${string}`;
@@ -78,6 +55,8 @@ export interface EarnIntentParams {
    * real reclaim height derives from the SDK callback's `recallBlocks` instead.
    */
   midenReclaimHeight: number;
+  /** The lending market the bridge config names. */
+  market: EarnMarket;
 }
 
 export interface EarnQuote {
@@ -102,19 +81,19 @@ export function buildEarnTaskDataParams(params: EarnIntentParams) {
       isNative: false,
       depositTokenAddress: ZERO_ADDRESS,
       tokenInAmount: params.depositAmount,
-      outputTokenAddress: EARN_UNDERLYING,
+      outputTokenAddress: params.market.underlying,
       minTokenOut: '0',
-      destinationChainId: String(EARN_DESTINATION_CHAIN_ID),
-      protocolHashIdentifier: EARN_PROTOCOL_HASH,
+      destinationChainId: String(params.market.chainId),
+      protocolHashIdentifier: params.market.protocolHash,
       recipient: params.evmRecipient
     },
     extraDataTypestring:
       'string marketUid,string action,string payAsset,uint256 midenReclaimHeight,' +
       'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId',
     extraData: {
-      marketUid: EARN_MARKET_UID,
+      marketUid: params.market.marketUid,
       action: 'deposit',
-      payAsset: EARN_UNDERLYING,
+      payAsset: params.market.underlying,
       midenSourceAccount: midenSourceHex,
       midenFaucetId: midenFaucetHex,
       midenNoteType: 'P2IDE',
@@ -302,6 +281,8 @@ export function pollEarnIntentStatus(args: {
     maxAttempts,
     immediate,
     tick: async context => {
+      // A config that names no chain throws here, before any read, and the poll retries: the row is never failed for it.
+      const destinationChainId = getEvmChainId();
       const stillLive = async () => txId === undefined || isLiveDeposit(txId, expected);
       if (!(await stillLive())) {
         context.markTerminal();
@@ -315,14 +296,14 @@ export function pollEarnIntentStatus(args: {
         return;
       }
       if (!context.isCurrent()) return;
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
+      const results = await readEpochIntentStatus(sdk, sponsorAddress, nonce);
       if (!context.isCurrent()) return;
       if (!(await stillLive())) {
         context.markTerminal();
         return;
       }
       if (!context.isCurrent()) return;
-      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
+      const { outcome, destination, source } = resolveEarnIntentOutcome(results, destinationChainId);
       if (outcome === 'pending') return;
       context.markTerminal();
       const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
@@ -339,8 +320,10 @@ export function pollEarnIntentStatus(args: {
 }
 
 export interface OpenEarnPositionArgs {
-  /** Collateral amount in `MIDEN_USDC_DECIMALS` base units. */
+  /** Collateral amount in `collateral`'s base units. */
   amount: bigint;
+  /** The collateral the deposit was reviewed with (`selectMidenUsdc`). */
+  collateral: MidenUsdc;
   /** 0x EVM address that will own the lending position. */
   evmAddress: string;
   /** Sender's Miden account (bech32). */
@@ -371,12 +354,13 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   }
   const evmRecipient = args.evmAddress;
 
+  const market = getEarnMarket();
   const sdk = await getEpochReadOnlySdk(evmRecipient);
   const currentBlock = await getCurrentMidenBlock();
 
   const params: EarnIntentParams = {
     midenSourceAccount: args.senderPublicKey,
-    midenFaucetId: getEarnCollateralFaucet(),
+    midenFaucetId: args.collateral.faucetId,
     depositAmount: args.amount.toString(),
     evmRecipient,
     // Mandate-only estimate (hashed into the witness, echoed back by the
@@ -384,7 +368,8 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
     // it uses the SDK-supplied `recallBlocks` from the mint callback (allocator
     // minimum + SDK buffer); the allocator validates the note's REMAINING
     // window against its own chain head, not this exact height.
-    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
+    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS,
+    market
   };
 
   let earnTxId: string | undefined;
@@ -413,7 +398,7 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
           recallBlocks,
           bindingAttachmentFelts,
           evmRecipient,
-          marketUid: EARN_MARKET_UID,
+          marketUid: market.marketUid,
           deps: args.deps,
           onRowCreated: args.onRowCreated,
           spendingLimitAuthorization: args.spendingLimitAuthorization

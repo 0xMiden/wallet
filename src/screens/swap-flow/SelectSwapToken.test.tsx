@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
@@ -9,6 +11,10 @@ import { SelectSwapTokenDrawer } from './SelectSwapToken';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
+// The fiat values under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 // `lib/mobile/haptics` reaches for the Capacitor Haptics plugin; stub the one
 // helper the row fires so we can assert selection triggers feedback.
@@ -48,10 +54,12 @@ jest.mock('lib/miden/front', () => ({
 // `lib/store` is the zustand wallet store; the sheet only reads `tokenPrices`
 // through a selector, so run the selector against a controllable slice.
 let mockStoreState: { tokenPrices: Record<string, { price: number }> } = { tokenPrices: {} };
-// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different.
+// Balances are keyed by the SDK's bech32 form of a faucet id; make that form visibly different. As
+// the SDK's re-encode does, an id already in that form maps to itself.
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
-  getBech32AddressFromAccountId: (id: string) => `bech32:${id}`
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: (id: string) => (id.startsWith('bech32:') ? id : `bech32:${id}`)
 }));
 
 jest.mock('lib/store', () => ({
@@ -131,6 +139,10 @@ beforeEach(() => {
   mockUseAllTokensBaseMetadata.mockReturnValue({});
   mockUseAllBalances.mockReturnValue({ data: [] });
   mockStoreState = { tokenPrices: {} };
+});
+
+afterEach(() => {
+  mockedHasUnquotedDefaultPrice.mockReturnValue(false);
 });
 
 describe('SelectSwapTokenDrawer', () => {
@@ -258,6 +270,20 @@ describe('SelectSwapTokenDrawer', () => {
       renderDrawer();
 
       expect(within(tokenButton('IMIDEN')).queryByText(/^\$/)).not.toBeInTheDocument();
+    });
+
+    it('values a token with no price symbol at the nominal $1 with the nominal rate on, never by its logo', () => {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+      mockStoreState = { tokenPrices: { USDC: { price: 2 } } };
+      setTokens([IMIDEN, IETH, IUSDT, IBTC]);
+      setBalances([
+        { tokenId: 'fid-miden', metadata: { symbol: 'IMIDEN', decimals: 8 }, balance: 3 },
+        { tokenId: 'fid-usdt', metadata: { symbol: 'IUSDT', decimals: 8 }, balance: 5 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IMIDEN')).getByText('$3.00')).toBeInTheDocument();
+      expect(within(tokenButton('IUSDT')).getByText('$5.00')).toBeInTheDocument();
     });
 
     it('never renders $0.00 for a priced token the account holds none of', () => {

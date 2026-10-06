@@ -1,3 +1,25 @@
+# Fee faucet discovery and USDCX value
+
+- [x] Read discovery, repository rules, and decision profile; inspect all sync and pricing paths.
+- [x] Verify this isolated branch matches current `origin/next` and install frozen dependencies with Node 22.
+- [x] Record a green 146-test baseline and complete the independent plan check.
+- [x] Implement scoped sync-time discovery and cross-realm publication with RED/GREEN tests.
+- [x] Preserve authoritative native metadata, fixed $1 USDCX value and the actual Send fee reserve.
+- [x] Verify the uninjected devnet path with an empty market feed and an independent header read.
+- [x] Complete discovery, risk and adversarial code panels; correct all twelve grouped findings and reverify mutations.
+- [x] Finish focused and static validation of the metadata, startup-publication and render-notification corrections.
+- [ ] Run full tests, unchanged 95% coverage gates and browser regressions on the final PR head in CI only.
+- [x] Publish PR #1351 against `next` while completing review, as explicitly requested.
+- [x] Correct the confirmed stale-metadata bootstrap P1 and the explicitly reopened valuation snapshot P2.
+- [x] Default fresh native display to USDCX and a fixed $1 unit quote; require confirmed scale for quantities and fees.
+- [x] Update native fee, funding and auto-accept copy across all 14 locales and align default token selectors.
+- [x] Finish the remaining internal review on the corrected committed checkpoint; other P2/P3 findings remain nonblocking.
+- [ ] Babysit the PR to green and admin squash merge.
+- [ ] Babysit `origin/next` to green and publish wallet `v1.17.1` with all required assets verified.
+- Store publishing is handled by the user; preserve the existing `v1.17.0` release and tag.
+
+Local results are recorded in `tasks/fee-faucet-plan.md`. Final certification, merge and wallet `v1.17.1` release follow this source checkpoint and are recorded in the PR and release.
+
 # Issue #537 - guarded .mac account export
 
 ## Plan
@@ -58,6 +80,8 @@ The wallet's singleton client already uses the supported web-client `accounts.ex
 - [x] 403 diagnosed: RATE-LIMITING (not allowlist/attestation). com.miden.bread IS allowlisted
       for projectId b54ef53; spaced connections connect 6/6. NOTE: bursts (app+counterparty+
       reown reconnects on one IP) can trip it -> CI may need retry/spacing or a dedicated projectId.
+      Measured before #1246: b54ef53 was the default project id then; #1246 retired it in favor
+      of d18d112eb50cbe764f03e51a90210611, and this check has not been re-run on that id.
 
 ## Deposit half — ✅ GREEN on sim (AggLayer/ETH route, full real UI)
 PASSED (testnet build + local Anvil, 1.6m): real wallet → real WC pairing → real UI deposit
@@ -187,8 +211,9 @@ callback-flag vault-slot mismatch (B2AGG forces Enabled; CLI faucet mints Disabl
 Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-merge on main.
 
 ## Findings to report to the team
-- WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to b54ef53.
-  Fragile: any build not manually setting it ships the fallback. Verify the release process sets it.
+- WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to
+  DEFAULT_WC_PROJECT_ID in src/lib/walletconnect/config.ts. Fragile: any build not manually
+  setting it ships the fallback. Verify the release process sets it.
 - Relay rate-limits bursts of connections on the same projectId/IP (intermittent 403).
 
 # Issue #646 - spending limits
@@ -253,3 +278,57 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
   deterministic instead of recording transient sync or probe placeholders.
 - Review Council, repository-wide gates, PR CI, authorized publication, and public verification are
   still pending.
+
+# Issue #1294 - private-note relay outbox
+
+- [x] Create an isolated worktree from the fetched origin/main.
+- [x] Trace delivery sweep, initial relay, SDK outbox, and sync retry behavior.
+- [x] Reproduce duplicate retries and existing-outbox recovery in regression tests.
+- [x] Implement a bounded, durable fix that preserves private-note recovery.
+- [x] Run affected tests, TypeScript, coverage and build checks.
+- [x] Apply every actionable finding from the independent advisory check.
+- [x] Complete the required four-seat review.
+
+## Review for #1294
+
+- Base: origin/main at 607c4c025.
+- Scope: private-note relay retries; preserve the nullifier as the only delivery confirmation.
+- Do not attribute the stress-run claim timeout solely to relay retries without a controlled run.
+- Regression: 12 real SDK fetch-boundary assertions and 3 sweep assertions failed before their fixes.
+- Deployed transport (0.5.0-rc.2, probed 2026-10-01): a duplicate SendNote is a headers-only
+  `grpc-status: 13` with `Failed to store note: ConstraintViolation("Unique constraint violation:
+  UNIQUE constraint failed: notes.id")`. The helper recognises it from the headers alone.
+- Real browser WASM, committed as `playwright/tests/note-relay-outbox.spec.ts` (hermetic, one recorded
+  RPC): that duplicate retires the 232-byte outbox entry and the next sync sends nothing; a genuine
+  storage failure stays in the outbox and is sent again.
+- 607 affected tests pass, including 93 transport tests. The canonical helper has 100% statements,
+  branches, functions and lines. Types, scoped lint, formatting, generated-patch verification,
+  dependency integrity, changelog and Chrome/mobile builds pass.
+- All 843 suites and 17,702 tests pass across the three CI coverage shards. Merged coverage clears
+  the 95% gate: statements and lines 98.13%, branches 96.01%, functions 97.26%.
+- The local unsharded attempt exhausted the parent process's default heap. The successful shards
+  used two workers, a 768 MB worker recycle limit and an 8 GB Node heap; source gates are unchanged.
+- Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
+  decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
+  earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
+# Faucet funding follow-up after v1.17.1
+
+- [x] Reproduce the reported testnet target and trace the server's amount-scaled difficulty.
+- [x] Confirm the user-approved grant: use each faucet's advertised `base_amount`.
+- [x] Add failing tests for metadata-selected grants, invalid metadata, cancellation and worker isolation.
+- [x] Fetch and validate the grant before requesting PoW; retain one amount through submission.
+- [x] Move nonce hashing into a bundled worker with abort, deadline and cleanup handling.
+- [x] Verify 222 focused tests across six suites and types locally; do not run coverage or browsers locally.
+- [x] Complete medium internal review; neither review found P0/P1 issues.
+- [x] Reproduce and correct the Windows patch-check failure with genuine stale-code refusal controls.
+- [ ] Open and admin squash-merge the follow-up PR without waiting for CI, as explicitly requested.
+- [ ] Re-cut the withdrawn v1.17.1 from new next without a next CI wait, then promote next to main.
+- [ ] Verify the new release packages and report any CI failures separately.
+
+## Evidence
+
+Testnet advertises `base_amount=10000`, decimals 6 and load difficulty 65536. The historical
+100000000-unit grant produces target 28144683202 exactly. A live base-grant challenge solved
+with the unmodified wallet solver in 1591 ms and passed an independent SHA-256 check; no mint
+was submitted. Devnet advertises a 100000000-unit base grant. Funding state disables only its
+card action; the nonce search currently executes in the UI realm.

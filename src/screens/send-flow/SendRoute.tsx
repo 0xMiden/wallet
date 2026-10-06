@@ -3,18 +3,29 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { isFeatureBlocked } from 'components/FeatureUnavailable';
+import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 
 import { RouteOptions, RouteOptionsProps } from './Route';
 import { SendStepLayout } from './SendStepLayout';
+import { useAgglayerEligibility } from './useAgglayerEligibility';
 
-export interface SendRouteProps extends RouteOptionsProps {
+export interface SendRouteProps extends Omit<
+  RouteOptionsProps,
+  'slowStatus' | 'fastAvailability' | 'slowAvailability'
+> {
+  faucetId: string;
   onBack: () => void;
   onConfirm: () => void;
 }
 
 /** The send flow's cross-chain route step, on the shared step frame. */
-export const SendRoute: React.FC<SendRouteProps> = ({ onBack, onConfirm, ...options }) => {
+export const SendRoute: React.FC<SendRouteProps> = ({ faucetId, onBack, onConfirm, ...options }) => {
   const { t } = useTranslation();
+  const slowStatus = useAgglayerEligibility(faucetId);
+  const fastAvailability = useFeatureAvailability('fastBridgeOut');
+  const slowAvailability = useFeatureAvailability('bridgeOut');
+  const chosen = options.route === 'epoch' ? fastAvailability : slowAvailability;
 
   return (
     <SendStepLayout
@@ -26,12 +37,19 @@ export const SendRoute: React.FC<SendRouteProps> = ({ onBack, onConfirm, ...opti
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}
+          disabled={isFeatureBlocked(chosen) || (options.route === 'agglayer' && slowStatus !== 'allowed')}
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />
       }
     >
-      <RouteOptions {...options} accent="send" />
+      <RouteOptions
+        {...options}
+        slowStatus={slowStatus}
+        fastAvailability={fastAvailability}
+        slowAvailability={slowAvailability}
+        accent="send"
+      />
     </SendStepLayout>
   );
 };

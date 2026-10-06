@@ -15,9 +15,7 @@
  * `mock`-prefixed module-scope names are what the hoister allows factories to
  * close over.
  */
-import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
-import type { KeyDerivation } from 'lib/shared/types';
 
 import {
   classifyProbeError,
@@ -65,14 +63,15 @@ const mockBackend = new Map<string, FakeOperator>();
 const mockSecretKeys: object[] = [];
 const mockSigners: object[] = [];
 /** Cold-seed HD indices the probe asked for, in order. */
-/** `"<hdIndex>:<keyDerivation>"` per seed the probe asked for, in request order. */
-const mockSeedsRequested: string[] = [];
+const mockSeedsRequested: number[] = [];
 const mockDeserialize = jest.fn();
 const mockAuthDeserialize = jest.fn();
 
-jest.mock('lib/miden/guardian/native-http', () => ({
-  registerGuardianOrigin: jest.fn()
-}));
+// The shared native-HTTP double records the probe each endpoint takes and its verdict.
+jest.mock('lib/miden/guardian/native-http');
+const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.requireMock<
+  typeof import('lib/miden/guardian/__mocks__/native-http')
+>('lib/miden/guardian/native-http');
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   EcdsaSigner: class {
@@ -143,16 +142,10 @@ jest.mock('@openzeppelin/guardian-client', () => ({
   }
 }));
 
-/**
- * Cold-seed deriver whose first byte is the HD index — the fakes key off it.
- * A `legacy` seed is offset by 100 so the fake backend, which only ever holds
- * accounts at small indices, answers a legacy probe with a miss: an account
- * exists under exactly one derivation scheme, as on a real operator.
- */
-const LEGACY_FAKE_OFFSET = 100;
-const fakeDeriveSeed = (hdIndex: number, keyDerivation: KeyDerivation): Uint8Array => {
-  mockSeedsRequested.push(`${hdIndex}:${keyDerivation}`);
-  return new Uint8Array([keyDerivation === 'legacy' ? hdIndex + LEGACY_FAKE_OFFSET : hdIndex, 1, 2, 3]);
+/** Cold-seed deriver whose first byte is the HD index - the fakes key off it. */
+const fakeDeriveSeed = (hdIndex: number): Uint8Array => {
+  mockSeedsRequested.push(hdIndex);
+  return new Uint8Array([hdIndex, 1, 2, 3]);
 };
 
 /** Resolve the scripted nonce for whatever account a state blob names. */
@@ -175,6 +168,7 @@ beforeEach(() => {
   mockSecretKeys.length = 0;
   mockSigners.length = 0;
   mockSeedsRequested.length = 0;
+  resetMockProbes();
   jest.clearAllMocks();
   scriptNonces();
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -274,13 +268,13 @@ describe('discoverGuardianForSeed', () => {
     expect(result.best?.hdIndices).toEqual([2]);
   });
 
-  it('probes only HD index 0 by default, under both derivation schemes, and honours maxHdIndex', async () => {
+  it('probes only HD index 0 by default and honours maxHdIndex', async () => {
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ] });
-    expect(mockSeedsRequested).toEqual(['0:v1', '0:legacy']);
+    expect(mockSeedsRequested).toEqual([0]);
 
     mockSeedsRequested.length = 0;
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ], maxHdIndex: 3 });
-    expect(mockSeedsRequested).toEqual(['0:v1', '1:v1', '2:v1', '0:legacy', '1:legacy', '2:legacy']);
+    expect(mockSeedsRequested).toEqual([0, 1, 2]);
   });
 
   it('keeps a lone lookup match even when the follow-up getState fails, with an unknown nonce', async () => {
@@ -320,8 +314,7 @@ describe('discoverGuardianForSeed', () => {
     expect(result.best?.endpoint).toBe(GATEWAY);
     expect(result.best?.nonce).toBe(9n);
     expect(result.failures).toEqual([]);
-    // Two lookups for the v1 probe (the blip, then the retry) plus one legacy miss.
-    expect(mockBackend.get(GATEWAY)?.lookupCalls).toBe(3);
+    expect(mockBackend.get(GATEWAY)?.lookupCalls).toBe(2);
   });
 
   it('does NOT pick a stale operator over the current one when the current getState keeps failing', async () => {
@@ -368,29 +361,69 @@ describe('discoverGuardianForSeed', () => {
 
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], maxHdIndex: 3 });
 
-    // 2 endpoints × 3 HD indices × 2 derivation schemes = 12 independent
-    // AuthSecretKey/EcdsaSigner pairs.
-    expect(mockSecretKeys).toHaveLength(12);
-    expect(new Set(mockSecretKeys).size).toBe(12);
-    expect(mockSigners).toHaveLength(12);
-    expect(new Set(mockSigners).size).toBe(12);
+    // 2 endpoints x 3 HD indices = 6 independent AuthSecretKey/EcdsaSigner pairs.
+    expect(mockSecretKeys).toHaveLength(6);
+    expect(new Set(mockSecretKeys).size).toBe(6);
+    expect(mockSigners).toHaveLength(6);
+    expect(new Set(mockSigners).size).toBe(6);
   });
 
   it('frees every cold secret key it derives', async () => {
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ], maxHdIndex: 3 });
 
-    // 3 HD indices × 2 derivation schemes.
-    expect(mockSecretKeys).toHaveLength(6);
+    expect(mockSecretKeys).toHaveLength(3);
     for (const key of mockSecretKeys) {
       expect(jest.mocked(Reflect.get(key, 'free'))).toHaveBeenCalled();
     }
   });
 
-  it('registers every probed origin for the mobile CORS bypass', async () => {
+  it('takes a native-HTTP probe of every endpoint, spelled without its trailing slash', async () => {
     await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [`${OZ}/`] });
 
-    // Trailing slash stripped before registering / probing.
-    expect(jest.mocked(registerGuardianOrigin)).toHaveBeenCalledWith(OZ);
+    expect(mockProbedEndpoints).toEqual([OZ]);
+  });
+
+  // On mobile an endpoint stays routed through native HTTP only when it answered with the account.
+  it('keeps the origin of an operator that holds the account and releases the others', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 5n } });
+
+    await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY] });
+
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, true],
+      [GATEWAY, false]
+    ]);
+  });
+
+  it('releases every probed origin when the probe is aborted', async () => {
+    mockBackend.set(OZ, { accounts: ['acct-1'], nonces: { 'acct-1': 5n } });
+    const controller = new AbortController();
+    controller.abort();
+
+    await discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], signal: controller.signal });
+
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, false],
+      [GATEWAY, false]
+    ]);
+  });
+
+  it('releases every probed origin when the probe throws', async () => {
+    const signal = new AbortController().signal;
+    // An unreadable signal is the one input that makes the probe body itself throw.
+    Object.defineProperty(signal, 'aborted', {
+      get: () => {
+        throw new Error('signal unreadable');
+      }
+    });
+
+    await expect(
+      discoverGuardianForSeed(fakeDeriveSeed, { ...testnet, endpoints: [OZ, GATEWAY], signal })
+    ).rejects.toThrow('signal unreadable');
+    expect(mockProbeVerdicts).toEqual([
+      [OZ, false],
+      [GATEWAY, false]
+    ]);
   });
 
   it('probes only the single configured operator on devnet', async () => {

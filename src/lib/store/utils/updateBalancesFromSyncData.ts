@@ -2,8 +2,10 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { TokenBalanceData } from 'lib/miden/front/balance';
-import { AssetMetadata, DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
+import { AssetMetadata, DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
 import { setTokensBaseMetadata } from '../../miden/front/assets';
@@ -26,6 +28,7 @@ export async function updateBalancesFromSyncData(
   /* c8 ignore next -- tokenPrices always initialized in store */
   const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
+  const actualNativeId = getNativeAssetIdSync();
 
   const balances: TokenBalanceData[] = [];
   let hasMiden = false;
@@ -44,8 +47,8 @@ export async function updateBalancesFromSyncData(
     // arriving on a later sync must be allowed to replace it. Preferring the
     // cache unconditionally is what made a single failed lookup permanent.
     const localMeta = hasKnownScale(cached) ? cached : undefined;
-    if (isMiden) {
-      tokenMetadata = MIDEN_METADATA;
+    if (asset.faucetId === actualNativeId) {
+      tokenMetadata = getNativeDisplayMetadataSync(asset.metadata ?? localMeta, asset.faucetId);
     } else if (localMeta) {
       tokenMetadata = localMeta;
     } else if (asset.metadata) {
@@ -91,9 +94,13 @@ export async function updateBalancesFromSyncData(
   if (!hasMiden && midenFaucetId) {
     balances.push({
       tokenId: midenFaucetId,
-      tokenSlug: 'MIDEN',
-      metadata: MIDEN_METADATA,
-      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
+      tokenSlug: getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId).symbol,
+      metadata: getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId),
+      ...balancePrice(
+        tokenPrices,
+        midenFaucetId,
+        getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId).symbol
+      ),
       balance: 0
     });
   }

@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 
 import ExportAccountFile from './ExportAccountFile';
@@ -77,8 +78,12 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 const mockHapticMedium = jest.fn();
@@ -254,11 +259,82 @@ it('does not export on Enter before the warning is acknowledged', async () => {
   await waitFor(() => expect(mockExportAccountFile).not.toHaveBeenCalled());
 });
 
-it('falls back to the password step-up when the hardware probe rejects', async () => {
-  mockHasHardwareProtector.mockRejectedValueOnce(new Error('probe unavailable'));
+// #1056: a failed hardware read is resolved through the password protector, never guessed.
+it('takes the password step-up when the hardware read fails and a password key exists', async () => {
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockResolvedValueOnce(true);
   await renderReady();
 
   expect(screen.getByLabelText(messages.password)).toBeInTheDocument();
+  expect(screen.queryByText(messages.exportAccountFileHardwareDescription)).not.toBeInTheDocument();
+});
+
+it('takes the passcode step on mobile when the hardware read fails and a password key exists', async () => {
+  mockMobile = true;
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockResolvedValueOnce(true);
+  await renderReady();
+
+  expect(screen.getByRole('button', { name: 'Enter passcode' })).toBeInTheDocument();
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+});
+
+it('exports through the hardware protector when the hardware read fails and no password key exists', async () => {
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockResolvedValueOnce(false);
+  await renderReady();
+
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: messages.saveAccountFile }));
+  await waitFor(() => expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account_suffix', undefined));
+});
+
+it('shows an error and offers no credential step when both protector reads fail', async () => {
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockRejectedValueOnce(new Error('pw-boom'));
+  render(<ExportAccountFile />);
+
+  const notice = await screen.findByTestId('protector-probe-error');
+  expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+  expect(screen.getByTestId('account-banner')).toHaveTextContent('Account 1');
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
+});
+
+it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+  mockMobile = true;
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('hw-boom'));
+  mockHasPasswordProtector.mockRejectedValueOnce(new Error('pw-boom'));
+  render(<ExportAccountFile />);
+
+  const notice = await screen.findByTestId('protector-probe-error');
+  expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Enter passcode' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
+});
+
+it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+  jest.useFakeTimers();
+  try {
+    mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
+    render(<ExportAccountFile />);
+
+    await act(async () => {
+      jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+    });
+    expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('protector-probe-retry'));
+    expect(await screen.findByLabelText(messages.password)).toBeInTheDocument();
+    expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('keeps its header while the hardware probe is pending, with an empty body and no footer', async () => {

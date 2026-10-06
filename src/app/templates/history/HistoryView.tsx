@@ -7,18 +7,21 @@ import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
+import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
+import { useSettleLayoutTransition, useTabShownAgain } from 'app/layouts/page-active';
 import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
-import { springs, useMotion } from 'lib/animation';
+import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
 import { historyEntryUnreadKey, isHistoryEntryUnread } from './activityUnread';
+import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -28,6 +31,7 @@ import {
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
   earnDepositSettlementOf,
+  formatMoneyAmount,
   isBridgeInEntry,
   isEarnWithdrawEntry,
   isFaucetRequest,
@@ -37,6 +41,7 @@ import {
 type HistoryViewProps = {
   entries: IHistoryEntry[];
   initialLoading: boolean;
+  hideLoadingSpinner?: boolean;
   loadMore: (page: number) => Promise<void>;
   hasMore: boolean;
   scrollParentRef?: RefObject<HTMLDivElement>;
@@ -102,8 +107,14 @@ function buildRowProps(
   // <provider> → <network>" / output amount / status dot. The Miden-side icon
   // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
   // EVM→Miden deposits) reuse the same layout with the direction flipped.
-  // A user-cancelled bridge falls through to the plain cancelled row below.
-  if (!entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  // A user-cancelled bridge falls through to the plain cancelled row below, and an
+  // unconfirmed one (#1250 F-024) falls through to the plain not-confirmed row.
+  if (
+    !entry.guardianRecovered &&
+    !entry.isCancelled &&
+    !entry.isUnconfirmed &&
+    (entry.txType === 'bridged-send' || isBridgeInEntry(entry))
+  ) {
     const bridgeIn = entry.txType !== 'bridged-send';
     const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
     const failed = d.status === 'failed';
@@ -118,7 +129,9 @@ function buildRowProps(
       amount: d.outAmount
         ? {
             value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
-            direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
+            direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
+            // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
+            preformatted: true
           }
         : undefined,
       status: entry.bridgeProvider === 'usdcx' ? bridgeBadgeStatusOf(entry) : d.status
@@ -128,7 +141,7 @@ function buildRowProps(
   // Smart Withdraw row: "Withdraw from Earn" / "Via Epoch → Miden" with a
   // positive incoming amount and a phase-driven status dot (Redeeming →
   // Delivering → Received, or Failed). Reuses the bridge status tones.
-  if (!entry.isCancelled && isEarnWithdrawEntry(entry)) {
+  if (!entry.isCancelled && !entry.isUnconfirmed && isEarnWithdrawEntry(entry)) {
     const phase = entry.earnWithdrawPhase ?? 'redeeming';
     const failed = phase === 'failed';
     return {
@@ -143,7 +156,13 @@ function buildRowProps(
       amount:
         failed || entry.amount === undefined
           ? undefined
-          : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
+          : {
+              value: `+${entry.amount}`,
+              symbol: entry.token,
+              direction: 'positive' as const,
+              // `earnWithdrawAmountFields` already formatted it; the row must not round it again.
+              preformatted: true
+            },
       // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
       status: phase
     };
@@ -151,8 +170,11 @@ function buildRowProps(
 
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
-  const isCancelled = entry.isCancelled === true;
-  const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
+  // Checked ahead of cancelled and failed everywhere this row is drawn (#1250): the row's
+  // outcome is unknown, which is neither of those two settled states.
+  const isUnconfirmed = entry.isUnconfirmed === true;
+  const isCancelled = !isUnconfirmed && entry.isCancelled === true;
+  const isFailed = !isUnconfirmed && !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
   // `page`, not a grey: the row sits on `fill`, where a grey circle all but disappears.
@@ -162,7 +184,12 @@ function buildRowProps(
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
   // rendered white over their own hue (set as `iconBg`). The source SVGs ship
   // with hardcoded fills/strokes, so force them white via `[&_path]:*` here.
-  if (isCancelled) {
+  if (isUnconfirmed) {
+    // The pending tone, not the grey cancelled or red failed look: the wallet cannot
+    // tell this row apart from one that may still land.
+    iconNode = <PendingIcon className="w-3.5 h-3.5 text-pure-white [&_path]:fill-pure-white" />;
+    iconBg = 'bg-status-pending';
+  } else if (isCancelled) {
     iconNode = <FailedCrossIcon className="w-3.5 h-3.5" />;
     iconBg = 'bg-gray-400';
   } else if (faucet) {
@@ -194,7 +221,7 @@ function buildRowProps(
   } else if (entry.txType === 'earn-deposit') {
     // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
     // cross when the lending leg settled `failed` so the row icon agrees with the red
-    // "Failed" status chip rendered below (statusTone) for that same state.
+    // "Failed" status chip (`status`, from earnDepositSettlementOf below) for that same state.
     const earnFailed = earnDepositSettlementOf(entry) === 'failed';
     iconNode = earnFailed ? (
       <FailedCrossIcon className="w-3.5 h-3.5" />
@@ -209,15 +236,29 @@ function buildRowProps(
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
   // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
+  const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
 
-  const title = isCancelled
-    ? t('cancelled')
-    : faucet
-      ? t('faucetRequestTitle')
-      : isSwap && entry.token && entry.requestedToken
-        ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-        : entry.message || '';
+  // A completed rotation's title derives from its verdict at render, not from
+  // the frozen `displayMessage` snapshot - the claim stays attached to the
+  // evidence rather than to whatever the row said the day it completed.
+  // An unknown outcome still reads as not confirmed, ahead of that title.
+  const guardianTitleKey =
+    entry.txType === 'switch-guardian' && !isFailed && !isCancelled && entry.guardianSwitchVerdict
+      ? rotationRowTitleKey(entry.guardianSwitchVerdict)
+      : undefined;
+  const title = isUnconfirmed
+    ? t('notConfirmed')
+    : isCancelled
+      ? t('cancelled')
+      : faucet
+        ? t('faucetRequestTitle')
+        : isSwap && entry.token && entry.requestedToken
+          ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+          : entry.guardianRecovered
+            ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+            : guardianTitleKey
+              ? t(guardianTitleKey)
+              : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -245,7 +286,17 @@ function buildRowProps(
       : undefined;
 
   let amount: ActivityRowProps['amount'];
-  if (swapSide === 'requested' && entry.requestedAmount) {
+  const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
+  if ((entry.txType === 'earn-deposit' || entry.txType === 'bridged-send') && entry.amount !== undefined) {
+    // The amount typed, as its Review showed it: the row's generic 3-decimal pass would cut 10.6555 to 10.655. A
+    // bridge-out reaches here only when cancelled, and its detail hero shows the same typed amount.
+    amount = {
+      value: `${sign}${formatMoneyAmount(entry.amount, 'typed')}`,
+      symbol: entry.token,
+      direction: amountDirection,
+      preformatted: true
+    };
+  } else if (swapSide === 'requested' && entry.requestedAmount) {
     amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
   } else if (swapSide === 'offered' && entry.amount !== undefined) {
     amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
@@ -256,7 +307,6 @@ function buildRowProps(
     // block over that would drop the asset's NAME too — leaving a row that says
     // nothing about what moved.
   } else if (entry.amount !== undefined || entry.extraAmounts?.length || entry.token !== undefined) {
-    const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
     // A batch claim spanning several faucets appends each further asset inline —
     // but only on the unscoped list. On a token page the row is read as a
     // movement of THAT token (same reasoning as `swapSide` above), so show the
@@ -312,7 +362,9 @@ function buildRowProps(
   }
 
   let status: Status = 'confirmed';
-  if (isCancelled) {
+  if (isUnconfirmed) {
+    status = 'unconfirmed';
+  } else if (isCancelled) {
     status = 'cancelled';
   } else if (isFailed) {
     status = 'failed';
@@ -321,7 +373,20 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
-  } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+  } else if (
+    entry.txType === 'switch-guardian' &&
+    entry.guardianSwitchVerdict &&
+    isUnconfirmedRotation(entry.guardianSwitchVerdict)
+  ) {
+    // A submitted-unconfirmed rotation is Completed in the DB, which the
+    // default `status` above renders as a green "Confirmed" - the one claim
+    // that row cannot make.
+    status = 'guardianSwitchSubmitted';
+  } else if (
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    earnDepositSettlementOf(entry) !== 'confirmed'
+  ) {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
     // the badge tracks that leg, as the details page does. Deliberately checked
@@ -398,6 +463,7 @@ const HistoryView = memo<HistoryViewProps>(
   ({
     entries,
     initialLoading,
+    hideLoadingSpinner,
     loadMore,
     hasMore,
     scrollParentRef,
@@ -411,9 +477,10 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
-    // Same spring as the rows, so a date group and the rows inside it move
+    // Same transition as the rows, so a date group and the rows inside it move
     // together when a filter empties part of the list.
-    const layoutTransition = useMotion(springs.settle);
+    const layoutTransition = useSettleLayoutTransition();
+    const shownAgain = useTabShownAgain();
     const readState = useActivityReadState();
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
@@ -436,6 +503,7 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
+      if (initialLoading && !loadError && hideLoadingSpinner) return null;
       // One read failing while the other still loads is already a failure worth a Retry.
       if (initialLoading && !loadError)
         return (
@@ -606,7 +674,11 @@ const HistoryView = memo<HistoryViewProps>(
         {loadErrorNotice}
         {scrollParentRef ? (
           <InfiniteScroll
-            loadMore={loadMore}
+            // The scroller checks for a page in this commit's layout phase, and History's loadMore sets
+            // state before it awaits, so in the commit that shows the tab again it would re-render the
+            // list before framer reads the swap above. Deferred to a microtask, it runs after that read
+            // and loads the same page (#1198).
+            loadMore={shownAgain ? (page: number) => queueMicrotask(() => void loadMore(page)) : loadMore}
             hasMore={hasMore}
             useWindow={false}
             getScrollParent={() => scrollParentRef.current}

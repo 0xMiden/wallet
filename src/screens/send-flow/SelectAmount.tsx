@@ -29,6 +29,11 @@ export interface SelectAmountProps {
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  /**
+   * Keep the field's invalid (red) state for `error` but leave its message to the caller, which
+   * draws it elsewhere (the swap's fee notice sits under the token, with its own action).
+   */
+  hideErrorText?: boolean;
   /** Overrides the amount label (e.g. "Select Amount", "You Pay"). */
   label?: React.ReactNode;
   /** Overrides the Confirm button label in the page variant. */
@@ -84,6 +89,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  hideErrorText = false,
   label,
   confirmTitle,
   showNetworkPill = true,
@@ -125,15 +131,15 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.25 cursor-pointer rounded-full bg-input-bg px-3 py-2"
+      className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
     >
       {token ? (
-        <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+        <TokenLogo symbol={logoSymbol ?? token.name} size="sm" />
       ) : embedded ? (
-        <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
+        <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
-      <Icon name={IconName.ChevronDown} size="sm" className={accentClasses.text} fill="currentColor" />
+      <span className="font-heading text-xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+      <Icon name={IconName.ChevronDown} size="xs" className={accentClasses.text} fill="currentColor" />
     </button>
   );
 
@@ -238,7 +244,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       invalid={!!error}
-      error={error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
+      error={!hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
       // how much is spendable (#461). Embedded callers that don't want it (e.g.

@@ -6,9 +6,10 @@
  */
 
 import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
-import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_ABANDONED_PROBES,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
@@ -25,13 +26,30 @@ import {
   MISSING_REGISTRATION_BACKOFF_MS,
   MISSING_REGISTRATION_MAX_ATTEMPTS,
   MISSING_REGISTRATION_PERSISTENCE_THRESHOLD,
+  PENDING_ROTATION_RECHECK_BACKOFF_MS,
+  PENDING_ROTATION_RECHECK_MAX_ATTEMPTS,
+  retireGuardianSyncPasses,
   subscribeGuardianSyncOutage,
   SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
   SYNC_RATE_LIMIT_MAX_COOLDOWN_MS,
+  reconcileUnconfirmedInApp,
   syncGuardianAccounts,
   zustandProvider
 } from './guardian-sync';
-import { guardianSyncFuseKey, __resetSyncFuseStateForTests, isSyncFused, syncFuseUntilMs } from './sync-fuse';
+import {
+  clearSyncFuseForEndpointChange,
+  guardianAdoptFuseKey,
+  guardianDriftFuseKey,
+  guardianSelfHealFuseKey,
+  guardianSyncFuseKey,
+  __resetSyncFuseStateForTests,
+  grantManualSyncProbe,
+  isSyncFused,
+  noteSyncParked,
+  noteSyncWatchdogEviction,
+  pendingRotationRecheckFuseKey,
+  syncFuseUntilMs
+} from './sync-fuse';
 
 const storeState: {
   accounts: Array<{
@@ -46,6 +64,7 @@ const storeState: {
   persistNewHotKey: jest.Mock;
   swapHotKey: jest.Mock;
   setGuardianEndpoint: jest.Mock;
+  revertGuardianEndpointAfterDiscard: jest.Mock;
   checkGuardianDrift: jest.Mock;
   signTransaction: jest.Mock;
 } = {
@@ -55,6 +74,7 @@ const storeState: {
   persistNewHotKey: jest.fn(),
   swapHotKey: jest.fn(),
   setGuardianEndpoint: jest.fn(),
+  revertGuardianEndpointAfterDiscard: jest.fn(async () => 'reverted'),
   checkGuardianDrift: jest.fn(),
   signTransaction: jest.fn()
 };
@@ -77,10 +97,31 @@ jest.mock('./guardian-manager', () => ({
 // `startBackgroundTransactionProcessing` comes from the same dynamic import: it is
 // the off-extension driver for the row the hardening enqueues.
 const mockEnsureGuardianProcedureThresholds = jest.fn();
+// The W1 pending-rotation recheck: rows come from Dexie, verdicts from the
+// node read. Default: no pending rotations, so every unrelated test skips it.
+// `id` is the local Dexie uuid, `transactionId` the on-chain hash - two fields
+// because they are two identifiers, and the recheck asks the node about the
+// second while settling the row by the first.
+const mockListUnconfirmedSwitchRows = jest.fn(
+  async (..._a: unknown[]) =>
+    [] as Array<{
+      id: string;
+      transactionId?: string;
+      // Undeclared until #800's review, so no case could express an ordering at all and the
+      // recheck's LIFO sort went unexercised. Optional, because the rows above this one care
+      // about identity rather than order and should not have to carry a stamp to say so.
+      initiatedAt?: number;
+      queuedSeq?: number;
+      extraInputs?: { newGuardianEndpoint: string; previousGuardianEndpoint?: string };
+    }>
+);
+const mockResolveUnconfirmedSwitch = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 jest.mock('lib/miden/transaction', () => ({
   ensureGuardianProcedureThresholds: (...args: unknown[]) => mockEnsureGuardianProcedureThresholds(...args),
-  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackgroundTransactionProcessing(...args)
+  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackgroundTransactionProcessing(...args),
+  listUnconfirmedSwitchRows: (...args: unknown[]) => mockListUnconfirmedSwitchRows(...args),
+  resolveUnconfirmedSwitch: (...args: unknown[]) => mockResolveUnconfirmedSwitch(...args)
 }));
 
 // Platform gate for the off-extension driver above. Default: extension (the SW owns
@@ -92,16 +133,27 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockRequestSWTransactionProcessing = jest.fn();
+const mockGuardianCandidateRelease = jest.fn();
 jest.mock('lib/miden/activity', () => ({
-  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
+  requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing(),
+  guardianCandidateRelease: (...args: unknown[]) => mockGuardianCandidateRelease(...args)
+}));
+
+const mockReconcileUnconfirmedTransactions = jest.fn();
+jest.mock('lib/miden/transaction/reconcile-unconfirmed', () => ({
+  reconcileUnconfirmedTransactions: (...args: unknown[]) => mockReconcileUnconfirmedTransactions(...args)
 }));
 
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
 // treat an error tagged `__authRejection` as a 401 so tests can drive that path.
 const mockReRegister = jest.fn();
+// The pre-POST half of `reRegisterCurrentStateOnGuardian` - see the service mock in
+// the self-heal suite's `beforeEach`.
+const mockPreRegisterHold = jest.fn();
 // The self-heal pulls the guardian's own state before deciding whether to push.
 const mockAdoptGuardianState = jest.fn();
 const mockBuildColdMultisigService = jest.fn();
+const mockMultisigInit = jest.fn();
 jest.mock('lib/miden/guardian', () => {
   // The `__authRejection` tag is a convenience for the tests below, but the REAL
   // classifier is kept in the chain: it is the gate that decides whether this
@@ -110,12 +162,19 @@ jest.mock('lib/miden/guardian', () => {
   // green. Delegating means a real `{ status: 401 }` drives the path too, which
   // one test below relies on. (A direct table for the classifier itself lives in
   // lib/miden/guardian/index.test.ts.)
-  const actual: { isGuardianAuthRejection: (err: unknown) => boolean } = jest.requireActual('lib/miden/guardian');
+  const actual: {
+    isGuardianAuthRejection: (err: unknown) => boolean;
+    isGuardianReRegisterRefusal: (err: unknown) => boolean;
+    GuardianReRegisterRefusedError: new (accountId: string, cause: unknown) => Error;
+  } = jest.requireActual('lib/miden/guardian');
   return {
     isGuardianAuthRejection: (err: unknown) =>
       (err as { __authRejection?: boolean } | null)?.__authRejection === true || actual.isGuardianAuthRejection(err),
+    isGuardianReRegisterRefusal: actual.isGuardianReRegisterRefusal,
+    GuardianReRegisterRefusedError: actual.GuardianReRegisterRefusedError,
     MultisigService: {
-      buildColdMultisigService: (...args: unknown[]) => mockBuildColdMultisigService(...args)
+      buildColdMultisigService: (...args: unknown[]) => mockBuildColdMultisigService(...args),
+      init: (...args: unknown[]) => mockMultisigInit(...args)
     }
   };
 });
@@ -130,16 +189,16 @@ jest.mock('lib/miden/guardian', () => {
 const mockGetSignerDetails = jest.fn();
 const mockGetGuardianCommitmentFromAccount = jest.fn();
 // The operator the sync actually binds: the per-account field when set, otherwise
-// the legacy global key and then the network default. The rotation detector keys
-// on THIS rather than on the raw field, so the default has to be a stable value
-// here — a per-call one would look like a rotation on every tick.
-const resolveEndpointDefault = async (account: { guardianEndpoint?: string }) =>
+// the network default. The rotation detector keys on THIS rather than on the raw
+// field, so the default has to be a stable value here, a per-call one would look
+// like a rotation on every tick.
+const resolveEndpointDefault = (account: { guardianEndpoint?: string }) =>
   account.guardianEndpoint ?? 'https://guardian.test';
 const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
-// The pointer the account CHOSE: field, then the legacy global key, and NEVER the
-// network default. The self-heal writes this device's private account state to it,
-// so an account with no pointer must resolve to `undefined` and be refused.
-const resolveChosenDefault = async (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
+// The pointer the account CHOSE: its own field, and NEVER the network default.
+// The self-heal writes this device's private account state to it, so an account
+// with no pointer must resolve to `undefined` and be refused.
+const resolveChosenDefault = (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
 const mockResolveChosenGuardianEndpoint = jest.fn(resolveChosenDefault);
 jest.mock('lib/miden/guardian/account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
@@ -164,20 +223,106 @@ jest.mock('lib/secure-hot-key/commitment', () => ({
 // `isGuardianUnreachableError` runs for real (the outage tests depend on its
 // actual classification); only the registration WRITE is stubbed.
 const mockFinalizeDirectGuardianSwitch = jest.fn();
+const mockReadDirectSwitchCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
 jest.mock('lib/miden/guardian/direct-switch', () => ({
   ...jest.requireActual('lib/miden/guardian/direct-switch'),
-  finalizeDirectGuardianSwitch: (...args: unknown[]) => mockFinalizeDirectGuardianSwitch(...args)
+  finalizeDirectGuardianSwitch: (...args: unknown[]) => mockFinalizeDirectGuardianSwitch(...args),
+  readDirectSwitchCommitState: (...args: unknown[]) => mockReadDirectSwitchCommitState(...args)
+}));
+
+// The switch rows a landed reconcile flagged (#1233), covered on their own in
+// transaction/switch-guardian-residual.test.ts.
+const mockFindUnsavedSwitchRow = jest.fn(
+  async (_accountPublicKey: string, _endpoint: string): Promise<unknown> => undefined
+);
+const mockClearLocalStateNotSaved = jest.fn(async (_accountPublicKey: string, _endpoint: string) => {});
+const mockMarkSwitchDeltaPushed = jest.fn(async (_rowId: string) => {});
+jest.mock('lib/miden/transaction/switch-guardian-residual', () => ({
+  findUnsavedSwitchRow: (accountPublicKey: string, endpoint: string) =>
+    mockFindUnsavedSwitchRow(accountPublicKey, endpoint),
+  clearLocalStateNotSaved: (accountPublicKey: string, endpoint: string) =>
+    mockClearLocalStateNotSaved(accountPublicKey, endpoint),
+  markSwitchDeltaPushed: (rowId: string) => mockMarkSwitchDeltaPushed(rowId)
+}));
+
+// This device's Failed rotations (#1233), covered on their own in
+// transaction/hot-key-rotation-residual.test.ts. Default: none.
+const mockFindFailedHotKeyRotations = jest.fn(
+  async (_accountPublicKey: string): Promise<{ id: string; newHotPublicKey: string }[]> => []
+);
+const mockMarkRotationCompleted = jest.fn(async (_rowId: string) => {});
+jest.mock('lib/miden/transaction/hot-key-rotation-residual', () => ({
+  findFailedHotKeyRotations: (accountPublicKey: string) => mockFindFailedHotKeyRotations(accountPublicKey),
+  markRotationCompleted: (rowId: string) => mockMarkRotationCompleted(rowId)
 }));
 
 const mockGetAccount = jest.fn();
+// Hands out a fresh hold by default; a case that models a contended mutex advances the clock before the callback.
+const handOutWasmHold = async (fn: (hold: object) => Promise<unknown>, _options?: unknown) => {
+  currentWasmHold = {};
+  return fn(currentWasmHold);
+};
+const mockWithWasmClientLock = jest.fn(handOutWasmHold);
+// A no-op by default; a case loses the hold by making it throw.
+const mockAssertWasmHoldCurrent = jest.fn((_hold: unknown, _where: string) => {});
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({ getAccount: (...a: unknown[]) => mockGetAccount(...a) }),
-  withWasmClientLock: async (fn: () => Promise<unknown>) => fn()
+  // The hold is handed to the callback and `assertWasmHoldCurrent` compares
+  // against it for real, rather than being stubbed to a no-op - a stub would
+  // make every post-await liveness guard in this module vacuously green, which
+  // is precisely the property those guards exist to have tested. A test that
+  // wants to simulate an eviction reassigns `currentWasmHold`, and one that
+  // wants a hold lost outright makes `mockAssertWasmHoldCurrent` throw.
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null | undefined, where: string) => {
+    mockAssertWasmHoldCurrent(hold, where);
+    // A case that replaces the lock with a callback taking no hold re-checks `undefined`.
+    if (hold === undefined || (hold !== null && currentWasmHold === hold)) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
+  withWasmClientLock: (fn: (hold: object) => Promise<unknown>, options?: unknown) => mockWithWasmClientLock(fn, options)
 }));
+
+let currentWasmHold: object = {};
+
+/**
+ * One cursor driving BOTH clocks.
+ *
+ * The AttemptLedgers read the MONOTONIC clock (`monotonicNowMs` →
+ * `performance.now`), the same one the 429 cooldown, the breaker and the sync
+ * fuse read; other stamps in this module still read `Date.now()`. A test that
+ * moved only `Date.now` was asserting a gap against a clock the budget gate
+ * never consults - the ledger saw no time pass at all, so every cadence
+ * assertion below would have been measuring the wrong thing.
+ */
+const useFakeClocks = (start: number) => {
+  let now = start;
+  const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+  const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+  return {
+    advance: (ms: number): void => {
+      now += ms;
+    },
+    set: (at: number): void => {
+      now = at;
+    },
+    restore: (): void => {
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    }
+  };
+};
+
+// What the Guardian fetch boundary rejects with when it cuts a request off (#312), duck-typed by name as the
+// production check reads it, and worded as the real error is.
+const guardianRequestTimeout = () =>
+  Object.assign(new Error('Guardian request to https://guardian.test/state timed out after 60000 ms'), {
+    name: 'GuardianRequestTimeoutError'
+  });
 
 describe('zustandProvider', () => {
   beforeEach(() => {
@@ -220,7 +365,12 @@ describe('zustandProvider', () => {
 
   it('swapHotKey delegates to the store', async () => {
     await zustandProvider.swapHotKey?.('account-pub', 'new-hot-pub');
-    expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub', undefined);
+  });
+
+  it('swapHotKey passes the expectation to the store (#1233)', async () => {
+    await zustandProvider.swapHotKey?.('account-pub', 'new-hot-pub', 'old-hot-pub');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub', 'old-hot-pub');
   });
 
   it('setGuardianEndpoint delegates to the store', () => {
@@ -229,9 +379,28 @@ describe('zustandProvider', () => {
   });
 });
 
+describe('reconcileUnconfirmedInApp (#1081)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("runs the reconciler pass with a release built on the app realm's store provider", async () => {
+    const release = { abandon: jest.fn() };
+    mockGuardianCandidateRelease.mockReturnValue(release);
+    mockReconcileUnconfirmedTransactions.mockResolvedValue(undefined);
+
+    await reconcileUnconfirmedInApp();
+
+    expect(mockGuardianCandidateRelease).toHaveBeenCalledWith(zustandProvider);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledTimes(1);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledWith({ release });
+  });
+});
+
 describe('syncGuardianAccounts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetGuardianSyncOutageForTest();
     storeState.accounts = [];
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     mockIsExtension.mockReturnValue(true);
@@ -273,7 +442,36 @@ describe('syncGuardianAccounts', () => {
     await syncGuardianAccounts(); // second pass — the session guard suppresses a re-check
 
     expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
-    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledWith('guardian-heal', undefined, zustandProvider);
+    // The trailing `true` is `boundAtSyncCeiling`: this call is reached from the ~3 s
+    // loop, so both holds behind it must arm at the sync ceiling rather than the
+    // five-minute backstop.
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledWith(
+      'guardian-heal',
+      undefined,
+      zustandProvider,
+      true
+    );
+  });
+
+  it('runs the hardening self-heal again after the hot key rotates', async () => {
+    // A rotation evicted before its own hardening leaves the repair to this check.
+    storeState.accounts = [{ publicKey: 'guardian-heal', type: WalletType.Guardian, hotPublicKey: 'hot-heal' }];
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    await syncGuardianAccounts();
+    await syncGuardianAccounts();
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
+
+    storeState.accounts[0]!.hotPublicKey = 'hot-rotated';
+    await syncGuardianAccounts();
+
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(2);
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenLastCalledWith(
+      'guardian-heal',
+      undefined,
+      zustandProvider,
+      true
+    );
   });
 
   it('drives the queued hardening row off-extension, where the SW nudge is a no-op', async () => {
@@ -441,7 +639,7 @@ describe('syncGuardianAccounts', () => {
     // Serve out the fused window so the next lap gets through the gate, then answer 429.
     const monotonicSpy = jest
       .spyOn(performance, 'now')
-      .mockReturnValue(performance.now() + FUSED_SYNC_PROBE_INTERVAL_MS + 1_000);
+      .mockReturnValue(Math.floor(performance.now()) + FUSED_SYNC_PROBE_INTERVAL_MS + 1_000);
     const rateLimited: Error & { status?: number } = new Error('429 Too Many Requests');
     rateLimited.status = 429;
     sync.mockImplementation(async () => {
@@ -453,6 +651,48 @@ describe('syncGuardianAccounts', () => {
     expect(isSyncFused(key)).toBe(true);
     expect(syncFuseUntilMs(key)!).toBeGreaterThan(armedAt!);
     monotonicSpy.mockRestore();
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
+  // THE STARVATION THE BREAK BUYS (#800). Every loop-terminating break fires on ANY poison,
+  // so an account whose sync traps on every lap aborts the pass at the same place forever
+  // and the accounts behind it are never synced again. A realm trap is not a watchdog
+  // eviction, so it never touches the eviction count and THAT fuse can never be the escape
+  // ramp: the trap count is the only thing that can light one here.
+  it('fuses an account that traps every lap, so the accounts behind the break are reached again (#800)', async () => {
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [
+      { publicKey: 'g-traps', type: WalletType.Guardian, hotPublicKey: 'hot-a' },
+      { publicKey: 'g-behind', type: WalletType.Guardian, hotPublicKey: 'hot-b' }
+    ];
+    const trapping = jest.fn(async () => {
+      throw new WasmClientPoisonedError('realm-error');
+    });
+    const behind = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockImplementation(async (publicKey: string) => ({
+      sync: publicKey === 'g-traps' ? trapping : behind
+    }));
+    const trapKey = guardianSyncFuseKey('g-traps', 'https://guardian.test');
+
+    // One lap short of the bound: nothing is lit, and the second account has never run.
+    for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) await syncGuardianAccounts();
+    expect(isSyncFused(trapKey)).toBe(false);
+    expect(behind).not.toHaveBeenCalled();
+
+    // The lap that REACHES the bound lights the fuse, and then breaks anyway - the booking
+    // happens inside the catch, ahead of the break, so this pass still ends here.
+    await syncGuardianAccounts();
+    expect(isSyncFused(trapKey)).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+
+    // Which makes the NEXT lap the one that matters: the trapping account is skipped at its
+    // own gate, and the account behind it is synced for the first time.
+    await syncGuardianAccounts();
+    expect(behind).toHaveBeenCalledTimes(1);
 
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
@@ -547,15 +787,21 @@ describe('syncGuardianAccounts', () => {
 
     // …and past the 429's own rate-limit cooldown, which otherwise skips the next lap at
     // the cooldown gate and makes this test vacuous.
-    let nowMs = Date.now();
-    jest.spyOn(Date, 'now').mockImplementation(() => nowMs);
-    nowMs += SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 1_000;
+    //
+    // BOTH CLOCKS, via the shared helper. Spying `Date.now` alone was the vacuous
+    // version of this very guard: `guardianRateLimit` is built on `monotonicNowMs`,
+    // i.e. `performance.now`, so the cooldown never expired, the lap below was
+    // skipped at the gate, and the assertion held no matter what the 429 arm
+    // reported. The comment above was already right about the failure mode - it
+    // just described a clock the cooldown does not read.
+    const clock = useFakeClocks(9_000_000 + SYNC_RATE_LIMIT_MAX_COOLDOWN_MS);
 
     // …so the next eviction cannot be the fourth CONSECUTIVE one. Without the report the
     // chain was never broken and this lap lights the fuse.
     await syncGuardianAccounts();
     expect(syncFuseUntilMs(key)).toBeNull();
 
+    clock.restore();
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
   });
@@ -589,6 +835,65 @@ describe('syncGuardianAccounts', () => {
     jest.restoreAllMocks();
   });
 
+  // The fetch boundary cuts a silent Guardian off at 60 s, before the watchdog would evict the hold, so the cut-off is
+  // the same parked-Guardian evidence and has to light the same fuse (#312).
+  it.each([
+    ['directly', guardianRequestTimeout],
+    ['as the cause of the failure', () => new Error('Guardian sync failed', { cause: guardianRequestTimeout() })]
+  ])(
+    'counts a Guardian request timeout %s as an eviction, lighting the fuse and the outage prompt together (#312)',
+    async (_label, timeout) => {
+      __resetSyncFuseStateForTests();
+      jest.spyOn(console, 'warn').mockImplementation();
+      jest.spyOn(console, 'error').mockImplementation();
+      storeState.accounts = [{ publicKey: 'guardian-silent', type: WalletType.Guardian, hotPublicKey: 'hot-silent' }];
+      const key = guardianSyncFuseKey('guardian-silent', 'https://guardian.test');
+      const sync = jest.fn(async () => {
+        throw timeout();
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+      expect(syncFuseUntilMs(key)).toBeNull();
+      expect(isGuardianSyncOutage('guardian-silent')).toBe(false);
+
+      await syncGuardianAccounts();
+      expect(isSyncFused(key)).toBe(true);
+      // The lit fuse skips this account's sync, and with it the outage count, so the prompt arms on this lap.
+      expect(isGuardianSyncOutage('guardian-silent')).toBe(true);
+
+      __resetSyncFuseStateForTests();
+      jest.restoreAllMocks();
+    }
+  );
+
+  it('withdraws Guardian request timeout evidence on a failure of another kind (#312)', async () => {
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [{ publicKey: 'guardian-flaky', type: WalletType.Guardian, hotPublicKey: 'hot-flaky' }];
+    const key = guardianSyncFuseKey('guardian-flaky', 'https://guardian.test');
+    const sync = jest.fn(async () => {
+      throw guardianRequestTimeout();
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    sync.mockImplementationOnce(async () => {
+      throw new Error('recursive use of an object');
+    });
+    await syncGuardianAccounts();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    expect(syncFuseUntilMs(key)).toBeNull();
+    expect(isGuardianSyncOutage('guardian-flaky')).toBe(false);
+
+    await syncGuardianAccounts();
+    expect(isSyncFused(key)).toBe(true);
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
   it('skips Guardian accounts that still require hot-key rotation (post-recovery, pre-activation)', async () => {
     // Recovered accounts have requiresHotKeyRotation=true and no hotPublicKey
     // until the Activate Device Key banner runs the cold-signed update_signers
@@ -608,14 +913,13 @@ describe('syncGuardianAccounts', () => {
     expect(sync).toHaveBeenCalledTimes(1);
   });
 
-  it('skips legacy Guardian accounts with no hot key (un-migrated / upgrade window)', async () => {
-    // A pre-3-key Guardian record carries neither hotPublicKey nor the
-    // requiresHotKeyRotation flag — e.g. right after a wallet upgrade and before
-    // the forced re-unlock runs migrateLegacyGuardianAccounts. getOrCreateMultisigService
-    // would throw "missing hotPublicKey" on it every cycle; skip it instead. The
-    // account is recovered by migration → Activate Device Key banner, not here.
+  it('skips a Guardian record with neither a hot key nor the rotation flag', async () => {
+    // Neither hotPublicKey nor requiresHotKeyRotation is set.
+    // getOrCreateMultisigService would throw "missing hotPublicKey" on it every
+    // cycle; skip it instead. There is no hot-bound service to build for this
+    // record, and it must fail loudly elsewhere, not spam the sync loop.
     storeState.accounts = [
-      { publicKey: 'guardian-legacy', type: WalletType.Guardian }, // no hotPublicKey, no rotation flag
+      { publicKey: 'guardian-no-hot-key', type: WalletType.Guardian }, // no hotPublicKey, no rotation flag
       { publicKey: 'guardian-active', type: WalletType.Guardian, hotPublicKey: 'hot-active' }
     ];
     const sync = jest.fn(async () => {});
@@ -623,7 +927,7 @@ describe('syncGuardianAccounts', () => {
 
     await expect(syncGuardianAccounts()).resolves.toBeUndefined();
 
-    // Only the active account is synced; the legacy one is skipped, no throw.
+    // Only the active account is synced; the record with no hot key is skipped, no throw.
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider, true);
   });
@@ -641,10 +945,10 @@ describe('syncGuardianAccounts', () => {
     expect(storeState.checkGuardianDrift).not.toHaveBeenCalledWith('pk2');
   });
 
-  // The ~3s tick fires this without awaiting it, and a guardian request has no
-  // client-side deadline, so overlapping runs would each count the SAME shared
-  // rejection toward the outage threshold and would each read the 429 cooldown
-  // before any of them wrote it.
+  // The ~3s tick fires this without awaiting it, and a guardian request can run a
+  // minute before the fetch boundary cuts it off, so overlapping runs would each
+  // count the SAME shared rejection toward the outage threshold and would each
+  // read the 429 cooldown before any of them wrote it.
   it('coalesces an overlapping tick onto the in-flight run', async () => {
     storeState.accounts = [{ publicKey: 'coalesce-pk', type: WalletType.Guardian, hotPublicKey: 'hot' }] as never;
     const sync = jest.fn(async () => {});
@@ -724,23 +1028,52 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   const authError = { __authRejection: true, message: '401 session expired' };
 
   beforeEach(() => {
+    // Cases share account keys, and a lit heal fuse would gate a later case's heal (#1233).
+    __resetSyncFuseStateForTests();
     mockBuildColdMultisigService.mockClear();
     mockReRegister.mockClear();
     mockGetAccount.mockClear();
     mockClearGuardianServiceFor.mockClear();
     mockAdoptGuardianState.mockClear();
     mockAdoptGuardianState.mockResolvedValue(undefined);
+    mockPreRegisterHold.mockClear();
+    mockPreRegisterHold.mockResolvedValue(undefined);
     mockBuildColdMultisigService.mockResolvedValue({
-      reRegisterCurrentStateOnGuardian: mockReRegister,
+      // Mirrors the real method's two halves. `reRegisterCurrentStateOnGuardian` takes
+      // an entire WASM hold - a `syncState()` and an account read - BEFORE it POSTs,
+      // and only then fires `onBeforeRegister`. A mock that ignored the callback made
+      // the caller's attempted/preflight split untestable in both directions: nothing
+      // could charge the budget, and nothing could evict on the pre-POST side.
+      // `mockPreRegisterHold` is that first half, so a test can reject from it to
+      // stand in for an eviction during the local sync; `mockReRegister` is the rest,
+      // and fires the callback (with the signer set it pushes) when the push starts.
+      reRegisterCurrentStateOnGuardian: async (
+        onBeforeRegister?: (signerCommitments: readonly string[]) => void,
+        lockOptions?: unknown
+      ) => {
+        await mockPreRegisterHold();
+        // `mockReRegister` is the rest of the method: it decides whether the push starts.
+        return mockReRegister(lockOptions, onBeforeRegister);
+      },
       adoptGuardianStateOnce: mockAdoptGuardianState
     });
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
-    mockReRegister.mockResolvedValue(undefined);
+    // A re-register that resolves has passed its push start: the push is its only way to succeed.
+    mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+      onPushStart?.();
+    });
     // Default: this device IS still the account's on-chain hot signer.
     mockGetSignerDetails.mockClear();
     mockCommitmentFromPublicKeyHex.mockClear();
     mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
+    // Default: no Failed rotation of this device's (#1233).
+    mockFindFailedHotKeyRotations.mockReset();
+    mockFindFailedHotKeyRotations.mockResolvedValue([]);
+    mockMarkRotationCompleted.mockReset();
+    mockMarkRotationCompleted.mockResolvedValue(undefined);
+    storeState.swapHotKey.mockReset();
+    storeState.swapHotKey.mockResolvedValue(undefined);
   });
 
   it('cold re-registers only after the 401 has persisted to the threshold', async () => {
@@ -762,6 +1095,33 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     await syncGuardianAccounts();
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(mockReRegister).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds its cold service and re-registers at the sync ceiling, labelled', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-heal-bounded', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledWith(
+      { __sdkAccount: true },
+      expect.objectContaining({ publicKey: 'acct-heal-bounded' }),
+      expect.anything(),
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
+    );
+    expect(mockReRegister).toHaveBeenCalledWith(
+      {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'guardian-self-heal-reregister'
+      },
+      expect.any(Function)
+    );
   });
 
   // Every other test in this describe tags its rejection with `__authRejection`.
@@ -794,8 +1154,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   // start-stamp and the settle-stamp are indistinguishable, which is why this
   // advances time from INSIDE the re-register.
   it('measures the self-heal cooldown from when the re-register finished', async () => {
-    let now = 5_000_000;
-    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const clock = useFakeClocks(5_000_000);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -806,7 +1165,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     ] as never;
     // Each re-register takes four times the cooldown it is supposed to buy.
     mockReRegister.mockImplementation(async () => {
-      now += 4 * SELF_HEAL_COOLDOWN_MS;
+      clock.advance(4 * SELF_HEAL_COOLDOWN_MS);
     });
 
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
@@ -817,20 +1176,50 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(1);
 
-    now += SELF_HEAL_COOLDOWN_MS;
+    clock.advance(SELF_HEAL_COOLDOWN_MS);
     await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(2);
 
-    nowSpy.mockRestore();
+    clock.restore();
+  });
+
+  it('re-registers again after its cooldown when the wall clock steps back (#1233)', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    const account = {
+      publicKey: 'acct-heal-clock-back',
+      type: WalletType.Guardian,
+      hotPublicKey: 'hot',
+      coldPublicKey: 'cold'
+    };
+    storeState.accounts = [account];
+    const t0 = 1_000_000;
+    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const p0 = Math.floor(performance.now());
+    const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+    try {
+      for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockReturnValue(t0 - 60 * 60_000);
+      perfSpy.mockReturnValue(p0 + SELF_HEAL_COOLDOWN_MS + 1);
+      await syncGuardianAccounts();
+      expect(mockReRegister).toHaveBeenCalledTimes(2);
+    } finally {
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    }
   });
 
   // F-137 called the spent budget "the sharp one": with it kept across a
   // rotation, the NEW operator's first 401 re-marks the account unrepairable on a
-  // verdict the OLD operator earned, and `decideColdReRegisterSelfHeal` refuses
+  // verdict the OLD operator earned, and the ledger refuses
   // forever because the attempt cap is already reached.
   it('gives the new operator its own re-register budget after a rotation', async () => {
-    let now = 7_000_000;
-    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const clock = useFakeClocks(7_000_000);
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
         throw authError;
@@ -848,11 +1237,11 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // Spend the whole budget against the old operator.
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
     while (mockReRegister.mock.calls.length < SELF_HEAL_MAX_ATTEMPTS) {
-      now += SELF_HEAL_COOLDOWN_MS;
+      clock.advance(SELF_HEAL_COOLDOWN_MS);
       await syncGuardianAccounts();
     }
     expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
-    now += SELF_HEAL_COOLDOWN_MS;
+    clock.advance(SELF_HEAL_COOLDOWN_MS);
     await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
     expect(isGuardianUnrepairable('acct-rotate-budget')).toBe(true);
@@ -866,7 +1255,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; i++) await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
 
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   // The rotation test's twin: a respelling the wallet treats as the same Guardian
@@ -1003,7 +1392,10 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
   // the repair budget is spent nothing else in this module says the account is
   // stuck. That silence is what the guardian screen used to render as "Checking".
   it('reports the account as unrepairable once the re-register budget is spent', async () => {
-    mockReRegister.mockRejectedValue(new Error('configure rejected'));
+    mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+      onPushStart?.();
+      throw new Error('configure rejected');
+    });
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
@@ -1013,13 +1405,12 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     storeState.accounts = [
       { publicKey: 'acct-stuck', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
-    let now = 5_000_000;
-    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const clock = useFakeClocks(5_000_000);
 
     expect(isGuardianUnrepairable('acct-stuck')).toBe(false);
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
       await syncGuardianAccounts();
-      now += SELF_HEAL_COOLDOWN_MS;
+      clock.advance(SELF_HEAL_COOLDOWN_MS);
     }
 
     expect(isGuardianUnrepairable('acct-stuck')).toBe(true);
@@ -1029,7 +1420,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     await syncGuardianAccounts();
     expect(isGuardianUnrepairable('acct-stuck')).toBe(false);
 
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   it('still re-registers when the on-chain hot signer is this device (0x/case differences aside)', async () => {
@@ -1118,22 +1509,159 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
       { publicKey: 'acct-unreadable', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
 
-    const start = Date.now();
-    const nowSpy = jest.spyOn(Date, 'now');
+    const start = 6_000_000;
+    const clock = useFakeClocks(start);
     // Enough refusals to blow a budget of SELF_HEAL_MAX_ATTEMPTS, each past the
     // cooldown so the decision gate itself is not what is holding them back.
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
-      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      clock.set(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
       await syncGuardianAccounts();
     }
     expect(mockReRegister).not.toHaveBeenCalled();
 
     // The read recovers: the repair must still be available.
     mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
-    nowSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    clock.set(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
     await syncGuardianAccounts();
     expect(mockReRegister).toHaveBeenCalledTimes(1);
+    clock.restore();
+  });
+
+  /**
+   * WHICH SIDE OF THE POST an eviction lands on decides how it is booked, and
+   * the two answers are opposite.
+   *
+   * Before the `/configure`, nothing was prepared and nothing can land, so
+   * charging is the same mistake as charging a local read failure: the budget
+   * is only reset by a successful sync, which the stale allowlist is what
+   * prevents. After it, the call is ABANDONED rather than cancelled - the POST
+   * may still arrive - so a refund would let the next tick prepare a second one.
+   */
+  it('refunds an eviction that landed before the /configure', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    // The stale-account read is the first hold the self-heal takes, well ahead
+    // of any operator traffic.
+    mockGetAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    storeState.accounts = [
+      { publicKey: 'acct-preflight-evict', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = 7_000_000;
+    const clock = useFakeClocks(start);
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      clock.set(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+    expect(mockReRegister).not.toHaveBeenCalled();
+    // Nothing about the OPERATOR was established, so the account must not be
+    // presented as beyond automatic repair.
+    expect(isGuardianUnrepairable('acct-preflight-evict')).toBe(false);
+
+    // The client recovers: the repair is still available, budget unspent.
+    mockGetAccount.mockResolvedValue({ __sdkAccount: true });
+    clock.set(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    clock.restore();
+  });
+
+  it('charges an eviction that landed after the /configure was sent', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+      onPushStart?.();
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-post-evict', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = 7_500_000;
+    const clock = useFakeClocks(start);
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS + 2; i++) {
+      clock.set(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+
+    // Bounded: the abandoned POST may have landed, so the budget is spent
+    // rather than re-prepared on every tick.
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+    clock.restore();
+  });
+
+  // #1233: the re-register's chain guard refuses before any `/configure`, so a refusal is booked
+  // like a read failure: no attempt spent, and the repair is still there once local catches up.
+  it('does not spend the bounded budget on a push the chain guard refused (#1233)', async () => {
+    const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
+    mockReRegister.mockRejectedValue(
+      new GuardianReRegisterRefusedError(
+        'acct-refused',
+        new Error('Local account commitment does not match on-chain commitment')
+      )
+    );
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-refused', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+    const refusedPushes = mockReRegister.mock.calls.length;
+
+    // The local copy caught up with the chain: the repair is still available.
+    mockReRegister.mockResolvedValue(undefined);
+    nowSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    perfSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(refusedPushes + 1);
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  });
+
+  // A rejection before the push start (a watchdog eviction of the read hold, a failed sync, a missing account)
+  // wrote nothing to the guardian, so it spends no attempt either.
+  it('does not spend the bounded budget on a re-register whose read failed before the push (#1233)', async () => {
+    mockReRegister.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-reregister-unread', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    let now = 5_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      await syncGuardianAccounts();
+      now += SELF_HEAL_COOLDOWN_MS;
+    }
+
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+    expect(isGuardianUnrepairable('acct-reregister-unread')).toBe(false);
+    nowSpy.mockRestore();
+    perfSpy.mockRestore();
   });
 
   // The opposite booking for the opposite outcome: being rotated out is a
@@ -1152,14 +1680,644 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     const start = Date.now();
     const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
       nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
       await syncGuardianAccounts();
     }
 
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
     nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  });
+
+  // #1233: the heal's holds report to a per-account heal fuse, which gates the heal. Not the account's
+  // sync key: the 401 arm books that lap's 401 on it and withdraws unlit evidence within the lap.
+  const runHealLaps = async (publicKey: string) => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey, type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    let now = 6_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+    // Seven laps are due for a heal: every lap from the threshold on, a cooldown apart.
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+      await syncGuardianAccounts();
+      now += SELF_HEAL_COOLDOWN_MS;
+    }
+    nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  };
+
+  it("stops re-registering once watchdog evictions of the heal's holds light its own fuse (#1233)", async () => {
+    mockReRegister.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await runHealLaps('acct-heal-fused');
+
+    expect(mockReRegister).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-fused', 'https://guardian.test'))).toBe(true);
+    expect(isSyncFused(guardianSyncFuseKey('acct-heal-fused', 'https://guardian.test'))).toBe(false);
+    expect(isGuardianUnrepairable('acct-heal-fused')).toBe(false);
+  });
+
+  it("books a watchdog eviction of the heal's adopt on the same fuse (#1233)", async () => {
+    mockAdoptGuardianState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await runHealLaps('acct-heal-adopt-fused');
+
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-adopt-fused', 'https://guardian.test'))).toBe(true);
+  });
+
+  // The fetch boundary now ends a silent Guardian's answer at 60 s, before the watchdog would (#312).
+  it("books a Guardian request timeout of the heal's cold init on the same fuse (#312)", async () => {
+    mockBuildColdMultisigService.mockRejectedValue(guardianRequestTimeout());
+
+    await runHealLaps('acct-heal-init-timeout');
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-init-timeout', 'https://guardian.test'))).toBe(true);
+  });
+
+  it("books a Guardian request timeout of the heal's adopt on the same fuse (#312)", async () => {
+    mockAdoptGuardianState.mockRejectedValue(guardianRequestTimeout());
+
+    await runHealLaps('acct-heal-adopt-timeout');
+
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-adopt-timeout', 'https://guardian.test'))).toBe(true);
+  });
+
+  it("withdraws the heal's eviction evidence when a heal lap gets through (#1233)", async () => {
+    mockReRegister.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+      mockReRegister.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    }
+    mockReRegister.mockImplementationOnce(
+      async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+        onPushStart?.([]);
+      }
+    );
+
+    await runHealLaps('acct-heal-recovered');
+
+    // Every due lap still heals.
+    expect(mockReRegister).toHaveBeenCalledTimes(7);
+    expect(isSyncFused(guardianSelfHealFuseKey('acct-heal-recovered', 'https://guardian.test'))).toBe(false);
+  });
+
+  it('holds every read of the cold heal at the sync ceiling, labelled (#1233)', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-heal-labelled', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    mockWithWasmClientLock.mockClear();
+
+    await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    const labelOf = (options: unknown): unknown =>
+      typeof options === 'object' && options !== null && 'label' in options ? options.label : undefined;
+    const labels = mockWithWasmClientLock.mock.calls.map(([, options]) => labelOf(options));
+    expect(labels).not.toContain(undefined);
+    // The stale read, and the account read the chain-signer read shares one hold with.
+    expect(labels.filter(label => label === 'guardian-self-heal-read')).toHaveLength(2);
+  });
+
+  // #1233: this device's own rotation landed after its row failed, so slot 0 names the rotation's new
+  // key rather than the device's current one. Only the chain-verified signer set the re-register
+  // pushes is evidence enough to swap.
+  const arrangeOwnRotation = (publicKey: string) => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey, type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    mockGetSignerDetails.mockResolvedValue({ commitment: '0xbeef' });
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+      publicKeyHex === 'new-hot-pub' ? '0xbeef' : '0xAABB'
+    );
+    mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-rot', newHotPublicKey: 'new-hot-pub' }]);
+  };
+  const pushStartWith =
+    (signers: readonly string[]) =>
+    async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+      onPushStart?.(signers);
+    };
+  const runPastCooldowns = async (laps: number) => {
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    const perfSpy = jest.spyOn(performance, 'now');
+    for (let i = 0; i < laps; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      perfSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+    nowSpy.mockRestore();
+    perfSpy.mockRestore();
+  };
+  // The vault's check, against the record the store holds when the swap lands, refused in the shape
+  // deserializeError gives it on the extension.
+  const swapAsTheVault = () =>
+    storeState.swapHotKey.mockImplementation(
+      async (accountPublicKey: string, _newHotPubKey: string, expectedHotPubKey?: string | null) => {
+        const current = storeState.accounts.find(stored => stored.publicKey === accountPublicKey);
+        if (expectedHotPubKey !== undefined && (current?.hotPublicKey ?? null) !== expectedHotPubKey) {
+          throw Object.assign(new Error('The account hot key changed'), { code: 'HOT_KEY_CHANGED' });
+        }
+      }
+    );
+
+  it("finishes this device's own rotation once the chain-verified signer set names its key (#1233)", async () => {
+    arrangeOwnRotation('acct-own-rotation');
+    mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-rotation', 'new-hot-pub', 'hot');
+    const swappedAt = storeState.swapHotKey.mock.invocationCallOrder[0]!;
+    expect(swappedAt).toBeGreaterThan(mockReRegister.mock.invocationCallOrder[0]!);
+    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot');
+    // The 401 arm evicts the service every lap; the finish evicts it again once the key is swapped.
+    expect(mockClearGuardianServiceFor).toHaveBeenLastCalledWith('acct-own-rotation');
+    expect(Math.max(...mockClearGuardianServiceFor.mock.invocationCallOrder)).toBeGreaterThan(swappedAt);
+    expect(isGuardianUnrepairable('acct-own-rotation')).toBe(false);
+  });
+
+  it("keeps the budget open while the chain does not confirm this device's rotation (#1233)", async () => {
+    const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
+    arrangeOwnRotation('acct-own-unconfirmed');
+    mockReRegister.mockRejectedValue(
+      new GuardianReRegisterRefusedError(
+        'acct-own-unconfirmed',
+        new Error('Local account commitment does not match on-chain commitment')
+      )
+    );
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS);
+
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+    expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable('acct-own-unconfirmed')).toBe(false);
+  });
+
+  it("does not swap when the chain-verified signer set lacks the rotation's key (#1233)", async () => {
+    arrangeOwnRotation('acct-own-unverified');
+    mockReRegister.mockImplementation(pushStartWith(['0xAABB', '0xc01d']));
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+  });
+
+  it("does not close the budget when this device's rotation rows cannot be read (#1233)", async () => {
+    arrangeOwnRotation('acct-own-unread');
+    mockFindFailedHotKeyRotations.mockRejectedValue(new Error('the transactions table is closed'));
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS);
+
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+    expect(isGuardianUnrepairable('acct-own-unread')).toBe(false);
+  });
+
+  // The shape deserializeError gives the refusal on the extension: a plain error carrying the code.
+  it('closes the budget when the vault refuses the swap (#1233)', async () => {
+    arrangeOwnRotation('acct-own-unswappable');
+    mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+    storeState.swapHotKey.mockRejectedValueOnce(
+      Object.assign(new Error('The new hot key is not stored in this wallet'), { code: 'HOT_KEY_NOT_STORED' })
+    );
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable('acct-own-unswappable')).toBe(true);
+  });
+
+  // A locked vault, an intercom or a storage failure: the push ran, so it is booked as one, and the
+  // next due heal re-verifies before it swaps.
+  it('keeps the budget open and swaps on a later heal when the swap fails transiently (#1233)', async () => {
+    arrangeOwnRotation('acct-own-locked');
+    mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+    storeState.swapHotKey.mockRejectedValueOnce(new Error('Wallet is locked'));
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + 1);
+
+    expect(mockReRegister).toHaveBeenCalledTimes(2);
+    expect(storeState.swapHotKey).toHaveBeenCalledTimes(2);
+    expect(mockMarkRotationCompleted).toHaveBeenCalledTimes(1);
+    expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-rot');
+    expect(isGuardianUnrepairable('acct-own-locked')).toBe(false);
+  });
+
+  // The user's own rotation completed while the push ran: the heal swaps only from the record it read
+  // at the start of its lap, so the vault refuses and the newer key stays (#1233).
+  it("does not finish its own rotation when the account's hot key moved during the push, and keeps the budget open (#1233)", async () => {
+    arrangeOwnRotation('acct-own-moved');
+    swapAsTheVault();
+    let pushes = 0;
+    mockReRegister.mockImplementation(
+      async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+        pushes += 1;
+        if (pushes < SELF_HEAL_MAX_ATTEMPTS) {
+          onPushStart?.(['0xAABB', '0xc01d']);
+          return;
+        }
+        onPushStart?.(['0xbeef', '0xc01d']);
+        storeState.accounts = [
+          {
+            publicKey: 'acct-own-moved',
+            type: WalletType.Guardian,
+            hotPublicKey: 'retry-hot-pub',
+            coldPublicKey: 'cold'
+          }
+        ] as never;
+      }
+    );
+
+    await runPastCooldowns(SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS - 1);
+
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+    expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-own-moved', 'new-hot-pub', 'hot');
+    expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    // Two attempts booked, not three.
+    expect(isGuardianUnrepairable('acct-own-moved')).toBe(false);
+  });
+
+  // #1233: a post-recovery or migrated account has no hot key, so the sync loop filters it out and it
+  // never 401s into the heal; its own trigger finishes its landed rotation.
+  describe('a rotation-pending account', () => {
+    const pendingAccount = {
+      publicKey: 'acct-activation',
+      type: WalletType.Guardian,
+      coldPublicKey: 'cold',
+      requiresHotKeyRotation: true
+    };
+
+    beforeEach(() => {
+      __resetGuardianSyncOutageForTest();
+      mockGetOrCreateMultisigService.mockClear();
+      mockGetSignerDetails.mockResolvedValue({ commitment: '0xbeef' });
+      mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+        publicKeyHex === 'new-hot-pub' ? '0xbeef' : '0xAABB'
+      );
+      mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-act', newHotPublicKey: 'new-hot-pub' }]);
+      mockReRegister.mockImplementation(pushStartWith(['0xbeef', '0xc01d']));
+    });
+
+    // First, so the cases after it run on the account whose heal fuse it lit.
+    it('skips a pending activation whose heal fuse is lit (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    });
+
+    it("finishes a rotation-pending account's own rotation without a hot key or a 401 (#1233)", async () => {
+      storeState.accounts = [pendingAccount] as never;
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledWith(
+        { __sdkAccount: true },
+        expect.objectContaining({ publicKey: 'acct-activation' }),
+        expect.anything(),
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-init' }
+      );
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null);
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+    });
+
+    // Keyed on the flag, not a missing hot key: a record naming its cold key as hot still syncs
+    // healthily, so no 401 ever reaches the heal.
+    it("finishes a rotation-pending account's own rotation when its record names the cold key as hot (#1233)", async () => {
+      storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+
+      await syncGuardianAccounts();
+
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', 'cold');
+      expect(mockMarkRotationCompleted).toHaveBeenCalledWith('row-act');
+    });
+
+    it('does not finish a keyless activation whose account gained a key during the push (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      swapAsTheVault();
+      mockReRegister.mockImplementationOnce(
+        async (_options: unknown, onPushStart?: (signerCommitments: readonly string[]) => void) => {
+          onPushStart?.(['0xbeef', '0xc01d']);
+          storeState.accounts = [
+            { ...pendingAccount, hotPublicKey: 'retry-hot-pub', requiresHotKeyRotation: false }
+          ] as never;
+        }
+      );
+
+      await syncGuardianAccounts();
+
+      expect(storeState.swapHotKey).toHaveBeenCalledWith('acct-activation', 'new-hot-pub', null);
+      expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    });
+
+    it('backs off a pending activation the chain has not confirmed (#1233)', async () => {
+      const { GuardianReRegisterRefusedError } = jest.requireActual('lib/miden/guardian');
+      storeState.accounts = [pendingAccount] as never;
+      mockReRegister.mockRejectedValue(
+        new GuardianReRegisterRefusedError(
+          'acct-activation',
+          new Error('Local account commitment does not match on-chain commitment')
+        )
+      );
+      const t0 = Date.now();
+      const nowSpy = jest.spyOn(Date, 'now');
+      const perfSpy = jest.spyOn(performance, 'now');
+
+      // Due 1 and then 2 cooldowns after each run, so the third lap is not due.
+      for (const cooldowns of [0, 1, 2, 3]) {
+        nowSpy.mockReturnValue(t0 + cooldowns * SELF_HEAL_COOLDOWN_MS);
+        perfSpy.mockReturnValue(t0 + cooldowns * SELF_HEAL_COOLDOWN_MS);
+        await syncGuardianAccounts();
+      }
+      nowSpy.mockRestore();
+      perfSpy.mockRestore();
+
+      expect(mockReRegister).toHaveBeenCalledTimes(3);
+      expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    });
+
+    it('retries a pending activation after its cooldown when the wall clock steps back (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      mockReRegister.mockRejectedValue(new Error('configure rejected'));
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = Math.floor(performance.now());
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      try {
+        await syncGuardianAccounts();
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+        dateSpy.mockReturnValue(t0 - 60 * 60_000);
+        perfSpy.mockReturnValue(p0 + SELF_HEAL_COOLDOWN_MS + 1);
+        await syncGuardianAccounts();
+        expect(mockReRegister).toHaveBeenCalledTimes(2);
+      } finally {
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      }
+    });
+
+    it('costs nothing for a pending account with no Failed rotation of its own (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      mockFindFailedHotKeyRotations.mockResolvedValue([]);
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+      expect(mockGetAccount).not.toHaveBeenCalled();
+    });
+
+    // Nothing of its own to finish and no 401 asking for a repair, so the finisher must not push.
+    it('does not re-register a pending account whose slot 0 is its own recorded key (#1233)', async () => {
+      storeState.accounts = [{ ...pendingAccount, hotPublicKey: 'cold' }] as never;
+      mockGetSignerDetails.mockResolvedValue({ commitment: '0xAABB' });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+
+      await syncGuardianAccounts();
+
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+      expect(mockReRegister).not.toHaveBeenCalled();
+      expect(storeState.swapHotKey).not.toHaveBeenCalled();
+    });
+
+    // Each clock from its own base at the same offsets, as in a live realm, so a cooldown stamped on
+    // one clock and compared on the other is an epoch off rather than invisible.
+    // Integer performance.now bases keep base + offset exact, so a step of exactly one cooldown compares equal.
+    const clockBases = () => ({ t0: Date.now(), p0: Math.floor(performance.now()) });
+    const lapsAt = async ({ t0, p0 }: { t0: number; p0: number }, offsets: number[]) => {
+      const nowSpy = jest.spyOn(Date, 'now');
+      const perfSpy = jest.spyOn(performance, 'now');
+      for (const offset of offsets) {
+        nowSpy.mockReturnValue(t0 + offset);
+        perfSpy.mockReturnValue(p0 + offset);
+        await syncGuardianAccounts();
+      }
+      nowSpy.mockRestore();
+      perfSpy.mockRestore();
+    };
+
+    it('checks a pending account with no Failed rotation at most once per cooldown, counting no attempt (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      mockFindFailedHotKeyRotations.mockResolvedValue([]);
+      const clocks = clockBases();
+
+      await lapsAt(clocks, [0, 3_000, SELF_HEAL_COOLDOWN_MS]);
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(2);
+
+      mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-act', newHotPublicKey: 'new-hot-pub' }]);
+      await lapsAt(clocks, [2 * SELF_HEAL_COOLDOWN_MS]);
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts a cooldown exactly from a fractional clock reading (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      mockFindFailedHotKeyRotations.mockResolvedValue([]);
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(1234.002);
+      const clocks = clockBases();
+      perfSpy.mockRestore();
+
+      await lapsAt(clocks, [0, 3_000, SELF_HEAL_COOLDOWN_MS]);
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(2);
+
+      mockFindFailedHotKeyRotations.mockResolvedValue([{ id: 'row-act', newHotPublicKey: 'new-hot-pub' }]);
+      await lapsAt(clocks, [2 * SELF_HEAL_COOLDOWN_MS]);
+      expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks a pending account whose heal fuse is lit at most once per cooldown (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      const clocks = clockBases();
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(clocks.p0);
+      noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://guardian.test'));
+      perfSpy.mockRestore();
+
+      await lapsAt(clocks, [0, 3_000]);
+
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(1);
+      expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    });
+
+    it('stops re-running a heal the vault refused permanently until the Failed rotations change (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      storeState.swapHotKey.mockRejectedValue(
+        Object.assign(new Error('The new hot key is not stored in this wallet'), { code: 'HOT_KEY_NOT_STORED' })
+      );
+      const clocks = clockBases();
+
+      await lapsAt(clocks, [0, SELF_HEAL_COOLDOWN_MS, 3 * SELF_HEAL_COOLDOWN_MS]);
+      expect(mockReRegister).toHaveBeenCalledTimes(1);
+      expect(storeState.swapHotKey).toHaveBeenCalledTimes(1);
+
+      mockFindFailedHotKeyRotations.mockResolvedValue([
+        { id: 'row-act', newHotPublicKey: 'new-hot-pub' },
+        { id: 'row-act-2', newHotPublicKey: 'new-hot-pub' }
+      ]);
+      await lapsAt(clocks, [5 * SELF_HEAL_COOLDOWN_MS]);
+      expect(mockReRegister).toHaveBeenCalledTimes(2);
+    });
+
+    // Past the finisher's widest backoff by a margin, so a fractional performance.now() base cannot round a
+    // gap to just under it.
+    const dueLap = (lap: number) => lap * (FUSED_SYNC_PROBE_INTERVAL_MS + 1_000);
+    const dueLaps = (first: number, count: number) => Array.from({ length: count }, (_, lap) => dueLap(first + lap));
+
+    it('stops pushing for a rotation whose swap keeps failing once the push budget is spent (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+
+      await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 2));
+
+      expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+      expect(storeState.swapHotKey).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+      expect(mockMarkRotationCompleted).not.toHaveBeenCalled();
+    });
+
+    it('reopens the push budget for a new Failed rotation (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+      await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+      const spent = mockReRegister.mock.calls.length;
+
+      mockFindFailedHotKeyRotations.mockResolvedValue([
+        { id: 'row-act', newHotPublicKey: 'new-hot-pub' },
+        { id: 'row-act-2', newHotPublicKey: 'new-hot-pub' }
+      ]);
+      await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1));
+      expect(mockReRegister).toHaveBeenCalledTimes(spent + 1);
+
+      await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 2, SELF_HEAL_MAX_ATTEMPTS - 1));
+      expect(mockReRegister).toHaveBeenCalledTimes(spent + SELF_HEAL_MAX_ATTEMPTS);
+    });
+
+    it('reopens the push budget on a different guardian (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        mockResolveGuardianEndpoint.mockReturnValue('https://other.guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
+    it('reopens the push budget when the account returns to a guardian it already spent on (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        mockResolveGuardianEndpoint.mockReturnValue('https://other.guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 1, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+
+        mockResolveGuardianEndpoint.mockReturnValue('https://guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 2, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 2);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
+    it('reopens the push budget after a return when the other guardian never reached the heal (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(new Error('Wallet is locked'));
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, SELF_HEAL_MAX_ATTEMPTS + 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        // Lit on the other guardian's lap's own clock, so that lap stops at the fused exit.
+        const otherLap = dueLap(SELF_HEAL_MAX_ATTEMPTS + 1);
+        const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(clocks.p0 + otherLap);
+        noteSyncParked(guardianSelfHealFuseKey('acct-activation', 'https://other.guardian.test'));
+        perfSpy.mockRestore();
+        mockResolveGuardianEndpoint.mockReturnValue('https://other.guardian.test');
+        await lapsAt(clocks, [otherLap]);
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+
+        mockResolveGuardianEndpoint.mockReturnValue('https://guardian.test');
+        await lapsAt(clocks, dueLaps(SELF_HEAL_MAX_ATTEMPTS + 2, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
+    it('keeps a permanent refusal closed on a different guardian (#1233)', async () => {
+      storeState.accounts = [pendingAccount];
+      storeState.swapHotKey.mockRejectedValue(
+        Object.assign(new Error('The new hot key is not stored in this wallet'), { code: 'HOT_KEY_NOT_STORED' })
+      );
+      const clocks = clockBases();
+      try {
+        await lapsAt(clocks, dueLaps(0, 1));
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+        mockResolveGuardianEndpoint.mockReturnValue('https://other.guardian.test');
+        await lapsAt(clocks, dueLaps(1, SELF_HEAL_MAX_ATTEMPTS));
+        expect(mockReRegister).toHaveBeenCalledTimes(1);
+      } finally {
+        mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+      }
+    });
+
+    it('checks a pending account whose rows cannot be read at most once per cooldown (#1233)', async () => {
+      storeState.accounts = [pendingAccount] as never;
+      mockFindFailedHotKeyRotations.mockRejectedValue(new Error('rows unreadable'));
+      const clocks = clockBases();
+
+      await lapsAt(clocks, [0, 3_000]);
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(1);
+
+      await lapsAt(clocks, [SELF_HEAL_COOLDOWN_MS]);
+      expect(mockFindFailedHotKeyRotations).toHaveBeenCalledTimes(2);
+    });
   });
 });
 
@@ -1183,7 +2341,7 @@ describe('syncGuardianAccounts — 429 back-off', () => {
 
     // The cooldown is a monotonic deadline (a backward wall-clock correction must not
     // extend it), so the clock this drives is performance.now.
-    const now = performance.now();
+    const now = Math.floor(performance.now());
     const nowSpy = jest.spyOn(performance, 'now');
     nowSpy.mockReturnValue(now);
     await syncGuardianAccounts();
@@ -1213,7 +2371,7 @@ describe('syncGuardianAccounts — 429 back-off', () => {
 
     // The cooldown is a monotonic deadline (a backward wall-clock correction must not
     // extend it), so the clock this drives is performance.now.
-    const now = performance.now();
+    const now = Math.floor(performance.now());
     const nowSpy = jest.spyOn(performance, 'now');
     nowSpy.mockReturnValue(now);
     await syncGuardianAccounts();
@@ -1250,7 +2408,7 @@ describe('syncGuardianAccounts — 429 back-off', () => {
 
     // The cooldown is a monotonic deadline (a backward wall-clock correction must not
     // extend it), so the clock this drives is performance.now.
-    const now = performance.now();
+    const now = Math.floor(performance.now());
     const nowSpy = jest.spyOn(performance, 'now');
     for (let i = 0; i <= SELF_HEAL_AUTH_FAILURE_THRESHOLD + 2; i++) {
       nowSpy.mockReturnValue(now + i * 60_000);
@@ -1566,35 +2724,6 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
     });
 
-    // The operator the sync talks to is whatever `resolveGuardianEndpoint`
-    // returns, so the detector has to key on THAT and not on the raw field.
-    // Keying on the field was wrong in both directions.
-    it('does not fire on the unlock-time backfill, which stamps the endpoint already in use', async () => {
-      const pk = 'rotate-backfill';
-      // No per-account endpoint: this account resolves through the fallback.
-      storeState.accounts = [at(pk, undefined)] as never;
-      const sync = jest.fn().mockResolvedValue(undefined);
-      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
-
-      await runSyncs(1);
-      const stamped = getGuardianLastSyncAt(pk);
-      expect(stamped).toEqual(expect.any(Number));
-
-      // The backfill writes the value the account was ALREADY resolving to.
-      // Nothing about the operator changed, so nothing may be dropped — keying on
-      // the raw field saw `'' !== 'https://…'`, called it a rotation, and threw
-      // away a valid sync stamp (flipping the pill Online → Checking) along with
-      // the 401 streak and the self-heal budget.
-      //
-      // The tick behind the backfill FAILS, so a dropped stamp cannot be masked
-      // by the same tick re-earning one: only the absence of a reset preserves it.
-      storeState.accounts = [at(pk, 'https://guardian.test')] as never;
-      sync.mockRejectedValue(new Error('Failed to fetch'));
-      await runSyncs(1);
-
-      expect(getGuardianLastSyncAt(pk)).toBe(stamped);
-    });
-
     it('fires when the resolved default moves under an account with no endpoint of its own', async () => {
       const pk = 'rotate-default';
       storeState.accounts = [at(pk, undefined)] as never;
@@ -1609,7 +2738,7 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       // while the account's own field stays `undefined`. Keying on the field, this
       // was the F-137 defect itself surviving its own fix: no reset fired and the
       // previous operator's entire verdict set carried over to one never contacted.
-      mockResolveGuardianEndpoint.mockResolvedValue('https://override.guardian.test');
+      mockResolveGuardianEndpoint.mockReturnValue('https://override.guardian.test');
       sync.mockRejectedValue(new Error('Failed to fetch'));
       await runSyncs(1);
 
@@ -1651,7 +2780,7 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     });
 
     // Everything a pass decides comes from one snapshot of the account list, and
-    // `service.sync()` is a guardian request with no client-side deadline. A
+    // `service.sync()` is a guardian request that can stay open for a minute. A
     // rotation committing while that request is open makes the result a
     // statement about an operator the account no longer points at — and a
     // SUCCESS would stamp it, reporting the new guardian as Online because the
@@ -1840,9 +2969,25 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD; i++) await syncGuardianAccounts();
   };
 
+  // The preflight hold inside `finalizeDirectGuardianSwitch` is reached from the
+  // 3 s loop, so it takes the sync ceiling and a label rather than the five-minute
+  // backstop reserved for writes a user is waiting on. Asserted alongside the
+  // other arguments because the same function is ALSO called from the completion
+  // path, which correctly passes nothing - the options are what distinguish the
+  // timer-driven caller.
+  const PREFLIGHT_LOCK_OPTIONS = { watchdogMs: 120_000, label: 'guardian-self-heal-register' };
+
   beforeEach(() => {
     jest.clearAllMocks();
     __resetGuardianSyncOutageForTest();
+    // THE FUSE IS MODULE-SCOPED, so it leaks between tests in this suite exactly
+    // as the outage counter does - and this suite is where evictions are thrown on
+    // purpose. Three of them light the per-account fuse, which then gates
+    // `syncGuardianAccounts` for whatever runs next: the symptom is a later test
+    // seeing zero calls to a mock it never touched, which reads as a bug in the
+    // fix rather than as leaked state.
+    // Every case shares this account and endpoint, so one that lights the heal fuse would gate the rest.
+    __resetSyncFuseStateForTests();
     storeState.accounts = [account] as never;
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     mockFinalizeDirectGuardianSwitch.mockResolvedValue(undefined);
@@ -1856,7 +3001,95 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
     mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
     mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
+    mockFindUnsavedSwitchRow.mockResolvedValue(undefined);
+    mockMultisigInit.mockReset();
+    mockAssertWasmHoldCurrent.mockReset();
   });
+
+  // #1233: the heal's holds report to the account's heal fuse, which gates the heal.
+  it('stops pushing once watchdog evictions of its register hold light the heal fuse (#1233)', async () => {
+    // The register hold's eviction escapes the preflight unwrapped, as `asPreflight` rethrows poison.
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    let now = 8_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+
+    await runUntilPersistent();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+      now += MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+    }
+    nowSpy.mockRestore();
+    perfSpy.mockRestore();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(true);
+  });
+
+  it('books evictions of its snapshot read on the heal fuse and keeps the pass alive (#1233)', async () => {
+    mockGetAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await runUntilPersistent();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 1; i++) {
+      await expect(syncGuardianAccounts()).resolves.toBeUndefined();
+    }
+
+    // The snapshot is this arm's only account read, and a lit fuse skips the heal.
+    expect(mockGetAccount).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(true);
+    expect(mockWithWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'guardian-self-heal-read'
+    });
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // The account handle is borrowed from the client, so a read of it after a lost hold is a double borrow.
+  it('stops the snapshot at a hold lost during its account read (#1233)', async () => {
+    const where = 'guardian missing-registration snapshot, after the account read';
+    mockAssertWasmHoldCurrent.mockImplementation((_hold: unknown, at: string) => {
+      if (at === where) throw new WasmClientPoisonedError('watchdog');
+    });
+
+    await expect(runUntilPersistent()).resolves.toBeUndefined();
+
+    expect(mockAssertWasmHoldCurrent).toHaveBeenCalledWith(expect.anything(), where);
+    expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
+    expect(mockGetSignerDetails).not.toHaveBeenCalled();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // One eviction short of the fuse, then a register that is not an eviction, then evictions again:
+  // the fuse stays unlit only if that register withdrew the evidence.
+  it.each([
+    ['resolves', () => mockFinalizeDirectGuardianSwitch.mockResolvedValueOnce(undefined)],
+    ['rejects', () => mockFinalizeDirectGuardianSwitch.mockRejectedValueOnce(new Error('configure rejected'))]
+  ])(
+    "a register that gets through or fails without an eviction withdraws the heal fuse's evidence (%s) (#1233)",
+    async (_label, variant) => {
+      // Unwrapped, as `asPreflight` rethrows poison.
+      const evicted = () => new WasmClientPoisonedError('watchdog');
+      mockFinalizeDirectGuardianSwitch.mockRejectedValue(evicted());
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        mockFinalizeDirectGuardianSwitch.mockRejectedValueOnce(evicted());
+      }
+      variant();
+      let now = 8_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+
+      await runUntilPersistent();
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 2; i++) {
+        now += MISSING_REGISTRATION_BACKOFF_MS;
+        await syncGuardianAccounts();
+      }
+      nowSpy.mockRestore();
+      perfSpy.mockRestore();
+
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2 * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1);
+      expect(isSyncFused(guardianSelfHealFuseKey('unregistered-pk', 'https://new.guardian.test'))).toBe(false);
+    }
+  );
 
   // All four codes reach this branch: the operator uses them interchangeably for
   // "I cannot produce state for that account", and only `account_not_found` used
@@ -1875,7 +3108,16 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
 
       await syncGuardianAccounts();
-      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+        'unregistered-pk',
+        endpoint,
+        zustandProvider,
+        PREFLIGHT_LOCK_OPTIONS,
+        // The charge hook. The attempt is spent from INSIDE the switch, right
+        // before the POST, rather than by the caller beforehand - see the
+        // dedicated charge-timing tests below.
+        expect.any(Function)
+      );
       // The cached service was built against an operator that had no state; drop it
       // so the next tick builds one against the now-registered account.
       expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('unregistered-pk');
@@ -1897,72 +3139,6 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
-  });
-
-  // The pointer the account CHOSE, which is neither the raw field nor the fully
-  // resolved value. A pre-per-account-endpoint account on a custom operator has an
-  // EMPTY field and the legacy global key as its only pointer — the unlock backfill
-  // leaves the field empty rather than stamping a guess — so reading the field
-  // refused the repair for exactly the population this arm serves, and refused it
-  // BEFORE the unrepairable mark, leaving the account in the "Checking forever"
-  // state that mark exists to name.
-  it('repairs a legacy account that points at its operator through the global key', async () => {
-    storeState.accounts = [{ ...account, guardianEndpoint: undefined }] as never;
-    mockResolveChosenGuardianEndpoint.mockResolvedValue(endpoint);
-
-    await runUntilPersistent();
-    await syncGuardianAccounts();
-
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
-    // Against the operator that answered, not `undefined`.
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(account.publicKey, endpoint, expect.anything());
-  });
-
-  // An unreadable pointer gets the SAME refusal as no pointer at all. This call
-  // POSTs the device's serialized private account state, so "we could not read
-  // which operator the account chose" is the one condition under which it must
-  // not guess — and the resolver deliberately propagates that failure rather than
-  // flattening it into the `undefined` that means "chose nothing".
-  it('does not register when the account\u2019s guardian pointer cannot be read', async () => {
-    mockResolveChosenGuardianEndpoint.mockRejectedValue(new Error('storage unavailable'));
-
-    await runUntilPersistent();
-    await syncGuardianAccounts();
-
-    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
-  });
-
-  // ...and the read failure must not escape into the sync loop, which iterates
-  // every account: one account's storage hiccup would otherwise abort the tick
-  // for all of them.
-  //
-  // Driven through `resolveGuardianEndpoint`, NOT `resolveChosenGuardianEndpoint`.
-  // The loop's own resolution at the top of each iteration is the call that
-  // escapes — it sits outside the per-account try — and the two are separate
-  // mocks here, so rejecting only the self-heal's resolver leaves the escaping
-  // path healthy and the test green either way. It also needs a SECOND account:
-  // with one, "the pass resolved" and "the remaining accounts were served" are
-  // the same assertion, and any abort is invisible.
-  it('keeps syncing the remaining accounts when one account\u2019s pointer read throws', async () => {
-    const healthy = {
-      publicKey: 'healthy-pk',
-      type: WalletType.Guardian,
-      hotPublicKey: 'hot',
-      guardianEndpoint: endpoint
-    };
-    storeState.accounts = [account, healthy] as never;
-    mockResolveGuardianEndpoint.mockImplementation(async (acc: { guardianEndpoint?: string; publicKey?: string }) => {
-      if (acc.publicKey === account.publicKey) throw new Error('storage unavailable');
-      return endpoint;
-    });
-    const sync = jest.fn(async () => {});
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
-
-    await expect(syncGuardianAccounts()).resolves.toBeUndefined();
-
-    // The account AFTER the failing one still got its tick.
-    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('healthy-pk', zustandProvider, true);
-    expect(sync).toHaveBeenCalled();
   });
 
   it('does not register once this device is no longer the account\u2019s on-chain hot signer', async () => {
@@ -2005,7 +3181,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   // recovery needs. The refusal above is on that same path, so once the reads
   // recover, the full budget is still there.
   it('spends no attempt on a refusal, so the push still lands once the reads recover', async () => {
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const clock = useFakeClocks(1_000_000);
     mockGetSignerDetails.mockRejectedValue(new Error('signer slot unreadable'));
 
     await runUntilPersistent();
@@ -2018,11 +3194,114 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     // …but the first backoff gap is the one an unspent budget gets, not a
     // doubled one, and the attempt is still available.
-    nowSpy.mockReturnValue(1_000_000 + MISSING_REGISTRATION_BACKOFF_MS);
+    clock.set(1_000_000 + MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+      'unregistered-pk',
+      endpoint,
+      zustandProvider,
+      PREFLIGHT_LOCK_OPTIONS,
+      expect.any(Function)
+    );
 
-    nowSpy.mockRestore();
+    clock.restore();
+  });
+
+  /**
+   * The snapshot hold is the one whose eviction the caller most needs to hear
+   * about, and it had no way to say so: it sits outside the only `try` in the
+   * function (which wraps the `/configure`), so poison threw straight out -
+   * past the `Promise<boolean>` = "evicted" contract, and out of the account
+   * loop's own `catch`, because a throw raised inside a `catch` is not caught by
+   * its own `try`. The pass stopped by accident, the promise it rejected was
+   * discarded by both callers, and the eviction was never booked.
+   */
+  describe('when the snapshot hold is evicted', () => {
+    const secondAccount = { publicKey: 'other-pk', type: WalletType.Guardian, hotPublicKey: 'hot2' };
+
+    beforeEach(() => {
+      __resetSyncFuseStateForTests();
+      storeState.accounts = [account, secondAccount] as never;
+      mockGetAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    });
+
+    it('stops the pass instead of rejecting a promise nobody reads', async () => {
+      // Two accounts and a persistent verdict on the first, so the loop would
+      // otherwise carry on and take fresh holds on a client the mutex has
+      // already handed to a successor.
+      mockGetOrCreateMultisigService.mockClear();
+      await runUntilPersistent();
+
+      // Both accounts on every pass that did not reach the self-heal, and then
+      // only the FIRST on the pass that did - the eviction breaks the loop
+      // before the second account's round trip.
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(
+        (MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1) * 2 + 1
+      );
+      // The LAST call is the first account, because the eviction broke the loop before the
+      // second one got its turn. Asserted on the last call rather than as a blanket "never
+      // called with the second account": it IS called with it on the earlier passes (calls 2
+      // and 4 of 5). The original matcher compared an `objectContaining` against a string and
+      // two arguments against three, so it could not match anything and could not fail - and
+      // the claim it appeared to make was false all along.
+      expect(mockGetOrCreateMultisigService).toHaveBeenLastCalledWith(
+        account.publicKey,
+        expect.anything(),
+        expect.anything()
+      );
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('books the eviction, which the loop-breaking caller cannot do for it', async () => {
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+        await runUntilPersistent();
+      }
+
+      // On the heals' own fuse (#1233), which gates the heal on the laps after it.
+      expect(isSyncFused(guardianSelfHealFuseKey(account.publicKey, endpoint))).toBe(true);
+    });
+
+    /**
+     * The eviction has to land DURING the read, not instead of it.
+     *
+     * The two tests above reject `getAccount` outright, which reaches the hold's
+     * catch without ever running the guard that follows a SUCCESSFUL read - so
+     * that guard was deletable with the whole suite green. What it protects is
+     * the pair of reads immediately after it, both of which borrow the returned
+     * handle and both of which swallow their own failures: without the guard a
+     * double borrow lands as "no commitment" and "no hot signer" rather than as
+     * an error, and the self-heal then draws a conclusion about the operator's
+     * allowlist from two values it never actually read.
+     */
+    it('refuses the commitment reads when the eviction lands inside a successful account read', async () => {
+      mockGetAccount.mockReset();
+      mockGetAccount.mockImplementation(async () => {
+        // Reassigning the module's hold from inside a mocked WASM call IS what the
+        // watchdog does when it gives the mutex to a successor.
+        currentWasmHold = {};
+        return { id: () => ({ toString: () => 'acct-id' }) };
+      });
+
+      await runUntilPersistent();
+
+      expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
+      expect(mockGetSignerDetails).not.toHaveBeenCalled();
+      // And the eviction is still booked and the pass still stopped, exactly as
+      // for a rejecting read.
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    // A read that merely FAILED is not an eviction: the client is fine, so the
+    // pass carries on and the account is simply not repaired this tick.
+    it('lets the pass continue when the read fails ordinarily', async () => {
+      mockGetAccount.mockRejectedValue(new Error('storage read failed'));
+      mockGetOrCreateMultisigService.mockClear();
+
+      await runUntilPersistent();
+
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(MISSING_REGISTRATION_PERSISTENCE_THRESHOLD * 2);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
   });
 
   // The state this device would POST becomes the operator's authoritative copy of
@@ -2069,38 +3348,38 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   it('retries a failed registration on a widening backoff, then stops at the cap', async () => {
     mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
     const t0 = 1_000_000;
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const clock = useFakeClocks(t0);
 
     await expect(runUntilPersistent()).resolves.toBeUndefined();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
-    nowSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS - 1);
+    clock.set(t0 + MISSING_REGISTRATION_BACKOFF_MS - 1);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
     const t1 = t0 + MISSING_REGISTRATION_BACKOFF_MS;
-    nowSpy.mockReturnValue(t1);
+    clock.set(t1);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
     // The gap doubles, so the second wait is twice the first.
     const t2 = t1 + 2 * MISSING_REGISTRATION_BACKOFF_MS;
-    nowSpy.mockReturnValue(t2 - 1);
+    clock.set(t2 - 1);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
-    nowSpy.mockReturnValue(t2);
+    clock.set(t2);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
 
     // Capped: an operator that keeps refusing a registration it also says it
     // needs will not be resolved by further `/configure` calls.
-    nowSpy.mockReturnValue(t2 + 100 * MISSING_REGISTRATION_BACKOFF_MS);
+    clock.set(t2 + 100 * MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
 
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   // The cooldown is measured from when an attempt SETTLED, not from when it
@@ -2110,12 +3389,11 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   // returns. That spent the entire budget back-to-back, with no pause at all,
   // against an operator whose only fault was being slow.
   it('measures the gap from when the attempt finished, so a slow push still buys its cooldown', async () => {
-    let now = 1_000_000;
-    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const clock = useFakeClocks(1_000_000);
     // Each push takes four minutes — longer than both gaps in the schedule.
     const pushDurationMs = 4 * MISSING_REGISTRATION_BACKOFF_MS;
     mockFinalizeDirectGuardianSwitch.mockImplementation(async () => {
-      now += pushDurationMs;
+      clock.advance(pushDurationMs);
       throw new Error('configure rejected');
     });
 
@@ -2127,7 +3405,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
-    now += MISSING_REGISTRATION_BACKOFF_MS;
+    clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
@@ -2135,21 +3413,20 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
-    now += 2 * MISSING_REGISTRATION_BACKOFF_MS;
+    clock.advance(2 * MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
 
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   // A refusal that never reached the operator does not spend an attempt, but it
   // still has to stamp the clock from its own finish — the probe behind it is an
   // HTTP round trip, and an unstamped refusal re-runs it on every ~3s tick.
   it('stamps a refunded attempt from its finish too', async () => {
-    let now = 1_000_000;
-    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const clock = useFakeClocks(1_000_000);
     mockFinalizeDirectGuardianSwitch.mockImplementation(async () => {
-      now += 4 * MISSING_REGISTRATION_BACKOFF_MS;
+      clock.advance(4 * MISSING_REGISTRATION_BACKOFF_MS);
       throw new GuardianRegistrationPreflightError('account state read back incomplete');
     });
 
@@ -2159,11 +3436,95 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
-    now += MISSING_REGISTRATION_BACKOFF_MS;
+    clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
 
-    nowSpy.mockRestore();
+    clock.restore();
+  });
+
+  // AN EVICTION IS NOT EVIDENCE ABOUT THE OPERATOR - not before a `/configure`
+  // is sent, anyway. `finalizeDirectGuardianSwitch` spends a `syncState()` round
+  // trip, an account read, a serialization and a 5 s operator probe before it
+  // POSTs anything, and the watchdog eviction of that leading `syncState` is a
+  // parked NODE. `asPreflight` rethrows poison unwrapped, so the error cannot be
+  // told apart from a post-POST eviction by inspecting it - only by whether the
+  // POST was reached. Charged for the whole call, three parked node reads spent a
+  // budget that only a successful registration refunds and then declared the
+  // account unrepairable, killing the only automatic repair an unregistered
+  // account has, over an operator that was never contacted.
+  it('does not spend the registration budget when the client is evicted before any /configure', async () => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    const clock = useFakeClocks(1_000_000);
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    // Well past the cap a spent budget would have hit. THE FUSE IS RETIRED EACH
+    // LAP on purpose: three evictions light it, and a lit fuse gates the probe
+    // for its own reasons - so leaving it armed would let the fuse do the capping
+    // and the test would pass whichever way the budget was booked.
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 3; i++) {
+      __resetSyncFuseStateForTests();
+      clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 4);
+
+    clock.restore();
+  });
+
+  // The other half, and the reason the hook is a hook rather than a rule about
+  // error types: once the POST has been reached, the abandoned call may still
+  // land, so it counts. An eviction is abandonment, not cancellation.
+  it('spends the registration budget when the eviction happens after the /configure was reached', async () => {
+    mockFinalizeDirectGuardianSwitch.mockImplementation(
+      async (
+        _publicKey: string,
+        _endpoint: string,
+        _provider: unknown,
+        _lockOptions: unknown,
+        onBeforeRegister?: () => void
+      ) => {
+        onBeforeRegister?.();
+        throw new WasmClientPoisonedError('watchdog');
+      }
+    );
+    const clock = useFakeClocks(1_000_000);
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    // Fuse retired each lap for the same reason as above - the cap being asserted
+    // has to be the BUDGET's, and a lit fuse would produce the same number.
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 3; i++) {
+      __resetSyncFuseStateForTests();
+      clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
+
+    clock.restore();
+  });
+
+  it('retries a missing registration after its backoff when the wall clock steps back (#1233)', async () => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
+    const t0 = 1_000_000;
+    const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const p0 = Math.floor(performance.now());
+    const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+    try {
+      await runUntilPersistent();
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockReturnValue(t0 - 60 * 60_000);
+      perfSpy.mockReturnValue(p0 + MISSING_REGISTRATION_BACKOFF_MS + 1);
+      await syncGuardianAccounts();
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+    } finally {
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    }
   });
 
   // The bounded budget exists because a `/configure` that throws may still have
@@ -2175,15 +3536,14 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockFinalizeDirectGuardianSwitch.mockRejectedValue(
       new GuardianRegistrationPreflightError('account state read back incomplete')
     );
-    let now = 1_000_000;
-    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const clock = useFakeClocks(1_000_000);
 
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
     // Well past the cap a spent budget would have hit.
     for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 3; i++) {
-      now += MISSING_REGISTRATION_BACKOFF_MS;
+      clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
       await syncGuardianAccounts();
     }
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 4);
@@ -2195,17 +3555,17 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     // And once the read comes back complete, the repair still works.
     mockFinalizeDirectGuardianSwitch.mockResolvedValue(undefined);
-    now += MISSING_REGISTRATION_BACKOFF_MS;
+    clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 5);
 
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   // The budget is keyed by what the push would WRITE, so a second rotation in the
   // same session is not silently skipped by the first one's spent attempts.
   it('re-arms for a rotation to a different endpoint in the same session', async () => {
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const clock = useFakeClocks(1_000_000);
 
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
@@ -2222,9 +3582,11 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       2,
       'unregistered-pk',
       'https://second.guardian.test',
-      zustandProvider
+      zustandProvider,
+      PREFLIGHT_LOCK_OPTIONS,
+      expect.any(Function)
     );
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   it('does not re-arm for a respelling of the same endpoint', async () => {
@@ -2252,7 +3614,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   // guardian-key guard does not cover it: that proves WHO the operator is, not
   // that its answer persists.
   it('does not let verdicts earned by the previous operator authorize a push to the new one', async () => {
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const clock = useFakeClocks(1_000_000);
 
     // Two verdicts short of the threshold from the outgoing operator.
     for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
@@ -2271,13 +3633,15 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
       'unregistered-pk',
       'https://second.guardian.test',
-      zustandProvider
+      zustandProvider,
+      PREFLIGHT_LOCK_OPTIONS,
+      expect.any(Function)
     );
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   it('re-arms when the same endpoint installs a new guardian key', async () => {
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const clock = useFakeClocks(1_000_000);
 
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
@@ -2286,7 +3650,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     await syncGuardianAccounts();
 
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
-    nowSpy.mockRestore();
+    clock.restore();
   });
 
   // An operator that answers is not an outage, whatever it answers — arming the
@@ -2306,7 +3670,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   });
 
   it('a successful sync re-arms the budget, so a genuine later recurrence is repaired', async () => {
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const clock = useFakeClocks(1_000_000);
     const sync = jest.fn().mockRejectedValue(unknownAccountError);
     mockGetOrCreateMultisigService.mockResolvedValue({ sync });
 
@@ -2321,6 +3685,1496 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     sync.mockRejectedValue(unknownAccountError);
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
-    nowSpy.mockRestore();
+    clock.restore();
+  });
+
+  it('clears the unsaved-switch flag once a registration lands (#1233)', async () => {
+    await runUntilPersistent();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    expect(mockClearLocalStateNotSaved).toHaveBeenCalledWith('unregistered-pk', endpoint);
+    expect(mockMultisigInit).not.toHaveBeenCalled();
+  });
+
+  // The flag is only the receipt's warning; failing to clear it must not turn a landed registration
+  // into a failed attempt.
+  it('still books the registration as landed when clearing the unsaved-switch flag fails (#1233)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    mockClearLocalStateNotSaved.mockRejectedValueOnce(new Error('Dexie closed'));
+
+    await runUntilPersistent();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('could not clear the unsaved-switch flag for unregistered-pk'),
+      expect.any(Error)
+    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('registered unregistered-pk on'));
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('could not register'), expect.anything());
+    warnSpy.mockRestore();
+  });
+
+  // #1233: a landed switch whose apply failed leaves this device's copy naming the OLD guardian.
+  describe('a switch whose local state was not saved', () => {
+    const previousEndpoint = 'https://old.guardian.test';
+    let adopted = false;
+
+    beforeEach(() => {
+      adopted = false;
+      __resetSyncFuseStateForTests();
+      mockFindUnsavedSwitchRow.mockResolvedValue({
+        id: 'switch-row',
+        previousGuardianEndpoint: previousEndpoint,
+        switchedDirectly: false
+      });
+      mockAdoptGuardianState.mockReset();
+      mockAdoptGuardianState.mockImplementation(async () => {
+        adopted = true;
+      });
+      mockMultisigInit.mockResolvedValue({ adoptGuardianStateOnce: mockAdoptGuardianState });
+      // The local copy names the OLD guardian until the adopt imports the post-switch state.
+      mockGetGuardianCommitmentFromAccount.mockImplementation(() => (adopted ? 'newguardiankey' : 'oldguardiankey'));
+      mockCheckEndpointCommitment.mockImplementation(async (_endpoint: string, key: string) =>
+        key === 'newguardiankey' ? 'match' : 'mismatch'
+      );
+    });
+
+    // Init and the adopt time their own hold inside their lock callback and report it through onHeld
+    // (guardian/index.test.ts pins that); these stand-ins keep the same contract over the suite's lock.
+    const heldUnderLock = <T>(onHeld: unknown, work: () => Promise<T>): Promise<T> =>
+      mockWithWasmClientLock(async () => {
+        const heldFrom = monotonicNowMs();
+        try {
+          return await work();
+        } finally {
+          (onHeld as ((ms: number) => void) | undefined)?.(monotonicNowMs() - heldFrom);
+        }
+      }) as Promise<T>;
+
+    it('adopts the post-switch state from the previous guardian, then registers it and clears the flag', async () => {
+      await runUntilPersistent();
+
+      expect(mockMultisigInit).toHaveBeenCalledWith(
+        { __sdkAccount: true },
+        '0xhot',
+        '0xaabb',
+        zustandProvider.signWord,
+        previousEndpoint,
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt-init' },
+        expect.any(Function)
+      );
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+        'unregistered-pk',
+        endpoint,
+        zustandProvider,
+        expect.anything(),
+        expect.any(Function)
+      );
+      expect(mockClearLocalStateNotSaved).toHaveBeenCalledWith('unregistered-pk', endpoint);
+    });
+
+    it('books a push after an adopt on the guardian key it writes (#1233)', async () => {
+      mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = Math.floor(performance.now());
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      const lapAt = async (offset: number) => {
+        dateSpy.mockReturnValue(t0 + offset);
+        perfSpy.mockReturnValue(p0 + offset);
+        await syncGuardianAccounts();
+      };
+      try {
+        await runUntilPersistent();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+        await lapAt(3_000);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+        let offset = MISSING_REGISTRATION_BACKOFF_MS + 1;
+        await lapAt(offset);
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+
+        for (const backoffs of [2, 4, 8]) {
+          offset += backoffs * MISSING_REGISTRATION_BACKOFF_MS + 1;
+          await lapAt(offset);
+        }
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      } finally {
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      }
+    });
+
+    it('does not adopt for an account with no such row', async () => {
+      mockFindUnsavedSwitchRow.mockResolvedValue(undefined);
+
+      await runUntilPersistent();
+
+      expect(mockMultisigInit).not.toHaveBeenCalled();
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('does not register while the adopted state still names another guardian', async () => {
+      // The previous guardian has not canonicalized the switch yet: the adopt imports nothing.
+      mockAdoptGuardianState.mockImplementation(async () => {});
+
+      await runUntilPersistent();
+
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+      expect(mockClearLocalStateNotSaved).not.toHaveBeenCalled();
+    });
+
+    it('refuses without registering when the previous guardian cannot be reached', async () => {
+      mockMultisigInit.mockRejectedValue(new Error('Failed to fetch'));
+
+      await runUntilPersistent();
+
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    // The direct path fled that operator: it never received the switch delta, and an init against it
+    // can hold the realm's WASM lock until the fetch boundary cuts each request off a minute in.
+    it('never contacts the previous guardian for a switch that took the direct path', async () => {
+      mockFindUnsavedSwitchRow.mockResolvedValue({
+        id: 'switch-row',
+        previousGuardianEndpoint: previousEndpoint,
+        switchedDirectly: true
+      });
+
+      await runUntilPersistent();
+
+      expect(mockFindUnsavedSwitchRow).toHaveBeenCalledWith('unregistered-pk', endpoint);
+      expect(mockMultisigInit).not.toHaveBeenCalled();
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('stops contacting a previous guardian that held the lock to the watchdog until the fuse interval passes', async () => {
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = Math.floor(performance.now());
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      mockMultisigInit.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+      expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
+
+      // The heal is due again and runs (a second key check), but does not reach that operator.
+      dateSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(2);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      // Once the interval has passed it tries again, and an operator that answers completes the repair.
+      mockMultisigInit.mockResolvedValue({ adoptGuardianStateOnce: mockAdoptGuardianState });
+      dateSpy.mockReturnValue(t0 + FUSED_SYNC_PROBE_INTERVAL_MS + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + FUSED_SYNC_PROBE_INTERVAL_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+        'unregistered-pk',
+        endpoint,
+        zustandProvider,
+        expect.anything(),
+        expect.any(Function)
+      );
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    // A gateway that turns the silence into a 504 before the watchdog (stock HAProxy: 50 s) holds the
+    // adopt's lock that long; the refusal window is measured from before the adopt, so unpaused it would
+    // hold the lock 50 s of every 60 s.
+    it('stops contacting a previous guardian whose adopt failed slowly', async () => {
+      const t0 = 1_000_000;
+      let now = t0;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) =>
+        heldUnderLock(onHeld, async () => {
+          now += 50_000;
+          throw new Error('504 Gateway Timeout');
+        })
+      );
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      now = t0 + MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(2);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    it('retries a previous guardian whose adopt failed fast on the usual cadence', async () => {
+      let now = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) =>
+        heldUnderLock(onHeld, async () => {
+          now += 9_000;
+          throw new Error('Failed to fetch');
+        })
+      );
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      now += MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    // Init reaches the same operator under its own hold, so a 504 there holds the lock as long.
+    it('stops contacting a previous guardian whose init failed slowly', async () => {
+      const t0 = 1_000_000;
+      let now = t0;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockMultisigInit.mockImplementation((...args: unknown[]) =>
+        heldUnderLock(args[6], async () => {
+          now += 50_000;
+          throw new Error('504 Gateway Timeout');
+        })
+      );
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+      expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
+
+      now = t0 + MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(2);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    it('counts the init and the adopt together toward a park', async () => {
+      const t0 = 1_000_000;
+      let now = t0;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      const previous = { adoptGuardianStateOnce: mockAdoptGuardianState };
+      mockMultisigInit.mockImplementation((...args: unknown[]) =>
+        heldUnderLock(args[6], async () => {
+          now += 6_000;
+          return previous;
+        })
+      );
+      // Not yet canonicalized: the adopt imports nothing.
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) =>
+        heldUnderLock(onHeld, async () => {
+          now += 6_000;
+        })
+      );
+
+      await runUntilPersistent();
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
+      const checks = mockCheckEndpointCommitment.mock.calls.length;
+
+      now = t0 + MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(checks + 1);
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    // Waiting behind another holder is not the operator's time: a lap whose holds were quick is no park.
+    it('does not count time queued for the lock toward a park', async () => {
+      let now = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+      const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+      mockWithWasmClientLock.mockImplementation(async (fn: (hold: object) => Promise<unknown>) => {
+        now += 11_000;
+        return handOutWasmHold(fn);
+      });
+      const previous = { adoptGuardianStateOnce: mockAdoptGuardianState };
+      mockMultisigInit.mockImplementation((...args: unknown[]) => heldUnderLock(args[6], async () => previous));
+      mockAdoptGuardianState.mockImplementation((onHeld: unknown) => heldUnderLock(onHeld, async () => {}));
+
+      try {
+        await runUntilPersistent();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(false);
+
+        now += MISSING_REGISTRATION_BACKOFF_MS;
+        await syncGuardianAccounts();
+        expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+      } finally {
+        mockWithWasmClientLock.mockImplementation(handOutWasmHold);
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      }
+    });
+
+    describe('whose delta the landed push did not deliver', () => {
+      // The service's real bounded push over the mocked `pushSwitchDelta`, so its budget and its verdicts
+      // are the ones production uses.
+      const realPushSwitchDeltaBounded: (proposalId: string) => Promise<'pushed' | 'silent' | 'refused'> =
+        jest.requireActual('lib/miden/guardian').MultisigService.prototype.pushSwitchDeltaBounded;
+      const mockPushSwitchDelta = jest.fn(async (_proposalId: string) => {});
+
+      beforeEach(() => {
+        mockPushSwitchDelta.mockReset();
+        mockPushSwitchDelta.mockImplementation(async () => {});
+        mockFindUnsavedSwitchRow.mockResolvedValue({
+          id: 'switch-row',
+          previousGuardianEndpoint: previousEndpoint,
+          switchedDirectly: false,
+          switchProposalId: 'prop',
+          switchDeltaPushed: false
+        });
+        const previous = {
+          pushSwitchDelta: mockPushSwitchDelta,
+          pushSwitchDeltaBounded: (proposalId: string) => realPushSwitchDeltaBounded.call(previous, proposalId),
+          adoptGuardianStateOnce: mockAdoptGuardianState
+        };
+        mockMultisigInit.mockResolvedValue(previous);
+      });
+
+      it('re-pushes the switch delta before adopting when the first push failed', async () => {
+        await runUntilPersistent();
+
+        expect(mockPushSwitchDelta).toHaveBeenCalledWith('prop');
+        expect(mockPushSwitchDelta.mock.invocationCallOrder[0]!).toBeLessThan(
+          mockAdoptGuardianState.mock.invocationCallOrder[0]!
+        );
+        expect(mockMarkSwitchDeltaPushed).toHaveBeenCalledWith('switch-row');
+        expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+          'unregistered-pk',
+          endpoint,
+          zustandProvider,
+          expect.anything(),
+          expect.any(Function)
+        );
+      });
+
+      it('skips the adopt when the re-push times out', async () => {
+        mockPushSwitchDelta.mockImplementation(() => new Promise<void>(() => {}));
+        for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+        jest.useFakeTimers({ doNotFake: ['Date', 'performance'] });
+        try {
+          const lap = syncGuardianAccounts();
+          await jest.advanceTimersByTimeAsync(30_000);
+          await lap;
+        } finally {
+          jest.useRealTimers();
+        }
+
+        expect(mockPushSwitchDelta).toHaveBeenCalledWith('prop');
+        expect(mockAdoptGuardianState).not.toHaveBeenCalled();
+        expect(mockMarkSwitchDeltaPushed).not.toHaveBeenCalled();
+        expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+        // A silent guardian would park the next lap's adopt, so the lap is booked as a park.
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(true);
+      });
+
+      it('never re-pushes a delta the landed push delivered', async () => {
+        mockFindUnsavedSwitchRow.mockResolvedValue({
+          id: 'switch-row',
+          previousGuardianEndpoint: previousEndpoint,
+          switchedDirectly: false,
+          switchProposalId: 'prop',
+          switchDeltaPushed: true
+        });
+
+        await runUntilPersistent();
+
+        expect(mockPushSwitchDelta).not.toHaveBeenCalled();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      });
+
+      // A fast refusal took no hold, so it costs one lap and lights nothing; the adopt's own hold is timed.
+      it('adopts without pausing when the previous guardian answers the re-push with a fast 503', async () => {
+        let now = 1_000_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+        mockPushSwitchDelta.mockRejectedValue(Object.assign(new Error('Service Unavailable'), { status: 503 }));
+        // Not yet canonicalized: the adopt imports nothing, so the next due lap tries again.
+        mockAdoptGuardianState.mockImplementation(async () => {});
+
+        await runUntilPersistent();
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(false);
+
+        now += MISSING_REGISTRATION_BACKOFF_MS;
+        await syncGuardianAccounts();
+        expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      });
+
+      // The re-push runs outside any lock, so its wait is no park: only the holds that reach the operator are timed.
+      it('books a slow re-push followed by a quick adopt as a lap that did not park', async () => {
+        let now = 1_000_000;
+        const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+        const perfSpy = jest.spyOn(performance, 'now').mockImplementation(() => now);
+        mockPushSwitchDelta.mockImplementation(async () => {
+          now += 12_000;
+        });
+
+        await runUntilPersistent();
+
+        expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+        expect(isSyncFused(guardianAdoptFuseKey('unregistered-pk', previousEndpoint))).toBe(false);
+
+        dateSpy.mockRestore();
+        perfSpy.mockRestore();
+      });
+    });
+
+    it('an endpoint change lifts the pause on a previous guardian', async () => {
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = Math.floor(performance.now());
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      mockMultisigInit.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      clearSyncFuseForEndpointChange();
+      dateSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+
+    // The pause is one-shot, as it was before the ledger kept it: a lap whose adopt holds the lock
+    // briefly is booked a success whatever the copy reads, so the next due lap reaches the operator.
+    it('pauses a previous guardian once, and a quick adopt after the pause lifts it while the copy stays pre-switch', async () => {
+      const t0 = 1_000_000;
+      const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+      const p0 = Math.floor(performance.now());
+      const perfSpy = jest.spyOn(performance, 'now').mockReturnValue(p0);
+      mockMultisigInit.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+      // Never canonicalized: the adopt imports nothing, so the copy keeps naming the old guardian.
+      mockAdoptGuardianState.mockImplementation(async () => {});
+
+      await runUntilPersistent();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(1);
+
+      dateSpy.mockReturnValue(t0 + FUSED_SYNC_PROBE_INTERVAL_MS + MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + FUSED_SYNC_PROBE_INTERVAL_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(2);
+      expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+      dateSpy.mockReturnValue(t0 + FUSED_SYNC_PROBE_INTERVAL_MS + 2 * MISSING_REGISTRATION_BACKOFF_MS);
+      perfSpy.mockReturnValue(p0 + FUSED_SYNC_PROBE_INTERVAL_MS + MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+      expect(mockMultisigInit).toHaveBeenCalledTimes(3);
+
+      dateSpy.mockRestore();
+      perfSpy.mockRestore();
+    });
+  });
+});
+
+describe('syncGuardianAccounts - pending-rotation recheck (the W1 exit)', () => {
+  const account = { publicKey: 'pending-pk', type: WalletType.Guardian, hotPublicKey: 'hot' };
+
+  beforeEach(() => {
+    __resetGuardianSyncOutageForTest();
+    storeState.accounts = [account] as never;
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+    mockListUnconfirmedSwitchRows.mockReset();
+    // The row id and the on-chain hash are DIFFERENT strings here on purpose.
+    // While the fixture conflated them, a loop that asked the node about the
+    // Dexie uuid was indistinguishable from one that asked about the hash - and
+    // that is the bug the fixture hid: `getTransactionCommitState` matches
+    // `tx.id().toHex()`, so a row id can only ever answer 'not-found'.
+    mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-w1', transactionId: '0xtxw1' }]);
+    mockResolveUnconfirmedSwitch.mockReset();
+    mockResolveUnconfirmedSwitch.mockResolvedValue({});
+    mockReadDirectSwitchCommitState.mockReset();
+    storeState.revertGuardianEndpointAfterDiscard.mockReset();
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('reverted');
+  });
+
+  it('upgrades the row once the chain confirms the rotation', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('committed');
+
+    await syncGuardianAccounts();
+
+    // The node is asked about the HASH…
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledWith(
+      '0xtxw1',
+      expect.objectContaining({ label: 'pending-rotation-recheck' })
+    );
+    // …and the local row is settled by its own id.
+    expect(mockResolveUnconfirmedSwitch).toHaveBeenCalledWith('row-w1', true);
+  });
+
+  it('demotes the row once the chain reports the rotation discarded', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).toHaveBeenCalledWith('row-w1', false);
+  });
+
+  // A row written before the completion started stamping the previous endpoint.
+  // Demoting it spends the one irreversible settle on a state whose only repair
+  // is the rollback this row cannot supply - and drift cannot substitute, since
+  // its baseline and the chain agree (both still the old operator) so it never
+  // reads the endpoint the account is actually bound to. The account would be
+  // left naming an operator with no authority and looking healthy everywhere.
+  it('refuses to demote a discarded rotation it has no rollback target for', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-legacy', transactionId: '0xtxlegacy', extraInputs: { newGuardianEndpoint: 'https://new.test' } }
+    ]);
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+    expect(storeState.revertGuardianEndpointAfterDiscard).not.toHaveBeenCalled();
+    // Closed rather than charged - no later tick can grow a field the completion
+    // did not write - so the prompt is up on the next pass, not in 30 minutes.
+    await syncGuardianAccounts();
+    expect(isGuardianUnrepairable('pending-pk')).toBe(true);
+  });
+
+  // `'stale'` is not only the lost-CAS race: the rollback also answers it when
+  // the operator could not be reached to prove the mismatch, which for a
+  // rotation discarded to a dead endpoint is the answer on EVERY pass. Left
+  // unsettled, the retry never ends and the budget never spends, so the prompt
+  // that is this exit's only other way out is unreachable.
+  it('charges a rollback that keeps answering stale, so exhaustion surfaces it', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('stale');
+    const clock = useFakeClocks(11_000_000);
+
+    for (let pass = 0; pass <= PENDING_ROTATION_RECHECK_MAX_ATTEMPTS; pass += 1) {
+      await syncGuardianAccounts();
+      clock.advance(PENDING_ROTATION_RECHECK_BACKOFF_MS);
+    }
+
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable('pending-pk')).toBe(true);
+    clock.restore();
+  });
+
+  // Completion pointed the vault at the new operator before it knew the commit
+  // was unconfirmed, so a discarded rotation leaves the account naming an
+  // operator with NO on-chain authority - and the drift reconciler cannot see it
+  // (its cached baseline and the chain agree, both still naming the old one).
+  // Demoting the row without this leaves the account quietly unusable.
+  it('points the account back at the previous operator when the node discards the rotation', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+
+    await syncGuardianAccounts();
+
+    // Conditional, not a force write: the rollback names the endpoint it expects
+    // to still be bound, so a rotation that landed since cannot be undone.
+    expect(storeState.revertGuardianEndpointAfterDiscard).toHaveBeenCalledWith(
+      'pending-pk',
+      'https://new.guardian.test',
+      'https://old.guardian.test'
+    );
+  });
+
+  // The demote is the point of no return - a demoted row answers 'failed' and
+  // leaves the unconfirmed list, so a rollback attempted after it has nothing
+  // left to re-derive from. The vault write has to come first.
+  it('rolls the binding back BEFORE it demotes the row', async () => {
+    const order: string[] = [];
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockImplementation(async () => {
+      order.push('revert');
+      return 'reverted';
+    });
+    mockResolveUnconfirmedSwitch.mockImplementation(async () => {
+      order.push('demote');
+      return {};
+    });
+
+    await syncGuardianAccounts();
+
+    expect(order).toEqual(['revert', 'demote']);
+  });
+
+  // A rotation that legitimately landed while the discarded one was being
+  // rechecked moves the binding out from under the rollback. Demoting the row
+  // anyway would leave the newer, correct endpoint intact but lose the retry;
+  // leaving it pending re-derives against the new state next pass.
+  it('leaves the row pending when the binding moved under the rollback', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('stale');
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+  });
+
+  // Nothing to roll back: something authoritative already moved the binding off
+  // this rotation's target, so the row is all that is left to settle.
+  it('still demotes the row when the rollback is superseded', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('superseded');
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).toHaveBeenCalledWith('row-w1', false);
+  });
+
+  // A row whose hash was never captured can never be asked about: the stamp
+  // happens once, in the completion that already ran. Spending 30 minutes of
+  // rechecks to reach a conclusion available now is the shape F-001 produced.
+  it('closes the recheck immediately for a row with no captured transaction id', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-nohash' }]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('committed');
+
+    await syncGuardianAccounts();
+
+    expect(mockReadDirectSwitchCommitState).not.toHaveBeenCalled();
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+    // Closed, not merely skipped: the state is surfaced for manual recovery.
+    await syncGuardianAccounts();
+    expect(isGuardianUnrepairable('pending-pk')).toBe(true);
+  });
+
+  it('a non-verdict spends one bounded recheck and re-asks on the flat cadence', async () => {
+    const clock = useFakeClocks(9_000_000);
+    mockReadDirectSwitchCommitState.mockResolvedValue('pending');
+
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(1);
+
+    // Inside the gap: no second read, and no resolution invented.
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(1);
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+
+    clock.advance(PENDING_ROTATION_RECHECK_BACKOFF_MS);
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(2);
+    clock.restore();
+  });
+
+  it('a read failure is refunded, not charged - the budget is spent on answers, not on outages', async () => {
+    const clock = useFakeClocks(9_500_000);
+    mockReadDirectSwitchCommitState.mockRejectedValue(new Error('node unreachable'));
+
+    for (let i = 0; i < PENDING_ROTATION_RECHECK_MAX_ATTEMPTS + 3; i++) {
+      await syncGuardianAccounts();
+      clock.advance(PENDING_ROTATION_RECHECK_BACKOFF_MS);
+    }
+    // Still asking (refunds never spend the budget), and never unrepairable.
+    expect(mockReadDirectSwitchCommitState.mock.calls.length).toBeGreaterThan(PENDING_ROTATION_RECHECK_MAX_ATTEMPTS);
+    expect(isGuardianUnrepairable('pending-pk')).toBe(false);
+    clock.restore();
+  });
+
+  it('a spent budget surfaces through the unrepairable prompt instead of going silent', async () => {
+    const clock = useFakeClocks(10_000_000);
+    mockReadDirectSwitchCommitState.mockResolvedValue('not-found');
+
+    for (let i = 0; i < PENDING_ROTATION_RECHECK_MAX_ATTEMPTS; i++) {
+      await syncGuardianAccounts();
+      clock.advance(PENDING_ROTATION_RECHECK_BACKOFF_MS);
+    }
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(PENDING_ROTATION_RECHECK_MAX_ATTEMPTS);
+
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(PENDING_ROTATION_RECHECK_MAX_ATTEMPTS);
+    expect(isGuardianUnrepairable('pending-pk')).toBe(true);
+    clock.restore();
+  });
+});
+
+/**
+ * The eviction seam.
+ *
+ * An evicted operation is ABANDONED, NOT CANCELLED: the mutex is handed to a
+ * successor the instant the watchdog fires, while the abandoned call is still
+ * inside WASM holding a borrow. So every hold this pass would take next is a
+ * second borrow of somebody else's client, and the rule is that the whole pass
+ * stops - not just the arm that noticed.
+ *
+ * Every one of these guards was previously deletable with the suite still green:
+ * nothing threw `WasmClientPoisonedError` from any of the four calls that can
+ * actually produce one, so the breaks were unexercised. Each test below deletes
+ * one guard's reason for existing and asserts the pass notices.
+ */
+describe('syncGuardianAccounts - a WASM eviction stops the whole pass', () => {
+  const first = { publicKey: 'evict-pk-1', type: WalletType.Guardian, hotPublicKey: 'hot-1' };
+  const second = { publicKey: 'evict-pk-2', type: WalletType.Guardian, hotPublicKey: 'hot-2' };
+
+  beforeEach(() => {
+    __resetGuardianSyncOutageForTest();
+    // The fuse ledger is realm-scoped and these tests deliberately park it, so
+    // without this each test inherits the previous one's evidence - and a test
+    // asserting that a key is NOT lit then reads a sibling's park as its own.
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    storeState.accounts = [first, second] as never;
+    storeState.checkGuardianDrift.mockReset();
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    mockGetOrCreateMultisigService.mockReset();
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+    mockListUnconfirmedSwitchRows.mockReset();
+    mockListUnconfirmedSwitchRows.mockResolvedValue([]);
+    mockResolveUnconfirmedSwitch.mockReset();
+    mockResolveUnconfirmedSwitch.mockResolvedValue({});
+    mockReadDirectSwitchCommitState.mockReset();
+    storeState.revertGuardianEndpointAfterDiscard.mockReset();
+  });
+
+  // The recheck's own row loop. Row two must never be read: the abandoned call
+  // from row one still holds a borrow of the client row two would take.
+  it('stops reading rows after the node read is evicted', async () => {
+    storeState.accounts = [first] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-a', transactionId: '0xa' },
+      { id: 'row-b', transactionId: '0xb' }
+    ]);
+    mockReadDirectSwitchCommitState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(1);
+  });
+
+  // …and the account loop. Breaking only the row loop left drift, the guardian
+  // round trip and the self-heal still to run on the same abandoned client.
+  it('does not touch the next account after the recheck is evicted', async () => {
+    mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-a', transactionId: '0xa' }]);
+    mockReadDirectSwitchCommitState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  // The rollback takes a hold of ITS OWN, so its eviction arrives in a different
+  // catch from the node read's - one that first shipped without classifying it.
+  it('stops the pass when the endpoint rollback is evicted', async () => {
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-a',
+        transactionId: '0xa',
+        extraInputs: { newGuardianEndpoint: 'https://new.test', previousGuardianEndpoint: 'https://old.test' }
+      }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    storeState.revertGuardianEndpointAfterDiscard.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  // The node read SUCCEEDED before the rollback evicted, so `probeSucceeded` was
+  // set - and booking that success would withdraw the very fuse evidence the
+  // eviction just created, on the key that is supposed to stop us re-parking.
+  it('does not book a fuse success for a pass whose rollback evicted', async () => {
+    storeState.accounts = [first] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-a',
+        transactionId: '0xa',
+        extraInputs: { newGuardianEndpoint: 'https://new.test', previousGuardianEndpoint: 'https://old.test' }
+      }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    storeState.revertGuardianEndpointAfterDiscard.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    expect(isSyncFused(pendingRotationRecheckFuseKey(first.publicKey))).toBe(true);
+  });
+
+  // Drift's catch is deliberately swallowing - a drift failure must not break
+  // the loop - which is exactly why an eviction had to be pulled back out of it.
+  it('does not touch the next account after drift is evicted', async () => {
+    storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(storeState.checkGuardianDrift).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  // THE GUARDIAN ROUND TRIP ITSELF. `service.sync()` builds its service under a
+  // frontend hold at the sync ceiling, so this arm is as real as the other three
+  // - and it was the last one that went on to the next account regardless.
+  it('does not touch the next account after the guardian round trip is evicted', async () => {
+    mockGetOrCreateMultisigService.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Every break must ALSO book its evidence.
+   *
+   * Three of the four breaks jump out of the loop from a point above (or inside
+   * the catch and before) the fuse feed at the bottom, so the report cannot be
+   * left to it - and for two of them the value the feed would have classified is
+   * not the poison at all but the operator's own 401/unknown-account response,
+   * which reads as a NON-eviction failure and therefore ZEROES the count. That is
+   * strictly worse than silence: the arms most likely to park were the ones
+   * erasing the evidence.
+   */
+  describe('and books the eviction against the account fuse', () => {
+    const fuseKeyFor = (pk: string) => guardianSyncFuseKey(pk, 'https://guardian.test');
+
+    const parkUntilFused = async (arm: () => void) => {
+      storeState.accounts = [first] as never;
+      arm();
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+        __resetGuardianSyncOutageForTest();
+        await syncGuardianAccounts();
+      }
+    };
+
+    // Drift books against a key OF ITS OWN, not the account's guardian key, and
+    // the split is what keeps the account reachable. Drift talks to the NODE
+    // while the guardian round trip talks to the OPERATOR, so a parked node and
+    // a parked operator are two independent facts - and shared, the one that
+    // succeeds withdraws the other's evidence within the same lap.
+    it('when drift evicts, against the drift key', async () => {
+      await parkUntilFused(() =>
+        storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+
+      expect(isSyncFused(guardianDriftFuseKey(first.publicKey))).toBe(true);
+    });
+
+    // The starvation this key exists to end: drift ran UNCONDITIONALLY and broke
+    // the account loop on eviction, so with drift parked, every account after the
+    // first never synced again for the life of the realm - a permanent outage
+    // produced by the eviction handling rather than by the operator.
+    it('lets the rest of the pass run once drift itself is fused', async () => {
+      await parkUntilFused(() =>
+        storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+      storeState.checkGuardianDrift.mockClear();
+      mockGetOrCreateMultisigService.mockClear();
+
+      await syncGuardianAccounts();
+
+      // Drift is SKIPPED rather than retried-and-evicted, so nothing breaks the
+      // loop and the operator is reached again. Without the fuse this account
+      // re-parked the client every three seconds and never got past drift.
+      expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    });
+
+    // The starvation this key exists to end, stated as the property that matters:
+    // an account BEHIND a permanently-evicting drift is eventually reached. Drift
+    // ran unconditionally and broke the loop, so account two never synced again
+    // for the life of the realm - an outage produced by the eviction handling
+    // rather than by any operator. The keys are per account, so the recovery is
+    // sequential (each account's drift accumulates its own evidence), which is
+    // the same rule that keeps a healthy sibling from erasing a parked one's.
+    it('eventually reaches an account queued behind a permanently-evicting drift', async () => {
+      storeState.accounts = [first, second] as never;
+      storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS * 2; pass += 1) {
+        __resetGuardianSyncOutageForTest();
+        await syncGuardianAccounts();
+      }
+      mockGetOrCreateMultisigService.mockClear();
+      await syncGuardianAccounts();
+
+      expect(isSyncFused(guardianDriftFuseKey(second.publicKey))).toBe(true);
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(2);
+    });
+
+    // The guardian round trip still books against the ACCOUNT key, so a healthy
+    // node with a parked operator fuses the account without touching drift.
+    it('keeps the two keys independent', async () => {
+      await parkUntilFused(() =>
+        mockGetOrCreateMultisigService.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+
+      expect(isSyncFused(fuseKeyFor(first.publicKey))).toBe(true);
+      expect(isSyncFused(guardianDriftFuseKey(first.publicKey))).toBe(false);
+    });
+
+    it('when the guardian round trip evicts', async () => {
+      await parkUntilFused(() =>
+        mockGetOrCreateMultisigService.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+
+      expect(isSyncFused(fuseKeyFor(first.publicKey))).toBe(true);
+    });
+  });
+});
+
+/**
+ * The invariants a mutation probe showed were NOT under test.
+ *
+ * Seven of this module's eviction and fuse guards were deleted at once - the two
+ * post-await `assertWasmHoldCurrent` calls, drift's success booking, the
+ * evicted-probe suppression on the recheck's success arm, the read arm's
+ * non-eviction split, the exhausted-row preference, and the outer catch's poison
+ * report - and all 606 suites / 10,080 tests still passed. A guard nothing can
+ * fail is documentation, not a guard, so each test here removes exactly one of
+ * those reasons-to-exist and asserts the pass notices.
+ *
+ * The shapes that made them survivable are worth naming, because they are the
+ * traps a future test in this area will fall into as well:
+ *
+ *  - The liveness guards need an eviction DURING a hold, not before it. Nothing
+ *    reassigned `currentWasmHold` from inside a mocked WASM call, so every
+ *    post-await re-check compared a hold against itself and passed.
+ *  - The fuse arms need a REALM-ERROR poison. Every existing eviction test uses
+ *    `'watchdog'`, which trips the first arm of the recheck's three-way booking
+ *    and hides both of the others.
+ */
+describe('syncGuardianAccounts - guards a mutation probe found unexercised', () => {
+  const only = { publicKey: 'mut-pk-1', type: WalletType.Guardian, hotPublicKey: 'hot-1', coldPublicKey: 'cold-1' };
+  const other = { publicKey: 'mut-pk-2', type: WalletType.Guardian, hotPublicKey: 'hot-2', coldPublicKey: 'cold-2' };
+  const authError = { __authRejection: true, message: '401 session expired' };
+
+  beforeEach(() => {
+    __resetGuardianSyncOutageForTest();
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    storeState.accounts = [only, other] as never;
+    storeState.checkGuardianDrift.mockReset();
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    storeState.revertGuardianEndpointAfterDiscard.mockReset();
+    mockGetOrCreateMultisigService.mockReset();
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+    mockListUnconfirmedSwitchRows.mockReset();
+    mockListUnconfirmedSwitchRows.mockResolvedValue([]);
+    mockResolveUnconfirmedSwitch.mockReset();
+    mockResolveUnconfirmedSwitch.mockResolvedValue({});
+    mockReadDirectSwitchCommitState.mockReset();
+    mockEnsureGuardianProcedureThresholds.mockReset();
+    mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+    mockGetAccount.mockReset();
+    mockGetAccount.mockResolvedValue({ __sdkAccount: true });
+    mockGetSignerDetails.mockReset();
+    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockCommitmentFromPublicKeyHex.mockReset();
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
+    mockPreRegisterHold.mockReset();
+    mockPreRegisterHold.mockResolvedValue(undefined);
+    mockReRegister.mockReset();
+    mockReRegister.mockImplementation(async (_options: unknown, onPushStart?: () => void) => {
+      onPushStart?.();
+    });
+    mockAdoptGuardianState.mockReset();
+    mockAdoptGuardianState.mockResolvedValue(undefined);
+    mockBuildColdMultisigService.mockReset();
+    mockBuildColdMultisigService.mockResolvedValue({
+      reRegisterCurrentStateOnGuardian: async (
+        onBeforeRegister?: (signerCommitments: readonly string[]) => void,
+        lockOptions?: unknown
+      ) => {
+        await mockPreRegisterHold();
+        // `mockReRegister` is the rest of the method: it decides whether the push starts.
+        return mockReRegister(lockOptions, onBeforeRegister);
+      },
+      adoptGuardianStateOnce: mockAdoptGuardianState
+    });
+  });
+
+  /**
+   * An eviction that lands INSIDE a hold, between the account read and the reads
+   * derived from it. The mocked `withWasmClientLock` installs a fresh hold object
+   * and hands it to the callback; reassigning `currentWasmHold` from inside a
+   * mocked WASM call is therefore exactly what the watchdog does when it gives
+   * the mutex to a successor - and it is the one thing no existing test did, which
+   * is why both post-await guards were deletable.
+   */
+  const stealTheHoldOnCall = (call: number) => {
+    let seen = 0;
+    mockGetAccount.mockImplementation(async () => {
+      seen += 1;
+      if (seen === call) currentWasmHold = {};
+      return { __sdkAccount: true };
+    });
+  };
+
+  // The cold re-register's snapshot hold. `getSignerDetailsFromAccount` reads the
+  // signer set off the SAME `Account` handle the line above returned, and that
+  // handle is a borrow of the client's RefCell rather than a snapshot - so with
+  // the mutex already handed on, reading it is the double borrow. The guard also
+  // has to be the thing that reports: the inner read swallows its own error, so
+  // without it the double borrow landed as "could not read the hot signer" and
+  // the heal refused quietly.
+  it('stops the cold re-register when the client is evicted after its account read', async () => {
+    storeState.accounts = [only, other] as never;
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    // Call 1 is the stale-account read, call 2 the snapshot hold this guard sits in.
+    stealTheHoldOnCall(2);
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i += 1) {
+      await syncGuardianAccounts();
+    }
+
+    // Never reached the operator: the guard threw before the signer comparison, so
+    // the heal is an eviction rather than a refusal - and the pass stops, leaving
+    // the second account untouched rather than taking a fresh hold under the
+    // abandoned call.
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+  });
+
+  // An eviction on the PREFLIGHT side of the `/configure` must refund. The flag
+  // used to be set before the call, so it also covered everything
+  // `reRegisterCurrentStateOnGuardian` does before it POSTs - an entire hold whose
+  // first act is a `syncState()`, the likeliest park on the path. A refund is not a
+  // nicety: this budget is only refilled by a successful sync, which is precisely
+  // what a parked client prevents, and three local failures would otherwise
+  // condemn a healthy operator as unrepairable.
+  it('refunds the self-heal budget when the eviction lands before the /configure', async () => {
+    storeState.accounts = [only] as never;
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    mockPreRegisterHold.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    // The POST never went out, so nothing was charged and nothing is condemned.
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable(only.publicKey)).toBe(false);
+  });
+
+  // Drift's success is the ONLY thing that clears its fuse. Deleted, a drift probe
+  // that recovered stayed fused for the full window, and since drift is the
+  // repair for a rotation that lost its endpoint write, that is the reconciler
+  // being silenced by its own throttle.
+  it('clears the drift fuse when drift finally succeeds', async () => {
+    storeState.accounts = [only] as never;
+    storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+    expect(isSyncFused(guardianDriftFuseKey(only.publicKey))).toBe(true);
+
+    // A user gesture buys one probe through the fuse; that probe now succeeds.
+    // `grantManualSyncProbe`, NOT `__resetSyncFuseStateForTests()`: the wipe drops the
+    // eviction count too, so the re-park below could not reach the threshold whether or
+    // not the success was ever booked, and the assertion could not fail. A gesture
+    // expires the deadline and KEEPS the evidence, so only the success withdraws it.
+    grantManualSyncProbe(guardianDriftFuseKey(only.publicKey));
+    storeState.checkGuardianDrift.mockReset();
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    await syncGuardianAccounts();
+    // Re-park once. With the success booked, the evidence was withdrawn, so one
+    // eviction is nowhere near the threshold. Without it, the count survived and
+    // this single eviction re-lights the fuse.
+    storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    expect(isSyncFused(guardianDriftFuseKey(only.publicKey))).toBe(false);
+  });
+
+  /**
+   * The recheck's three-way booking, driven by a REALM-ERROR poison.
+   *
+   * Both surviving mutants here needed the same key: a poison whose reason is not
+   * `'watchdog'`. `isSyncWatchdogEviction` is false for a realm error - its client
+   * is replaced in milliseconds, so it is no evidence that the node parked us - so
+   * the first arm does not fire, and only then do the other two matter.
+   */
+  describe('the recheck booking under a realm-error eviction', () => {
+    const discardedRow = {
+      id: 'row-a',
+      transactionId: '0xa',
+      extraInputs: { newGuardianEndpoint: 'https://new.test', previousGuardianEndpoint: 'https://old.test' }
+    };
+
+    beforeEach(() => {
+      storeState.accounts = [only] as never;
+      mockListUnconfirmedSwitchRows.mockResolvedValue([discardedRow]);
+      // The node read SUCCEEDS - so `probeSucceeded` is set - and the ROLLBACK,
+      // which takes a hold of its own, is what evicts.
+      mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+      storeState.revertGuardianEndpointAfterDiscard.mockRejectedValue(new WasmClientPoisonedError('realm-error'));
+    });
+
+    /**
+     * The fuse has to be LIT BUT LAPSED, not merely lit.
+     *
+     * The recheck's first act is `if (isSyncFused(key)) return` - so a freshly
+     * armed fuse makes the whole probe a no-op and every assertion below passes
+     * without the code under test ever running. Letting the window elapse is what
+     * puts the probe on the allowed lap: `isSyncFused` is false, so it runs, while
+     * `fusedUntilMs` is still non-null, so a re-arm is observable as a deadline
+     * strictly later than the old one.
+     */
+    const armLapsedFuse = (clock: { advance: (ms: number) => void }) => {
+      const key = pendingRotationRecheckFuseKey(only.publicKey);
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i += 1) noteSyncWatchdogEviction(key);
+      const armedAt = Number(syncFuseUntilMs(key));
+      clock.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+      expect(isSyncFused(key)).toBe(false);
+      return { key, armedAt };
+    };
+
+    // A probe that evicted did not succeed, whatever any single row managed. With
+    // the suppression gone, the success arm fires on `probeSucceeded` alone and
+    // WITHDRAWS the accumulated evidence - `syncFuseUntilMs` goes null - which is
+    // the one outcome no failing probe may produce.
+    it('does not book a success for a probe that evicted', async () => {
+      const clock = useFakeClocks(3_000_000);
+      const { key } = armLapsedFuse(clock);
+
+      await syncGuardianAccounts();
+
+      expect(syncFuseUntilMs(key)).not.toBeNull();
+      clock.restore();
+    });
+
+    // And it books the NON-eviction failure instead, which is what re-arms the
+    // deadline. Reported by neither arm, the aggregation fell through all three and
+    // booked nothing at all - so "one probe per 30 min until one SUCCEEDS" stopped
+    // holding for the one probe that had just failed.
+    it('re-arms a lapsed fuse on the realm-error poison rather than booking nothing', async () => {
+      const clock = useFakeClocks(3_000_000);
+      const { key, armedAt } = armLapsedFuse(clock);
+
+      await syncGuardianAccounts();
+
+      // A strictly LATER deadline is the observable difference between "re-armed"
+      // and "left alone". Booking nothing at all - the state the missing arm left
+      // this in - leaves the lapsed deadline in place, so the next lap probes again
+      // immediately.
+      expect(Number(syncFuseUntilMs(key))).toBeGreaterThan(armedAt);
+      expect(isSyncFused(key)).toBe(true);
+      clock.restore();
+    });
+  });
+
+  // The recheck's OUTERMOST catch. Everything inside it runs before any of the two
+  // inner trys exist - the dynamic import and the row list - and a poison there
+  // has to reach the caller for the same reason the inner breaks do.
+  it('stops the pass when the recheck fails out of its outer catch with poison', async () => {
+    mockListUnconfirmedSwitchRows.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    // Reported as an eviction, so the account loop breaks before drift's hold.
+    // Reported as `false`, drift ran and took a fresh hold under the abandoned call.
+    expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  // And it BOOKS the eviction on the way out. Breaking without booking is the
+  // half-fix: the pass stops this lap, and the next lap ~3s later re-parks against
+  // the same node because nothing accumulated toward the threshold that stretches
+  // the cadence. This assertion is what the break alone cannot make.
+  it('books the outer catch poison on the account s own recheck fuse', async () => {
+    const key = pendingRotationRecheckFuseKey(only.publicKey);
+    mockListUnconfirmedSwitchRows.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i += 1) await syncGuardianAccounts();
+
+    // The threshold reached from nothing but outer-catch evictions.
+    expect(isSyncFused(key)).toBe(true);
+  });
+
+  /**
+   * The hardening self-heal's eviction, which reached NONE of this.
+   *
+   * `ensureGuardianProcedureThresholds` ended in a blanket catch returning
+   * `undefined`, so it never rejected: the poison `.catch` on the call was dead
+   * code, the pass carried on to the next account taking fresh holds, and - worst
+   * - the guardian success had already been booked before the hardening ran, so a
+   * lap that demonstrably evicted was recorded as a clean probe and the fuse stood
+   * exonerated for the very park it exists to record.
+   */
+  describe('when the hardening self-heal is evicted', () => {
+    beforeEach(() => {
+      storeState.accounts = [only, other] as never;
+      mockEnsureGuardianProcedureThresholds.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    });
+
+    it('stops the pass instead of syncing the next account', async () => {
+      await syncGuardianAccounts();
+
+      expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    });
+
+    it('books the eviction rather than a success on the account fuse', async () => {
+      storeState.accounts = [only] as never;
+      const key = guardianSyncFuseKey(only.publicKey, 'https://guardian.test');
+
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+        __resetGuardianSyncOutageForTest();
+        await syncGuardianAccounts();
+      }
+
+      // The round trip itself succeeded every lap, so with the success booked
+      // before the hardening the count was zeroed as fast as it accumulated and
+      // this key could never light.
+      expect(isSyncFused(key)).toBe(true);
+    });
+
+    it('withdraws the once-per-session mark so a later tick retries the hardening', async () => {
+      storeState.accounts = [only] as never;
+
+      await syncGuardianAccounts();
+      mockEnsureGuardianProcedureThresholds.mockReset();
+      mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+      await syncGuardianAccounts();
+
+      // An eviction never reached a verdict, so leaving the mark would strand a
+      // migrated account at threshold-1 for the rest of the session - the exact
+      // state this self-heal exists to repair.
+      expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // The recheck fuse key carries the ACCOUNT for the same reason the guardian and
+  // drift keys do. As a bare literal it aggregated per call and this function is
+  // called per account, so a healthy account's success erased what a parked
+  // account had accumulated, on every lap - the threshold unreachable, exactly the
+  // defeat-by-ordering that splitting this ledger was written to end.
+  it('keeps one account s recheck evidence out of another s reach', async () => {
+    storeState.accounts = [only, other] as never;
+    mockListUnconfirmedSwitchRows.mockImplementation(async (pk: unknown) =>
+      pk === only.publicKey ? [{ id: 'row-a', transactionId: '0xa' }] : []
+    );
+    // The parked account's node read evicts; the healthy account has no rows at
+    // all, which is the shape that books a success on a shared key.
+    mockReadDirectSwitchCommitState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    expect(isSyncFused(pendingRotationRecheckFuseKey(only.publicKey))).toBe(true);
+    expect(isSyncFused(pendingRotationRecheckFuseKey(other.publicKey))).toBe(false);
+  });
+
+  // A retired pass must not settle rows. The recheck was the one arm with no
+  // generation check at all, and it writes more durable state than any other: it
+  // demotes transaction rows, rolls the account's guardian endpoint back, and
+  // spends per-row budgets.
+  // THE TIE THE SORT COULD NOT SEE. `initiatedAt` is whole seconds, so two rotations
+  // initiated in the same second compare equal and fall back to whatever order Dexie
+  // returned - primary-key order over random uuids. That is the arbitrary order the sort
+  // exists to remove, and the chained rollback (A->B and B->C both discarded) is exactly
+  // the case that cannot survive it: taking A->B first finds the account on C and can
+  // conclude nothing. The per-pass cap makes the choice lasting rather than transient,
+  // because the rows it defers are the rows it never looks at.
+  it('breaks an initiatedAt tie by queuedSeq, newest first, so a rollback chain unwinds LIFO', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-oldest', transactionId: '0xoldest', initiatedAt: 100, queuedSeq: 1 },
+      { id: 'row-newest', transactionId: '0xnewest', initiatedAt: 100, queuedSeq: 3 },
+      { id: 'row-middle', transactionId: '0xmiddle', initiatedAt: 100, queuedSeq: 2 }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('pending');
+
+    await syncGuardianAccounts();
+
+    // Newest first, and the cap of two means the oldest is never reached this pass. Drop
+    // the tie-break and the input order survives, probing oldest then newest; invert it
+    // and the chain unwinds forwards, probing oldest then middle.
+    expect(mockReadDirectSwitchCommitState.mock.calls.map(call => call[0])).toEqual(['0xnewest', '0xmiddle']);
+  });
+
+  // THE PRIMARY TERM, which the tie-break case above cannot reach: every row there shares a
+  // second, so `b.initiatedAt - a.initiatedAt` is 0 on every comparison and only `queuedSeq`
+  // decides. Here the NEWER row carries the LOWER `queuedSeq`, so it can win on `initiatedAt`
+  // and on nothing else.
+  it('orders by initiatedAt first, so a newer rotation wins even with a lower queuedSeq', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-older', transactionId: '0xolder', initiatedAt: 100, queuedSeq: 9 },
+      { id: 'row-newer', transactionId: '0xnewer', initiatedAt: 200, queuedSeq: 1 }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('pending');
+
+    await syncGuardianAccounts();
+
+    // Zero the primary term and `queuedSeq` alone decides, which inverts exactly this.
+    expect(mockReadDirectSwitchCommitState.mock.calls.map(call => call[0])).toEqual(['0xnewer', '0xolder']);
+  });
+
+  it('does not charge the row budget when the pass is retired during the node read', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-a', transactionId: '0xa' }]);
+    // `retireGuardianSyncPasses`, the PRODUCTION entry point, not
+    // `__resetGuardianSyncOutageForTest`: the test-only helper also clears the recheck ledger,
+    // which would wipe the very budget this case exists to watch and let it pass with or
+    // without the guard. Retiring mid-read is what an endpoint change does to a live pass.
+    mockReadDirectSwitchCommitState.mockImplementation(async () => {
+      retireGuardianSyncPasses();
+      return 'pending';
+    });
+    const clock = useFakeClocks(5_000_000);
+
+    // Enough laps to spend the WHOLE budget if every one of them charged. Exhaustion is the
+    // only thing observable from outside the ledger, so a single lap proves nothing: asserting
+    // on one is exactly how the first version of this case passed either way.
+    for (let pass = 0; pass <= PENDING_ROTATION_RECHECK_MAX_ATTEMPTS; pass += 1) {
+      await syncGuardianAccounts();
+      clock.advance(PENDING_ROTATION_RECHECK_BACKOFF_MS);
+    }
+    clock.restore();
+
+    // A charge is durable: fifteen raise the manual-recovery prompt. A pass told to stop
+    // judging this row must not spend one on evidence taken against an endpoint the user has
+    // since replaced.
+    expect(isGuardianUnrepairable(only.publicKey)).toBe(false);
+  });
+
+  it('does not settle the row when the pass is retired during the rollback await', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-a',
+        transactionId: '0xa',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    // The rollback is the await that re-opens the window the block-entry guard closed.
+    storeState.revertGuardianEndpointAfterDiscard.mockImplementation(async () => {
+      __resetGuardianSyncOutageForTest();
+      return 'reverted';
+    });
+
+    await syncGuardianAccounts();
+
+    // `resolveUnconfirmedSwitch` is the point of no return: a demoted row drops out of the
+    // unconfirmed list forever, so a retired pass must not reach it.
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+  });
+
+  it('stops settling rows once the pass is retired', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-a', transactionId: '0xa' },
+      { id: 'row-b', transactionId: '0xb' }
+    ]);
+    mockReadDirectSwitchCommitState.mockImplementation(async () => {
+      // A reset landing mid-loop, which is what an endpoint change or a lock
+      // recovery does to a pass already in flight - it bumps the generation.
+      __resetGuardianSyncOutageForTest();
+      return 'committed';
+    });
+
+    await syncGuardianAccounts();
+
+    // Row one's write is the one already in hand; row two must not be settled by a
+    // pass whose state has been cleared out from under it.
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
   });
 });

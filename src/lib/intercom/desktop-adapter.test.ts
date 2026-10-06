@@ -6,6 +6,9 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { DesktopIntercomAdapter } from './desktop-adapter';
 
+jest.mock('lib/miden/back/transaction-processor', () => ({
+  startTransactionProcessing: jest.fn().mockResolvedValue(undefined)
+}));
 // Mock the backend action handlers. Only the actions the desktop adapter
 // actually calls need to be present; each resolves a representative value.
 jest.mock('lib/miden/back/actions', () => ({
@@ -174,17 +177,10 @@ describe('DesktopIntercomAdapter', () => {
         password: 'test123',
         mnemonic: 'word1 word2 word3',
         walletAccounts: [],
-        formatVersion: 2,
         importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
-        'test123',
-        'word1 word2 word3',
-        [],
-        2,
-        importedAccounts
-      );
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', [], importedAccounts);
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 

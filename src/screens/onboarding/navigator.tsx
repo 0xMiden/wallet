@@ -1,6 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from 'components/PageHeader';
 import { ProgressIndicator } from 'components/ProgressIndicator';
@@ -14,7 +15,7 @@ import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
-import { MeetGuardianScreen } from './common/MeetGuardian';
+import { MEET_GUARDIAN_POINTS, MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
 import { SetupBiometricScreen } from './common/SetupBiometric';
@@ -49,6 +50,11 @@ export interface OnboardingFlowProps {
   isLoading?: boolean;
   useBiometric?: boolean;
   isHardwareSecurityAvailable?: boolean;
+  /**
+   * The host skips the create flow's protection chooser on mobile too (Welcome does where the vault's
+   * hardware probe answered false), so that flow is one step shorter, as it is off mobile.
+   */
+  skipProtectionChoice?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
   /** The last Guardian lookup failure's display text, or `null`. */
@@ -61,7 +67,7 @@ export interface OnboardingFlowProps {
    * recovery-method screen fall back to its classic manual picker.
    */
   guardianProbe?: GuardianProbeState;
-  /** Side panel handoff (Chrome): wallet is being created in the background. */
+  /** Side panel handoff (Chrome): wallet is being registered (created or restored) in the background. */
   confirmCreating?: boolean;
   /**
    * The import flow is running on a pasted hot key rather than a seed phrase:
@@ -133,6 +139,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   isLoading,
   useBiometric = true,
   isHardwareSecurityAvailable = false,
+  skipProtectionChoice = false,
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupFailure = null,
@@ -144,6 +151,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   onBiometricChange,
   onAction
 }) => {
+  const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
@@ -164,10 +172,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   useEffect(() => {
     setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
   }, [seedPhrase]);
-  // The choose-protection step only exists where biometric can work (mobile).
-  // On the extension/desktop it's skipped, so the create flow is one step
-  // shorter — render 3 segments and shift every position down by one.
-  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && !isMobile();
+  // The choose-protection step only exists where biometric can work: on mobile,
+  // unless the host skips it. Where it's skipped the create flow is one step
+  // shorter, so render 3 segments and shift every position down by one.
+  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && (!isMobile() || skipProtectionChoice);
   // In that shortened create flow the password screen replaces passcode setup,
   // so it sits at the protection-step position rather than its import-flow one.
   const baseStep =
@@ -185,6 +193,11 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     },
     [onAction]
   );
+
+  const onBack = useCallback(() => {
+    setNavigationDirection('backward');
+    onAction?.({ id: 'back' });
+  }, [onAction]);
 
   const renderStep = useCallback(() => {
     const onWelcomeAction = (action: 'select-wallet-type' | 'select-import-type') => {
@@ -252,11 +265,29 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
     // Back from the next step lands on Meet your Guardian, so its card must show what the picker submitted.
-    const onPickerSubmit = (payload: { guardianId: string; guardianEndpoint: string }) => {
+    // The picker, which Change opens on the card's operator, goes on only as Meet's Continue could: once
+    // Meet's three facts are ticked, since otherwise it would skip them, and with an operator that has
+    // answered online (`requireOnline`). Before the facts are ticked it returns to Meet, whose card shows the
+    // pick and whose Continue waits for the facts, so its own Continue reads Select. A no-guardian pick is
+    // not recorded and would be dropped there, so the picker withholds it until then; Meet's own link offers
+    // it once the facts are ticked. A pick is the user's own when it changed the card's operator or the picker
+    // reports it explicit (a card activated there, the card's own included); only an untouched Continue on Meet's
+    // auto-pick stays Meet's. The picker reopens on the user's own pick as theirs (`initialPicked`), so its
+    // fallback to the first online operator, which covers Meet's auto-pick only, never substitutes it.
+    const meetFactsTicked = MEET_GUARDIAN_POINTS.every(point => meetGuardianProgress.checked[point.id]);
+    const onPickerSubmit = (
+      payload: { guardianId: string; guardianEndpoint: string },
+      pick?: { explicit: boolean }
+    ) => {
       if (payload.guardianId !== NO_GUARDIAN_ID) {
-        setMeetGuardianProgress(prev => ({ ...prev, chosenId: payload.guardianId, pickedByUser: true }));
+        setMeetGuardianProgress(prev =>
+          prev.chosenId === payload.guardianId && !pick?.explicit
+            ? prev
+            : { ...prev, chosenId: payload.guardianId, pickedByUser: true }
+        );
       }
-      onChooseGuardianSubmit(payload);
+      if (meetFactsTicked) onChooseGuardianSubmit(payload);
+      else onBack();
     };
 
     switch (step) {
@@ -288,7 +319,16 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           />
         );
       case OnboardingStep.ChooseGuardian:
-        return <ChooseGuardianScreen onSubmit={onPickerSubmit} showNoGuardianOption={getEffectiveAllowNoGuardian()} />;
+        return (
+          <ChooseGuardianScreen
+            onSubmit={onPickerSubmit}
+            requireOnline
+            initialId={meetGuardianProgress.chosenId}
+            initialPicked={meetGuardianProgress.pickedByUser}
+            submitLabel={meetFactsTicked ? undefined : t('select')}
+            showNoGuardianOption={meetFactsTicked && getEffectiveAllowNoGuardian()}
+          />
+        );
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:
@@ -343,6 +383,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             biometricError={biometricError}
             recoveryError={recoveryError}
             creating={confirmCreating}
+            onboardingType={onboardingType ?? undefined}
             onSubmit={onConfirmSubmit}
             onSwitchToPassword={onSwitchToPassword}
           />
@@ -352,10 +393,12 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <></>;
     }
   }, [
+    t,
     step,
     meetGuardianProgress,
     isLoading,
     onForwardAction,
+    onBack,
     seedPhrase,
     wordslist,
     useBiometric,
@@ -369,13 +412,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
     confirmCreating,
-    importViaKey
+    importViaKey,
+    onboardingType
   ]);
-
-  const onBack = () => {
-    setNavigationDirection('backward');
-    onAction?.({ id: 'back' });
-  };
 
   // A step moves like a pushed page (the `page` preset): going forward it slides in from the right
   // over the step it replaces, which parks at `pageSlideParallax` under the `pageSlideDim` dim; going

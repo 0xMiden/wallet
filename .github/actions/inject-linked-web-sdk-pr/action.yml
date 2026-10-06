@@ -347,6 +347,10 @@ runs:
           fi
           IFS=$'\t' read -r c_owner c_repo c_ref c_sha <<< "$client_meta"
           echo "Pinning the SDK's miden-client to ${c_owner}/${c_repo}@${c_sha:0:8} (from ${client_repo}#${client_num})"
+          # The CLI and the test node read these. A chain left on the published pin
+          # speaks an older protocol than the SDK this step is about to build.
+          echo "MIDEN_LINKED_CLIENT_REV=$c_sha" >> "$GITHUB_ENV"
+          echo "MIDEN_LINKED_CLIENT_URL=https://github.com/${c_owner}/${c_repo}.git" >> "$GITHUB_ENV"
 
           python3 - "$SDK_DIR/Cargo.toml" "https://github.com/${c_owner}/${c_repo}.git" "${c_sha}" "${client_repo}#${client_num}" <<'PYEOF'
         import re, sys
@@ -383,7 +387,84 @@ runs:
         print(f"Pinned {len(patched)} miden-client dep(s) to {sha[:8]}")
         PYEOF
 
-          ( cd "$SDK_DIR" && cargo update -p miden-client >/dev/null 2>&1 || true )
+          # A dependency's [patch] does not apply in the SDK workspace, and
+          # cargo clones that git source before the patch can replace it. Copy
+          # the tables, then resolve through the SDK's retry helper: a missing
+          # branch gets an empty stand-in so the crates.io crate is selected.
+          upstream_toml=$(mktemp)
+          if ! gh api -H "Accept: application/vnd.github.raw" \
+            "repos/${c_owner}/${c_repo}/contents/Cargo.toml?ref=${c_sha}" > "$upstream_toml"; then
+            echo "::error title=inject-linked-web-sdk-pr::could not read ${c_owner}/${c_repo} Cargo.toml at ${c_sha}"
+            exit 1
+          fi
+          python3 - "$upstream_toml" "$SDK_DIR/Cargo.toml" <<'PYEOF'
+        import sys
+        from pathlib import Path
+
+        upstream, cargo = sys.argv[1:3]
+        mark_begin = "# >>>>>>> nested linked-client-pr patches (wallet CI) >>>>>>>"
+        mark_end = "# <<<<<<< nested linked-client-pr patches <<<<<<<"
+
+        def patch_tables(text):
+            lines = text.splitlines()
+            blocks = []
+            i = 0
+            while i < len(lines):
+                if lines[i].strip().startswith("[patch"):
+                    start = i
+                    j = i - 1
+                    while j >= 0 and lines[j].strip().startswith("#"):
+                        start = j
+                        j -= 1
+                    i += 1
+                    while i < len(lines):
+                        stripped = lines[i].strip()
+                        if stripped.startswith("[") and not stripped.startswith("[patch"):
+                            break
+                        i += 1
+                    blocks.append("\n".join(lines[start:i]).rstrip())
+                    continue
+                i += 1
+            return "\n\n".join(blocks)
+
+        patches = patch_tables(Path(upstream).read_text())
+        if not patches:
+            sys.exit(0)
+        current = Path(cargo).read_text()
+        if not current.endswith("\n"):
+            current += "\n"
+        current += (
+            "\n"
+            + mark_begin
+            + "\n"
+            + "# Copied from the linked client workspace. A dependency's [patch]\n"
+            + "# does not apply here. Runner-local; never committed.\n"
+            + patches
+            + "\n"
+            + mark_end
+            + "\n"
+        )
+        Path(cargo).write_text(current)
+        print("Copied upstream [patch] tables")
+        PYEOF
+          rm -f "$upstream_toml"
+
+          (
+            cd "$SDK_DIR"
+            # The manifest was just rewritten, so `cargo pkgid` would resolve
+            # the new git rev and can die on the same missing branch. Match the
+            # dep line instead; both crates are updated inside the one retry.
+            update_args="-p miden-client"
+            if grep -qE '^miden-client-sqlite-store[[:space:]]*=' Cargo.toml; then
+              update_args="$update_args -p miden-client-sqlite-store"
+            fi
+            # shellcheck disable=SC2086
+            if [ -f scripts/cargo-update-linked-patches.sh ]; then
+              bash scripts/cargo-update-linked-patches.sh $update_args
+            else
+              cargo update $update_args
+            fi
+          )
         fi
         echo "::endgroup::"
 
@@ -780,6 +861,10 @@ runs:
         fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
         console.log('Original deps replaced:', JSON.stringify(orig, null, 2));
         EOF
+        # The committed SDK relay patch targets the published package's bundles, so
+        # patch-package cannot apply it to this source build and would fail the install
+        # under CI. The linked build runs without the relay fix (patches/README.md).
+        rm -f patches/@miden-sdk+miden-sdk+*.patch
         echo "::endgroup::"
 
         # Surface the patch state in the job summary regardless of comment-on/off.

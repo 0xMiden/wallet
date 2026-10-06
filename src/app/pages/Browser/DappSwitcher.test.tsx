@@ -5,7 +5,11 @@ import { render, screen } from '@testing-library/react';
 import { DappSwitcher } from './DappSwitcher';
 
 const mockSessionStates = [
-  { session: { id: 'session-1', url: 'https://app.example/', origin: 'https://app.example', title: 'Example' } }
+  {
+    session: { id: 'session-1', url: 'https://app.example/', origin: 'https://app.example', title: 'Example' },
+    // Loading, so the card renders its loading badge as well as its close control.
+    isLoading: true
+  }
 ];
 
 jest.mock('app/providers/DappBrowserProvider', () => ({
@@ -52,5 +56,16 @@ describe('DappSwitcher', () => {
 
     // Exact value: bare `layout` stringifies to 'true', so a not-'position' check alone proves nothing.
     expect(screen.getByRole('listitem')).toHaveAttribute('data-layout', 'position');
+  });
+
+  // `black` is ink, white in dark theme, so a control dimmed with it would glow white on the snapshot.
+  it('dims its card controls with pure black, never the theme black', () => {
+    render(<DappSwitcher open onClose={jest.fn()} />);
+
+    expect(screen.getByText('dappSwitcherLoading')).toBeInTheDocument();
+    const themeBlack = [...document.body.querySelectorAll('[class]')].flatMap(el =>
+      (el.getAttribute('class') ?? '').split(/\s+/).filter(cls => cls.startsWith('bg-black/'))
+    );
+    expect(themeBlack).toEqual([]);
   });
 });

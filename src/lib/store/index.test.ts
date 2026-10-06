@@ -1,6 +1,10 @@
 import '../../../test/jest-mocks';
 
+import axios from 'axios';
+
 import { MidenMessageType } from 'lib/miden/types';
+import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
+import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -57,8 +61,24 @@ describe('useWalletStore', () => {
 
       syncFromBackend({
         status: WalletStatus.Ready,
-        accounts: [{ publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }],
-        currentAccount: { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+        accounts: [
+          {
+            publicKey: 'pk1',
+            name: 'Account 1',
+            isPublic: true,
+            type: WalletType.OnChain,
+            hdIndex: 0,
+            authScheme: 'ecdsa'
+          }
+        ],
+        currentAccount: {
+          publicKey: 'pk1',
+          name: 'Account 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        },
         networks: [],
         settings: { contacts: [] },
         ownMnemonic: true
@@ -81,8 +101,22 @@ describe('useWalletStore', () => {
 
   describe('editAccountName', () => {
     const mockAccounts = [
-      { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-      { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OnChain, hdIndex: 1 }
+      {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      },
+      {
+        publicKey: 'pk2',
+        name: 'Account 2',
+        isPublic: false,
+        type: WalletType.OnChain,
+        hdIndex: 1,
+        authScheme: 'ecdsa' as const
+      }
     ];
 
     beforeEach(() => {
@@ -146,8 +180,22 @@ describe('useWalletStore', () => {
 
   describe('updateCurrentAccount', () => {
     const mockAccounts = [
-      { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-      { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OnChain, hdIndex: 1 }
+      {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      },
+      {
+        publicKey: 'pk2',
+        name: 'Account 2',
+        isPublic: false,
+        type: WalletType.OnChain,
+        hdIndex: 1,
+        authScheme: 'ecdsa' as const
+      }
     ];
 
     beforeEach(() => {
@@ -425,14 +473,13 @@ describe('useWalletStore', () => {
       ];
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words', [], 2, importedAccounts);
+      await importWalletFromClient('password123', 'mnemonic words', [], importedAccounts);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
         mnemonic: 'mnemonic words',
         walletAccounts: [],
-        formatVersion: 2,
         importedAccounts
       });
     });
@@ -663,6 +710,34 @@ describe('useWalletStore', () => {
 
       const { getPublicKeyForCommitment } = useWalletStore.getState();
       await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
+    });
+
+    it('swapHotKey posts a SwapHotKeyRequest carrying the expectation (#1233)', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
+
+      const { swapHotKey } = useWalletStore.getState();
+      await swapHotKey('acc', 'new-pub', null);
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'acc',
+        newHotPubKey: 'new-pub',
+        expectedHotPubKey: null
+      });
+    });
+
+    // A completion passes no expectation, and a null one would refuse every keyed swap (#1233).
+    it('swapHotKey posts no expectation when the caller passes none (#1233)', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SwapHotKeyResponse });
+
+      const { swapHotKey } = useWalletStore.getState();
+      await swapHotKey('acc', 'new-pub');
+
+      expect(mockRequest.mock.calls[0]?.[0]).toEqual({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'acc',
+        newHotPubKey: 'new-pub'
+      });
     });
 
     it('setGuardianOperatorCommitment posts a SetGuardianOperatorCommitmentRequest', async () => {
@@ -1101,11 +1176,10 @@ describe('useWalletStore', () => {
       const importedAccounts = [
         { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
       ];
-      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], 2, importedAccounts);
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], importedAccounts);
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({
           type: WalletMessageType.ImportFromClientRequest,
-          formatVersion: 2,
           importedAccounts
         })
       );
@@ -1326,6 +1400,42 @@ describe('useWalletStore', () => {
       useWalletStore.setState({ fiatRatesLoading: true, fiatRates: { usd: 99 } });
       await useWalletStore.getState().fetchFiatRates();
       expect(useWalletStore.getState().fiatRates?.usd).toBe(99);
+    });
+  });
+
+  // Price helpers read the switch outside React, so a memo keyed on tokenPrices recomputes only when
+  // the switch hands it a new object.
+  describe('nominal unquoted price switch', () => {
+    const prices = { ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } };
+
+    beforeEach(() => {
+      useWalletStore.getState().setTokenPrices(prices);
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(NOMINAL_UNQUOTED_PRICE_STORAGE_KEY);
+    });
+
+    it('republishes tokenPrices as a new object with the same entries when the switch is toggled', () => {
+      setNominalUnquotedPriceSetting(true);
+      expect(useWalletStore.getState().tokenPrices).not.toBe(prices);
+      expect(useWalletStore.getState().tokenPrices).toEqual(prices);
+    });
+
+    it('republishes tokenPrices when another window toggles the switch, and fetches no prices', () => {
+      const priceFetch = jest.spyOn(axios, 'get');
+      localStorage.setItem(NOMINAL_UNQUOTED_PRICE_STORAGE_KEY, 'on');
+      window.dispatchEvent(new StorageEvent('storage', { key: NOMINAL_UNQUOTED_PRICE_STORAGE_KEY, newValue: 'on' }));
+      expect(useWalletStore.getState().tokenPrices).not.toBe(prices);
+      expect(useWalletStore.getState().tokenPrices).toEqual(prices);
+      expect(priceFetch).not.toHaveBeenCalled();
+      expect(mockRequest).not.toHaveBeenCalled();
+      priceFetch.mockRestore();
+    });
+
+    it('keeps tokenPrices identity on a storage event for another key', () => {
+      window.dispatchEvent(new StorageEvent('storage', { key: CARD_COLOR_STORAGE_KEY, newValue: 'blue' }));
+      expect(useWalletStore.getState().tokenPrices).toBe(prices);
     });
   });
 

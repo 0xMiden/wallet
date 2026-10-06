@@ -9,16 +9,78 @@
  * Those are exactly the things that should not rest on having read the code
  * carefully once.
  */
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { SUITES, composeGrep, pricedAmountFrom, run, suiteRetries } from './e2e-real.mjs';
+import { getAddress } from 'viem';
+
+import {
+  AGGLAYER_MIDEN_NETWORK_ID,
+  SUITES,
+  agglayerExitFilingProblem,
+  composeGrep,
+  pricedAmountFrom,
+  probeAgglayerIndexer,
+  probeConfigDocument,
+  resolveOperatorInput,
+  run,
+  suiteRetries
+} from './e2e-real.mjs';
+import fixture from '../src/lib/agglayer/b2agg/exit-hash.vectors.json';
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+
+// The caller's environment without any variable the runner reads: a key, an
+// empty URL or a served config document there would add its own refusal, or its
+// own document, ahead of the one under test.
+function cleanEnv() {
+  const env = { ...process.env };
+  for (const name of [
+    'E2E_SEPOLIA_PRIVATE_KEY',
+    'EPOCH_ALLOCATOR_URL',
+    'EPOCH_POSITIONS_URL',
+    'E2E_SEPOLIA_RPC_URL',
+    'MIDEN_REMOTE_CONFIG_URL'
+  ]) {
+    delete env[name];
+  }
+  return env;
+}
+
+// A leading object sets variables for the child, over cleanEnv().
+function runCli(first: string | Record<string, string>, ...rest: string[]) {
+  const override = typeof first === 'string' ? {} : first;
+  const args = typeof first === 'string' ? [first, ...rest] : rest;
+  const env = cleanEnv();
+  const res = spawnSync(process.execPath, ['scripts/e2e-real.mjs', ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: { ...env, ...override },
+    timeout: 30_000
+  });
+  return { status: res.status, stdout: res.stdout, stderr: res.stderr };
+}
 
 describe('composeGrep', () => {
   it('requires BOTH patterns when a suite filter and a user filter are given', () => {
     // Playwright keeps only the last --grep, so the two must become one pattern.
     // Lookaheads match anywhere in the title, which is what each did alone.
-    expect(composeGrep('Slow AggLayer', 'bridges')).toBe('(?=.*Slow AggLayer)(?=.*bridges)');
+    expect(composeGrep('Slow AggLayer', 'bridges')).toBe('(?=.*(?:Slow AggLayer))(?=.*(?:bridges))');
+  });
+
+  it('keeps an alternation inside its own lookahead', () => {
+    // Ungrouped, (?=.*Fast Epoch|Slow AggLayer) tests the second alternative only
+    // where the match starts, which no position in this title satisfies.
+    const composed = new RegExp(composeGrep('bridge-out', 'Fast Epoch|Slow AggLayer'));
+    expect(composed.test('bridge-out Miden to EVM (Slow AggLayer) > bridges the AggLayer token')).toBe(true);
+  });
+
+  it('never widens a real-money run when the user pattern is an alternation', () => {
+    const composed = new RegExp(composeGrep('Slow AggLayer', 'Fast Epoch|smoke'));
+    expect(composed.test('bridge-out Miden to Sepolia (Fast Epoch) > bridges a token')).toBe(false);
   });
 
   it('matches a title that satisfies both', () => {
@@ -38,6 +100,559 @@ describe('composeGrep', () => {
     expect(composeGrep(undefined, 'smoke')).toBe('smoke');
     expect(composeGrep(undefined, undefined)).toBeUndefined();
   });
+
+  it('refuses a user pattern that only compiles once composed', () => {
+    // Composed, this closes its own lookahead and adds an empty alternative that
+    // matches every title, widening the run onto every real-money spec.
+    expect(() => composeGrep('Slow AggLayer', 'x))|((')).toThrow('not a valid regular expression');
+  });
+
+  it('refuses an invalid user pattern even with no suite filter to compose with', () => {
+    expect(() => composeGrep(undefined, '(')).toThrow('not a valid regular expression');
+  });
+
+  it("says why a pattern is invalid, in the engine's own words", () => {
+    const invalid = 'x))|((';
+    let reason = '';
+    try {
+      new RegExp(invalid);
+    } catch (error) {
+      reason = (error as Error).message;
+    }
+    expect(reason).toMatch(/Unmatched|Invalid regular expression/);
+    expect(() => composeGrep('Slow AggLayer', invalid)).toThrow(reason);
+  });
+});
+
+describe('resolveOperatorInput', () => {
+  // What parseArgs returns for `--suite swap` with no key in the environment.
+  // Each case changes only the field under test.
+  const parseArgsDefaults = {
+    suite: 'swap',
+    network: 'testnet',
+    sepoliaRpc: 'https://sepolia.invalid',
+    sepoliaKey: undefined,
+    minEth: '0.02',
+    preflightOnly: false,
+    skipBuild: false,
+    headed: false,
+    grep: undefined
+  };
+  const resolve = (changed: Record<string, unknown> = {}) => resolveOperatorInput({ ...parseArgsDefaults, ...changed });
+  const hex64 = 'ab'.repeat(32);
+
+  it('returns the suite and its composed grep for the defaults', () => {
+    expect(resolve()).toStrictEqual({ suite: SUITES.swap, grep: composeGrep(SUITES.swap.grep, undefined) });
+  });
+
+  it('accepts devnet', () => {
+    expect(resolve({ network: 'devnet' }).error).toBeUndefined();
+  });
+
+  it('requires --suite', () => {
+    expect(resolve({ suite: undefined }).error).toContain('--suite is required');
+  });
+
+  // toString and __proto__ are on every object, so a plain index finds them.
+  it.each(['nope', 'toString', '__proto__'])('refuses the unknown suite %s', suite => {
+    expect(resolve({ suite }).error).toContain(`unknown suite "${suite}"`);
+  });
+
+  it.each(['mainnet', 'constructor'])('refuses the unknown network %s', network => {
+    expect(resolve({ network }).error).toContain('--network must be one of');
+  });
+
+  it.each(['1', '0.02'])('accepts --min-eth %s', minEth => {
+    expect(resolve({ minEth }).error).toBeUndefined();
+  });
+
+  it('refuses a --min-eth that is not a plain decimal', () => {
+    expect(resolve({ minEth: 'abc' }).error).toContain('--min-eth must be a plain non-negative decimal');
+  });
+
+  it.each([
+    ['with', `0x${hex64}`],
+    ['without', hex64]
+  ])('accepts a 32-byte key %s 0x on a suite that probes Sepolia', (_, sepoliaKey) => {
+    expect(resolve({ suite: 'bridge-out-agglayer', sepoliaKey }).error).toBeUndefined();
+  });
+
+  it('refuses a short key on a suite that probes Sepolia', () => {
+    expect(resolve({ suite: 'bridge-out-agglayer', sepoliaKey: '0x01' }).error).toContain('not a valid private key');
+  });
+
+  it('does not judge a key handed to a suite that never talks to Sepolia', () => {
+    expect(resolve({ sepoliaKey: '0x01' }).error).toBeUndefined();
+  });
+
+  it('refuses an invalid --grep before a bad --min-eth', () => {
+    expect(resolve({ grep: 'x))|((', minEth: 'abc' }).error).toContain('not a valid regular expression');
+  });
+
+  it('refuses a bad --min-eth before a bad key', () => {
+    const { error } = resolve({ suite: 'bridge-out-agglayer', minEth: 'abc', sepoliaKey: '0x01' });
+    expect(error).toContain('--min-eth must be a plain non-negative decimal');
+  });
+});
+
+describe('the command refuses operator input before any probe or build', () => {
+  // Each refusal must come before the banner: under --preflight-only a later one
+  // is never reached, and otherwise it costs the probes and a build first.
+  it('refuses an invalid --grep', () => {
+    const res = runCli('--suite', 'bridge-out-agglayer', '--grep', 'x))|((', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('not a valid regular expression');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses a Sepolia key that is not 32 bytes of hex', () => {
+    const res = runCli('--suite', 'bridge-out-agglayer', '--sepolia-key', '0x01', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('not a valid private key');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses an --min-eth that is not a plain decimal', () => {
+    const key = `0x${'1'.repeat(64)}`;
+    const res = runCli('--suite', 'bridge-out-agglayer', '--sepolia-key', key, '--min-eth', 'abc', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses an unknown argument', () => {
+    const res = runCli('--bogus');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown argument: --bogus');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('never echoes a value given with =', () => {
+    const res = runCli(`--sepolia-key=0x${'1'.repeat(64)}`);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown argument: --sepolia-key=<value>');
+    expect(res.stderr).not.toContain('1'.repeat(64));
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses a flag given no value', () => {
+    const res = runCli('--suite');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--suite needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  // A quoted unset variable arrives as '': `--grep "$UNSET"` would drop the
+  // operator's narrowing and widen a real-money run.
+  it.each(['--suite', '--network', '--sepolia-rpc', '--sepolia-key', '--min-eth', '--grep'])(
+    'refuses an empty value for %s',
+    flag => {
+      const res = runCli('--suite', 'swap', flag, '', '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} needs a value`);
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  // Playwright keeps only the last --grep, so a second one would silently replace
+  // the operator's narrowing. The prefix's bad --min-eth keeps a taken repeat off
+  // the network.
+  it.each([
+    ['--suite', 'swap', 'swap'],
+    ['--network', 'testnet', 'devnet'],
+    ['--sepolia-rpc', 'https://a.example', 'https://b.example'],
+    ['--sepolia-key', `0x${'1'.repeat(64)}`, `0x${'2'.repeat(64)}`],
+    ['--grep', 'aaa', 'bbb']
+  ])(
+    'refuses %s given twice',
+    (flag, first, second) => {
+      const res = runCli('--suite', 'swap', '--min-eth', 'abc', flag, first, flag, second);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} given more than once`);
+      expect(res.stderr).not.toContain(first);
+      expect(res.stderr).not.toContain(second);
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('refuses --min-eth given twice', () => {
+    const res = runCli('--suite', 'swap', '--min-eth', '1', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth given more than once');
+    expect(res.stderr).not.toContain('1');
+    expect(res.stderr).not.toContain('abc');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('accepts a boolean flag given twice', () => {
+    const res = runCli('--suite', 'swap', '--headed', '--headed', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+    expect(res.stderr).not.toContain('given more than once');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  // A swallowed option is lost without a word: `--grep --preflight-only` would
+  // build and run a real-money suite the operator asked only to preflight. The
+  // trailing bad --min-eth keeps each run off the network if the flag does take it.
+  it('refuses another option as the value of --grep', () => {
+    const res = runCli('--suite', 'swap', '--grep', '--preflight-only', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--grep needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses another option as the value of --network', () => {
+    const res = runCli('--network', '--suite', 'swap', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--network needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses -h as the value of --suite', () => {
+    const res = runCli('--suite', '-h');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--suite needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it.each([
+    '--suite',
+    '--network',
+    '--sepolia-rpc',
+    '--sepolia-key',
+    '--min-eth',
+    '--grep',
+    '--preflight-only',
+    '--skip-build',
+    '--headed',
+    '-h',
+    '--help'
+  ])(
+    'refuses the documented option %s as the value of --grep',
+    name => {
+      const res = runCli('--suite', 'swap', '--grep', name, '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain('--grep needs a value');
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  // Taken as a value, the key would be printed by whatever refused or ran it.
+  it.each(['--suite', '--min-eth', '--grep'])(
+    'refuses an option given with = as the value of %s',
+    flag => {
+      const key = `0x${'1'.repeat(64)}`;
+      const res = runCli('--suite', 'bridge-out-agglayer', '--min-eth', 'abc', flag, `--sepolia-key=${key}`);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} needs a value`);
+      expect(res.stderr).not.toContain('1'.repeat(64));
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  // Only an option name is refused: a value may start with '-', and a name
+  // Object.prototype carries is not an option.
+  it.each(['-x', 'constructor'])(
+    'takes %s as the value of --grep',
+    value => {
+      const res = runCli('--suite', 'swap', '--grep', value, '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+      expect(res.stderr).not.toContain('needs a value');
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('refuses a name inherited from Object.prototype as an unknown argument', () => {
+    // Indexed plainly, `constructor` would take 'x' as its value and the run
+    // would go on to refuse the suite instead.
+    const res = runCli('constructor', 'x', '--suite', 'nope');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown argument: constructor');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  // `export E2E_SEPOLIA_RPC_URL=` is not `unset`: '' would be probed and built in.
+  it('refuses E2E_SEPOLIA_RPC_URL set but empty', () => {
+    const res = runCli({ E2E_SEPOLIA_RPC_URL: '' }, '--suite', 'swap', '--min-eth', 'abc');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('E2E_SEPOLIA_RPC_URL is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  // The wallet reads its Epoch hosts from the network's config document, so a
+  // run given its own would preflight one host while the wallet uses another.
+  it.each([
+    ['EPOCH_ALLOCATOR_URL', 'https://allocator.example'],
+    ['EPOCH_POSITIONS_URL', 'https://positions.example'],
+    ['EPOCH_ALLOCATOR_URL', '']
+  ])(
+    'refuses %s set (to "%s"), which nothing reads any more',
+    (name, value) => {
+      const res = runCli({ [name]: value }, '--suite', 'swap', '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${name} is set`);
+      expect(res.stderr).toContain('config document');
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it.each(['--epoch-url', '--epoch-positions-url'])(
+    'refuses %s, which nothing reads any more',
+    flag => {
+      const res = runCli('--suite', 'swap', flag, 'https://a.example', '--min-eth', 'abc');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${flag} is gone`);
+      expect(res.stderr).toContain('config document');
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('takes a flag over an empty variable', () => {
+    const res = runCli(
+      { E2E_SEPOLIA_RPC_URL: '' },
+      '--suite',
+      'swap',
+      '--sepolia-rpc',
+      'https://sepolia.example',
+      '--min-eth',
+      'abc'
+    );
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
+    expect(res.stderr).not.toContain('is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('prints the usage despite an empty variable', () => {
+    const res = runCli({ E2E_SEPOLIA_RPC_URL: '' }, '-h');
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('yarn e2e:real --suite <name> [options]');
+  }, 35_000);
+});
+
+const ALLOCATOR = 'https://allocator.example';
+const EVM_USDC = `0x${'a'.repeat(40)}`;
+const L1_BRIDGE = `0x${'b'.repeat(40)}`;
+const INDEXER = 'https://indexer.example/api';
+const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/testnet.json';
+const DOCUMENT = {
+  network: 'testnet',
+  version: 7,
+  evm: { chainId: 11155111 },
+  agglayer: { l1Bridge: L1_BRIDGE, midenBridge: '0x3b66e20b5088f25133b69216484652', indexerUrl: INDEXER },
+  epoch: { allocatorUrl: ALLOCATOR, positionsUrl: 'https://positions.example', evmUsdc: EVM_USDC },
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+};
+
+describe('the preflight reads what it probes from the network config document', () => {
+  const STUB = pathToFileURL(path.join(__dirname, 'e2e-real.fetch-stub.mjs')).href;
+  // Any valid secp256k1 scalar: the stub answers every read, so nothing is ever signed or sent.
+  const FUNDED_KEY = `0x${'11'.repeat(32)}`;
+
+  // The whole command under --preflight-only, its every request answered by the stub and logged.
+  function preflight(suite: string, served: unknown = DOCUMENT, env: Record<string, string> = {}) {
+    return stubbed(['--suite', suite, '--preflight-only'], served, env);
+  }
+
+  function stubbed(args: string[], served: unknown, env: Record<string, string> = {}) {
+    const log = path.join(mkdtempSync(path.join(os.tmpdir(), 'e2e-real-')), 'requests.log');
+    writeFileSync(log, '');
+    const res = spawnSync(process.execPath, ['--import', STUB, 'scripts/e2e-real.mjs', ...args], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      env: { ...cleanEnv(), ...env, E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log }) },
+      timeout: 30_000
+    });
+    return { status: res.status, output: `${res.stdout}${res.stderr}`, requests: readFileSync(log, 'utf8') };
+  }
+
+  it('probes the allocator, the USDC and the L1 bridge the published document names', () => {
+    const res = preflight('bridge-out-epoch');
+    expect(res.requests).toContain(`${ALLOCATOR}/health`);
+    expect(res.requests).toContain(`${ALLOCATOR}/checkIfDepositNeeded`);
+    // Checksummed, as the wallet's getters send them: its parser lowercases every address.
+    expect(res.requests).toContain(`eth_getCode ["${getAddress(EVM_USDC)}","latest"]`);
+    expect(res.requests).toContain(`eth_getCode ["${getAddress(L1_BRIDGE)}","latest"]`);
+    expect(res.requests).toContain(`"tokenOut":"${getAddress(EVM_USDC)}"`);
+    expect(res.requests).toContain(`${ALLOCATOR}/gasless-status`);
+    expect(res.requests).toContain(PUBLISHED);
+    expect(res.output).toContain(`Config   ${PUBLISHED}`);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it("reads a funded key's test USDC at the USDC the document names", () => {
+    const res = preflight('bridge-out-epoch', DOCUMENT, { E2E_SEPOLIA_PRIVATE_KEY: FUNDED_KEY });
+    expect(res.requests).toContain(`eth_call [{"to":"${getAddress(EVM_USDC)}"`);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it("reads no funded key's test USDC from a document the preflight refused", () => {
+    const res = preflight(
+      'bridge-out-epoch',
+      { ...DOCUMENT, network: 'devnet' },
+      { E2E_SEPOLIA_PRIVATE_KEY: FUNDED_KEY }
+    );
+    expect(res.output).toContain('not read: the config document named no USDC');
+    expect(res.requests).toContain('eth_getBalance');
+    expect(res.requests).not.toContain('eth_call');
+  }, 35_000);
+
+  it.each([
+    ['for another network', { ...DOCUMENT, network: 'devnet' }],
+    [
+      'with an allocator that is not https',
+      { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, allocatorUrl: 'http://a.example' } }
+    ],
+    ['with a malformed USDC address', { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, evmUsdc: '0x1234' } }],
+    ['naming no allocator', { ...DOCUMENT, epoch: { evmUsdc: EVM_USDC } }]
+  ])(
+    'fails the preflight on a document %s and probes nothing it would have named',
+    (_label, served) => {
+      const res = preflight('bridge-out-epoch', served);
+      expect(res.status).toBe(1);
+      expect(res.output).toContain('Config document');
+      expect(res.requests).not.toContain('/health');
+      expect(res.requests).not.toContain('eth_getCode');
+    },
+    35_000
+  );
+
+  it.each([
+    ['a positions host that is not a URL', { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, positionsUrl: 42 } }],
+    ['a malformed Miden bridge', { ...DOCUMENT, agglayer: { ...DOCUMENT.agglayer, midenBridge: '0x1234' } }],
+    ['a switch that is not a boolean', { ...DOCUMENT, features: { ...DOCUMENT.features, earn: 'true' } }]
+  ])(
+    'fails the preflight on a document the wallet refuses for %s, a field no probe reads, and probes nothing',
+    (_label, served) => {
+      const res = preflight('bridge-out-epoch', served);
+      expect(res.status).toBe(1);
+      expect(res.output).toContain('Config document');
+      expect(res.requests).not.toContain('/health');
+      expect(res.requests).not.toContain('/checkIfDepositNeeded');
+      expect(res.requests).not.toContain('eth_getCode');
+    },
+    35_000
+  );
+
+  it('passes a document that leaves a switch out, which the wallet reads as off', () => {
+    const { bridgeOut: _left, ...features } = DOCUMENT.features;
+    const res = preflight('bridge-out-epoch', { ...DOCUMENT, features });
+    expect(res.status).toBe(0);
+    expect(res.requests).toContain(`${ALLOCATOR}/health`);
+  }, 35_000);
+
+  it('reads the served document the E2E build reads when MIDEN_REMOTE_CONFIG_URL is set', () => {
+    const served = { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, allocatorUrl: 'http://127.0.0.1:8548' } };
+    const res = preflight('bridge-out-epoch', served, { MIDEN_REMOTE_CONFIG_URL: 'http://127.0.0.1:8550/' });
+    expect(res.requests).toContain('http://127.0.0.1:8550/testnet.json');
+    expect(res.requests).toContain('http://127.0.0.1:8548/health');
+    expect(res.requests).not.toContain(PUBLISHED);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  const EXIT_0 = `${INDEXER}/bridge?net_id=${AGGLAYER_MIDEN_NETWORK_ID}&deposit_cnt=0`;
+
+  it('asks the indexer the document names for Miden exit 0', () => {
+    const res = preflight('bridge-out-agglayer');
+    expect(res.requests).toContain(EXIT_0);
+    expect(res.output).toContain(`files Miden exits under network ${AGGLAYER_MIDEN_NETWORK_ID}`);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('fails the preflight on a document naming no indexer for a Slow suite, and asks no indexer', () => {
+    const res = preflight('bridge-out-agglayer', { ...DOCUMENT, agglayer: { l1Bridge: L1_BRIDGE } });
+    expect(res.status).toBe(1);
+    expect(res.output).toContain('names no agglayer.indexerUrl');
+    expect(res.requests).not.toContain('/bridge?');
+  }, 35_000);
+
+  // E2E Bridge runs this on its own, with no Sepolia URL or key: only the document and its indexer are read.
+  it('--agglayer-indexer-only reads the document and asks only its indexer', () => {
+    const res = stubbed(['--agglayer-indexer-only'], DOCUMENT, { E2E_SEPOLIA_RPC_URL: '' });
+    expect(res.requests.trim().split('\n')).toEqual([PUBLISHED, EXIT_0]);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('--agglayer-indexer-only fails on a document the wallet refuses, and asks no indexer', () => {
+    const res = stubbed(['--agglayer-indexer-only'], { ...DOCUMENT, network: 'devnet' });
+    expect(res.status).toBe(1);
+    expect(res.output).toContain('Config document');
+    expect(res.requests).not.toContain('/bridge?');
+  }, 35_000);
+
+  it('reads no document for a suite that probes nothing it names', () => {
+    const res = preflight('swap');
+    expect(res.requests).not.toContain('.json');
+  }, 35_000);
+});
+
+// E2E Bridge reads the document on every push to main, so a failed GET or a gateway error is asked again once. A
+// document that arrives is judged on that answer, whatever the wallet's parser makes of it.
+describe('the config document fetch asks twice', () => {
+  const SERVED = { status: 200, body: DOCUMENT };
+  let log: jest.SpyInstance;
+
+  // `record` prints one line per probe.
+  beforeEach(() => {
+    log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  const printed = () => log.mock.calls.flat().join('\n');
+
+  it('asks once when the first GET serves the document', async () => {
+    const get = jest.fn().mockResolvedValue(SERVED);
+
+    await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toEqual({
+      indexerUrl: INDEXER
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(PUBLISHED);
+  }, 35_000);
+
+  it.each([
+    ['a GET that throws', () => Promise.reject(new Error('socket hang up'))],
+    ['a gateway error', () => Promise.resolve({ status: 502, body: 'Bad Gateway' })]
+  ])(
+    'reads the document from the second GET after %s',
+    async (_label, firstAnswer) => {
+      const get = jest.fn().mockImplementationOnce(firstAnswer).mockResolvedValueOnce(SERVED);
+
+      await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toEqual({
+        indexerUrl: INDEXER
+      });
+      expect(get).toHaveBeenCalledTimes(2);
+    },
+    35_000
+  );
+
+  it.each([
+    ['two GETs that throw', () => Promise.reject(new Error('socket hang up')), 'unreachable: socket hang up'],
+    ['two gateway errors', () => Promise.resolve({ status: 502, body: 'Bad Gateway' }), 'answered HTTP 502']
+  ])('fails after %s', async (_label, answer, reason) => {
+    const get = jest.fn().mockImplementation(answer);
+
+    await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toBeNull();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(printed()).toContain(reason);
+  });
+
+  it('asks once for a document the wallet refuses', async () => {
+    const get = jest.fn().mockResolvedValue({ status: 200, body: { ...DOCUMENT, network: 'devnet' } });
+
+    await expect(probeConfigDocument('testnet', ['agglayer'], { get, retryDelayMs: 0 })).resolves.toBeNull();
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(printed()).toContain('Config document');
+  }, 35_000);
 });
 
 describe('suiteRetries', () => {
@@ -79,6 +694,118 @@ describe('pricedAmountFrom', () => {
 
   it('rejects an unparseable amount', () => {
     expect(pricedAmountFrom(reply('not-a-number'))).toBeUndefined();
+  });
+});
+
+/**
+ * The AggLayer indexer guard (#1325). The Slow bridge-out finds its deposit by the network id the indexer files
+ * Miden exits under, and a renumbering once left every bridge-out unsettled with no error anywhere. E2E Bridge runs
+ * this probe on its own, after the suite, so a renumbering fails that job without hiding the suite's own result.
+ */
+describe('the AggLayer indexer guard', () => {
+  // Miden exit 0 as the live indexer serves it, trimmed to the fields the guard reads.
+  const LIVE = { deposit: { deposit_cnt: 0, network_id: 86, dest_net: 0, tx_hash: `0x${'1'.repeat(64)}` } };
+
+  // The wallet derives the rollup id from the bridge account; the probe holds the testnet's, the network the live
+  // indexer filed the golden exits under, which the wallet's own lookup tests read too.
+  it('pins the testnet rollup id: the network the testnet indexer filed the golden exits under', () => {
+    const deposit16 = fixture.vectors.find(vector => vector.depositCnt === 16);
+    expect(AGGLAYER_MIDEN_NETWORK_ID).toBe(deposit16?.indexerDeposit?.network_id);
+  });
+
+  it('accepts the live filing', () => {
+    expect(agglayerExitFilingProblem(200, LIVE)).toBeUndefined();
+  });
+
+  it.each([
+    ['an unknown deposit (HTTP 500)', 500, { code: 2, message: 'not found' }, 'HTTP 500'],
+    [
+      'a renumbered network (78)',
+      200,
+      { deposit: { ...LIVE.deposit, network_id: 78 } },
+      'under network 78, not the testnet rollup id 86'
+    ],
+    [
+      'an exit bound elsewhere (dest_net 1)',
+      200,
+      { deposit: { ...LIVE.deposit, dest_net: 1 } },
+      'network 1, not Sepolia'
+    ]
+  ])('refuses %s', (_label, status, body, reason) => {
+    expect(agglayerExitFilingProblem(status, body)).toContain(reason);
+  });
+
+  // E2E Bridge must not go red on one gateway blip, so a failed GET or a problem answer is asked again once.
+  describe('retrying once', () => {
+    const RENUMBERED = { deposit: { ...LIVE.deposit, network_id: 78 } };
+
+    // `record` prints one line per probe.
+    beforeEach(() => jest.spyOn(console, 'log').mockImplementation(() => undefined));
+    afterEach(() => jest.restoreAllMocks());
+
+    it('asks once when the first GET shows the live filing', async () => {
+      const get = jest.fn().mockResolvedValue({ status: 200, body: LIVE });
+
+      await expect(probeAgglayerIndexer(INDEXER, { get, retryDelayMs: 0 })).resolves.toBe(true);
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(get).toHaveBeenCalledWith(`${INDEXER}/bridge?net_id=86&deposit_cnt=0`);
+    });
+
+    it.each([
+      ['a GET that throws', () => Promise.reject(new Error('socket hang up'))],
+      ['a gateway error', () => Promise.resolve({ status: 502, body: 'Bad Gateway' })]
+    ])('passes on the second GET after %s', async (_label, firstAnswer) => {
+      const get = jest.fn().mockImplementationOnce(firstAnswer).mockResolvedValueOnce({ status: 200, body: LIVE });
+
+      await expect(probeAgglayerIndexer(INDEXER, { get, retryDelayMs: 0 })).resolves.toBe(true);
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails a renumbering, which the second GET shows again', async () => {
+      const get = jest.fn().mockResolvedValue({ status: 200, body: RENUMBERED });
+
+      await expect(probeAgglayerIndexer(INDEXER, { get, retryDelayMs: 0 })).resolves.toBe(false);
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('is probed by both bridge-out suites that take the Slow route', () => {
+    expect(SUITES['bridge-out-agglayer'].probes).toContain('agglayer');
+    expect(SUITES['bridge-out'].probes).toContain('agglayer');
+  });
+
+  // E2E Bridge sets E2E_SEPOLIA_RPC_URL from an optional secret, which is empty when unset, and the indexer probe
+  // reads no Sepolia URL, so its own refusal must come before the empty-variable ones. No network: the suite is refused.
+  it('refuses a --suite beside --agglayer-indexer-only, ahead of any empty-variable refusal', () => {
+    const res = runCli({ E2E_SEPOLIA_RPC_URL: '' }, '--agglayer-indexer-only', '--suite', 'swap');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--agglayer-indexer-only probes one service and takes no --suite');
+    expect(res.stderr).not.toContain('is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+});
+
+describe('probeAgglayerIndexer uses the shared check', () => {
+  // Source-level, like probeEpochQuote's. The probe's verdict is also tested above through an injected GET; its call
+  // sites in main(), which does live network I/O, are reachable only here.
+  const source = readFileSync(path.join(__dirname, 'e2e-real.mjs'), 'utf8');
+  const body = /async function probeAgglayerIndexer\([\s\S]*?\n\}/.exec(source)?.[0] ?? '';
+
+  it('finds the function', () => {
+    expect(body).not.toBe('');
+  });
+
+  it('decides with agglayerExitFilingProblem', () => {
+    expect(body).toContain('agglayerExitFilingProblem(status, body)');
+  });
+
+  // Each call asks the indexer the config document names, never a copy kept in the runner.
+  it('runs for a suite that needs it and for --agglayer-indexer-only', () => {
+    expect(source).toContain(
+      "if (targets && needs.includes('agglayer')) await probeAgglayerIndexer(targets.indexerUrl);"
+    );
+    expect(source.match(/await probeAgglayerIndexer\(targets\.indexerUrl\);/g)).toHaveLength(2);
+    expect(source.match(/probeAgglayerIndexer\(/g)).toHaveLength(3);
   });
 });
 

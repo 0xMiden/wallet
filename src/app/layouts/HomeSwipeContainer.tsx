@@ -2,7 +2,7 @@ import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, 
 
 import { animate, motion, useDragControls, useMotionValue, useReducedMotion } from 'framer-motion';
 
-import { useTabShownAgain } from 'app/layouts/page-active';
+import { PageActiveContext, usePageActive, useTabShownAgain } from 'app/layouts/page-active';
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
@@ -128,9 +128,24 @@ const HomeSwipeContainer: FC = () => {
   // than sliding to Overview out of sight, which is what the pane showed on the
   // way back before it slid to the page the action bar named.
   const onHome = routeIdx !== -1;
+  const selectedPageId = pages[routeIdx]?.id;
   const lastHomeIdxRef = useRef(0);
   const shownAgain = useTabShownAgain();
   const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
+  // Every page stays mounted in the track, so only the centred one, on a shown and uncovered tab, is
+  // on screen; the others pause their display-only work as a hidden tab's pages do.
+  const parentActive = usePageActive();
+
+  // A page can keep its focused input after it moves out of view because the carousel keeps
+  // every page mounted. Release that focus when the route selects another page so the mobile
+  // keyboard closes and its navbar hold can end.
+  useLayoutEffect(() => {
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLElement)) return;
+    const focusedPage = focused.closest('[data-home-page]');
+    if (!focusedPage || focusedPage.getAttribute('data-home-page') === selectedPageId) return;
+    focused.blur();
+  }, [selectedPageId]);
 
   // Measure container width — drives both the snap positions and the
   // drag constraints. Set synchronously on mount so the first render
@@ -214,8 +229,10 @@ const HomeSwipeContainer: FC = () => {
     // Any other route change outranks a release still in flight.
     endRelease(true);
     // The pane was hidden until now, so this is a tab change, which swaps rather than slides across
-    // every page in between. Read, not a dependency: the route change that shows the tab runs this
-    // effect, and a later render must not re-run it mid-gesture.
+    // every page in between. Read, not a dependency: TabLayout shows this pane only on Home's own routes
+    // and keeps it mounted, hidden, on every other tab's route, so `onHome` is false exactly while the
+    // pane is hidden and rises in the commit that shows it again, which runs this effect; a later render
+    // must not re-run it mid-gesture.
     if (shownAgain) {
       x.set(-activeIdx * width);
       return;
@@ -471,9 +488,16 @@ const HomeSwipeContainer: FC = () => {
         onDragEnd={handleDragEnd}
         onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
-        {pages.map(page => (
-          <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>
-            {page.node}
+        {pages.map((page, index) => (
+          <div
+            key={page.id}
+            data-home-page={page.id}
+            className="h-full shrink-0"
+            style={{ width: `${100 / pages.length}%` }}
+          >
+            <PageActiveContext.Provider value={parentActive && index === activeIdx}>
+              {page.node}
+            </PageActiveContext.Provider>
           </div>
         ))}
       </motion.div>

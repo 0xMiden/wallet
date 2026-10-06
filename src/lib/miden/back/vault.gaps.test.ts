@@ -98,13 +98,10 @@ jest.mock('lib/miden/reset', () => {
   const actual = jest.requireActual<typeof import('lib/miden/reset')>('lib/miden/reset');
   return {
     PRESERVED_STORAGE_KEYS: actual.PRESERVED_STORAGE_KEYS,
-    SETUP_PRESERVED_STORAGE_KEYS: actual.SETUP_PRESERVED_STORAGE_KEYS,
-    // Mirrors the real reset: every key but the kept list goes (the setup list by default).
-    clearStorage: jest.fn(
-      async (_clearDb: boolean = true, keep: readonly string[] = actual.SETUP_PRESERVED_STORAGE_KEYS) => {
-        for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
-      }
-    )
+    // Mirrors the real reset: every key but the kept list goes.
+    clearStorage: jest.fn(async (_clearDb: boolean = true, keep: readonly string[] = actual.PRESERVED_STORAGE_KEYS) => {
+      for (const k of Object.keys(memoryStore)) if (!keep.includes(k)) delete memoryStore[k];
+    })
   };
 });
 
@@ -341,7 +338,7 @@ describe('Vault instance getPublicKeyForCommitment', () => {
 
   it('wraps missing-secret errors in a PublicError', async () => {
     const vault = await seedVault('pw');
-    // No secret key stored under 'pkc-missing' → fetchAndDecryptOneWithLegacyFallBack throws.
+    // No secret key stored under 'pkc-missing' → fetchAndDecryptOne throws.
     await expect(vault.getPublicKeyForCommitment('pkc-missing')).rejects.toThrow(PublicError);
   });
 });
@@ -376,7 +373,7 @@ describe('Vault.fetchAccounts: not-array throw', () => {
   it('throws PublicError when the persisted accounts slot is not an array', async () => {
     const vault = await seedVault('pw');
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    // Overwrite the accounts slot with a non-array value — fetchAndDecryptOneWithLegacyFallBack
+    // Overwrite the accounts slot with a non-array value: fetchAndDecryptOne
     // will return the bogus shape and the Array.isArray guard must reject it.
     await encryptAndSaveMany([[keys.accounts, { not: 'an-array' }]], vaultKey);
     await expect(vault.fetchAccounts()).rejects.toThrow(PublicError);
@@ -392,127 +389,19 @@ describe('Vault.spawnFromMidenClient: error branches', () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     await expect(
-      Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
+        []
+      )
     ).rejects.toThrow('Password is required for password-based vault protection');
   });
 
   it('throws when walletAccounts is empty, before anything is written', async () => {
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [], [])).rejects.toThrow(
       'Encrypted file contains no restorable accounts'
     );
-  });
-});
-
-describe('Vault.spawn: frozen guardian URL (kept, never written)', () => {
-  it('keeps GUARDIAN_URL_STORAGE_KEY through a spawn and never writes it; the action drops it once published (#408 stage 3, #1174)', async () => {
-    const { fetchFromStorage } = await import('../front/storage');
-    const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
-    memoryStore[GUARDIAN_URL_STORAGE_KEY] = 'https://my-guardian.example';
-
-    await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC);
-
-    expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBe('https://my-guardian.example');
-    // Frozen: no code path may write it again.
-    const written = mockStorageSet.mock.calls.flatMap(([items]) => Object.keys(items));
-    expect(written).not.toContain(GUARDIAN_URL_STORAGE_KEY);
-  });
-});
-
-describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
-  it('persists every account returned by recoverGuardianAccountsBySeed with requiresHotKeyRotation=true', async () => {
-    // recoverGuardianAccountsBySeed adopts each on-chain account locally
-    // (no rotation — the user activates the hot key explicitly via the
-    // post-recovery banner). Vault.spawn must round-trip the array, persist
-    // only the cold mirror per account, and flag each WalletAccount with
-    // requiresHotKeyRotation so the banner picks it up.
-    const sdk = require('../sdk/miden-client');
-    const origGetClient = sdk.getMidenClient;
-    let recoveredWithEndpoint: string | undefined;
-    sdk.getMidenClient = jest.fn(async (_options: any) => ({
-      recoverGuardianAccountsBySeed: async (_deriveColdSeed: any, endpoint: string) => {
-        recoveredWithEndpoint = endpoint;
-        return [
-          {
-            accountId: 'guardian-pk',
-            hdIndex: 0,
-            coldPublicKey: 'bb'.repeat(33),
-            coldSecretKeyHex: 'dd'.repeat(32)
-          }
-        ];
-      },
-      createGuardianMidenWallet: async (_seed: Uint8Array) => ({
-        accountId: 'guardian-pk',
-        keys: {
-          hotPublicKey: 'aa'.repeat(33),
-          hotCiphertext: 'cf'.repeat(64),
-          coldPublicKey: 'bb'.repeat(33),
-          coldSecretKeyHex: 'dd'.repeat(32)
-        }
-      }),
-      getAccounts: async () => [],
-      getAccount: async () => null,
-      syncState: async () => {},
-      network: 'devnet',
-      client: { accounts: { insert: jest.fn() }, keystore: { insert: jest.fn() } }
-    }));
-
-    try {
-      // No pick and no probe result: recovery falls back to the frozen legacy key, which the wipe keeps.
-      const { putToStorage, fetchFromStorage } = await import('../front/storage');
-      const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
-      await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://my-guardian.example');
-
-      const vault = await Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true);
-      expect(vault).toBeInstanceOf(Vault);
-      // Recovery used the frozen legacy key, which the wipe keeps. This guards against over-deletion
-      // of the recovery fallback (a custom-guardian recovery must not silently bind to the network default).
-      expect(recoveredWithEndpoint).toBe('https://my-guardian.example');
-      expect(await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)).toBe('https://my-guardian.example');
-    } finally {
-      sdk.getMidenClient = origGetClient;
-    }
-  });
-
-  it('a Retry after a recovery that failed past the wipe still falls back to the legacy guardian (#1174)', async () => {
-    const sdk = require('../sdk/miden-client');
-    const origGetClient = sdk.getMidenClient;
-    const endpoints: string[] = [];
-    // The first attempt's scan fails past the wipe; every later scan finds the account, and the
-    // spawn keeps one record per account id across its two derivation schemes.
-    let failed = false;
-    sdk.getMidenClient = jest.fn(async (_options: unknown) => ({
-      recoverGuardianAccountsBySeed: async (_deriveColdSeed: unknown, endpoint: string) => {
-        endpoints.push(endpoint);
-        if (!failed) {
-          failed = true;
-          throw new Error('guardian unreachable');
-        }
-        return [
-          { accountId: 'guardian-pk', hdIndex: 0, coldPublicKey: 'bb'.repeat(33), coldSecretKeyHex: 'dd'.repeat(32) }
-        ];
-      },
-      getAccounts: async () => [],
-      getAccount: async () => null,
-      syncState: async () => {},
-      network: 'devnet',
-      client: { accounts: { insert: jest.fn() }, keystore: { insert: jest.fn() } }
-    }));
-
-    try {
-      const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
-      memoryStore[GUARDIAN_URL_STORAGE_KEY] = 'https://my-guardian.example';
-
-      await expect(Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true)).rejects.toThrow();
-      const vault = await Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true);
-
-      expect(vault).toBeInstanceOf(Vault);
-      expect(endpoints.length).toBeGreaterThanOrEqual(2);
-      expect(new Set(endpoints)).toEqual(new Set(['https://my-guardian.example']));
-    } finally {
-      sdk.getMidenClient = origGetClient;
-    }
   });
 });
 
@@ -520,7 +409,7 @@ describe('Vault.revealPrivateKey: not-found path', () => {
   it('throws PublicError when the stored secret is empty/falsy after decrypt', async () => {
     const vault = await seedVault('pw');
     const vaultKey = (vault as any).vaultKey as CryptoKey;
-    // Persist an empty string under the expected slot. fetchAndDecryptOneWithLegacyFallBack
+    // Persist an empty string under the expected slot. fetchAndDecryptOne
     // returns the falsy value, so the `if (!secretKeyHex)` guard fires.
     await encryptAndSaveMany([[keys.accAuthSecretKey('acc-empty'), '']], vaultKey);
     await expect(Vault.revealPrivateKey('acc-empty', 'pw')).rejects.toThrow(PublicError);
@@ -620,9 +509,12 @@ describe('Vault hardware-backed unlock + reveal', () => {
     const biometric = require('lib/biometric');
     biometric.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-encrypt-fail'));
     await expect(
-      Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
-        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
-      ])
+      Vault.spawnFromMidenClient(
+        '',
+        VALID_MNEMONIC,
+        [{ publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0, authScheme: 'ecdsa' }],
+        []
+      )
     ).rejects.toThrow(PublicError);
   });
 });

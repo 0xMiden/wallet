@@ -16,6 +16,8 @@ import {
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
+import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
+import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
@@ -164,13 +166,12 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts, formatVersion, importedAccounts) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
         walletAccounts,
-        formatVersion,
         importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
@@ -461,11 +462,12 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
     },
 
-    swapHotKey: async (accountPublicKey, newHotPubKey) => {
+    swapHotKey: async (accountPublicKey, newHotPubKey, expectedHotPubKey) => {
       const res = await request({
         type: WalletMessageType.SwapHotKeyRequest,
         accountPublicKey,
-        newHotPubKey
+        newHotPubKey,
+        expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
@@ -477,6 +479,17 @@ export const useWalletStore = create<WalletStore>()(
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
+    },
+
+    revertGuardianEndpointAfterDiscard: async (accountPublicKey, discardedEndpoint, revertTo) => {
+      const res = await request({
+        type: WalletMessageType.RevertGuardianEndpointRequest,
+        accountPublicKey,
+        discardedEndpoint,
+        revertTo
+      });
+      assertResponse(res.type === WalletMessageType.RevertGuardianEndpointResponse);
+      return res.outcome;
     },
 
     setGuardianOperatorCommitment: async (accountPublicKey, guardianOperatorCommitment) => {
@@ -847,6 +860,13 @@ export const useWalletStore = create<WalletStore>()(
   }))
 );
 
+// The switch changes what the price helpers return for the same tokenPrices, so a memo or selector
+// keyed on tokenPrices would keep its old figure. The same prices as a new object make each recompute;
+// nothing is refetched.
+subscribeNominalUnquotedPrice(() => {
+  useWalletStore.setState(state => ({ tokenPrices: { ...state.tokenPrices } }));
+});
+
 // Export the intercom getter for use in sync hook
 export { getIntercom };
 
@@ -865,7 +885,8 @@ const RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS = 4000;
  *
  * Bounded to `RELOAD_ENDPOINT_OVERRIDES_SW_TIMEOUT_MS`: `IntercomClient.request`
  * never rejects if the SW port disconnects mid-request, so an un-bounded await
- * here could hang forever and wedge a caller's UI (e.g. leave `saving` stuck).
+ * here could hang forever and wedge a caller's UI (e.g. leave Developer
+ * Settings' `pending` stuck).
  * The underlying request keeps running and its own `.catch` still swallows a
  * late failure — this just stops the caller from waiting on it past the timeout.
  */
@@ -940,6 +961,23 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       }
     }
   );
+  // The Slow bridge-out E2E reads the real registry for the bridge's own faucet, then bridges a runtime
+  // faucet the registry never lists. The send flow checks the registry in this (page) realm, so both
+  // the check and the allowlist entry run here.
+  Reflect.set(globalThis, '__TEST_CHECK_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ isAgglayerFaucetAllowed }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    return isAgglayerFaucetAllowed(faucetRef, getEffectiveRpcUrl());
+  });
+  Reflect.set(globalThis, '__TEST_ALLOW_AGGLAYER_FAUCET__', async (faucetRef: string) => {
+    const [{ allowAgglayerFaucetForE2E }, { getEffectiveRpcUrl }] = await Promise.all([
+      import('lib/agglayer/allowed-faucets'),
+      import('lib/miden-chain/effective-endpoints')
+    ]);
+    await allowAgglayerFaucetForE2E(faucetRef, getEffectiveRpcUrl());
+  });
   // A dApp custom/execute request is opaque base64 `TransactionRequest` bytes, which only the SDK
   // can produce - a fixture dApp page has no SDK and no vault. Built here through the very builder
   // every wallet send uses, so the bytes the suite hands to `requestTransaction` are the shape a
@@ -950,14 +988,16 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
       const [
         { NoteType },
-        { accountRefToSdk, buildSendTransactionRequest, randomFeeSalt, walletAccountIdToSdk },
+        { accountRefToSdk, buildSendTransactionRequest, feeAwareRequestBuilder, randomFeeSalt, walletAccountIdToSdk },
         { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
-        { u8ToB64 }
+        { u8ToB64 },
+        { EXPIRATION_DELTA_BLOCKS }
       ] = await Promise.all([
         import('@miden-sdk/miden-sdk/lazy'),
         import('lib/miden/sdk/helpers'),
         import('lib/miden/sdk/miden-client'),
-        import('lib/shared/helpers')
+        import('lib/shared/helpers'),
+        import('lib/miden/helpers')
       ]);
       const accountId = useWalletStore.getState().currentAccount?.publicKey;
       if (accountId === undefined) throw new Error('Custom-request hook found no current account');
@@ -969,6 +1009,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
           const account = await client.getAccount(walletAccountIdToSdk(accountId).toString());
           // The Account is borrowed from the client's RefCell and the build reads its vault.
           assertWasmHoldCurrent(hold, 'e2e-custom-request after the account read');
+          const baseBuilder = await feeAwareRequestBuilder(
+            client.client,
+            walletAccountIdToSdk(accountId).toString(),
+            randomFeeSalt()
+          );
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the fee-aware builder');
           return buildSendTransactionRequest(
             account ?? undefined,
             walletAccountIdToSdk(accountId),
@@ -976,10 +1022,9 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
             input.faucetId,
             BigInt(input.amountBaseUnits),
             NoteType.Public,
+            EXPIRATION_DELTA_BLOCKS,
             undefined,
-            // Declared, like every wallet-built request: since protocol 0.16 `fee::pay_fee` reads
-            // the conversion salt from the auth args and aborts without one.
-            randomFeeSalt()
+            baseBuilder
           ).serialize();
         },
         { label: 'e2e-custom-request' }
@@ -1015,14 +1060,15 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     }
   });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
-  // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
-  // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK
-  // that `lib/epoch/earn` pulls in is NOT loaded into the main page bundle at boot — only
-  // when the test calls the hook (by which point the earn route has loaded it anyway). The
-  // fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet node. Zero prod impact.
+  // The Earn screens, `openEarnPosition` and the price allowlist read it page-side, so the
+  // override must be set in THIS (page) realm; a served document cannot name a faucet the
+  // suite creates at runtime. Zero prod impact.
   (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
-    const { setEarnCollateralFaucetForTest } = await import('lib/epoch/earn');
-    setEarnCollateralFaucetForTest(faucetHex);
+    setEarnCollateralFaucetOverride({ faucetId: faucetHex });
+  };
+  (globalThis as any).__TEST_SET_FEE_FAUCET__ = async (faucetId: string): Promise<void> => {
+    const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');
+    await setFeeFaucetIdForTest(faucetId);
   };
   // Earn WITHDRAW read hooks live in the PAGE realm (here), NOT the SW-side
   // earn-test-hooks: the `earn-withdraw` tracking row is created AND advanced
@@ -1190,4 +1236,71 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       setTestSyncPaused(false);
     }
   };
+  // What a guardian OPERATOR holds for an account (#1233), for the switch E2E: the commitment of its
+  // stored state, and whether it released the account. Signed with this device's hot key, which both
+  // operators' allowlists carry across a switch. Release is read off a mutation the operator refuses
+  // for a released account before anything else: signing a proposal that cannot exist answers
+  // `account_released` once released and "not found" before, and writes nothing either way.
+  Reflect.set(globalThis, '__TEST_GUARDIAN_OPERATOR_VIEW__', async (accountPublicKey: string, endpoint: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [
+        { GuardianHttpClient },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { getSignerDetailsFromAccount },
+        { isGuardianAccountReleased },
+        { WalletSigner },
+        { registerGuardianOrigin },
+        { canonicalWalletAccountId, sameWalletAccountId }
+      ] = await Promise.all([
+        import('@openzeppelin/miden-multisig-client'),
+        import('lib/miden/sdk/miden-client'),
+        import('lib/miden/guardian/account'),
+        import('lib/miden/guardian/direct-switch'),
+        import('lib/miden/guardian/signer'),
+        import('lib/miden/guardian/native-http'),
+        import('lib/miden/sdk/helpers')
+      ]);
+      const walletAccount = useWalletStore
+        .getState()
+        .accounts.find(account => sameWalletAccountId(account.publicKey, accountPublicKey));
+      if (!walletAccount?.hotPublicKey) return { error: `No hot key for ${accountPublicKey}` };
+      const hotPublicKey = walletAccount.hotPublicKey;
+      const hotCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the client build');
+          const account = await client.getAccount(walletAccount.publicKey);
+          assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the account read');
+          if (!account) throw new Error(`Guardian account ${accountPublicKey} not found in local client`);
+          return (await getSignerDetailsFromAccount(account)).commitment;
+        },
+        { label: 'e2e-guardian-operator-view' }
+      );
+      registerGuardianOrigin(endpoint);
+      const guardian = new GuardianHttpClient(endpoint);
+      guardian.setSigner(
+        new WalletSigner(`0x${hotPublicKey}`, `0x${hotCommitment}`, (publicKey: string, wordHex: string) =>
+          useWalletStore.getState().signWord(publicKey, wordHex)
+        )
+      );
+      const accountId = canonicalWalletAccountId(walletAccount.publicKey);
+      const { commitment } = await guardian.getState(accountId);
+      let released = false;
+      try {
+        await guardian.signDeltaProposal({
+          accountId,
+          commitment: `0x${'ab'.repeat(32)}`,
+          signature: { scheme: 'ecdsa', signature: '00' }
+        });
+      } catch (probeError) {
+        released = isGuardianAccountReleased(probeError);
+      }
+      return { commitment, released };
+    } catch (e) {
+      return { error: describeHookError(e) };
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
 }

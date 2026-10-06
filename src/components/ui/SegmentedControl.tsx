@@ -10,6 +10,8 @@ import { tabBarSwap, useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { radioGroupKeyTarget } from './radio-group-keys';
+
 export interface SegmentedControlItem<T extends string = string> {
   id: T;
   /** Already-translated text, also the item's accessible name. */
@@ -42,12 +44,15 @@ export interface SegmentedControlProps<T extends string = string> {
 
 // No strip behind the items, like the tab bars. 4px above and below leaves room for the raised
 // bubble's shadow and the focus ring, which a scrolling row would otherwise clip; 8px between the
-// items, because each one is outlined and two hairlines 4px apart read as one seam.
-const container = cva('flex items-center gap-2 py-1', {
+// items, because each one is outlined and two hairlines 4px apart read as one seam. `fill` is a grid
+// because a fill row is often sized to its content (a settings row's trailing slot): under
+// max-content sizing fr columns each take the widest item, while basis-0 flex items split the row
+// into the average and cut the longest label.
+const container = cva('items-center gap-2 py-1', {
   variants: {
     layout: {
-      scroll: 'overflow-x-auto no-scrollbar',
-      fill: 'w-full'
+      scroll: 'flex overflow-x-auto no-scrollbar',
+      fill: 'grid w-full grid-flow-col auto-cols-fr'
     }
   },
   defaultVariants: { layout: 'scroll' }
@@ -72,7 +77,7 @@ const segment = cva(
       },
       layout: {
         scroll: 'shrink-0',
-        fill: 'min-w-0 flex-1'
+        fill: 'min-w-0'
       },
       // Every item is an outlined pill on the page; the selected one hands its outline over to
       // the raised bubble that covers it, keeping the border transparent so the item's width,
@@ -145,9 +150,6 @@ function Segment<T extends string>({ item, active, focusable, size, layout, onSe
   );
 }
 
-const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown']);
-const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
-
 /**
  * A single choice out of a few, drawn like the tab bars: no strip behind the items, each one an
  * outlined pill on the page, and the selected one on the bottom nav's raised bubble
@@ -157,8 +159,9 @@ const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp']);
  * Under reduced motion the bubble moves instantly, nothing pops and a press does not scale.
  *
  * Arrow keys (and Home/End) move focus and the selection together, as the ARIA radio group and
- * tab patterns do; only the selected item is in the tab order. In the `scroll` layout the selected
- * item is kept on screen.
+ * tab patterns do; only the selected item is in the tab order. A disabled item is never reported
+ * as selected (no bubble, no aria-checked, not the tab stop) unless every item is disabled, which
+ * keeps the read-only look. In the `scroll` layout the selected item is kept on screen.
  */
 export function SegmentedControl<T extends string>({
   items,
@@ -176,7 +179,11 @@ export function SegmentedControl<T extends string>({
   // at once: no slide, no pop, no smooth scroll.
   const swap = useTabShownAgain();
   const rowRef = useRef<HTMLDivElement>(null);
-  const selectedIndex = items.findIndex(item => item.id === value);
+  // A disabled item is not the answer while another can be chosen, so the radio, the bubble, the tab
+  // stop and the keyboard all read this one index. With nothing choosable the control is disabled as
+  // a whole (read-only Developer Settings, a swap being submitted) and still shows its value.
+  const choosable = items.some(item => !item.disabled);
+  const selectedIndex = items.findIndex(item => item.id === value && !(choosable && item.disabled));
   // Mounting a page is not a selection change. scrollIntoView walks every scrollable ANCESTOR, so a
   // mount-time call in a row that cannot scroll itself (a scroll-layout control whose items fit)
   // moves the page under it instead, sideways.
@@ -219,20 +226,11 @@ export function SegmentedControl<T extends string>({
     if (enabled.length === 0) return;
 
     const current = enabled.findIndex(({ index }) => buttonAt(index) === document.activeElement);
-    const from =
-      current >= 0
-        ? current
-        : Math.max(
-            0,
-            enabled.findIndex(({ item }) => item.id === value)
-          );
-
-    let to: number;
-    if (NEXT_KEYS.has(event.key)) to = (from + 1) % enabled.length;
-    else if (PREV_KEYS.has(event.key)) to = (from - 1 + enabled.length) % enabled.length;
-    else if (event.key === 'Home') to = 0;
-    else if (event.key === 'End') to = enabled.length - 1;
-    else return;
+    // The tab stop and the bubble already read `selectedIndex`; the keyboard's origin does too.
+    // radio-group-keys.ts owns the no-origin case (-1) this falls back to.
+    const from = current >= 0 ? current : enabled.findIndex(({ index }) => index === selectedIndex);
+    const to = radioGroupKeyTarget(event.key, enabled.length, from);
+    if (to === null) return;
 
     event.preventDefault();
     const target = enabled[to];
@@ -255,15 +253,15 @@ export function SegmentedControl<T extends string>({
       className={cn(container({ layout }), className)}
     >
       {/* One bubble shared by every item slides to the selected one; its layoutId is scoped to this
-          control, so two mounted controls never trade bubbles. Controlled and click-free: `value`
-          decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
+          control, so two mounted controls never trade bubbles. Controlled and click-free: the
+          selection decides where it sits. `-inset-px` rather than the bottom nav's inset: the bubble is
           absolutely positioned against the item's PADDING box, so it has to reach 1px past it to
           cover the item's border and match the outlined pills beside it edge for edge. The bottom
           nav's bubble in every respect but its fill, the accent tint; shadow, pressed shadow and
           spring are the shared ones. */}
       <Highlight
         controlledItems
-        value={value}
+        value={selectedIndex >= 0 ? value : null}
         click={false}
         exitDelay={0}
         transition={swap ? tabBarSwap : motionTokens.highlight}

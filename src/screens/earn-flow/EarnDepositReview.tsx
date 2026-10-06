@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -11,8 +12,10 @@ import { Card } from 'components/ui/Card';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
-import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
+import { confirmSensitiveAction } from 'lib/biometric';
+import { earnCollateralFaucetId, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -21,13 +24,15 @@ import {
   type SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectMidenUsdc } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate, useLocation } from 'lib/woozie';
 
-import { EarnAmountUnit, EarnAssetMark, EarnHero, earnSubjectTitle } from './components';
+import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { EarnVault } from './types';
@@ -65,14 +70,18 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
+  // The collateral the config names (an E2E run's injected faucet first); none, and nothing can be deposited.
+  const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  const collateralDecimals = collateral?.decimals;
   const amountBaseUnits = useMemo(() => {
+    if (collateralDecimals === undefined) return undefined;
     try {
-      return stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS);
+      return stringToBigInt(amount.replace(/,/g, ''), collateralDecimals);
     } catch {
       return undefined;
     }
-  }, [amount]);
-  const faucetId = getEarnCollateralFaucetId();
+  }, [amount, collateralDecimals]);
+  const faucetId = collateral ? earnCollateralFaucetId(collateral) : '';
 
   // Reaching review, and owning the terminal outcome. The amount screen began
   // this flow and deliberately does not settle it on handoff, so every exit from
@@ -84,8 +93,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     return () => settleRouteFlow('earn', flow => flow.cancel());
   }, []);
 
-  // The account's spending-limit revision never crosses the intercom port - `serializeError` /
-  // `deserializeError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
+  // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
+  // / `deserializeInternalError` (`lib/intercom/helpers.ts`) carry only `code` and, for this error, `symbol`
   // - so the unpriced challenge reads the account's current revision fresh, the same value
   // `authorizationMatches` re-reads server-side at redemption.
   const openUnpricedChallenge = async (depositAmount: bigint): Promise<boolean> => {
@@ -102,7 +111,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   };
 
   const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
-    if (amountBaseUnits === undefined) return;
+    if (amountBaseUnits === undefined || !collateral) return;
     if (authorization !== undefined && authorization.accountId !== account.publicKey) {
       setSpendingLimitChallenge(undefined);
       return;
@@ -123,6 +132,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     try {
       await openEarnPosition({
         amount: amountBaseUnits,
+        collateral,
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
@@ -185,6 +195,10 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         setIsSubmitting(false);
         return;
       }
+      if (!(await confirmSensitiveAction(t('confirmEarnDepositReason'), probeHardwareProtector))) {
+        setIsSubmitting(false);
+        return;
+      }
       await runOpenPosition();
     } catch (error) {
       // See `runOpenPosition`: guard against `openUnpricedChallenge` itself throwing, or a
@@ -225,8 +239,9 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       <SubPageLayout
         data-testid="earn-deposit-review-page"
         title={found ? earnSubjectTitle(found) : t('earnDeposit')}
+        subtitle={found && <EarnSubjectSubtitle subject={found} />}
         onBack={goBack}
-        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} />}
+        headerActions={found && <EarnAssetMark asset={found.asset} network={found.network} decorative />}
         footerLayout="stack"
         footer={
           (loadFailed && !found) || pending ? undefined : (
@@ -256,7 +271,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
             {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
             <EarnHero
               labelId="earn-deposit-review-amount"
-              value={toAdaptiveFixed(amountValue)}
+              value={formatMoneyAmount(amount, 'typed')}
               unit={<EarnAmountUnit symbol={depositSymbol} />}
               label={t('earnDepositAmountTitle')}
             />

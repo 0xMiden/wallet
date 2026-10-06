@@ -11,6 +11,8 @@ import {
   IUsdcxBurn,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
+import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
@@ -32,6 +34,8 @@ export interface IHistoryExtraAmount {
 }
 
 export interface IHistoryEntry {
+  guardianRecovered?: boolean;
+  guardianReclaimed?: boolean;
   key: string;
   address: string;
   timestamp: number;
@@ -48,6 +52,10 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
+  /** A row whose outcome is unknown rather than confirmed-failed (`isOutcomeUnconfirmed`). */
+  isUnconfirmed?: boolean;
+  /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
+  notConfirmedHint?: NotConfirmedHintKey;
   /**
    * `tx.noteDelivery` — whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
@@ -112,6 +120,12 @@ export interface IHistoryEntry {
   // Guardian switch audit trail. The previous endpoint is absent on legacy rows.
   previousGuardianEndpoint?: ISwitchGuardianExtraInputs['previousGuardianEndpoint'];
   newGuardianEndpoint?: ISwitchGuardianExtraInputs['newGuardianEndpoint'];
+  /**
+   * The row's rotation verdict kind (`rotationVerdict`), projected at the
+   * mapping boundary so the views can qualify their claims - the outcome flags
+   * themselves deliberately do not cross this boundary.
+   */
+  guardianSwitchVerdict?: RotationVerdictKind;
   /** `replace-hot-key`: the device (hot) key the rotation installed, once it is known. */
   newHotPublicKey?: string;
   /** `replace-hot-key`: the guardian the rotation ran under, when the record carries it. */
@@ -132,6 +146,22 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+  /** epoch: id of the bridge's P2IDE note, stamped when it was built; read only while the note may exist. */
+  bridgeReclaimNoteId?: string;
+  /**
+   * epoch: the bridge's pipeline claimed its submit, so its note may be on chain under bridgeReclaimNoteId although
+   * no committed id was recorded.
+   */
+  bridgeSubmitClaimed?: boolean;
+  /** agglayer: the indexer `tx_hash` of this row's exit, which binds every deposit lookup to this row. */
+  bridgeAgglayerExitTxHash?: string;
+  /** agglayer: `deposit_cnt` of this row's exit deposit, once the indexer has reported it. */
+  bridgeAgglayerDepositCnt?: number;
+  /**
+   * agglayer: the row's stored marks say no lookup can find its exit (`isAgglayerExitUnfindable`), so it is treated
+   * as unbound.
+   */
+  bridgeAgglayerExitUnfindable?: boolean;
   /**
    * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
    * detail view can withhold affordances that turn a row back into work —
@@ -151,6 +181,11 @@ export interface IHistoryEntry {
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;
+  /**
+   * A bridge-in `consume` row that delivered an Earn withdrawal (`bridgeIn.earnWithdrawTxId`), whose
+   * source amount is what the withdrawal redeemed rather than a deposit the wallet paid.
+   */
+  bridgeInFromEarnWithdraw?: boolean;
 
   // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
   earnWithdrawPhase?: IEarnWithdrawPhase;

@@ -8,14 +8,15 @@ import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { Card } from 'components/ui/Card';
+import { Pill } from 'components/ui/Pill';
 import { cn } from 'lib/ui/util';
 import { goBack } from 'lib/woozie';
 
 import { EARN_PLACEHOLDER, usdFigureFormatter } from './earn-mapping';
 import { EarnSummary } from './types';
 
-/** What the earn flow's header knows about the thing it is showing: the two names in its title and
- *  the asset and network its mark stands for. A vault and a position both answer it. */
+/** What the earn flow names a vault or a position by: the protocol as the title, and the asset and
+ *  network on the line under it, which the mark beside them stands for. Both answer it. */
 export interface EarnSubject {
   protocol: string;
   asset: string;
@@ -29,28 +30,36 @@ const networkKind = (network: string): NetworkChipKind => (network.toLowerCase()
  * The asset and its network as ONE compact mark: the token's logo with the network's mark badged on
  * its corner, the shape the send flow gives a token or a recipient. It replaces the wide
  * "{asset} on {network}" pill, which took the width a two-word protocol needed and wrapped the
- * header onto a second line. The pill was also the only thing naming the pair in text, so the mark
- * carries that name for assistive tech.
+ * header onto a second line. Where nothing else names the pair in text the mark carries that name
+ * for assistive tech; beside `EarnSubjectSubtitle`, which says it already, it is `decorative`:
+ * hidden and unnamed, so the pair is announced once.
  */
-export const EarnAssetMark: FC<{ asset: string; network: string; className?: string }> = ({
+export const EarnAssetMark: FC<{ asset: string; network: string; decorative?: boolean; className?: string }> = ({
   asset,
   network,
+  decorative = false,
   className
 }) => {
   const { t } = useTranslation();
-  const label = t('earnAssetOnNetwork', { asset, network });
 
   return (
-    <span className={classNames('flex shrink-0 items-center', className)}>
+    <span aria-hidden={decorative || undefined} className={classNames('flex shrink-0 items-center', className)}>
       <TokenLogo symbol={asset} size="md" badge={<NetworkLogo kind={networkKind(network)} />} />
-      <span className="sr-only">{label}</span>
+      {!decorative && <span className="sr-only">{t('earnAssetOnNetwork', { asset, network })}</span>}
     </span>
   );
 };
 
 /** The title every page of the earn flow puts in its header, so a vault and a position are named
- *  the same way wherever the flow shows them. */
-export const earnSubjectTitle = (subject: EarnSubject): string => `${subject.protocol} • ${subject.asset}`;
+ *  the same way wherever the flow shows them: the protocol, over `EarnSubjectSubtitle`'s asset and
+ *  network. Together at the title's size they wrapped to two lines beside the back and the mark. */
+export const earnSubjectTitle = (subject: EarnSubject): string => subject.protocol;
+
+/** The line under `earnSubjectTitle`, in a header or a row: "USDC on Ethereum". */
+export const EarnSubjectSubtitle: FC<{ subject: EarnSubject }> = ({ subject }) => {
+  const { t } = useTranslation();
+  return <>{t('earnAssetOnNetwork', { asset: subject.asset, network: subject.network })}</>;
+};
 
 /** Shared top bar for the earn flow's pages that are NOT on `SubPageLayout` (the amount step, which
  *  hands its whole body to the send flow's `SelectAmount`): the `PageHeader` with back, the shared
@@ -65,8 +74,9 @@ export const EarnFlowHeader: FC<{ subject?: EarnSubject }> = ({ subject }) => {
     <PageHeader
       className="shrink-0 px-4"
       title={subject ? earnSubjectTitle(subject) : t('earnDeposit')}
+      subtitle={subject && <EarnSubjectSubtitle subject={subject} />}
       onBack={goBack}
-      actions={subject && <EarnAssetMark asset={subject.asset} network={subject.network} />}
+      actions={subject && <EarnAssetMark asset={subject.asset} network={subject.network} decorative />}
     />
   );
 };
@@ -101,6 +111,12 @@ export interface EarnHeroProps {
   meta?: React.ReactNode;
   /** Anything that belongs inside the section under the hero, e.g. the summary's metric cards. */
   children?: React.ReactNode;
+  /**
+   * `figure-first` (default): the figure, its caption, then the rate line, as a vault or a review
+   * reads. `label-first`: the caption over the figure and `meta` drawn as-is under it (the summary
+   * passes its APY pill), the way the tab root's total reads with no page title above it.
+   */
+  layout?: 'figure-first' | 'label-first';
   className?: string;
 }
 
@@ -117,20 +133,33 @@ export const EarnHero: FC<EarnHeroProps> = ({
   label,
   meta,
   children,
+  layout = 'figure-first',
   className
-}) => (
-  <section aria-labelledby={labelId} className={className}>
-    {/* The figure the page is about, on the balance card's own type style. */}
-    <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
-    {unit}
-    <p id={labelId} className="mt-2 text-label text-muted">
-      {label}
-    </p>
-    {/* `positive-tint-ink`, not the raw fill: #90BA89 is 2.2:1 and never carries text. */}
-    {meta && <p className="mt-0.5 text-value text-positive-tint-ink">{meta}</p>}
-    {children}
-  </section>
-);
+}) =>
+  layout === 'label-first' ? (
+    <section aria-labelledby={labelId} className={className}>
+      {/* The 16px label (`text-row-title`), the size the Settings section titles take. */}
+      <p id={labelId} className="mb-1.5 text-row-title text-muted">
+        {label}
+      </p>
+      <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
+      {unit}
+      {meta && <div className="mt-2 flex">{meta}</div>}
+      {children}
+    </section>
+  ) : (
+    <section aria-labelledby={labelId} className={className}>
+      {/* The figure the page is about, on the balance card's own type style. */}
+      <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
+      {unit}
+      <p id={labelId} className="mt-2 text-label text-muted">
+        {label}
+      </p>
+      {/* `positive-tint-ink`, not the raw fill: #90BA89 is 2.2:1 and never carries text. */}
+      {meta && <p className="mt-0.5 text-value text-positive-tint-ink">{meta}</p>}
+      {children}
+    </section>
+  );
 
 export const EarnSummaryPanel: FC<{
   summary: EarnSummary;
@@ -142,8 +171,10 @@ export const EarnSummaryPanel: FC<{
 
   return (
     <EarnHero
+      layout="label-first"
       labelId={titleId}
-      className={className}
+      // Set wholly in Nunito: the APY pill and the metric figures read `--font-sans` like body text.
+      className={cn('face-heading', className)}
       value={
         <AnimatedNumber
           value={summary.totalRewardsUsd}
@@ -153,11 +184,17 @@ export const EarnSummaryPanel: FC<{
       }
       label={t('earnTotalEarnedRewards')}
       meta={
-        <AnimatedNumber
-          value={summary.blendedApyPercent}
-          format={apy => t('earnEarningBlendedApy', { apy: `~${apy.toFixed(1)}%` })}
-          placeholder={t('earnEarningBlendedApy', { apy: EARN_PLACEHOLDER })}
-        />
+        <Pill
+          tone="positive"
+          icon={<span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-status-positive" />}
+          data-testid="earn-summary-apy"
+        >
+          <AnimatedNumber
+            value={summary.blendedApyPercent}
+            format={apy => t('earnPositionsApy', { apy: `~${apy.toFixed(1)}%` })}
+            placeholder={t('earnPositionsApy', { apy: EARN_PLACEHOLDER })}
+          />
+        </Pill>
       }
     >
       {/* #503 — gap-3 so Total deposited / Estimated rewards don't abut. Equal columns, so the
@@ -183,7 +220,6 @@ export const EarnSummaryPanel: FC<{
                 placeholder={EARN_PLACEHOLDER}
               />
             }
-            valueClassName="text-positive-tint-ink"
           />
         </div>
       )}

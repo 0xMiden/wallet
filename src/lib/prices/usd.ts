@@ -1,7 +1,8 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 import { fetchTokenPrices, TokenPrices } from './binance';
-import { KNOWN_SYMBOLS } from './constant';
+import { isE2eFixtureSymbol, KNOWN_SYMBOLS } from './constant';
+import { fixedQuote } from './fixed';
 
 /** One US dollar in the fixed-point unit every spending limit is denominated in. */
 export const USD_SCALE = 1_000_000n;
@@ -25,37 +26,13 @@ interface CachedUsdPrice {
 type UsdPriceCache = Record<string, CachedUsdPrice>;
 
 /**
- * The E2E harness's own fixture faucet symbol, and the exact dollar rate it prices at.
- *
- * The live feed can never price a symbol the harness invents on the fly for a throwaway devnet
- * faucet, so without this an E2E spending-limit cap could never be breached - every spend of the
- * fixture token would count as zero, no matter what the suite configured, and the enforcement
- * path this exists to test would be permanently unverifiable end to end. $1.00 per whole unit is
- * arbitrary but exact, so a spec's existing native-unit figures convert to identical dollar
- * figures with no rescaling. Confined to `MIDEN_E2E_TEST` builds - no App Store or Play Store
- * submission is built with it, though `store-listing:capture:build` (package.json) does build
- * real mobile and Chrome bundles with the flag set, for store-screenshot capture only.
- *
- * Deliberately narrow: this shortcuts only `isCoveredSymbol`/`getPriceMicro` for the one fixture
- * symbol, so `readCache`, the freshness window and a covered asset's
- * `SpendingLimitPriceUnavailableError` refusal stay entirely unexercised by an E2E run. Widening
- * it to cover those too would mean seeding the price cache across realms (a frontend write the
- * backend reads) instead of a same-process short-circuit, and that seeded entry would go stale at
- * `PRICE_MAX_AGE_SECONDS` (600s) partway through a long journey - trading this gap for a flakier
- * one.
- */
-const E2E_FIXTURE_SYMBOL = 'TST';
-const isE2eFixtureSymbol = (symbol: string): boolean =>
-  process.env.MIDEN_E2E_TEST === 'true' && symbol === E2E_FIXTURE_SYMBOL;
-
-/**
  * Whether the feed can price this symbol at all.
  *
  * Indexed rather than `in` or `hasOwnProperty` so an inherited member such as `toString` cannot
  * read as covered: the value test is what decides, and a function is not a trading pair.
  */
 export const isCoveredSymbol = (symbol: string): boolean =>
-  typeof KNOWN_SYMBOLS[symbol] === 'string' || isE2eFixtureSymbol(symbol);
+  typeof KNOWN_SYMBOLS[symbol] === 'string' || fixedQuote(symbol) !== undefined || isE2eFixtureSymbol(symbol);
 
 export const toPriceMicro = (price: number): bigint | undefined => {
   if (!Number.isFinite(price) || price <= 0) return undefined;
@@ -129,13 +106,16 @@ const refresh = async (now: number): Promise<UsdPriceCache> => {
  * The price of one whole unit of `symbol` in micro-dollars, or `undefined` when the symbol is
  * covered by the feed but no fresh price can be produced.
  *
- * Callers must ask `isCoveredSymbol` first: this function cannot tell "nobody prices this asset"
- * from "the price is missing right now", and those two cases have opposite consequences.
+ * Callers decide coverage first (the spending cap by its faucet-id allowlist): this function cannot
+ * tell "nobody prices this asset" from "the price is missing right now", and those two cases have
+ * opposite consequences.
  */
 export const getPriceMicro = async (
   symbol: string,
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<bigint | undefined> => {
+  const fixed = fixedQuote(symbol);
+  if (fixed !== undefined) return toPriceMicro(fixed.price);
   if (isE2eFixtureSymbol(symbol)) return USD_SCALE;
   const cached = cachedPriceMicro(await readCache(), symbol, now);
   if (cached !== undefined) return cached;

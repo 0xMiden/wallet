@@ -7,7 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { ListGroup } from 'components/ui/ListGroup';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+import { Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 export interface GuardianInfoDrawerProps {
   open: boolean;
@@ -24,12 +24,14 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
-      <DrawerContent className="max-h-[78vh]">
+      <DrawerContent className="max-h-[78vh] pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <DrawerHeader>
           <DrawerTitle>{t('whatIsAGuardian')}</DrawerTitle>
         </DrawerHeader>
 
-        <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4">
+        {/* Every line of the sheet is Nunito: the body styles that read `--font-sans` resolve to the
+            heading face here, the explainer's bold phrase included. */}
+        <div className="no-scrollbar flex min-h-0 flex-col gap-5 overflow-y-auto px-4 pb-4 face-heading">
           <WhatIsGuardianHero className="mx-auto h-[111px] w-[125px] shrink-0" />
 
           <p className="text-body text-ink">
@@ -68,11 +70,13 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
               description={t('guardianInfoWhatItCannotDoDescription')}
             />
           </ListGroup>
-
-          <div className="flex justify-center">
-            <Button title={t('gotIt')} onClick={() => onOpenChange(false)} />
-          </div>
         </div>
+
+        {/* Pinned outside the scrolling body, as NetworkModeSheet does: at the sheet's height cap the
+            button used to scroll with the facts and sit half cut off at the bottom edge. */}
+        <DrawerFooter className="shrink-0">
+          <Button title={t('gotIt')} className="w-full max-w-none" onClick={() => onOpenChange(false)} />
+        </DrawerFooter>
       </DrawerContent>
     </Drawer>
   );

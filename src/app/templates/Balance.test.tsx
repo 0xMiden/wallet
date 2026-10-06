@@ -3,10 +3,19 @@ import React, { ReactElement } from 'react';
 import { render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
+import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import Balance from './Balance';
+
+// The totals under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 // ---------------------------------------------------------------------------
 // Mocks.
@@ -36,6 +45,13 @@ jest.mock('lib/miden/front', () => ({
 let mockStoreState: { tokenPrices: TokenPrices } = { tokenPrices: {} };
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
+}));
+
+// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
+const mockHiddenIds = new Set<string>();
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
 }));
 
 // Capture the props `Balance` builds the transition with, and render the single
@@ -81,6 +97,7 @@ beforeEach(() => {
   mockUseAllBalances.mockReturnValue(balancesReturn([]));
   mockStoreState = { tokenPrices: { ETH: quote(100), BTC: quote(50) } };
   capturedTransitionProps = null;
+  mockHiddenIds.clear();
 });
 
 describe('Balance', () => {
@@ -104,8 +121,8 @@ describe('Balance', () => {
 
   it('folds balance × quoted price across every token into the fiat total', () => {
     const tokens: TokenBalance[] = [
-      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
-      { tokenId: 'btc-faucet', balance: 3, metadata: { symbol: 'BTC' } }
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
 
@@ -128,7 +145,7 @@ describe('Balance', () => {
 
   it('leaves a token the feed does not quote out of the total, never at $1 a unit', () => {
     const tokens: TokenBalance[] = [
-      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
       { tokenId: 'miden-faucet', balance: 1000, metadata: { symbol: 'MIDEN' } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
@@ -146,6 +163,21 @@ describe('Balance', () => {
     render(<Balance>{renderChild()}</Balance>);
 
     expect(total().textContent).toBe('no figure');
+  });
+
+  it('totals an unquoted token at $1 a unit off mainnet, so a native-only wallet has a figure', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: 'miden-faucet', balance: 1000, metadata: { symbol: 'MIDEN' } }])
+    );
+
+    try {
+      render(<Balance>{renderChild()}</Balance>);
+
+      expect(total().textContent).toBe('1000');
+    } finally {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+    }
   });
 
   it('totals an account holding nothing as zero, even beside an unquoted empty row', () => {
@@ -167,7 +199,7 @@ describe('Balance', () => {
     mockUseAllBalances.mockReturnValue(
       balancesReturn([
         {
-          tokenId: 'unresolved-faucet',
+          tokenId: TOKEN_IETH.faucetId,
           balance: 1_000_000,
           metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
         }
@@ -182,9 +214,9 @@ describe('Balance', () => {
 
   it('leaves a token with an unresolved scale out of the fiat total', () => {
     const tokens: TokenBalance[] = [
-      { tokenId: 'eth-faucet', balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
       {
-        tokenId: 'unresolved-faucet',
+        tokenId: TOKEN_IETH.faucetId,
         balance: 1_000_000,
         metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
       }
@@ -194,6 +226,31 @@ describe('Balance', () => {
     render(<Balance>{renderChild()}</Balance>);
 
     expect(total().textContent).toBe('200');
+  });
+
+  it('leaves a hidden token out of the total, as Home leaves it out of the list', () => {
+    const tokens: TokenBalance[] = [
+      { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
+      { tokenId: TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
+    ];
+    mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
+    mockHiddenIds.add(TOKEN_IBTC.faucetId);
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('200');
+    expect(mockUseHiddenTokens).toHaveBeenCalledWith('pk-abc');
+  });
+
+  it('totals zero, not "no figure", when the only unpriced holding is hidden', () => {
+    mockUseAllBalances.mockReturnValue(
+      balancesReturn([{ tokenId: 'spam-faucet', balance: 1000, metadata: { symbol: 'SPAM' } }])
+    );
+    mockHiddenIds.add('spam-faucet');
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total().textContent).toBe('0');
   });
 
   it('forwards the account public key and metadata map into useAllBalances', () => {
@@ -242,7 +299,7 @@ describe('Balance', () => {
   });
 
   it('passes a real BigNumber instance to the render-prop child', () => {
-    const tokens: TokenBalance[] = [{ tokenId: 'eth-faucet', balance: 4, metadata: { symbol: 'ETH' } }];
+    const tokens: TokenBalance[] = [{ tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 4, metadata: { symbol: 'ETH' } }];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
     mockStoreState = { tokenPrices: { ETH: quote(25) } };
 

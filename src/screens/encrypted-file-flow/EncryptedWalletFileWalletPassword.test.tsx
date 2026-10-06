@@ -1,7 +1,8 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 
+import { PROTECTOR_PROBE_DEADLINE_MS } from 'app/hooks/useHardwareProtector';
 import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -15,6 +16,7 @@ import EncryptedWalletFileWalletPassword, {
 // ---------------------------------------------------------------------------
 const mockUnlock = jest.fn();
 const mockHasHardwareProtector = jest.fn();
+const mockHasPasswordProtector = jest.fn();
 let mockIsMobile = false;
 // Backing store for the mocked `useLocalStorage` — seed keys per-test to drive
 // the attempt/timelock branches.
@@ -49,7 +51,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
-  Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
+  Vault: {
+    hasHardwareProtector: () => mockHasHardwareProtector(),
+    hasPasswordProtector: () => mockHasPasswordProtector()
+  }
 }));
 
 jest.mock('lib/miden/front', () => {
@@ -180,6 +185,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     mockAccounts = [];
     mockLocale = 'en';
     mockHasHardwareProtector.mockResolvedValue(false);
+    mockHasPasswordProtector.mockResolvedValue(true);
     mockUnlock.mockResolvedValue(undefined);
     jest.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -230,6 +236,78 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
+  });
+
+  // #1056: a failed hardware read is resolved through the password protector, never guessed.
+  it('takes the password step when the hardware read fails and a password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    expect(await screen.findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+    expect(screen.getByTestId('action-button')).toHaveTextContent('continue');
+  });
+
+  it('unlocks through the hardware protector when the hardware read fails and no password key exists', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+    render(<EncryptedWalletFileWalletPassword {...makeProps()} />);
+
+    expect(await screen.findByTestId('action-button')).toHaveTextContent('unlock');
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    clickConfirm();
+    fireEvent.click(screen.getByTestId('action-button'));
+    await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+  });
+
+  it('shows an error and offers no credential step when both protector reads fail', async () => {
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('action-button')).not.toBeInTheDocument();
+  });
+
+  // This case keeps the failure surface from becoming platform-gated: a branch such as
+  // `probeFailed && !isMobile()` would fail only here, since the case above renders desktop. Its
+  // passcode-entry assertion holds because the hook leaves `hasHardwareProtector` null on failure,
+  // not because of the error branch: `usePasscodeEntry` is `isMobile() && hasHardwareProtector ===
+  // false`, which stays false on a failed probe whatever order the branches render in.
+  it('shows an error and no passcode entry on mobile when both protector reads fail', async () => {
+    mockIsMobile = true;
+    mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
+    mockHasPasswordProtector.mockRejectedValue(new Error('pw-boom'));
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+    const notice = await screen.findByTestId('protector-probe-error');
+    expect(within(notice).getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+    expect(screen.queryByTestId('passcode-entry')).not.toBeInTheDocument();
+  });
+
+  it('shows the error with Retry when the protector probe does not answer in time, and Retry reaches the credential step (#1241)', async () => {
+    jest.useFakeTimers();
+    try {
+      mockHasHardwareProtector.mockReturnValueOnce(new Promise(() => undefined)).mockResolvedValueOnce(false);
+      mockHasPasswordProtector.mockResolvedValue(true);
+      render(<EncryptedWalletFileWalletPassword {...makeProps({ walletPassword: 'pw' })} />);
+
+      await act(async () => {
+        jest.advanceTimersByTime(PROTECTOR_PROBE_DEADLINE_MS);
+      });
+      expect(screen.getByText('couldNotCheckUnlockMethod')).toBeInTheDocument();
+      expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('protector-probe-retry'));
+      expect(await screen.findByTestId('encrypted-file-wallet-password-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('protector-probe-error')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the software-unlock UI (password field + continue) with no hardware protector', async () => {
@@ -476,7 +554,8 @@ describe('EncryptedWalletFileWalletPassword', () => {
       name,
       isPublic: type !== WalletType.Guardian,
       type,
-      hdIndex
+      hdIndex,
+      authScheme: 'ecdsa'
     });
 
     it('names every hot-key Guardian account the file does not restore, before the consent (#1114)', async () => {

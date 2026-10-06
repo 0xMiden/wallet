@@ -8,7 +8,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   loadEndpointOverrides: () => loadEndpointOverrides(),
   getEffectiveRpcUrl: () => 'https://rpc.test',
   getEffectiveProverUrl: () => 'https://prover.test',
-  getEffectiveNoteTransportUrl: () => 'https://ntl.test'
+  getEffectiveNoteTransportUrl: () => 'https://ntl.test',
+  getEffectiveFeeFaucetId: () => '0xfee'
 }));
 
 const ensureSdkWasmReady = jest.fn().mockResolvedValue(undefined);

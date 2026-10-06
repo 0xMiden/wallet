@@ -36,7 +36,9 @@ describe('guardianCommitmentReadOf', () => {
   it.each([
     ['POST', 'http://localhost:3000/delta', 'push'],
     ['GET', `http://localhost:3000/state?account_id=${ACCOUNT}`, 'state'],
-    ['GET', `http://localhost:3001/state?account_id=${ACCOUNT}`, 'state']
+    ['GET', `http://localhost:3001/state?account_id=${ACCOUNT}`, 'state'],
+    ['GET', `http://localhost:3000/state/nonce?account_id=${ACCOUNT}`, 'state'],
+    ['GET', `http://localhost:3001/state/nonce?account_id=${ACCOUNT}&nonce=3`, 'state']
   ])('reads %s %s as a %s', (method, url, read) => {
     expect(guardianCommitmentReadOf(method, url, ORIGINS)).toBe(read);
   });
@@ -48,6 +50,9 @@ describe('guardianCommitmentReadOf', () => {
     ['GET', `http://localhost:3000/delta/since?account_id=${ACCOUNT}&nonce=2`],
     ['POST', 'http://localhost:3000/delta/candidate/abandon'],
     ['GET', 'http://localhost:3000/state/lookup?key_commitment=0x01'],
+    ['GET', 'http://localhost:3000/state/nonce/lookup?account_id=0x00aa'],
+    ['GET', 'http://localhost:3000/state/nonce-candidate?account_id=0x00aa'],
+    ['POST', 'http://localhost:3000/state/nonce'],
     ['POST', 'http://localhost:3000/state'],
     ['POST', 'http://localhost:3000/configure'],
     ['POST', 'http://localhost:57291/delta']
@@ -159,6 +164,57 @@ describe('observeGuardianRead', () => {
 
     expect(calls).toEqual(['fetch timeout=0', 'fulfill']);
     expect(ledger.pushedAccounts()).toBe(0);
+  });
+
+  it('settles the latest pushed commitment from the raw canonical nonce response', async () => {
+    const ledger = createGuardianCommitmentLedger();
+    const firstPush = fakeRoute(answer(200, JSON.stringify(pushAnswer(BEFORE))));
+    await observeGuardianRead(firstPush.route, 'push', ledger);
+    ledger.record('state', stateAnswer(BEFORE));
+    const latestPush = fakeRoute(answer(200, JSON.stringify(pushAnswer(AFTER))));
+    await observeGuardianRead(latestPush.route, 'push', ledger);
+
+    const response = answer(200, JSON.stringify({ account_id: ACCOUNT, nonce: 3, commitment: AFTER }));
+    const canonical = fakeRoute(response);
+    const read = guardianCommitmentReadOf('GET', `http://localhost:3000/state/nonce?account_id=${ACCOUNT}`, ORIGINS);
+    if (read !== null) await observeGuardianRead(canonical.route, read, ledger);
+
+    await expect(
+      waitForGuardianLedgerSettled(ledger, {
+        timeoutMs: 5_000,
+        now: () => 0,
+        sleep: async () => {
+          throw new Error('matching canonical nonce response should already have settled the ledger');
+        }
+      })
+    ).resolves.toBe(0);
+    expect(canonical.delivered[0]).toBe(response);
+  });
+
+  it.each([
+    { label: 'stale commitment', status: 200, accountId: ACCOUNT, commitment: BEFORE, path: '/state/nonce' },
+    { label: 'different account', status: 200, accountId: OTHER_ACCOUNT, commitment: AFTER, path: '/state/nonce' },
+    { label: 'account prefix only', status: 200, accountId: '0x00a', commitment: AFTER, path: '/state/nonce' },
+    { label: 'failed response', status: 503, accountId: ACCOUNT, commitment: AFTER, path: '/state/nonce' },
+    { label: 'candidate response', status: 200, accountId: ACCOUNT, commitment: AFTER, path: '/delta/candidate' }
+  ])('does not settle from a $label', async ({ status, accountId, commitment, path }) => {
+    const ledger = createGuardianCommitmentLedger();
+    ledger.record('push', pushAnswer(AFTER));
+    ledger.record('state', stateAnswer(BEFORE));
+    const canonical = fakeRoute(answer(status, JSON.stringify({ account_id: accountId, nonce: 3, commitment })));
+    const read = guardianCommitmentReadOf('GET', `http://localhost:3001${path}?account_id=${ACCOUNT}`, ORIGINS);
+    if (read !== null) await observeGuardianRead(canonical.route, read, ledger);
+
+    let nowMs = 0;
+    await expect(
+      waitForGuardianLedgerSettled(ledger, {
+        timeoutMs: 1_000,
+        now: () => nowMs,
+        sleep: async ms => {
+          nowMs += ms;
+        }
+      })
+    ).rejects.toThrow('the guardian has not canonicalized the last pushed delta');
   });
 
   it('delivers an unparseable body untouched', async () => {

@@ -30,7 +30,8 @@ import { WcCounterparty } from '../helpers/wc-counterparty';
  *      EVM" → phase `received`.
  *
  * Build requires `E2E_EVM_RPC_URL=http://127.0.0.1:8545` (EVM reads → Anvil) and
- * `EPOCH_ALLOCATOR_URL=http://127.0.0.1:8548` (SDK allocator calls → the fake).
+ * `MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:8550`, the document the suite's global
+ * setup serves, which points the SDK's allocator calls at the fake on :8548.
  */
 test.describe('Bridge-IN deposit (Epoch/USDC, full real UI)', () => {
   test.describe.configure({ mode: 'serial' });

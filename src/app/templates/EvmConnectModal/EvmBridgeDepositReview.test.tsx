@@ -11,8 +11,8 @@ import { EvmBridgeDepositReview, EvmBridgeDepositReviewProps } from './EvmBridge
  * shared `ReviewLayout` provides.
  */
 
-// This screen renders through ReviewLayout, which hides the tab bar - and the network ribbon
-// lives in the tab bar's footer, so it showed no network at all. The banner is ReviewLayout's.
+// This screen renders through ReviewLayout, far from Home's network pill, so without the banner it
+// would show no network at all. The banner is ReviewLayout's.
 // Its sheet and the endpoint lookup are tested in their own suites; stubbing only those keeps the
 // banner itself real, so the assertion below is not on a stub.
 jest.mock('lib/miden-chain/effective-endpoints', () => ({

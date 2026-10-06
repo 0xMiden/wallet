@@ -17,11 +17,18 @@ if (process.env.TARGET_BROWSER === 'chrome') {
   const chromeApi = (globalThis as any).chrome;
   chromeApi.storage.local.get('sidepanel_mode', (result: { sidepanel_mode?: boolean }) => {
     if (result.sidepanel_mode) {
-      chromeApi.action.setPopup({ popup: '' });
+      chromeApi.action
+        .setPopup({ popup: '' })
+        .catch((err: Error) => console.warn('[Background] Side panel restore could not clear the popup:', err));
       chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err: Error) => {
-        // Restore popup if side panel setup fails
-        chromeApi.action.setPopup({ popup: 'popup.html' });
-        chromeApi.storage.local.set({ sidepanel_mode: false });
+        // Restore popup if side panel setup fails. A failed popup restore leaves the action button doing nothing, so it
+        // warns; a failed storage write keeps sidepanel_mode set, so the next start retries the restore.
+        chromeApi.action
+          .setPopup({ popup: 'popup.html' })
+          .catch((popupErr: Error) =>
+            console.warn('[Background] Side panel restore could not restore the popup:', popupErr)
+          );
+        chromeApi.storage.local.set({ sidepanel_mode: false }).catch(() => {});
         console.warn('[Background] Side panel restore failed, reverting to popup:', err);
       });
     }
@@ -30,11 +37,16 @@ if (process.env.TARGET_BROWSER === 'chrome') {
 }
 
 // A real browser/profile cold-start (NOT an SW idle-wake) means any transaction
-// still in `GeneratingTransaction` was orphaned when the browser closed — the
-// tab/SW driving it is gone and nothing will resume it. Fail those immediately
-// so a send interrupted mid-prove doesn't sit on "Sending" for up to 30 min
-// waiting on the age-based reaper (issue #282). Registered synchronously at the
-// top level so it survives MV3 SW eviction.
+// an earlier browser session left in `GeneratingTransaction` was orphaned when
+// the browser closed: the tab/SW driving it is gone and nothing will resume it.
+// The sweep fails those and spares this realm's rows by id
+// (`markStartedInThisRealm`; the startup kick can start one first) and rows
+// another realm of this session started by a stamp from `SESSION_STARTED_AT`
+// to `MAX_WAIT_BEFORE_CANCEL` past the sweep's clock (see
+// `failInterruptedTransactions` in transaction/cancel.ts). Failing them
+// immediately means a send interrupted mid-prove doesn't sit on "Sending" for
+// up to 30 min waiting on the age-based reaper (issue #282). Registered
+// synchronously at the top level so it survives MV3 SW eviction.
 runtime.onStartup.addListener(() => {
   failInterruptedTransactions().catch(err => console.warn('[Background] Interrupted-transaction sweep error:', err));
 });
@@ -64,14 +76,20 @@ if (process.env.TARGET_BROWSER === 'safari') {
 }
 
 browser.notifications.onClicked.addListener(notificationId => {
-  browser.notifications.clear(notificationId);
+  browser.notifications
+    .clear(notificationId)
+    .catch((err: Error) => console.warn('[Background] Could not clear the notification:', err));
   // Deep-link to the Activity tab's Pending filter — where an incoming transfer is accepted or
   // declined — matching the mobile handler, not the generic wallet QR/receive page (#467).
-  tabs.create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) });
+  tabs
+    .create({ url: runtime.getURL(`fullpage.html#${ACTIVITY_PENDING_PATH}`) })
+    .catch((err: Error) => console.warn('[Background] Could not open the Activity tab:', err));
 });
 
 function openFullPage() {
-  tabs.create({
-    url: runtime.getURL('fullpage.html')
-  });
+  tabs
+    .create({
+      url: runtime.getURL('fullpage.html')
+    })
+    .catch((err: Error) => console.warn('[Background] Could not open the full page:', err));
 }

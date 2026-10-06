@@ -1,5 +1,6 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
+import { sameTxHash } from 'lib/agglayer/status';
 import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
   matchesEarnDepositIntent,
@@ -9,14 +10,35 @@ import {
 } from 'lib/epoch/intent-key';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
-import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
+import {
+  didDirectSwitchLand,
+  finalizeDirectGuardianSwitch,
+  GuardianSwitchDiscardedError,
+  isGuardianKeyMismatchRefusal,
+  isGuardianSwitchDiscardedError
+} from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
+import {
+  adoptPostSwitchState,
+  type PostSwitchAdopter,
+  type PostSwitchLocalState
+} from 'lib/miden/guardian/post-switch-state';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
-import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
+import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
-import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
+import {
+  applyVerifiedLanding,
+  landedTransactionIdFields,
+  type LandedWithoutResult,
+  recordNoteDelivery,
+  reportVerifiedLanding,
+  setTransactionStage,
+  undeliveredDisplayMessage,
+  updateTransactionStatus
+} from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
@@ -47,7 +69,8 @@ import {
 } from '../db/types';
 import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { isPoisonedPipeline } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -73,12 +96,17 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // between a user knowing one note of several is stuck and assuming the whole
   // transaction failed.
   let undeliveredNotes = 0;
+  // Every private note, relayable or not, since `noteDelivery` and the label cover them all.
+  const relayNoteIds: string[] = [];
+  // Read before `interpretTransactionResult`, which puts the input note's sender in `secondaryAccountId` on a consume.
+  const relayRecipientId = transaction.secondaryAccountId;
 
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
       continue;
     }
+    relayNoteIds.push(note.id().toString());
 
     if (!transaction.secondaryAccountId) {
       // The recipient is supplied by the requesting site and is optional, so a
@@ -116,27 +144,27 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
 
-    // Relay every note FIRST, then wait for the commit once.
+    // Wait for the commit ONCE, then relay every note.
     //
-    // The wait used to sit inside the per-note loop, which made note N+1's relay
-    // wait out note N's commit — up to a full commit interval of extra exposure per
-    // note, during which a realm teardown or a closed service worker loses the
-    // remaining relays entirely. It also re-waited on the same transaction id once
-    // per note, which is the same answer every time.
-    //
-    // Ordering relays before the wait is otherwise unchanged, and NOT for the reason
-    // the old comment gave: under 0.15 the hint was the client's live sync height,
-    // so waiting first advanced it past the note's commitment block and the
-    // recipient — who scans FORWARD from the hint — silently never found the note.
-    // 0.16's `sendPrivateOutput` derives the hint from the note's stored
-    // `expected_height`, which does not move with sync. The order is kept because it
-    // is still the right shape (hand over the note the moment it exists, gate the
-    // row's status on the commit), not because delivery depends on it.
+    // rc.5's transport verifies an inclusion proof. `sendPrivateOutput` reads the
+    // proof sync stored once this client has synced past the commitment, and
+    // throws when that proof is missing. Relaying first can no longer hand the
+    // note over: the proof does not exist yet. One wait covers every note,
+    // because they share the transaction id.
     //
     // Relays route through `midenClientProxy` (issue #260, slice 7b): under the flag
     // the write ran offscreen, so each note is an APPLIED OUTPUT note of the
-    // OFFSCREEN client's store — and `sendPrivateOutput` resolves it by id out of
-    // that store — so the relay MUST run there, not on the dormant SW client.
+    // OFFSCREEN client's store, and `sendPrivateOutput` resolves it by id out of
+    // that store, so the relay runs there, not on the dormant SW client.
+    try {
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
+    } catch (error) {
+      console.warn('Commit wait failed before relaying private notes; the relay may find no proof', {
+        txId: transaction.id,
+        error
+      });
+    }
+
     for (const fullNote of notesToRelay) {
       try {
         await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
@@ -161,19 +189,6 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, noteDelivery, error });
     }
-
-    // Confirmation only, once, and after the relays have settled. Its failure says
-    // nothing about delivery, so it is caught separately — folding it in with the
-    // relay's catch (as before) made a healthy relay followed by a slow commit
-    // indistinguishable from a note that never reached the transport at all.
-    try {
-      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
-    } catch (error) {
-      console.warn('Commit wait failed after relaying private notes; relying on SDK reconcile', {
-        txId: transaction.id,
-        error
-      });
-    }
   } else if (undeliveredNotes > 0) {
     // Private notes existed but none could be turned into a relayable note.
     noteDelivery = 'undelivered';
@@ -194,7 +209,11 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // Set explicitly AFTER interpretTransactionResult: that returns the whole
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.
-  if (noteDelivery) updatedTransaction.noteDelivery = noteDelivery;
+  if (noteDelivery) {
+    updatedTransaction.noteDelivery = noteDelivery;
+    updatedTransaction.relayNoteIds = relayNoteIds;
+    updatedTransaction.relayRecipientId = relayRecipientId;
+  }
 
   if (undeliveredNotes > 0) {
     // Completed, not Failed: the transaction is on chain and the assets have left
@@ -202,10 +221,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // spends again. What is wrong is the DELIVERY, and the row is the only place
     // the user would ever learn about it — `error` is rendered for failed rows
     // only, so the label is what carries it.
-    updatedTransaction.displayMessage =
-      undeliveredNotes === 1
-        ? 'Completed — a private note could not be delivered'
-        : `Completed — ${undeliveredNotes} private notes could not be delivered`;
+    updatedTransaction.displayMessage = undeliveredDisplayMessage('Completed', undeliveredNotes);
   }
 
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
@@ -276,7 +292,8 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
     const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
-    if (!applied) {
+    // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
+    if (!applied && inputNotes.length === 1) {
       const info = await takeAgglayerBridgeInInfo({
         accountId: dbTransaction?.accountId ?? '',
         senderAccountId: sender,
@@ -299,11 +316,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     if (settle) {
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
-        if (tx.type !== 'swap') return;
+        // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+        if (tx.type !== 'swap') return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
         };
+        return undefined;
       });
     }
   } catch (err) {
@@ -409,7 +428,9 @@ export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  // Set only by the landed reconcile, where `result` is absent (#1233).
+  landed?: LandedWithoutResult
 ) => {
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
@@ -452,8 +473,17 @@ export const completeReplaceHotKeyTransaction = async (
     // immediately transacts stays broken for the whole of that window.
     let reRegisterFailed = false;
     let reRegisterError: unknown;
+    let reRegisterAttempts = 0;
     let storedAccountId = tx.accountId;
-    for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+    // The landed reconcile pushes nothing (#1233): the apply failed, so the local store still holds
+    // the pre-rotation account and allowlist, and a push landing after canonicalization would put
+    // the guardian back on them, so every hot-signed request 401s with no cold self-heal. The
+    // guardian's canonicalization of the rotation re-derives both; a hot-signed request in the
+    // seconds before it fails and is retried by its caller.
+    const reRegisterAttemptBudget = landed ? 0 : POST_ROTATION_REREGISTER_ATTEMPTS;
+    if (landed) storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
+    for (let attempt = 1; attempt <= reRegisterAttemptBudget; attempt++) {
+      reRegisterAttempts = attempt;
       try {
         const accounts = await guardianProvider.getAccounts();
         const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
@@ -461,8 +491,9 @@ export const completeReplaceHotKeyTransaction = async (
           throw new Error(`Guardian account ${tx.accountId} not found in provider`);
         }
         storedAccountId = walletAccount.publicKey;
-        const sdkAccount = await withWasmClientLock(async () => {
+        const sdkAccount = await withWasmClientLock(async hold => {
           await midenClientProxy.syncState();
+          assertWasmHoldCurrent(hold, 'post-rotation re-register: after the state sync');
           return midenClientProxy.getAccount(walletAccount.publicKey);
         });
         if (!sdkAccount) {
@@ -478,6 +509,8 @@ export const completeReplaceHotKeyTransaction = async (
         break;
       } catch (e) {
         reRegisterError = e;
+        // After an eviction, wrapped or not, the next attempt's sync would join the abandoned one and park again.
+        if (isPoisonedPipeline(e)) break;
         if (attempt < POST_ROTATION_REREGISTER_ATTEMPTS) {
           console.warn(
             `Post-rotation guardian re-register attempt ${attempt}/${POST_ROTATION_REREGISTER_ATTEMPTS} failed; retrying:`,
@@ -490,10 +523,11 @@ export const completeReplaceHotKeyTransaction = async (
         }
       }
     }
+    const reRegisterEvicted = isPoisonedPipeline(reRegisterError);
     if (reRegisterError) {
       reRegisterFailed = true;
       console.error(
-        `Failed to re-register post-rotation signer set on guardian after ${POST_ROTATION_REREGISTER_ATTEMPTS} attempts — ` +
+        `Failed to re-register post-rotation signer set on guardian after ${reRegisterAttempts} attempt(s) - ` +
           'the new hot key stays unauthorized (401) until a re-register lands:',
         reRegisterError
       );
@@ -514,19 +548,38 @@ export const completeReplaceHotKeyTransaction = async (
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
       // guardian re-register landed (#619 gap 1).
       extraInputs: { ...tx.extraInputs, reRegisterFailed },
-      // `result` is absent on the apply-after-submit-failed reconcile path: the
-      // rotation is already on chain, we just lack the local TransactionResult.
-      ...(result && {
-        transactionId: result.executedTransaction().id().toHex(),
-        resultBytes: result.serialize()
-      })
+      // `result` is absent on the landed reconcile path: the rotation is already on chain, and all
+      // the reconcile has is the id its failure carried (#1233).
+      ...(result
+        ? { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() }
+        : landedTransactionIdFields(landed))
     });
 
     // The account now has both signers on-chain, so bring it up to the same
     // hardening a freshly-created 3-key account has (update_guardian threshold
-    // 2 — which the update_signers rotation above can't carry). Best-effort and
-    // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+    // 2, which the update_signers rotation above can't carry). Best-effort and
+    // idempotent; never affects the rotation's success. After an eviction during
+    // re-register it is skipped rather than rebuilding the service against the
+    // node that just parked: the next guardian sync lap re-runs the check,
+    // because the swap above changed the hot key that sync's once-per-session
+    // gate is keyed on.
+    //
+    // Scoped when it does run. This call sits past the terminal status write.
+    // `ensureGuardianProcedureThresholds` re-throws a WASM client eviction, and
+    // the enclosing catch writes Failed, so an unscoped throw would flip a
+    // rotation that is already on chain and recorded Completed. The eviction is
+    // logged and the row stands.
+    if (!reRegisterEvicted) {
+      try {
+        await ensureGuardianProcedureThresholds(storedAccountId, tx.delegateTransaction, guardianProvider);
+      } catch (hardeningError) {
+        console.warn(
+          `[guardian] procedure-threshold hardening did not run after the hot-key rotation for ${tx.accountId}; ` +
+            `the rotation itself is complete and the guardian sync re-attempts the hardening:`,
+          hardeningError
+        );
+      }
+    }
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
@@ -588,6 +641,41 @@ const readTransactionResultFields = (
   }
 };
 
+/**
+ * Point a discarded switch's account back at its previous guardian (#1233), retried like the terminal
+ * status write. The write needs an unlocked wallet, and one that stays locked outlasts the attempts,
+ * so false (or no previous endpoint on the row) is what the Failed row then names.
+ */
+const restorePreviousGuardianEndpoint = async (
+  guardianProvider: GuardianAccountProvider,
+  storedAccountId: string,
+  previousGuardianEndpoint: string | undefined
+): Promise<boolean> => {
+  if (!previousGuardianEndpoint) {
+    console.error('The node discarded the guardian switch, and the row records no previous endpoint to restore');
+    return false;
+  }
+  for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
+    try {
+      await withTimeout(
+        Promise.resolve(guardianProvider.setGuardianEndpoint?.(storedAccountId, previousGuardianEndpoint)),
+        ENDPOINT_PERSIST_TIMEOUT_MS,
+        'restoring the previous guardian endpoint'
+      );
+      return true;
+    } catch (restoreError) {
+      console.error(
+        `Could not restore the previous guardian endpoint (attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
+        restoreError
+      );
+      if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
+      }
+    }
+  }
+  return false;
+};
+
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
   result: TransactionResult | undefined,
@@ -601,15 +689,17 @@ export const completeSwitchGuardianTransaction = async (
   // confirmation the code never obtained.
   //
   // Two callers pass it: the direct path when `didDirectSwitchLand` answers
-  // `undefined`, and `reconcileStructuralApplyFailure` always — an
-  // apply-after-submit failure proves the node accepted the transaction and
-  // nothing beyond that.
+  // `undefined`, and `reconcileStructuralApplyFailure` always. It runs only on an
+  // apply-after-submit failure, which no pre-submit step produces, so it knows the
+  // node accepted the transaction and nothing beyond that.
   //
   // The default is `false` for the paths that WAITED for the commit and got it.
   // That is a claim about the commit wait, not about which path called: do not
   // read this default as "coordinated means confirmed" and add a caller without
   // checking which of the two it is.
-  commitUnconfirmed = false
+  commitUnconfirmed = false,
+  // Set only by the landed reconcile, where `result` is absent (#1233).
+  landed?: LandedWithoutResult
 ) => {
   // Read the WASM-backed result fields ONCE, up front, before anything that can
   // select a terminal status depends on them.
@@ -632,6 +722,8 @@ export const completeSwitchGuardianTransaction = async (
   // clean switch on the two states the user most needs told about.
   let endpointPersistFailed = false;
   let registerFailed = false;
+  let localStateNotSaved = false;
+  let localStateUnrecoverable = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
     const storedAccountId = await storedAccountIdFor(guardianProvider, tx.accountId);
@@ -678,10 +770,9 @@ export const completeSwitchGuardianTransaction = async (
       );
     });
 
-    // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
-    // Guardian accounts on different operators aren't clobbered. Backend
-    // providers implement setGuardianEndpoint; the optional-call guard keeps a
-    // frontend provider without it from throwing.
+    // Persist the endpoint PER-ACCOUNT so other Guardian accounts on different
+    // operators aren't clobbered. Backend providers implement setGuardianEndpoint;
+    // the optional-call guard keeps a frontend provider without it from throwing.
     try {
       // BOUNDED, because a hang here is worse than a rejection. On the frontend
       // this provider method is an intercom request, and `request()` in
@@ -711,14 +802,62 @@ export const completeSwitchGuardianTransaction = async (
       );
     }
 
+    // A landed switch (#1233): the apply failed, so this device's copy may still be the pre-switch
+    // account, whose guardian slot names the outgoing operator, and the new one refuses to register
+    // that. Adopt the post-switch state from the outgoing guardian first (it holds it once it
+    // canonicalizes the delta pushed after submit), and skip a registration that can only be refused.
+    // A read that throws counts as unknown: nothing here may select the Failed path. A guardian the delta
+    // did not reach in time is not polled: the background self-heal re-pushes it and adopts then.
+    const outgoing = tx.extraInputs.switchDeltaPushed === true ? multisigService : undefined;
+    const adopter: PostSwitchAdopter | undefined = outgoing
+      ? { probe: () => outgoing.probeGuardianState(), adoptOnce: () => outgoing.adoptGuardianStateOnce() }
+      : undefined;
+    const localState: PostSwitchLocalState = landed
+      ? await adoptPostSwitchState(adopter, storedAccountId, newGuardianEndpoint).catch(
+          (adoptError: unknown): PostSwitchLocalState => {
+            console.warn('Could not read the post-switch local state; registering as before:', adoptError);
+            return 'unknown';
+          }
+        )
+      : 'post-switch';
+    // Pre-switch at the bound is also what a switch the node discarded leaves, since the outgoing
+    // guardian then never holds a post-switch state, and an unknown copy may be either. A post-switch
+    // copy can be the failed apply's own account write (the store's apply writes the record, then the
+    // account, then notes and tags), which proves no commit; one an adopt produced can only meet a
+    // commit or no verdict, so asking there costs one bounded verdict read and changes no outcome.
+    // So ask the node about the transaction whatever the copy reads, as the direct path does: a discard
+    // means the switch did not happen, so the endpoint persisted above goes back to the previous
+    // guardian and the caller fails the row. No verdict keeps the flag.
+    const askNodeAbout = landed?.transactionId;
+    if (askNodeAbout !== undefined && (await didDirectSwitchLand(askNodeAbout)) === false) {
+      const restored = await restorePreviousGuardianEndpoint(
+        guardianProvider,
+        storedAccountId,
+        tx.extraInputs.previousGuardianEndpoint
+      );
+      throw new GuardianSwitchDiscardedError(askNodeAbout, restored ? undefined : newGuardianEndpoint);
+    }
+    // Only a coordinated row has a repair path: the self-heal adopts from the previous guardian, which
+    // a direct switch fled before it ever received the delta.
+    const switchedDirectly = tx.extraInputs.switchedDirectly === true;
     try {
-      if (multisigService) {
+      if (localState === 'pre-switch') {
+        if (switchedDirectly) localStateUnrecoverable = true;
+        else localStateNotSaved = true;
+      } else if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
       } else {
         await finalizeDirectGuardianSwitch(storedAccountId, newGuardianEndpoint, guardianProvider);
       }
     } catch (registerError) {
       registerFailed = true;
+      // Refused, maybe, for a copy nobody could show was post-switch: the self-heal that adopts
+      // one has to know.
+      // A direct switch has no repair path, and another key is the 'pre-switch' read, found by the registration.
+      if (localState === 'unknown') {
+        if (!switchedDirectly) localStateNotSaved = true;
+        else if (isGuardianKeyMismatchRefusal(registerError)) localStateUnrecoverable = true;
+      }
       console.error(
         'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
           'unknown to the new operator until the guardian-sync self-heal lands a registration:',
@@ -742,11 +881,17 @@ export const completeSwitchGuardianTransaction = async (
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
-      // Absent on the apply-after-submit-failed reconcile path (no local
-      // TransactionResult), and absent if reading the handle threw — the switch
-      // is on chain either way, so the row completes without them.
-      ...resultFields
+      extraInputs: {
+        ...tx.extraInputs,
+        registerFailed,
+        endpointPersistFailed,
+        commitUnconfirmed,
+        localStateNotSaved,
+        localStateUnrecoverable
+      },
+      // On the landed reconcile path there is no local TransactionResult, so the row takes the id
+      // the failure carried, if any (#1233); the switch is on chain either way.
+      ...(resultFields ?? landedTransactionIdFields(landed))
     });
   } catch (error) {
     // Past the commit, Failed is not an honest terminal status: the rotation IS
@@ -775,12 +920,22 @@ export const completeSwitchGuardianTransaction = async (
     // just delivered later and with a generic reason. Spacing the attempts costs
     // nothing on the happy path (it is only reached when a write has already
     // failed) and removes the single-retry coincidence.
+    //
+    // Except the node's discard (#1233): that switch did not happen, so its caller fails the row.
+    if (isGuardianSwitchDiscardedError(error)) throw error;
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
     const completedPayload = {
       displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
-      ...resultFields
+      extraInputs: {
+        ...tx.extraInputs,
+        registerFailed,
+        endpointPersistFailed,
+        commitUnconfirmed,
+        localStateNotSaved,
+        localStateUnrecoverable
+      },
+      ...(resultFields ?? landedTransactionIdFields(landed))
     };
     for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
       try {
@@ -918,17 +1073,18 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     }
 
     try {
-      // Relay BEFORE waiting for commit. Under 0.16 the hint comes from the note's
-      // stored `expected_height` rather than the client's live sync height, so this
-      // ordering is no longer what keeps the hint below the commitment block — but
-      // it is still right: it puts the irreversible, unrecoverable step first, while
-      // the wait is only a confirmation gate.
-      //
-      // Both the relay and the paired wait route through `midenClientProxy` (issue
-      // #260, slice 7b) so they run on the SAME client that created the note — the
-      // OFFSCREEN client flag-on, whose store holds it as an applied output note and
-      // is therefore the only one `sendPrivateOutput` can resolve it from; the SW
-      // client flag-off (each proxy call owns its WASM lock).
+      // The proof rc.5's transport verifies exists only after this commit wait
+      // syncs past the block. Both the wait and the relay route through
+      // `midenClientProxy` (issue #260, slice 7b) so they run on the client that
+      // created the note: the offscreen client when the flag is on, whose store
+      // holds the output note `sendPrivateOutput` reads.
+      await setTransactionStage(tx.id, 'confirming');
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
+    } catch (error) {
+      console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
+    }
+
+    try {
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
       noteDelivery = 'relayed';
     } catch (error) {
@@ -965,19 +1121,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
-
-    // Confirmation only, and only once the relay has settled either way. Its own
-    // failure says nothing about delivery, so it must not disturb the state above.
-    try {
-      await setTransactionStage(tx.id, 'confirming');
-      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
-    } catch (error) {
-      // The on-chain tx may not be confirmed yet from this client's perspective;
-      // falling through to the normal Completed path is still correct because
-      // executedTx.id() is the canonical id and the chain is the source of truth —
-      // a subsequent sync reconciles it.
-      console.warn('Commit wait failed during private send; relying on SDK reconcile', { txId: tx.id, error });
-    }
   } else if (isPrivateSend && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
@@ -1001,7 +1144,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
-      displayMessage: noteDelivery === 'undelivered' ? 'Sent — the private note could not be delivered' : 'Sent',
+      displayMessage: noteDelivery === 'undelivered' ? undeliveredDisplayMessage('Sent') : 'Sent',
       transactionId: executedTx.id().toHex(),
       outputNoteIds,
       noteDelivery,
@@ -1299,7 +1442,8 @@ export const updateEarnWithdrawPhase = async (
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
-      return;
+      // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+      return false;
     }
     // Only the move INTO a terminal phase, so the idempotent same-phase patches
     // this function deliberately allows do not each report an outcome.
@@ -1307,6 +1451,7 @@ export const updateEarnWithdrawPhase = async (
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    return undefined;
   });
 
   // Reported from here because there is nowhere else it could be. This row is
@@ -1417,10 +1562,38 @@ const BRIDGED_RECEIVE_SETTLED_PHASES: ReadonlySet<IBridgedReceivePhase> = new Se
 ]);
 
 /**
+ * The display fields a bridged-send row takes on the moment its landing is
+ * proven - whether that proof arrives from a claim or fill write already in
+ * progress (`updateBridgeClaimStatus`) or from evidence already stored on a
+ * row nobody is actively polling (`reconcileBridgedSends`, #1250). One
+ * function so the two sites can never drift on what "landed" looks like.
+ */
+export const bridgedSendLandedValues = (): Partial<ITransaction> => ({
+  displayMessage: 'Bridged to EVM',
+  displayIcon: 'SEND',
+  completedAt: Math.floor(Date.now() / 1000)
+});
+
+/**
  * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
- * long after the Miden-side send has reached `Completed`, so this mutates ONLY
- * `extraInputs` and never touches `status` (which `updateTransactionStatus`
- * would reject as "already finalized"). Used by the activity-detail claim flow.
+ * long after the Miden-side send has reached `Completed`, so this mutates
+ * `extraInputs` directly rather than through `updateTransactionStatus` (which
+ * would reject a Completed row as "already finalized"). Used by the
+ * activity-detail claim flow and the background bridge poll.
+ *
+ * `boundDepositTxHash` is the bound deposit's `tx_hash`, passed by a caller that found the deposit
+ * by THIS row's exit hash (`findAgglayerExitDeposit`). A deposit carrying the row's own
+ * `agglayerExitTxHash` proves the bridge consumed this row's own note, so the row landed. When the
+ * merged write proves that - the hashes match (`sameTxHash`), or the Epoch fill poll reports
+ * `epochStatus: 'confirmed'` - a row that is Failed or Unconfirmed in the store is promoted to
+ * Completed in that same write, via `applyVerifiedLanding` (#1250, #1081), so the evidence and the
+ * status can never be stored apart. A write whose merged route status is itself 'failed' never
+ * promotes.
+ *
+ * An Agglayer claim status only moves forward: `claimed` is final, and `ready` applies only over
+ * `pending`. The claim flow and the background poll each write from a snapshot of the row, so
+ * without this a stale `ready` could undo `claiming`, and a late `failed` could undo a claim the
+ * bridge's auto-claimer already made (#1325).
  */
 export const updateBridgeClaimStatus = async (
   id: string,
@@ -1430,6 +1603,7 @@ export const updateBridgeClaimStatus = async (
       IBridgedSendExtraInputs,
       | 'depositReady'
       | 'claimTxHash'
+      | 'agglayerDepositCnt'
       | 'evmTxHash'
       | 'intentNonce'
       | 'outputAmount'
@@ -1438,11 +1612,155 @@ export const updateBridgeClaimStatus = async (
       | 'fillChainId'
       | 'epochStatus'
     >
-  >
+  >,
+  boundDepositTxHash?: string
 ) => {
+  let landed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
-    tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+    if (ei.provider === 'agglayer') {
+      if (ei.claimStatus === 'claimed' && claimStatus !== 'claimed') return;
+      if (claimStatus === 'ready' && ei.claimStatus !== undefined && ei.claimStatus !== 'pending') return;
+    }
+    const merged: IBridgedSendExtraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+    tx.extraInputs = merged;
+
+    const routeFailed = merged.claimStatus === 'failed' || merged.epochStatus === 'failed';
+    const agglayerLanded =
+      !routeFailed &&
+      (claimStatus === 'ready' || claimStatus === 'claiming' || claimStatus === 'claimed') &&
+      boundDepositTxHash !== undefined &&
+      merged.agglayerExitTxHash !== undefined &&
+      sameTxHash(boundDepositTxHash, merged.agglayerExitTxHash);
+    const epochLanded = !routeFailed && merged.epochStatus === 'confirmed';
+    const landingUnknown = tx.status === ITransactionStatus.Failed || tx.status === ITransactionStatus.Unconfirmed;
+    if (landingUnknown && (agglayerLanded || epochLanded)) {
+      applyVerifiedLanding(tx, bridgedSendLandedValues());
+      landed = tx;
+    }
+  });
+
+  if (landed !== undefined) {
+    reportVerifiedLanding(landed);
+  }
+};
+
+/**
+ * Completed switch-guardian rows whose commit was never confirmed - the
+ * durable pending-rotation intents the recovery recheck works through. The
+ * Dexie row itself is the intent: it survives realm churn and vault locks and
+ * carries the on-chain transaction id and target endpoint, so no separate
+ * marker store exists to drift from it. Read through the verdict module, never
+ * the raw flags (the guardian claim fence).
+ */
+export const listUnconfirmedSwitchRows = async (accountId: string): Promise<SwitchGuardianTransaction[]> => {
+  // Entered through the `type` index rather than `accountId`. BOTH are indexed (v1.7
+  // added `type` for the bridge watcher), so the choice is which one narrows harder, and
+  // it is not close: an account's history is every send, claim and swap it has ever made,
+  // while `switch-guardian` rows are one per rotation. On a 3 s loop the old entry point
+  // walked that whole history every lap for a result that is almost always empty.
+  //
+  // Still filtered during the cursor walk rather than after a `toArray()`: materializing
+  // first also RETAINED each row, including the binary `requestBytes` / `resultBytes`
+  // payloads, which is the difference between touching the history and keeping it.
+  const rows = await Repo.transactions
+    .where('type')
+    .equals('switch-guardian')
+    .filter(row => row.accountId === accountId && rotationVerdict(row)?.kind === 'submitted-unconfirmed')
+    .toArray();
+  return rows.filter((row): row is SwitchGuardianTransaction => row.type === 'switch-guardian');
+};
+
+/**
+ * Settle a pending rotation once the node finally answered.
+ *
+ * `landed === true` upgrades the row to a confirmed rotation (the
+ * receipt/Activity copy follows via `rotationVerdict`).
+ *
+ * `landed === false` demotes it to Failed.
+ *
+ * THIS CALL IS THE POINT OF NO RETURN, and the caller has to have finished the
+ * vault side FIRST. Demoting sets `status = Failed`, and `rotationVerdict`
+ * answers `'failed'` on a Failed row before it ever looks at
+ * `commitUnconfirmed` - so the row drops out of `listUnconfirmedSwitchRows` the
+ * instant this resolves and no later pass can re-derive the repair from it. The
+ * completion persisted the NEW endpoint before it knew the commit was
+ * unconfirmed (the anti-stranding write above), so on a discarded rotation the
+ * vault names an operator with no on-chain authority; and drift reconciliation
+ * cannot repair that, because its cheap path returns `in-sync` the moment the
+ * stored commitment BASELINE equals the chain, and on a discarded rotation the
+ * baseline was never advanced - baseline == chain == the old operator, and the
+ * stored endpoint is never even read.
+ *
+ * So: roll the binding back, then call this. The reverse order buys a demoted
+ * row and a silently-unusable account whenever the vault write fails, with the
+ * only evidence of the repair already thrown away.
+ */
+export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<void> => {
+  if (landed) {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.displayMessage = 'Guardian switched';
+      tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    });
+    return;
+  }
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = 'Guardian switch discarded';
+    // Plain prose, like every other `tx.error` (the field carries thrown-error
+    // text and is rendered verbatim on the failure card). It says only what THIS
+    // function has established: that the node discarded THIS switch. Two earlier
+    // versions overreached - one claimed the wallet had been pointed back at the
+    // previous guardian, the next that the previous guardian was still active -
+    // and both are claims about CURRENT account state this function never reads.
+    // With two rotations unconfirmed at once (A to B discarded while B to C
+    // commits, the case the rollback below is conditional for) the previous
+    // guardian is not active, and the card said so anyway.
+    tx.error = 'The node discarded this guardian switch after submission.';
+    // Cleared for the same reason the landed path clears it: the flag means
+    // "completed with no evidence either way", and the node has now answered.
+    // The row's terminal status carries the outcome from here.
+    tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+  });
+};
+
+/**
+ * Pin the Agglayer exit deposit the indexer reported for this row before it was ready, so the next
+ * lookup is one GET. It writes only the pin, never `claimStatus`, so it cannot race a claim write.
+ */
+export const pinAgglayerDeposit = async (id: string, depositCnt: number) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs = tx.extraInputs;
+    tx.extraInputs = { ...ei, agglayerDepositCnt: depositCnt };
+  });
+};
+
+/**
+ * Record the exit hash back-filled for an Agglayer row built before the hash was stored at build
+ * time, or mark the row unavailable when none of its bytes held its note (`undefined`). The first
+ * answer stands: every surface that back-fills a row decodes the same bytes, so a later write has
+ * nothing to add.
+ */
+export const recordAgglayerExitTxHash = async (id: string, exitTxHash: string | undefined) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    if (ei === undefined || ei.agglayerExitTxHash !== undefined || ei.agglayerExitTxHashUnavailable) return;
+    tx.extraInputs =
+      exitTxHash === undefined
+        ? { ...ei, agglayerExitTxHashUnavailable: true }
+        : { ...ei, agglayerExitTxHash: exitTxHash };
+  });
+};
+
+/**
+ * Retire an Agglayer row whose exit a search of its address's whole history missed (`agglayerExitUnfiled`). Only an
+ * unpinned row: a pin means the indexer filed its exit. The first mark stands.
+ */
+export const markAgglayerExitUnfiled = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+    if (ei?.provider !== 'agglayer' || ei.agglayerDepositCnt !== undefined || ei.agglayerExitUnfiled) return;
+    tx.extraInputs = { ...ei, agglayerExitUnfiled: true };
   });
 };
 
@@ -1453,45 +1771,61 @@ export const updateBridgeClaimStatus = async (
  * drift, allocator downtime) means the bridge did NOT succeed and the funds sit
  * in a recallable P2IDE note. Demote the false success to Failed and record it so
  * the activity view stops claiming success. Modifies the row directly because
- * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
- * pipeline is already done with this row, so there is no race.
+ * `updateTransactionStatus` rejects re-finalizing a Completed tx. The row is
+ * usually Completed here, but the 5-minute wait in `createBridgeP2IDENote` can
+ * give up while it is still queued or in flight; that pipeline is then refused
+ * at its submit claim (`claimBridgeSubmit`) unless it already made it, in which
+ * case its `submitClaimed` says the note may exist.
+ *
+ * A row the note pipeline already failed for its own reason - its own status,
+ * error and classification already stored - keeps that failure instead of this
+ * one: the early return below leaves an already-Failed row untouched, since
+ * that failure was already reported by `cancelTransaction` (#1250).
  */
-export const markBridgedSendFailed = async (id: string, error: string, reclaimHeight?: number) => {
-  console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
-    id,
-    error
-  });
+export const markBridgedSendFailed = async (id: string, error: string) => {
   let demoted: ITransaction | undefined;
+  let committed = false;
   await Repo.transactions.where({ id }).modify(tx => {
-    tx.status = ITransactionStatus.Failed;
-    tx.displayMessage = 'Bridge failed — funds reclaimable';
+    // A row the note pipeline already failed keeps the pipeline's own Failed
+    // write rather than this later one; `demoted` stays undefined, so nothing
+    // is reported for a row nothing here actually changed (#1250).
+    if (tx.status === ITransactionStatus.Failed) return false;
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
-    tx.extraInputs = {
-      ...ei,
-      claimStatus: 'failed',
-      epochStatus: 'failed',
-      ...(reclaimHeight != null ? { reclaimHeight } : {})
-    };
+    committed = tx.status === ITransactionStatus.Completed;
+    const noteMayExist = committed || ei.submitClaimed === true;
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = noteMayExist ? 'Bridge failed - funds reclaimable' : 'Bridge failed';
+    tx.extraInputs = { ...ei, claimStatus: 'failed', epochStatus: 'failed' };
     demoted = tx;
+    return undefined;
   });
+  if (demoted === undefined) return;
+
+  console.error(
+    committed
+      ? '[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed'
+      : '[epoch] bridged-send abandoned before its P2IDE note was confirmed; demoting row to Failed',
+    { id, error }
+  );
 
   // The mirror of `completeVerifiedLandedTransaction`, and needed for the same
-  // reason. This row already reported `completed` on its way through
+  // reason. A committed row already reported `completed` on its way through
   // `updateTransactionStatus`, because as far as the send pipeline was concerned
   // it succeeded. Without this the only settled event a rejected bridge ever
   // produces says it worked — which is worse than reporting nothing, since it
   // moves a failure into the denominator and makes the bridge look healthier the
   // more often it fails this way.
   //
-  // `step: 'submitting'` rather than a mapped stage: the row is stamped
-  // `complete` by now, and what failed is the intent the note was submitted for.
-  if (demoted !== undefined) {
-    reportOperation({
-      operation: operationOfType(demoted.type),
-      result: 'errored',
-      durationMs: elapsedMsSince(demoted.initiatedAt),
-      errorKind: classifyError(error),
-      step: 'submitting'
-    });
-  }
+  // `step: 'submitting'` rather than a mapped stage for a committed row: it is
+  // stamped `complete` by now, and what failed is the intent the note was
+  // submitted for. A row abandoned before completing reports where it stood,
+  // since nothing else will report it: its own completion and cancel are refused
+  // on the Failed row.
+  reportOperation({
+    operation: operationOfType(demoted.type),
+    result: 'errored',
+    durationMs: elapsedMsSince(demoted.initiatedAt),
+    errorKind: classifyError(error),
+    step: committed ? 'submitting' : stepOfStage(demoted.stage)
+  });
 };

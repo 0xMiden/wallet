@@ -21,6 +21,13 @@ export const BG_SETTINGS_MIRRORED_KEY = 'bg_settings_mirrored';
 export const HAPTIC_FEEDBACK_STORAGE_KEY = 'haptic_feedback_setting';
 export const DEFAULT_HAPTIC_FEEDBACK = true;
 
+/**
+ * Advanced Settings' "value unquoted tokens at $1" switch (`lib/settings/nominal-price`). Off
+ * by default: a token the price feed does not list shows the dash until a developer turns it on.
+ */
+export const NOMINAL_UNQUOTED_PRICE_STORAGE_KEY = 'nominal_unquoted_price_setting';
+export const DEFAULT_NOMINAL_UNQUOTED_PRICE = 'off';
+
 export const CARD_COLOR_STORAGE_KEY = 'balance_card_color';
 export type CardColor = 'slate' | 'orange' | 'blue' | 'green' | 'purple';
 export const CARD_COLORS: CardColor[] = ['slate', 'orange', 'blue', 'green', 'purple'];
@@ -53,19 +60,3 @@ export const THEME_STORAGE_KEY = 'theme_setting';
 export type ThemeSetting = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export const DEFAULT_THEME: ThemeSetting = 'system';
-
-/**
- * @deprecated Frozen, read-only, never-written last-resort fallback (#408
- * stage 3). Onboarding threads the guardian endpoint per-account and the
- * unlock-time backfill stamps legacy accounts by on-chain commitment, so this
- * key is no longer WRITTEN anywhere in the codebase. It is still READ as the
- * final fallback for a legacy account on a custom/self-hosted/rotated guardian
- * that the backfill can't identify — see `resolveGuardianEndpoint` and
- * `useCurrentGuardianEndpoint`. Every wallet-setup storage reset, a file restore
- * included, keeps it (`SETUP_PRESERVED_STORAGE_KEYS`), so a Retry after a failed
- * setup reads it too; it goes once any setup succeeds (`dropLegacyGuardianUrl`)
- * and on a full reset. Do not reintroduce writes; deleting it
- * from a wallet that is only ever unlocked needs a "re-enter your guardian URL"
- * user flow (out of scope).
- */
-export const GUARDIAN_URL_STORAGE_KEY = 'guardian_url_setting';

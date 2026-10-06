@@ -1,10 +1,19 @@
 import {
+  ApplyAfterSubmitError,
+  extractLanded,
   extractSdkErrorCode,
+  hasErrorBeforeSubmit,
+  indefiniteSubmitTransactionId,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
   isGuardianCanonicalizationError,
+  isIndefiniteSubmitOutcomeError,
+  isKilledPipeline,
+  isPoisonedPipeline,
   isStaleInitialCommitmentError,
-  isTransactionDiscardedError
+  isTransactionDiscardedError,
+  markErrorBeforeSubmit,
+  someInCauseChain
 } from './sdk-error-code';
 
 /**
@@ -24,6 +33,14 @@ const REAL_APPLY_AFTER_SUBMIT_MESSAGES = [
     'Resubmitting the same transaction will be rejected if the original is still in the mempool or has been ' +
     'finalized in a block, because the account (and network) state has already been mutated by the accepted copy.'
 ];
+
+/** `text` two links down, under a lock-recovery eviction or under a plain wrapper of the same depth (#1313). */
+const underWrappedEviction = (text: string): Error => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  return new Error('Offscreen call failed', { cause: new WasmClientPoisonedError('realm-error', new Error(text)) });
+};
+const underWrapper = (text: string): Error =>
+  new Error('Offscreen call failed', { cause: new Error('trap', { cause: new Error(text) }) });
 
 describe('extractSdkErrorCode', () => {
   it('reads `code`, the property web-sdk actually sets', () => {
@@ -151,6 +168,99 @@ describe('isApplyAfterSubmitError', () => {
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('realm-error', trapWithSdkText))).toBe(false);
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('watchdog'))).toBe(false);
   });
+
+  it('never classifies an error wrapping a lock-recovery eviction as apply-after-submit (#1313)', () => {
+    expect(isApplyAfterSubmitError(underWrapper(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]!))).toBe(true);
+    expect(isApplyAfterSubmitError(underWrappedEviction(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]!))).toBe(false);
+  });
+});
+
+describe('ApplyAfterSubmitError', () => {
+  it('classifies by its code and, with the code gone, by its text', () => {
+    const cause = new Error('store quota');
+    const error = new ApplyAfterSubmitError(cause);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('ApplyAfterSubmitError');
+    expect(error.cause).toBe(cause);
+    expect(extractSdkErrorCode(error)).toBe('ApplyTransactionAfterSubmitFailed');
+    expect(isApplyAfterSubmitError(error)).toBe(true);
+    expect(isApplyAfterSubmitError(new Error(error.message))).toBe(true);
+  });
+
+  it('carries the landed facts as one object, which extractLanded reads', () => {
+    const landed = { transactionId: '0xlanded', privateOutputNotes: 2 };
+    const error = new ApplyAfterSubmitError(new Error('store quota'), landed);
+    expect(error.landed).toEqual(landed);
+    expect(extractLanded(error)).toEqual(landed);
+    expect(new ApplyAfterSubmitError(new Error('store quota')).landed).toEqual({});
+    // As the service worker rebuilds an offscreen failure: a plain Error with the forwarded object.
+    const rebuilt = Object.assign(new Error('rebuilt'), {
+      landed: { transactionId: '0xlanded', privateOutputNotes: 0 }
+    });
+    expect(extractLanded(rebuilt)).toEqual({ transactionId: '0xlanded', privateOutputNotes: 0 });
+  });
+
+  it('extractLanded keeps only a string id and a non-negative integer count', () => {
+    expect(extractLanded({ landed: { transactionId: 5, privateOutputNotes: 1.5 } })).toEqual({});
+    const counts = [undefined, -1, Number.NaN, Number.POSITIVE_INFINITY, '2', null];
+    expect(
+      counts.map(count => extractLanded({ landed: { transactionId: '0xlanded', privateOutputNotes: count } }))
+    ).toEqual(counts.map(() => ({ transactionId: '0xlanded' })));
+    // The facts cross as one object: fields beside it are not read.
+    expect(
+      extractLanded(Object.assign(new Error('rebuilt'), { transactionId: '0xlanded', privateOutputNotes: 2 }))
+    ).toEqual({});
+  });
+
+  it('extractLanded reads nothing off a non-object or a throwing landed accessor', () => {
+    for (const value of [
+      null,
+      undefined,
+      2,
+      '0xlanded',
+      new Error('plain'),
+      { landed: '0xlanded' },
+      { landed: null }
+    ]) {
+      expect(extractLanded(value)).toEqual({});
+    }
+    const hostile = Object.defineProperty(new Error('hostile'), 'landed', {
+      get() {
+        throw new Error('accessor');
+      }
+    });
+    const hostileFields = {
+      landed: Object.defineProperties(
+        {},
+        {
+          transactionId: {
+            get() {
+              throw new Error('accessor');
+            }
+          },
+          privateOutputNotes: {
+            get() {
+              throw new Error('accessor');
+            }
+          }
+        }
+      )
+    };
+    expect(extractLanded(hostile)).toEqual({});
+    expect(extractLanded(hostileFields)).toEqual({});
+  });
+
+  it('extractLanded keeps a string final account commitment and drops any other (#1233)', () => {
+    expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment: '0xfinal' } })).toEqual({
+      transactionId: '0xlanded',
+      finalAccountCommitment: '0xfinal'
+    });
+    for (const finalAccountCommitment of [5, null, { toHex: () => '0xfinal' }]) {
+      expect(extractLanded({ landed: { transactionId: '0xlanded', finalAccountCommitment } })).toStrictEqual({
+        transactionId: '0xlanded'
+      });
+    }
+  });
 });
 
 describe('isTransactionDiscardedError', () => {
@@ -193,6 +303,11 @@ describe('isTransactionDiscardedError', () => {
       false
     );
     expect(isTransactionDiscardedError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+
+  it('never reads an error wrapping a lock-recovery eviction as a node verdict (#1313)', () => {
+    expect(isTransactionDiscardedError(underWrapper(DISCARDED_MESSAGE))).toBe(true);
+    expect(isTransactionDiscardedError(underWrappedEviction(DISCARDED_MESSAGE))).toBe(false);
   });
 });
 
@@ -252,6 +367,11 @@ describe('isStaleInitialCommitmentError', () => {
       )
     ).toBe(false);
   });
+
+  it('never reads an error wrapping a lock-recovery eviction as a node verdict (#1313)', () => {
+    expect(isStaleInitialCommitmentError(underWrapper(STALE_INITIAL_COMMITMENT_REFUSAL))).toBe(true);
+    expect(isStaleInitialCommitmentError(underWrappedEviction(STALE_INITIAL_COMMITMENT_REFUSAL))).toBe(false);
+  });
 });
 
 describe('isGuardianCanonicalizationError', () => {
@@ -290,6 +410,11 @@ describe('isGuardianCanonicalizationError', () => {
       isGuardianCanonicalizationError(new WasmClientPoisonedError('realm-error', new Error(CANONICALIZATION_MESSAGE)))
     ).toBe(false);
     expect(isGuardianCanonicalizationError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+
+  it('never reads an error wrapping a lock-recovery eviction as a canonicalization race (#1313)', () => {
+    expect(isGuardianCanonicalizationError(underWrapper(CANONICALIZATION_MESSAGE))).toBe(true);
+    expect(isGuardianCanonicalizationError(underWrappedEviction(CANONICALIZATION_MESSAGE))).toBe(false);
   });
 });
 
@@ -370,5 +495,152 @@ describe('isAccountNotFoundOnChainError', () => {
     expect(isAccountNotFoundOnChainError(new WasmClientPoisonedError('realm-error', new Error(NODE_016_MISS)))).toBe(
       false
     );
+  });
+
+  it('never reads an error wrapping a poisoned client as a miss (#1313)', () => {
+    expect(isAccountNotFoundOnChainError(underWrapper(NODE_016_MISS))).toBe(true);
+    expect(isAccountNotFoundOnChainError(underWrappedEviction(NODE_016_MISS))).toBe(false);
+  });
+});
+
+describe('someInCauseChain (#1313)', () => {
+  const isTarget = (link: object): boolean => 'name' in link && link.name === 'Target';
+  const target = (): Error => Object.assign(new Error('target'), { name: 'Target' });
+  const throwing = (error: Error, key: 'cause' | 'name'): Error =>
+    Object.defineProperty(error, key, {
+      get() {
+        throw new Error('boom');
+      }
+    });
+
+  it('finds a match three causes deep', () => {
+    const outer = new Error('outer', {
+      cause: new Error('first', { cause: new Error('second', { cause: target() }) })
+    });
+    expect(someInCauseChain(outer, isTarget)).toBe(true);
+  });
+
+  it('ends on a two-link cycle', () => {
+    const a: Error & { cause?: unknown } = new Error('a');
+    const b: Error & { cause?: unknown } = new Error('b');
+    a.cause = b;
+    b.cause = a;
+    expect(someInCauseChain(a, isTarget)).toBe(false);
+  });
+
+  it('stops at a cause getter that throws, keeping what the links before it answered', () => {
+    expect(() => someInCauseChain(throwing(new Error('outer'), 'cause'), isTarget)).not.toThrow();
+    expect(someInCauseChain(throwing(new Error('outer'), 'cause'), isTarget)).toBe(false);
+    expect(someInCauseChain(throwing(target(), 'cause'), isTarget)).toBe(true);
+  });
+
+  it('skips a link the predicate cannot read and still finds a match on its cause', () => {
+    expect(someInCauseChain(throwing(new Error('unreadable', { cause: target() }), 'name'), isTarget)).toBe(true);
+  });
+});
+
+describe('isKilledPipeline and isPoisonedPipeline (#1313)', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  const abortedInside = () => new Error('x', { cause: new OperationAbortedError('op-1', 'deadline') });
+  const poisonedInside = () => new Error('x', { cause: new WasmClientPoisonedError('watchdog') });
+
+  it('reads either kill anywhere in the chain as a killed pipeline', () => {
+    expect(isKilledPipeline(abortedInside())).toBe(true);
+    expect(isKilledPipeline(poisonedInside())).toBe(true);
+    expect(isKilledPipeline(new Error('x'))).toBe(false);
+  });
+
+  it('reads only a lock-recovery eviction as a poisoned pipeline', () => {
+    expect(isPoisonedPipeline(abortedInside())).toBe(false);
+    expect(isPoisonedPipeline(poisonedInside())).toBe(true);
+  });
+});
+
+const ID = `0x${'ab'.repeat(32)}`;
+const OTHER_ID = `0x${'cd'.repeat(32)}`;
+const indefinite = (id: string = ID) =>
+  `submission of transaction ${id} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`;
+
+describe('isIndefiniteSubmitOutcomeError (#1081)', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('matches the SDK text, bare or wrapped by the offscreen bus', () => {
+    expect(isIndefiniteSubmitOutcomeError(new Error(indefinite()))).toBe(true);
+    expect(isIndefiniteSubmitOutcomeError(new Error(`Offscreen call 'sendTransaction' failed: ${indefinite()}`))).toBe(
+      true
+    );
+    expect(isIndefiniteSubmitOutcomeError(new Error('wrapper', { cause: new Error(indefinite()) }))).toBe(true);
+    expect(isIndefiniteSubmitOutcomeError(new Error('node refused the proven transaction'))).toBe(false);
+  });
+
+  it('is never a kill, whichever kill shape carries the text in its cause chain', () => {
+    expect(isIndefiniteSubmitOutcomeError(new WasmClientPoisonedError('watchdog', new Error(indefinite())))).toBe(
+      false
+    );
+    const aborted = new OperationAbortedError('op-1', 'deadline');
+    aborted.cause = new Error(indefinite());
+    expect(isIndefiniteSubmitOutcomeError(aborted)).toBe(false);
+    expect(isIndefiniteSubmitOutcomeError(new Error('outer', { cause: aborted }))).toBe(false);
+  });
+
+  it('reads the id from the part that carries the phrase, lower-cased', () => {
+    expect(indefiniteSubmitTransactionId(new Error(indefinite(ID.toUpperCase().replace('0X', '0x'))))).toBe(ID);
+    // A wrapper naming another id without the phrase does not supply it.
+    const wrapped = new Error(`submission of transaction ${OTHER_ID} failed`, { cause: new Error(indefinite()) });
+    expect(indefiniteSubmitTransactionId(wrapped)).toBe(ID);
+    expect(indefiniteSubmitTransactionId(new Error(`submission of transaction ${ID} failed`))).toBeUndefined();
+    expect(
+      indefiniteSubmitTransactionId(new WasmClientPoisonedError('watchdog', new Error(indefinite())))
+    ).toBeUndefined();
+  });
+});
+
+describe('the errorBeforeSubmit tag (#1081)', () => {
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('tags an ordinary error in place and reads it back', () => {
+    const error = new Error('vault slot missing');
+    expect(markErrorBeforeSubmit(error)).toBe(error);
+    expect(hasErrorBeforeSubmit(error)).toBe(true);
+  });
+
+  it('wraps a thrown non-object so the tag has somewhere to live', () => {
+    const tagged = markErrorBeforeSubmit('bare string');
+    expect(tagged).toBeInstanceOf(Error);
+    expect(hasErrorBeforeSubmit(tagged)).toBe(true);
+  });
+
+  it('never tags a kill, an apply-after-submit failure or the indefinite outcome', () => {
+    const poison = new WasmClientPoisonedError('watchdog', new Error('x'));
+    markErrorBeforeSubmit(poison);
+    expect(hasErrorBeforeSubmit(poison)).toBe(false);
+    const landed = Object.assign(new Error('landed'), { errorCode: 'ApplyTransactionAfterSubmitFailed' });
+    markErrorBeforeSubmit(landed);
+    expect(hasErrorBeforeSubmit(landed)).toBe(false);
+    const unknown = new Error(indefinite());
+    markErrorBeforeSubmit(unknown);
+    expect(hasErrorBeforeSubmit(unknown)).toBe(false);
+  });
+
+  it('reads the thrown value only: a wrapper around a tagged error is not proof', () => {
+    const inner = markErrorBeforeSubmit(new Error('inner'));
+    expect(hasErrorBeforeSubmit(new Error('outer', { cause: inner }))).toBe(false);
+  });
+
+  it('survives a frozen error and a hostile accessor by answering no', () => {
+    const frozen = Object.freeze(new Error('frozen'));
+    expect(markErrorBeforeSubmit(frozen)).toBe(frozen);
+    expect(hasErrorBeforeSubmit(frozen)).toBe(false);
+    const hostile = new Proxy(
+      {},
+      {
+        has: () => {
+          throw new Error('trap');
+        }
+      }
+    );
+    expect(hasErrorBeforeSubmit(hostile)).toBe(false);
   });
 });

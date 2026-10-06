@@ -27,7 +27,7 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
  */
 export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const { t } = useTranslation();
-  const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
+  const { items, accept, acceptMany, retryHeld, account, isLoadingNotes } = useActivityClaims();
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
   const currentItems = useRef(items);
@@ -59,6 +59,8 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const declinedItems = items.filter(
     item => hidden.ids.has(item.note.id) && (item.status === 'pending' || item.status === 'failed')
   );
+  // What a Restore passes, so it brings back exactly the declines `hiddenCount` told the user about.
+  const declinedIds = declinedItems.map(item => item.note.id);
 
   const reject = async (note: ClaimableNoteWithMetadata) => {
     const accepted = await confirm({
@@ -78,6 +80,8 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   };
   const acceptRef = useRef(accept);
   acceptRef.current = accept;
+  const retryHeldRef = useRef(retryHeld);
+  retryHeldRef.current = retryHeld;
   const rejectRef = useRef(reject);
   rejectRef.current = reject;
   const hiddenLoaded = hidden.loaded;
@@ -87,6 +91,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
         item={item}
         onAccept={note => acceptRef.current(note)}
         onReject={hiddenLoaded ? note => rejectRef.current(note) : undefined}
+        onRetryHeld={heldItem => retryHeldRef.current(heldItem)}
       />
     ),
     [hiddenLoaded]
@@ -101,6 +106,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     isLoadingNotes,
     hidden,
     declinedItems,
+    declinedIds,
     hiddenCount: declinedItems.length
   };
 }

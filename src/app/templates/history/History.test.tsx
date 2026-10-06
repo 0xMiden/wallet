@@ -5,6 +5,10 @@ import { flushSync } from 'react-dom';
 import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
+// The real strings, not mocked (this module is not replaced by any `jest.mock` in this file) -
+// used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
+// call reads (#1250).
+import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
 
 // Imported AFTER the mocks are registered.
 import History from './History';
@@ -106,11 +110,16 @@ jest.mock('lib/miden/activity', () => ({
   // Real (pure) implementations so the cancelled-row mapping is exercised
   // against the production sentinel string.
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
-  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
+  isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user',
+  // The REAL predicate, same reasoning as isCancellableTransaction above: which rows the
+  // builder marks not-confirmed (#1250) is exactly what the isUnconfirmed tests assert.
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure,
+  isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
+  notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
 }));
 
 jest.mock('lib/miden/db/types', () => ({
-  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 },
+  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
   STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES,
   formatTransactionStatus: (...args: unknown[]) => mockFormatTransactionStatus(...args)
 }));
@@ -161,7 +170,7 @@ jest.mock('./HistoryView', () => ({
 }));
 
 // Enum values must match the mocked `lib/miden/db/types` above.
-const STATUS = { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 };
+const STATUS = { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 };
 
 // ---------------------------------------------------------------------------
 // Fixtures — one dataset that touches every branch of both fetch helpers.
@@ -429,6 +438,178 @@ describe('History', () => {
     expect(pending.newGuardianEndpoint).toBe('https://legacy-new.example');
   });
 
+  it('projects each rotation row verdict for the Activity title and chip', async () => {
+    const rotation = { accountId: '0xme', displayIcon: 'DEFAULT', type: 'switch-guardian' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      {
+        ...rotation,
+        id: 'unconfirmed',
+        status: STATUS.Completed,
+        displayMessage: 'Guardian switch submitted',
+        completedAt: 300,
+        extraInputs: { newGuardianEndpoint: 'https://new.example', commitUnconfirmed: true }
+      },
+      {
+        ...rotation,
+        id: 'confirmed',
+        status: STATUS.Completed,
+        displayMessage: 'Guardian switched',
+        completedAt: 200,
+        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([
+      {
+        ...rotation,
+        id: 'queued',
+        status: STATUS.Queued,
+        displayMessage: 'Switching guardian',
+        initiatedAt: 400,
+        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+
+    const verdictOf = (key: string) =>
+      mockHistoryViewProps.entries.find((entry: { key: string }) => entry.key === key).guardianSwitchVerdict;
+    expect(verdictOf('completed-unconfirmed')).toBe('submitted-unconfirmed');
+    expect(verdictOf('completed-confirmed')).toBe('confirmed');
+    expect(verdictOf('pending-queued')).toBe('in-flight');
+  });
+
+  it('sets isUnconfirmed (and keeps isCancelled) for a stamped user cancel, and for a failed bridge-in consume', async () => {
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      // A user cancel the pipeline had already picked up (processingStartedAt set): the row is
+      // both isCancelled (Retry stays hidden) and isUnconfirmed (its pipeline may still land).
+      {
+        id: 'stamped-cancel',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'send',
+        completedAt: 500,
+        error: 'Transaction was cancelled by user',
+        processingStartedAt: 1_600_000_000
+      },
+      // A bridge-in consume the cold-start sweep failed: unconfirmed, not cancelled.
+      {
+        id: 'bridge-in-failed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'consume',
+        completedAt: 600,
+        error: TRANSACTION_INTERRUPTED_ERROR,
+        extraInputs: { bridgeIn: { provider: 'agglayer' } }
+      },
+      // A rotation the vault shortfall gate names even though it may have submitted: a
+      // definite failure, not an unknown outcome (#1250).
+      {
+        id: 'rotation-shortfall',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'replace-hot-key',
+        completedAt: 700,
+        error: TRANSACTION_VAULT_SHORTFALL_ERROR,
+        mayHaveSubmitted: true
+      },
+      // A bridged-send `markBridgedSendFailed` demoted after the allocator rejected the intent: its
+      // own route evidence proves it failed, so it stays a definite failure too (#1250).
+      {
+        id: 'bridge-route-failed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 800,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed' }
+      },
+      // Siblings whose fill has not (yet) reported failed keep reading not-confirmed.
+      {
+        id: 'bridge-fill-pending',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 900,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+      },
+      {
+        id: 'bridge-fill-confirmed',
+        accountId: '0xme',
+        status: STATUS.Failed,
+        displayMessage: 'Failed',
+        displayIcon: 'FAILED',
+        type: 'bridged-send',
+        completedAt: 1000,
+        mayHaveSubmitted: true,
+        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(6));
+
+    const stampedCancel = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-stamped-cancel');
+    expect(stampedCancel.isCancelled).toBe(true);
+    expect(stampedCancel.isUnconfirmed).toBe(true);
+
+    const bridgeIn = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-in-failed');
+    expect(bridgeIn.isCancelled).toBe(false);
+    expect(bridgeIn.isUnconfirmed).toBe(true);
+
+    const rotationShortfall = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-rotation-shortfall');
+    expect(rotationShortfall.isUnconfirmed).toBe(false);
+
+    const bridgeRouteFailed = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-route-failed');
+    expect(bridgeRouteFailed.isUnconfirmed).toBe(false);
+
+    const bridgeFillPending = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-bridge-fill-pending');
+    expect(bridgeFillPending.isUnconfirmed).toBe(true);
+
+    const bridgeFillConfirmed = mockHistoryViewProps.entries.find(
+      (e: any) => e.key === 'completed-bridge-fill-confirmed'
+    );
+    expect(bridgeFillConfirmed.isUnconfirmed).toBe(true);
+  });
+
+  it('reads an Unconfirmed row and a Failed row with an open entry as not confirmed, a retired one as failed (#1081)', async () => {
+    const send = { accountId: '0xme', displayIcon: 'SEND', type: 'send', displayMessage: 'Sending' };
+    const openEntry = { attemptId: 'a', capturedAt: 1, source: 'stage' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...send, id: 'unconfirmed', status: STATUS.Unconfirmed, completedAt: 500 },
+      { ...send, id: 'failed-open', status: STATUS.Failed, completedAt: 600, submitEvidence: [openEntry] },
+      {
+        ...send,
+        id: 'failed-retired',
+        status: STATUS.Failed,
+        completedAt: 700,
+        submitEvidence: [{ ...openEntry, preSubmitEnd: true }]
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+
+    const byKey = (key: string) => mockHistoryViewProps.entries.find((e: { key: string }) => e.key === key);
+    expect(byKey('completed-unconfirmed').isUnconfirmed).toBe(true);
+    expect(byKey('completed-failed-open').isUnconfirmed).toBe(true);
+    expect(byKey('completed-failed-retired').isUnconfirmed).toBe(false);
+    expect(byKey('completed-failed-retired').message).toBe('Transaction failed');
+  });
+
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {
     await renderHistory();
 
@@ -603,6 +784,15 @@ describe('History', () => {
     expect(mockHistoryViewProps.scrollParentRef).toBe(scrollParentRef);
     // After both fetches resolve, initial loading is false.
     await waitFor(() => expect(view.getAttribute('data-initial-loading')).toBe('false'));
+  });
+
+  it('hides the list spinner only when asked, not because a loading callback is attached', async () => {
+    const view = await renderHistory({ onLoadingChange: jest.fn() });
+    expect(mockHistoryViewProps.hideLoadingSpinner).toBeFalsy();
+    view.unmount();
+
+    await renderHistory({ onLoadingChange: jest.fn(), hideLoadingSpinner: true });
+    expect(mockHistoryViewProps.hideLoadingSpinner).toBe(true);
   });
 
   it('filters by searchQuery across message, token and secondaryAddress (case-insensitive), skipping blank queries', async () => {

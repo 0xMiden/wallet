@@ -1,4 +1,5 @@
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 
 import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
@@ -88,17 +89,22 @@ export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
  * have already certified the opposite is not careful at all.
  */
 export const isUnconfirmedGuardianSwitch = (tx: ITransaction | undefined): boolean =>
-  tx?.type === 'switch-guardian' && tx.extraInputs?.commitUnconfirmed === true;
+  rotationVerdict(tx)?.kind === 'submitted-unconfirmed';
 
+/**
+ * `unconfirmed` marks a row whose outcome is unknown (`isOutcomeUnconfirmed`): the step it
+ * froze on may still finish, so it reads pending rather than failed.
+ */
 export const getTransactionStepState = (
   index: number,
   activeStepIndex: number,
   transactionComplete: boolean,
-  hasErrors: boolean
+  hasErrors: boolean,
+  unconfirmed = false
 ): TransactionStepState => {
   if (transactionComplete) {
     if (!hasErrors) return 'complete';
-    if (index === activeStepIndex) return 'failed';
+    if (index === activeStepIndex) return unconfirmed ? 'pending' : 'failed';
     return index < activeStepIndex ? 'complete' : 'pending';
   }
   if (index < activeStepIndex) {
