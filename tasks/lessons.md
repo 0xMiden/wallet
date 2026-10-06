@@ -1,5 +1,10 @@
 # Fee asset discovery
 
+- Apply an explicit final-review severity cutoff to new findings. Preserve lower-severity findings as deferred evidence without restarting the review or delaying the requested release.
+- When a user requests the PR during final review, open it at the current signed checkpoint and let CI run while the remaining corrections and review finish. Keep merge and release gates bound to the final head.
+- Check all native metadata consumers when fixing actual fee identity versus legacy display identity; uncached discovery, cached detailed metadata, search, notes and sync balances must agree.
+- Capture cold service-worker publication revisions after endpoint hydration. Scope validation before hydration can reject the first otherwise valid SDK publication.
+- Keep cache invalidation synchronous while deferring only notifications caused by render-time getter invalidation. Direct updates must consume pending notices to avoid duplicate callbacks.
 - Publish new scope and override ownership before notifying listeners. A listener can synchronously call the same getter; notification before ownership changes can recursively invalidate the cache.
 - Recheck the captured WASM hold and client generation after every caller-owned await before reading an SDK summary or another borrowed value. A check inside the awaited helper does not replace the caller's check.
 - Serialize scoped identity writes with reset. A pre-write revision check alone cannot stop a parked storage write from completing after a newer identity or reset.
@@ -17,3 +22,5 @@
 - When a fee-identity hook changes, migrate fixtures in all indirect consumers, including manual-note badges and toast monitors. Use different native and display IDs so legacy-hook regressions remain observable.
 - Inventory every direct legacy selector call when separating fee identity from display identity. Classify mixed components before changing fee consumers.
 - Give every overlapping asynchronous fee read an ownership generation. Unmount cancellation cannot stop an older result replacing a newer one in the same effect.
+- Keep browser tests in CI when explicitly requested, and name mock versus live-network evidence before interpreting token symbols.
+- An explicit final-review severity cutoff makes lower-severity findings nonblocking. Finish accepted corrections already underway, then gate the final review on P0/P1 only.

@@ -52,10 +52,20 @@
 - [x] Add a devnet Playwright regression with `injectFeeFaucet: false` and an absent unscoped override precondition. Assert the independently synced identity, USDCX metadata, $1 valuation with an empty market feed, and the Send fee row according to the live header.
 - [x] Prove the regression by removing the fallback and observing failure, then restore and verify.
 - [x] Add one changelog entry under `1.17.1 (TBD)`.
-- [ ] Finish dependency integrity, TypeScript, lint/i18n, formatting and affected regression checks. Run the configured coverage gate in CI only.
-- [x] Build the devnet extension and verify output files and error-free logs. Capture and inspect the current Send screen for any visual completion claim.
+- [x] Finish dependency integrity, TypeScript, lint/i18n, formatting and affected regression checks.
+- [ ] Run full tests, the configured coverage gate and browser regressions on the final corrected head in CI only.
+- [x] Build the earlier devnet checkpoint and verify output files and error-free logs. Current browser validation runs in CI; obtain a fresh CI screenshot before a visual completion claim.
 - [x] Run independent discovery, risk and adversarial code panels, apply actionable findings, and reverify their regressions.
-- [ ] Certify this committed source with the final independent panel at medium effort, push once, and open a PR against `next`.
+- [x] Open PR #1351 against `next` while the remaining corrections are prepared, as explicitly requested.
+- [ ] Certify the corrected committed source with the final independent panel at medium effort. Final review gates on P0/P1 only; P2/P3 findings are nonblocking by explicit request.
+
+## Final lifecycle corrections
+
+- [x] Resolve uncached foreign display metadata without replacing actual native chain metadata or authorizing foreign fixed quotes.
+- [x] Capture the first offscreen publication snapshot after startup endpoint hydration; refuse obsolete scopes without adoption.
+- [x] Defer scope-invalidation notifications during render while clearing native identity and price eligibility immediately.
+- [x] Complete focused assertion RED/GREEN and guard mutations.
+- [ ] Certify the frozen source with the final independent panel, gating on P0/P1 findings only.
 
 ## Task 4: Merge and release wallet 1.17.1
 
@@ -63,7 +73,8 @@
 - [ ] Triage conflicts, review comments and CI failures until the PR is green; admin squash merge as explicitly authorized.
 - [ ] Babysit `origin/next` to green after the merge.
 - [x] Verify the documented build/publishing workflow and existing release surfaces.
-- [ ] Prepare consistent wallet `1.17.1` versions and publish `v1.17.1` from green `next`; verify all required jobs and release assets.
+- [x] Prepare consistent wallet `1.17.1` versions.
+- [ ] Publish `v1.17.1` from green `next`; verify all required jobs and release assets.
 - Store publishing is handled by the user. Preserve the existing `v1.17.0` release, tag, assets and store listing.
 
 ## Review and results
@@ -74,12 +85,14 @@
 - The plan check completed with four independent reviewers; nine verified plan findings were incorporated.
 - Discovery, risk and adversarial panels each completed with four independent reviewers. Twelve grouped findings were corrected, including metadata precedence, native valuation scale, late hook results, durable publication recovery, bounded IPC and missing consumer/fatal-error coverage.
 - Earlier implementation checkpoint: 20,929 tests passed across 922 suites with statements/lines 98.35%, branches 96.17% and functions 97.65%. Current full tests and all four unchanged 95% coverage gates run in CI only by explicit request. The interrupted local rerun is not a current passing result.
-- Current focused verification passes: 916 tests across the 13 fee-consumer suites, 24 tests across three indirect note fixtures and four relay-patch portability tests. Fresh full TypeScript and scoped lint/format pass. Remaining full static/build/browser checks precede publication; their exact results stay with the review and PR.
-- Mock-client Chrome browser tests pass. Devnet Chrome and mobile bundles build without errors; the extension manifest and mobile index exist.
-- The uninjected devnet regression passes with an empty market feed. Natural funding and note consumption discover USDCX with six decimals, value 1 USDCX at $1, and display the fee reserve from an independent node-header read. No Send submission occurs.
+- The preceding correction checkpoint passed 916 tests across the 13 fee-consumer suites, 24 tests across three indirect note fixtures and four relay-patch portability tests, plus TypeScript and static gates.
+- Final lifecycle corrections pass 300 focused tests across six suites. Fourteen targeted mutations reproduce the intended failures, and exact restored production bytes pass again. One shared full TypeScript check and zero-warning lint of all twelve corrected source/test files pass.
+- A fresh React unit probe using the actual native cache and token provider produces no render warning, clears obsolete price eligibility immediately and recovers current USDCX metadata and fee state. It does not certify a browser or device.
+- The preceding implementation checkpoint passed mock-client Chrome browser tests and built devnet Chrome and mobile bundles without errors; the extension manifest and mobile index exist. Full coverage and browser validation of the final corrected head run in CI only.
+- The earlier implementation checkpoint passed the uninjected devnet regression with an empty market feed. Natural funding and note consumption discover USDCX with six decimals, value 1 USDCX at $1, and display the fee reserve from an independent node-header read. No Send submission occurs.
 - Disabling only sync-time publication makes the devnet regression fail with a missing native ID after 60 seconds; the source was restored exactly. Review regressions include targeted guard mutations and positive controls.
 - Native USDCX valuation requires exact canonical SDK proof and authoritative decimals. Independently allowlisted foreign tokens keep their own price before native discovery; unknown assets and fatal native-identity errors still refuse valuation.
 - Actual native fee identity now drives reserves, funding, automatic note consumption, rotation guards and claim grouping. Overlapping fee reads reject stale completions. Legacy settings remain available for display and sorting.
 - Explicit overrides keep precedence. Scoped identity, metadata and fee records cannot migrate into another endpoint; native-only fixed pricing does not authorize copied stablecoin symbols.
 
-Final review certification, branch publication, the authorized admin squash merge and wallet `v1.17.1` release follow this committed source checkpoint. Their final status is recorded in the PR and release.
+PR #1351 is open. Final review certification of the corrected source, the authorized admin squash merge and wallet `v1.17.1` release follow this source checkpoint. Their final status is recorded in the PR and release.
