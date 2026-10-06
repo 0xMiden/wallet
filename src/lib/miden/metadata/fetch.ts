@@ -47,6 +47,13 @@ export async function fetchTokenMetadata(
     // Cache miss — proceed to RPC
   }
 
+  return fetchChainTokenMetadata(assetId);
+}
+
+/** Reads RPC metadata directly, without display branding or the general token cache. */
+export async function fetchChainTokenMetadata(
+  assetId: string
+): Promise<{ base: AssetMetadata; detailed: DetailedAssetMetdata }> {
   try {
     // Page-side: gate on SDK WASM readiness so the wasm-bindgen `Endpoint`
     // constructor doesn't fire before the SDK chunk has hydrated. Without

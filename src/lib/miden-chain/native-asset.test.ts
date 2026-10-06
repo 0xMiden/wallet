@@ -15,7 +15,7 @@ _g.__nativeAssetTest = {
   // flip these to simulate a dev-settings endpoint / network-id switch.
   rpcUrl: 'rpc-testnet' as string,
   networkName: 'testnet' as string,
-  fetchTokenMetadata: jest.fn(),
+  fetchChainTokenMetadata: jest.fn(),
   fetchFromStorage: jest.fn(),
   putToStorage: jest.fn()
 };
@@ -64,7 +64,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 }));
 
 jest.mock('lib/miden/metadata', () => ({
-  fetchTokenMetadata: (...args: any[]) => (globalThis as any).__nativeAssetTest.fetchTokenMetadata(...args)
+  fetchChainTokenMetadata: (...args: any[]) => (globalThis as any).__nativeAssetTest.fetchChainTokenMetadata(...args)
 }));
 
 import {
@@ -93,7 +93,7 @@ beforeEach(async () => {
   _g.__nativeAssetTest.feeFaucetId = undefined;
   _g.__nativeAssetTest.rpcUrl = 'rpc-testnet';
   _g.__nativeAssetTest.networkName = 'testnet';
-  _g.__nativeAssetTest.fetchTokenMetadata.mockReset();
+  _g.__nativeAssetTest.fetchChainTokenMetadata.mockReset();
   _g.__nativeAssetTest.fetchFromStorage.mockReset();
   _g.__nativeAssetTest.putToStorage.mockReset();
   // Default storage implementations read/write the in-memory map
@@ -534,17 +534,17 @@ describe('native-asset module', () => {
   it('re-discovers metadata against the new node on endpoint switch', async () => {
     _g.__nativeAssetTest.rpcUrl = 'rpc-A';
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'A' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({ base: { symbol: 'AAA', decimals: 6, name: 'A' } });
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({ base: { symbol: 'AAA', decimals: 6, name: 'A' } });
     expect(await getNativeAssetMetadata()).toEqual({ symbol: 'AAA', decimals: 6 });
 
     _g.__nativeAssetTest.rpcUrl = 'rpc-B';
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'B' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({ base: { symbol: 'BBB', decimals: 8, name: 'B' } });
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({ base: { symbol: 'BBB', decimals: 8, name: 'B' } });
 
     expect(getNativeAssetMetadataSync()).toBeNull();
     expect(await getNativeAssetMetadata()).toEqual({ symbol: 'BBB', decimals: 8 });
     // Self-standing: the id was re-discovered to B (not the stale A id fed to metadata).
-    expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledWith('bech32-B');
+    expect(_g.__nativeAssetTest.fetchChainTokenMetadata).toHaveBeenCalledWith('bech32-B');
   });
 
   it('does not let a metadata fetch in flight across an endpoint switch clobber the new node value', async () => {
@@ -552,14 +552,14 @@ describe('native-asset module', () => {
     _g.__nativeAssetTest.rpcUrl = 'rpc-A';
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'A' }) };
     let resolveMeta: (v: any) => void = () => {};
-    _g.__nativeAssetTest.fetchTokenMetadata.mockReturnValue(new Promise(res => (resolveMeta = res)));
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockReturnValue(new Promise(res => (resolveMeta = res)));
     const pA = getNativeAssetMetadata(); // parked in discoverMetadata against node A
     await new Promise(resolve => setTimeout(resolve, 0));
 
     // Switch to network B before A's metadata resolves; B resolves immediately.
     _g.__nativeAssetTest.rpcUrl = 'rpc-B';
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'B' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({ base: { symbol: 'BBB', decimals: 8, name: 'B' } });
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({ base: { symbol: 'BBB', decimals: 8, name: 'B' } });
     expect(getNativeAssetMetadataSync()).toBeNull();
     expect(await getNativeAssetMetadata()).toEqual({ symbol: 'BBB', decimals: 8 });
 
@@ -599,14 +599,14 @@ describe('native-asset module', () => {
 
   it('discovers metadata after ID, caches symbol/decimals', async () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'n' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'MIDEN', decimals: 6, name: 'Miden' }
     });
 
     const meta = await getNativeAssetMetadata();
 
     expect(meta).toEqual({ symbol: 'MIDEN', decimals: 6 });
-    expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledWith('bech32-n');
+    expect(_g.__nativeAssetTest.fetchChainTokenMetadata).toHaveBeenCalledWith('bech32-n');
     expect(_g.__nativeAssetTest.storage['native_asset_meta:v5:rpc-testnet|testnet']).toEqual({
       faucetId: 'bech32-n',
       symbol: 'MIDEN',
@@ -627,26 +627,26 @@ describe('native-asset module', () => {
 
     expect(meta).toEqual({ symbol: 'CACHED', decimals: 8 });
     expect(_g.__nativeAssetTest.rpcCalls).toBe(0);
-    expect(_g.__nativeAssetTest.fetchTokenMetadata).not.toHaveBeenCalled();
+    expect(_g.__nativeAssetTest.fetchChainTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('returns metadata from memory on repeat call', async () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'm1' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'A', decimals: 2, name: 'A' }
     });
 
     await getNativeAssetMetadata();
-    _g.__nativeAssetTest.fetchTokenMetadata.mockClear();
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockClear();
     const second = await getNativeAssetMetadata();
 
     expect(second).toEqual({ symbol: 'A', decimals: 2 });
-    expect(_g.__nativeAssetTest.fetchTokenMetadata).not.toHaveBeenCalled();
+    expect(_g.__nativeAssetTest.fetchChainTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('single-flights concurrent metadata callers', async () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'mc' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'C', decimals: 1, name: 'C' }
     });
 
@@ -654,13 +654,13 @@ describe('native-asset module', () => {
 
     expect(a).toEqual({ symbol: 'C', decimals: 1 });
     expect(b).toEqual({ symbol: 'C', decimals: 1 });
-    expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledTimes(1);
+    expect(_g.__nativeAssetTest.fetchChainTokenMetadata).toHaveBeenCalledTimes(1);
   });
 
   it('getNativeAssetMetadataSync returns null before discovery, value after', async () => {
     expect(getNativeAssetMetadataSync()).toBeNull();
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'a' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'S', decimals: 3, name: 'S' }
     });
     await getNativeAssetMetadata();
@@ -669,7 +669,7 @@ describe('native-asset module', () => {
 
   it('returns null from metadata discovery when RPC fetch fails', async () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'z' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockRejectedValue(new Error('RPC down'));
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockRejectedValue(new Error('RPC down'));
 
     const meta = await getNativeAssetMetadata();
 
@@ -679,7 +679,7 @@ describe('native-asset module', () => {
 
   it('resetNativeAssetCache clears all three caches', async () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'q' }), verificationBaseFee: () => 10000 };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'Q', decimals: 4, name: 'Q' }
     });
     await getNativeAssetMetadata();
@@ -747,7 +747,7 @@ describe('native-asset module', () => {
   it('still returns metadata when metadata storage write throws', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'M' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'M', decimals: 1, name: 'M' }
     });
     // Only fail writes to the metadata key — let the ID write succeed
@@ -774,7 +774,7 @@ describe('native-asset module', () => {
 
   it('primeNativeAssetId kicks off both ID and metadata discovery', async () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'p' }) };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'P', decimals: 2, name: 'P' }
     });
 
@@ -830,7 +830,7 @@ describe('SDK publication storage adoption', () => {
 describe('durable synchronized identity ownership', () => {
   it('orders a parked A publication before reset and B publication', async () => {
     _g.__nativeAssetTest.configured = false;
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'USDCX', decimals: 6, name: 'USDCX' }
     });
     _g.__nativeAssetTest.rpcHeader = { verificationBaseFee: () => 7 };
@@ -869,7 +869,7 @@ describe('SDK evidence and metadata binding', () => {
   it('publishes canonical SDK evidence and discovers authoritative six-decimal USDCX', async () => {
     _g.__nativeAssetTest.configured = false;
     _g.__nativeAssetTest.rpcHeader = { verificationBaseFee: () => 7 };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'USDCX', decimals: 6, name: 'USDCX' }
     });
     await expect(recordSyncedFeeFaucetId('sdk-native', captureNativeAssetSnapshot())).resolves.toBe(true);
@@ -886,7 +886,7 @@ describe('SDK evidence and metadata binding', () => {
   });
   it('retains an explicit fee identity while separately recording protocol evidence', async () => {
     _g.__nativeAssetTest.rpcHeader = { verificationBaseFee: () => 7 };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'USDCX', decimals: 8, name: 'USDCX' }
     });
     await recordSyncedFeeFaucetId('sdk-native', captureNativeAssetSnapshot());
@@ -911,7 +911,7 @@ describe('SDK evidence and metadata binding', () => {
   });
   it('does not promote unresolved metadata to authoritative native scale', async () => {
     _g.__nativeAssetTest.rpcHeader = { verificationBaseFee: () => 7 };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'USDCX', decimals: 6, name: 'USDCX', scaleIsUnknown: true }
     });
     await expect(getNativeAssetMetadata()).resolves.toBeNull();
@@ -923,7 +923,7 @@ describe('SDK evidence and metadata binding', () => {
     await getNativeAssetId();
     const listener = jest.fn();
     const stop = onNativeAssetChanged(listener);
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'USDCX', decimals: 6, name: 'USDCX' }
     });
     await getNativeAssetMetadata();
@@ -938,7 +938,7 @@ describe('SDK evidence and metadata binding', () => {
     const started = new Promise<void>(resolve => {
       began = resolve;
     });
-    _g.__nativeAssetTest.fetchTokenMetadata.mockImplementationOnce(() => {
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockImplementationOnce(() => {
       began();
       return new Promise(resolve => {
         release = resolve;
@@ -947,7 +947,7 @@ describe('SDK evidence and metadata binding', () => {
     await recordSyncedFeeFaucetId('A', captureNativeAssetSnapshot());
     await started;
     const oldMetadata = getNativeAssetMetadata();
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'USDCX', decimals: 8, name: 'USDCX' }
     });
     await recordSyncedFeeFaucetId('B', captureNativeAssetSnapshot());
@@ -1114,7 +1114,7 @@ describe('publication acknowledgment recovery', () => {
   beforeEach(() => {
     _g.__nativeAssetTest.configured = false;
     _g.__nativeAssetTest.rpcHeader = { verificationBaseFee: () => 7 };
-    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+    _g.__nativeAssetTest.fetchChainTokenMetadata.mockResolvedValue({
       base: { symbol: 'USDCX', name: 'USDCX', decimals: 6 }
     });
   });
