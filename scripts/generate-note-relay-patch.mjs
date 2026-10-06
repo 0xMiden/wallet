@@ -35,7 +35,7 @@ try {
   let patch = '';
   for (const bundle of bundles) {
     const path = `${packagePath}/${bundle}`;
-    const current = readFileSync(resolve(root, path), 'utf8');
+    const current = readFileSync(resolve(root, path), 'utf8').replace(/\r\n/g, '\n');
     let original = current.replace(/\/\/ BEGIN note-relay-fetch\n[^]*?\/\/ END note-relay-fetch\n\n/g, '');
     for (const [raw, wrapped] of seams) original = original.replace(wrapped, raw);
     let patched = original;

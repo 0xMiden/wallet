@@ -341,7 +341,7 @@ describe('wallet prompts', () => {
 
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith(
       'mtst1testaddress',
-      100_000_000n,
+      undefined,
       expect.any(AbortSignal),
       expect.any(Function),
       expect.any(Function)
@@ -575,7 +575,7 @@ describe('wallet prompts', () => {
     let sent = 0;
     const send = async (
       _address: string,
-      _amount: bigint,
+      _amount: bigint | undefined,
       _signal?: AbortSignal,
       beforeSubmit?: () => Promise<void>
     ) => {
@@ -625,7 +625,12 @@ describe('wallet prompts', () => {
     let releaseCheck = () => {};
     try {
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           // The pre-send check's read is slow: the request times out while it is out.
           const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
             const record = readRecord(keys);
@@ -666,7 +671,12 @@ describe('wallet prompts', () => {
     let releaseFlag = () => {};
     try {
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           const set = jest.spyOn(provider, 'set').mockImplementationOnce(
             items =>
               new Promise(resolve => {
@@ -701,7 +711,7 @@ describe('wallet prompts', () => {
       mintFromMidenFaucetMock.mockImplementation(
         async (
           _address: string,
-          _amount: bigint,
+          _amount: bigint | undefined,
           _signal?: AbortSignal,
           beforeSubmit?: () => Promise<void>,
           onMayMint?: (mayMint: boolean) => void
@@ -730,7 +740,12 @@ describe('wallet prompts', () => {
     try {
       // The proof of work finishes and the token request is sent, then hangs.
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           await beforeSubmit?.();
           return new Promise(() => {});
         }
@@ -752,7 +767,12 @@ describe('wallet prompts', () => {
     const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
     const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         seen.push(await fetchFaucetFundingMarker('accountMarker'));
         await beforeSubmit?.();
         // What a resume reads once the token request is out.
@@ -803,7 +823,12 @@ describe('wallet prompts', () => {
     await setFaucetFundingMarker('accountStale', stale);
     const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         await beforeSubmit?.();
         return { txId: '0xtx', noteId: '0xnote' };
       }
@@ -877,7 +902,12 @@ describe('wallet prompts', () => {
       const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
       const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
           await beforeSubmit?.();
           return { txId: '0xtx', noteId: '0xnote' };
@@ -899,7 +929,12 @@ describe('wallet prompts', () => {
   it('does not send a request another surface already ended as abandoned', async () => {
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         // This realm's timers were held back; meanwhile another surface found the marker
         // unflagged past the request timeout, cleared it and offered Fund again.
         await clearFaucetFundingMarker('accountFenced');
@@ -920,7 +955,12 @@ describe('wallet prompts', () => {
   it('does not send while another surface is ending the request as abandoned', async () => {
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         // Another surface's backstop has read the marker unflagged and is about to clear it.
         let readDone = () => {};
         const read = new Promise<void>(resolve => {
@@ -968,7 +1008,12 @@ describe('wallet prompts', () => {
     });
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         await beforeSubmit?.();
         sent = true;
         return { txId: '0xtx', noteId: '0xnote' };
@@ -3362,7 +3407,12 @@ describe('without Web Locks (iOS 15.0-15.3)', () => {
   it('funds an account, flagging its marker submitted before the token request goes out', async () => {
     const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         await beforeSubmit?.();
         return { txId: '0xtx', noteId: '0xnote' };
       }

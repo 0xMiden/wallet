@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.17.1 (2026-10-06)
+## 1.17.1 (2026-10-07)
 
 ### Fixes
 
@@ -8,7 +8,9 @@
 
 - [FIX][all] Discover the fee token after chain sync without a configured faucet, preserve its on-chain symbol and decimals, and show Send's maximum network fee on fee-charging chains. SDK-confirmed native USDCX is valued at $1 without a market feed, including spending limits.
 
-- [FIX][ci] Normalize Windows helper checkouts when validating the SDK relay patch, allowing desktop installers to build without weakening stale-patch checks.
+- [FIX][all] Fund your wallet requests the faucet's advertised base grant and solves its proof of work in a worker, keeping navigation responsive while funding is pending.
+
+- [FIX][ci] Normalize Windows helper and installed SDK line endings when validating the relay patch, allowing desktop installers to build without weakening stale-patch checks.
 
 ## 1.17.0 (2026-10-05)
 

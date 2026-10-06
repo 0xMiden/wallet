@@ -25,12 +25,13 @@ function __wbg_get_imports() {
 }
 `;
 const directories: string[] = [];
+const nonLfEndings: Array<'CRLF' | 'mixed'> = ['CRLF', 'mixed'];
 
 afterAll(() => {
   for (const directory of directories) rmSync(directory, { recursive: true, force: true });
 });
 
-function check(sourceHelper: string, staleBundle?: string) {
+function check(sourceHelper: string, staleBundle?: string, bundleEnding: 'LF' | 'CRLF' | 'mixed' = 'LF') {
   const directory = mkdtempSync(join(tmpdir(), 'relay-patch-check-'));
   directories.push(directory);
   const write = (file: string, contents: string | Buffer) => {
@@ -44,10 +45,15 @@ function check(sourceHelper: string, staleBundle?: string) {
   write('node_modules/@miden-sdk/miden-sdk/package.json', JSON.stringify({ version: '0.17.0' }));
   write('src/lib/miden/sdk/note-relay-fetch.mjs', sourceHelper);
   for (const bundle of bundles) {
-    write(
-      `node_modules/@miden-sdk/miden-sdk/${bundle}`,
-      bundle === staleBundle ? patchedBundle.replace('return request;', 'return null;') : patchedBundle
-    );
+    let contents = bundle === staleBundle ? patchedBundle.replace('return request;', 'return null;') : patchedBundle;
+    if (bundleEnding === 'CRLF') contents = contents.replace(/\n/g, '\r\n');
+    if (bundleEnding === 'mixed') {
+      contents = contents.replace(
+        /^.*(?:BEGIN note-relay-fetch|END note-relay-fetch|function normalize|const ret = normalize).*$/gm,
+        '$&\r'
+      );
+    }
+    write(`node_modules/@miden-sdk/miden-sdk/${bundle}`, contents);
   }
   write(
     'patches/@miden-sdk+miden-sdk+0.17.0.patch',
@@ -64,6 +70,20 @@ function check(sourceHelper: string, staleBundle?: string) {
 }
 
 describe('relay patch checkout portability', () => {
+  it.each(nonLfEndings)('accepts a correct SDK patch with %s bundle line endings', ending => {
+    const result = check(helper, undefined, ending);
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('verified for 6 bundles');
+  });
+
+  it.each(nonLfEndings)('still refuses a stale helper in a %s bundle', ending => {
+    const staleBundle = bundles[bundles.length - 1];
+    const result = check(helper, staleBundle, ending);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`Installed SDK relay patch is stale: ${staleBundle}`);
+  });
+
   it.each([
     ['LF', helper],
     ['CRLF', helper.replace(/\n/g, '\r\n')]

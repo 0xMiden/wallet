@@ -8,6 +8,19 @@ import {
   requestTokens,
   solvePowChallenge
 } from './faucet-api';
+import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
+
+jest.mock('./spawn-faucet-pow-worker', () => ({ spawnFaucetPowWorker: jest.fn() }));
+
+class TestPowWorker extends EventTarget {
+  terminate = jest.fn();
+  postMessage = jest.fn(({ target }: { target: bigint }) => {
+    if (target >= 2n ** 64n)
+      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: { nonce: 42 } })));
+  });
+}
+let powWorker: TestPowWorker;
+const spawnWorkerMock = jest.mocked(spawnFaucetPowWorker);
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', {
@@ -71,21 +84,11 @@ function track(promise: Promise<unknown>) {
   return state;
 }
 
-async function isValidSolution(challengeHex: string, nonce: number, target: bigint): Promise<boolean> {
-  const challengeBytes = new Uint8Array(challengeHex.length / 2);
-  for (let i = 0; i < challengeBytes.length; i++) {
-    challengeBytes[i] = parseInt(challengeHex.slice(i * 2, i * 2 + 2), 16);
-  }
-  const buffer = new Uint8Array(challengeBytes.length + 8);
-  buffer.set(challengeBytes);
-  new DataView(buffer.buffer).setBigUint64(challengeBytes.length, BigInt(nonce), false);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
-  return new DataView(digest.buffer).getBigUint64(0, false) < target;
-}
-
 describe('faucet-api', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    powWorker = new TestPowWorker();
+    spawnWorkerMock.mockReturnValue(powWorker as unknown as Worker);
   });
 
   describe('getFaucetApiUrl', () => {
@@ -203,13 +206,73 @@ describe('faucet-api', () => {
   });
 
   describe('solvePowChallenge', () => {
-    it('finds a nonce whose hash beats the target', async () => {
-      // 2^62 leaves a 1-in-4 chance per attempt — solves in a handful of iterations.
-      const target = 2n ** 62n;
+    it('delegates hashing to a worker and terminates it after success', async () => {
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n, { deadlineMs: 50 });
+      void result.catch(() => undefined);
+      expect(powWorker.postMessage).toHaveBeenCalledWith({ challengeHex: CHALLENGE_HEX, target: 0n });
+      powWorker.dispatchEvent(new MessageEvent('message', { data: { nonce: 42 } }));
+      await expect(result).resolves.toBe(42);
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
 
-      const nonce = await solvePowChallenge(CHALLENGE_HEX, target);
+    it('never starts a worker when already aborted or its deadline already passed', async () => {
+      const controller = new AbortController();
+      controller.abort(new Error('cancelled'));
+      await expect(solvePowChallenge(CHALLENGE_HEX, 0n, { signal: controller.signal })).rejects.toThrow('cancelled');
+      await expect(solvePowChallenge(CHALLENGE_HEX, 0n, { deadlineMs: 0 })).rejects.toThrow('unsolved within 0ms');
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+    });
 
-      expect(await isValidSolution(CHALLENGE_HEX, nonce, target)).toBe(true);
+    it('ends a failed worker and removes its listeners and timer', async () => {
+      jest.useFakeTimers();
+      const remove = jest.spyOn(powWorker, 'removeEventListener');
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n);
+      powWorker.dispatchEvent(new ErrorEvent('error', { message: 'worker crashed' }));
+      await expect(result).rejects.toThrow('worker crashed');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+      expect(remove.mock.calls.map(([type]) => type)).toEqual(
+        expect.arrayContaining(['message', 'error', 'messageerror'])
+      );
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      { data: { error: 'hash unavailable' }, message: 'hash unavailable' },
+      { data: { nonce: -1 }, message: 'Invalid faucet PoW worker response' },
+      { data: { nonce: Number.MAX_SAFE_INTEGER + 1 }, message: 'Invalid faucet PoW worker response' }
+    ])('rejects a failed or invalid worker reply and ends the worker', async ({ data, message }) => {
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n);
+      powWorker.dispatchEvent(new MessageEvent('message', { data }));
+      await expect(result).rejects.toThrow(message);
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('ends a worker whose response cannot be deserialized', async () => {
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n);
+      powWorker.dispatchEvent(new MessageEvent('messageerror'));
+      await expect(result).rejects.toThrow('could not be read');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('cleans up when sending to the worker fails', async () => {
+      powWorker.postMessage.mockImplementation(() => {
+        throw new Error('cannot clone');
+      });
+      await expect(solvePowChallenge(CHALLENGE_HEX, 0n)).rejects.toThrow('cannot clone');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes the caller abort listener and timer on success', async () => {
+      jest.useFakeTimers();
+      const controller = new AbortController();
+      const remove = jest.spyOn(controller.signal, 'removeEventListener');
+      const result = solvePowChallenge(CHALLENGE_HEX, 0n, { signal: controller.signal });
+      powWorker.dispatchEvent(new MessageEvent('message', { data: { nonce: 42 } }));
+      await expect(result).resolves.toBe(42);
+      controller.abort();
+      expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
     });
 
     it('stops the search when the signal aborts', async () => {
@@ -220,6 +283,7 @@ describe('faucet-api', () => {
       controller.abort(new Error('Faucet request timed out'));
 
       await expect(search).rejects.toThrow('Faucet request timed out');
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
     });
 
     it('gives up on an UNSOLVABLE challenge (target 0) within the deadline instead of hanging (gap 10)', async () => {
@@ -229,6 +293,7 @@ describe('faucet-api', () => {
       await expect(solvePowChallenge(CHALLENGE_HEX, 0n, { deadlineMs: 50 })).rejects.toThrow(
         /Faucet PoW challenge unsolved within 50ms/
       );
+      expect(powWorker.terminate).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -711,6 +776,70 @@ describe('faucet-api', () => {
   });
 
   describe('mintFromMidenFaucet', () => {
+    it.each([10000, 100000000])('uses advertised base_amount %i unchanged for challenge and mint', async baseAmount => {
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.endsWith('/get_metadata'))
+          return jsonResponse({ version: '0.17.0', decimals: 6, base_amount: baseAmount, difficulty: 65536 });
+        if (url.includes('/pow')) return jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 });
+        return jsonResponse({ tx_id: '0xtx', note_id: '0xnote' });
+      });
+      await mintFromMidenFaucet('mtst1testaddress');
+      const urls = fetchMock.mock.calls.map(([url]) => new URL(url));
+      expect(urls.map(url => url.origin)).toEqual(Array(3).fill(getFaucetApiUrl()));
+      expect(urls[0]?.pathname).toBe('/get_metadata');
+      expect(urls[1]?.searchParams.get('amount')).toBe(String(baseAmount));
+      expect(urls[2]?.searchParams.get('asset_amount')).toBe(String(baseAmount));
+    });
+
+    it.each([undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '10000'])(
+      'rejects malformed metadata base_amount %s before PoW or mint',
+      async baseAmount => {
+        fetchMock.mockResolvedValue(jsonResponse({ base_amount: baseAmount }));
+        const onBeforeSubmit = jest.fn();
+        const onMayMint = jest.fn();
+        await expect(
+          mintFromMidenFaucet('mtst1testaddress', undefined, undefined, onBeforeSubmit, onMayMint)
+        ).rejects.toThrow('base_amount');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+        expect(onBeforeSubmit).not.toHaveBeenCalled();
+        expect(onMayMint).not.toHaveBeenCalled();
+      }
+    );
+
+    it('sends nothing when the caller aborted before metadata', async () => {
+      const controller = new AbortController();
+      const reason = new Error('cancelled before metadata');
+      controller.abort(reason);
+      await expect(mintFromMidenFaucet('mtst1testaddress', undefined, controller.signal)).rejects.toBe(reason);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+    });
+
+    it('fails unavailable metadata before PoW or mint', async () => {
+      fetchMock.mockResolvedValue(errorResponse(503, 'unavailable'));
+      await expect(mintFromMidenFaucet('mtst1testaddress')).rejects.toThrow('metadata request failed with status 503');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+    });
+
+    it('bounds and cancels metadata body reads before PoW or mint', async () => {
+      jest.useFakeTimers();
+      const controller = new AbortController();
+      const seen = answerWithStalledBody(jsonResponse({}));
+      const result = track(mintFromMidenFaucet('mtst1testaddress', undefined, controller.signal));
+      await jest.advanceTimersByTimeAsync(0);
+      controller.abort(new Error('cancelled metadata'));
+      await jest.advanceTimersByTimeAsync(0);
+      expect(result.outcome).toBe(seen.signal?.reason);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(spawnWorkerMock).not.toHaveBeenCalled();
+      const timeout = track(mintFromMidenFaucet('mtst1testaddress'));
+      await jest.advanceTimersByTimeAsync(15000);
+      expect(timeout.outcome).toMatchObject({ name: 'TimeoutError' });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it('chains challenge, solve, and token request against the default network endpoint', async () => {
       // 2^64 target: every nonce solves the challenge on the first attempt.
       fetchMock.mockImplementation((url: string) => {
