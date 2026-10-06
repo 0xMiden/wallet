@@ -283,11 +283,11 @@ function registerOffscreenSignHandler(): void {
     if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
       if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
       const id = m.id;
-      const snapshot = captureNativeAssetSnapshot(m.scope);
+      const scope = m.scope;
       void startupHydration
         .then(async () => {
-          if (snapshot.scope !== cacheScope()) return false;
-          return recordSyncedFeeFaucetId(id, snapshot);
+          if (scope !== cacheScope()) return false;
+          return recordSyncedFeeFaucetId(id, captureNativeAssetSnapshot(scope));
         })
         .then(
           ok => sendResponse({ ok }),

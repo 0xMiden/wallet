@@ -167,8 +167,11 @@ jest.mock('../sdk/helpers', () => ({
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn(),
-  cacheScope: () => 'rpc|devnet',
-  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  cacheScope: () => (globalThis as any).__mainTest.nativeScope,
+  captureNativeAssetSnapshot: jest.fn((scope: string) => ({
+    scope,
+    revision: (globalThis as any).__mainTest.nativeRevision
+  })),
   recordSyncedFeeFaucetId: jest.fn(async () => true)
 }));
 
@@ -224,6 +227,8 @@ const flushStorage = () => new Promise(resolve => setTimeout(resolve, 0));
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  _g.__mainTest.nativeScope = 'rpc|devnet';
+  _g.__mainTest.nativeRevision = 0;
   for (const k of Object.keys(_g.__mainConnStore)) delete _g.__mainConnStore[k];
   // `current` in connectivity-state is module state that nothing else here resets, and
   // the real mutators run in this suite. Reset it from the HARNESS, not as a side
@@ -1350,6 +1355,49 @@ describe('scoped offscreen native identity relay', () => {
   const publication = () => jest.requireMock('lib/miden-chain/native-asset').recordSyncedFeeFaucetId;
   const invoke = (message: unknown, sender = ownSender, reply = jest.fn()) =>
     capturedRuntimeListeners[0]?.(message, sender, reply);
+  it.each([
+    {
+      scope: 'rpc|devnet',
+      accepted: true,
+      expectedPublication: [[id, { scope: 'rpc|devnet', revision: 1 }]],
+      expectedCaptures: [['rpc|devnet']]
+    },
+    { scope: 'old-rpc|devnet', accepted: false, expectedPublication: [], expectedCaptures: [] }
+  ])(
+    'waits for hydrated scope before acknowledging the first publication from $scope',
+    async ({ scope, accepted, expectedPublication, expectedCaptures }) => {
+      let hydrate: () => void = () => undefined;
+      mockLoadEndpointOverrides.mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            hydrate = () => {
+              _g.__mainTest.nativeScope = 'rpc|devnet';
+              _g.__mainTest.nativeRevision = 1;
+              resolve();
+            };
+          })
+      );
+      _g.__mainTest.nativeScope = 'default-rpc|testnet';
+      if (accepted) {
+        publication().mockImplementationOnce(
+          async (_id: string, snapshot: { revision: number }) => snapshot.revision === 1
+        );
+      }
+      const capture = jest.requireMock('lib/miden-chain/native-asset').captureNativeAssetSnapshot;
+      const started = start();
+      await flushStorage();
+      const reply = jest.fn();
+      expect(invoke({ target: 'sw', type: 'OFFSCREEN_NATIVE_ASSET_EVENT', id, scope }, ownSender, reply)).toBe(true);
+      await flushStorage();
+      expect(reply).not.toHaveBeenCalled();
+      hydrate();
+      await started;
+      await flushStorage();
+      expect(reply).toHaveBeenCalledWith({ ok: accepted });
+      expect(publication().mock.calls).toEqual(expectedPublication);
+      expect(capture.mock.calls).toEqual(expectedCaptures);
+    }
+  );
   it('acknowledges a same-scope SDK identity after durable adoption', async () => {
     const reply = jest.fn();
     expect(
