@@ -79,7 +79,7 @@ describe('resolveDisplayMetadata', () => {
 
   it.each([undefined, NATIVE])('keeps unresolved native scale unknown for faucet %s', faucet => {
     const resolved = resolveDisplayMetadata(faucet, {}, NATIVE);
-    expect(resolved).toEqual({ ...MIDEN_METADATA, scaleIsUnknown: true });
+    expect(resolved).toMatchObject({ symbol: 'USDCX', name: 'USDCX', decimals: 6, scaleIsUnknown: true });
     expect(hasKnownScale(resolved)).toBe(false);
   });
 

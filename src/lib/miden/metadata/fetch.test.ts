@@ -7,7 +7,7 @@ import {
   resetNativeAssetCache
 } from 'lib/miden-chain/native-asset';
 
-import { MIDEN_METADATA, DEFAULT_TOKEN_METADATA } from './defaults';
+import { DEFAULT_TOKEN_METADATA } from './defaults';
 import { fetchTokenMetadata, NotFoundTokenMetadata } from './fetch';
 import { getNativeDisplayMetadataSync } from './native';
 import { AssetMetadata } from './types';
@@ -84,14 +84,14 @@ describe('metadata/fetch', () => {
   });
 
   describe('fetchTokenMetadata', () => {
-    it('returns MIDEN_METADATA for miden asset', async () => {
+    it('returns provisional USDCX for the native asset alias', async () => {
       mockIsMidenAsset.mockReturnValue(true);
 
       const result = await fetchTokenMetadata('miden');
 
       expect(result).toEqual({
-        base: MIDEN_METADATA,
-        detailed: MIDEN_METADATA
+        base: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true }),
+        detailed: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true })
       });
       // Should not call any RPC methods for miden asset
       expect(mockGetAccountDetails).not.toHaveBeenCalled();
@@ -361,6 +361,18 @@ describe('metadata/fetch', () => {
       await resetNativeAssetCache();
     });
 
+    it('preserves genuine chain MIDEN for the native alias', async () => {
+      mockFromAccountStorage.mockReturnValue({
+        symbol: () => ({ toString: () => 'MIDEN' }),
+        decimals: () => 6
+      });
+      await expect(getNativeAssetMetadata()).resolves.toEqual({ symbol: 'MIDEN', decimals: 6 });
+      await expect(fetchTokenMetadata('miden')).resolves.toEqual({
+        base: expect.objectContaining({ symbol: 'MIDEN', name: 'Miden', decimals: 6, scaleIsUnknown: false }),
+        detailed: expect.objectContaining({ symbol: 'MIDEN', name: 'Miden', decimals: 6, scaleIsUnknown: false })
+      });
+    });
+
     it.each([false, true])(
       'reads native chain scale and preserves foreign cache, stale native cache=%s',
       async stale => {
@@ -376,7 +388,6 @@ describe('metadata/fetch', () => {
           base: foreignMetadata,
           detailed: foreignMetadata
         });
-        await expect(fetchTokenMetadata('miden')).resolves.toEqual({ base: MIDEN_METADATA, detailed: MIDEN_METADATA });
         const expectedCachedNative = stale
           ? { symbol: 'USDCX', name: 'USDCX', decimals: 8, scaleIsUnknown: false }
           : undefined;
@@ -386,6 +397,10 @@ describe('metadata/fetch', () => {
 
         await expect(getNativeAssetMetadata()).resolves.toEqual({ symbol: 'USDCX', decimals: 6 });
         expect(getNativeAssetMetadataSync()).toEqual({ symbol: 'USDCX', decimals: 6 });
+        await expect(fetchTokenMetadata('miden')).resolves.toEqual({
+          base: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: false }),
+          detailed: expect.objectContaining({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: false })
+        });
         expect(getSdkSyncedNativeAssetIdSync()).toBe(nativeId);
         expect(storage[nativeMetadataKey]).toEqual({ faucetId: nativeId, symbol: 'USDCX', decimals: 6 });
         expect(mockGetAccountDetails).toHaveBeenCalledTimes(1);

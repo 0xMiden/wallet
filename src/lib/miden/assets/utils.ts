@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
-import { putToStorage, searchAssets, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { getTokensBaseMetadata, putToStorage, searchAssets, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { getNativeDisplayMetadata } from 'lib/miden/metadata/native';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
 import { getFaucetIdSetting } from './faucet-id-setting';
@@ -71,14 +73,16 @@ export async function setFaucetIdSetting(faucetId: string): Promise<void> {
   // Persist through the SAME platform storage adapter `getFaucetIdSetting`
   // reads from (`fetchFromStorage`). The previous `localStorage.setItem` wrote
   // to raw localStorage, which the extension's `fetchFromStorage` (chrome /
-  // prefixed store) never reads — so the Settings write reported success but
+  // prefixed store) never reads - so the Settings write reported success but
   // never took effect (#590).
   await putToStorage(FAUCET_ID_STORAGE_KEY, faucetId);
 }
 
 export const getTokenId = async (faucetId: string) => {
-  const isMiden = await isMidenFaucet(faucetId);
-  return isMiden ? 'MIDEN' : 'Unknown';
+  const nativeId = await getNativeAssetId().catch(() => null);
+  if (faucetId === nativeId) return (await getNativeDisplayMetadata()).symbol;
+  if (await isMidenFaucet(faucetId)) return (await getTokensBaseMetadata(faucetId))?.symbol ?? 'Unknown';
+  return 'Unknown';
 };
 
 export const isMidenFaucet = async (faucetId: string) => {

@@ -94,8 +94,13 @@ describe('InputAmount', () => {
       expect(screen.getByText('USDC')).toBeInTheDocument();
     });
 
-    it('defaults the currency label to MIDEN when no label is provided', () => {
+    it('defaults the currency label to USDCX when no label is provided', () => {
       render(<InputAmount />);
+      expect(screen.getByText('USDCX')).toBeInTheDocument();
+    });
+
+    it('preserves an explicit genuine MIDEN label', () => {
+      render(<InputAmount label="MIDEN" />);
       expect(screen.getByText('MIDEN')).toBeInTheDocument();
     });
 
@@ -161,14 +166,14 @@ describe('InputAmount', () => {
         expect(screen.getByRole('button').textContent).toBe('5 USDC');
       });
 
-      it('falls back to value then the default MIDEN label', () => {
+      it('falls back to value then the default USDCX label', () => {
         render(<InputAmount displayToggleCurrency displayFiat value="8" />);
-        expect(screen.getByRole('button').textContent).toBe('8 MIDEN');
+        expect(screen.getByRole('button').textContent).toBe('8 USDCX');
       });
 
       it('falls back to 0 when neither fiatValue nor value is set', () => {
         render(<InputAmount displayToggleCurrency displayFiat />);
-        expect(screen.getByRole('button').textContent).toBe('0 MIDEN');
+        expect(screen.getByRole('button').textContent).toBe('0 USDCX');
       });
     });
 

@@ -5,11 +5,11 @@ import {
   type NativeAssetChainMetadata
 } from 'lib/miden-chain/native-asset';
 
-import { MIDEN_METADATA } from './defaults';
+import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from './defaults';
 import { hasKnownScale } from './scale';
 import type { AssetMetadata } from './types';
 
-const PROVISIONAL_NATIVE_METADATA: AssetMetadata = { ...MIDEN_METADATA, scaleIsUnknown: true };
+const PROVISIONAL_NATIVE_METADATA: AssetMetadata = { ...DEFAULT_TOKEN_METADATA, symbol: 'USDCX', name: 'USDCX' };
 
 export function nativeDisplayMetadata(chain: NativeAssetChainMetadata | null, fallback?: AssetMetadata): AssetMetadata {
   if (chain && hasKnownScale({ ...chain, name: chain.symbol }))
@@ -26,10 +26,8 @@ export function getNativeDisplayMetadataSync(
   fallback?: AssetMetadata,
   faucetId = getNativeAssetIdSync()
 ): AssetMetadata {
-  return nativeDisplayMetadata(
-    faucetId !== null && faucetId === getNativeAssetIdSync() ? getNativeAssetMetadataSync() : null,
-    fallback
-  );
+  const isNative = faucetId !== null && faucetId === getNativeAssetIdSync();
+  return nativeDisplayMetadata(isNative ? getNativeAssetMetadataSync() : null, isNative ? undefined : fallback);
 }
 
 export async function getNativeDisplayMetadata(): Promise<AssetMetadata> {

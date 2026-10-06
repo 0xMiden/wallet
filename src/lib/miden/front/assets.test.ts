@@ -469,3 +469,16 @@ describe('searchAssets', () => {
     expect(result).toEqual([{ slug: 'miden', id: 'miden-id' }]);
   });
 });
+
+it('labels fresh actual native metadata as USDCX without trusting a provisional scale', () => {
+  mockActualNativeId = 'actual-A';
+  jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
+  const chainMetadata = jest.requireMock('lib/miden-chain/native-asset').getNativeAssetMetadataSync;
+  chainMetadata.mockReturnValue(null);
+  const { result, rerender } = renderHook(() => useAssetMetadata('token', 'actual-A'));
+  expect(result.current).toMatchObject({ symbol: 'USDCX', name: 'USDCX', decimals: 6, scaleIsUnknown: true });
+  expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
+  chainMetadata.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+  rerender();
+  expect(result.current).toMatchObject({ symbol: 'USDCX', name: 'USDCX', decimals: 6, scaleIsUnknown: false });
+});

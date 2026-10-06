@@ -458,10 +458,36 @@ describe('SDK-confirmed native stablecoin pricing', () => {
     mockGetNativeAssetIdSync.mockReturnValue('override-faucet');
     expect(tokenQuote({}, 'override-faucet', 'USDCX')).toBeUndefined();
   });
-  it('does not price an unresolved native scale or a different native symbol', () => {
+  it('quotes the native USDCX unit independently of scale and respects a different chain symbol', () => {
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true });
-    expect(tokenQuote({}, '0xfee', 'USDCX')).toBeUndefined();
+    expect(tokenQuote({}, '0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
     expect(tokenQuote({}, '0xfee', 'MIDEN')).toBeUndefined();
+  });
+});
+
+describe('SDK-confirmed provisional native unit pricing', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue('testnet:0xfee');
+    mockGetNativeAssetMetadataSync.mockReturnValue(null);
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+  });
+  it('quotes the provisional native USDCX unit at one dollar before its scale resolves', () => {
+    expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
+  });
+  it('does not quote a copied symbol, missing SDK proof or an unsynced override', () => {
+    expect(tokenQuote({}, 'other-faucet', 'USDCX')).toBeUndefined();
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue(null);
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+    mockGetNativeAssetIdSync.mockReturnValue('override-faucet');
+    expect(tokenQuote({}, 'override-faucet', 'USDCX')).toBeUndefined();
+  });
+  it('stops the default USDCX quote when authoritative chain metadata identifies MIDEN', () => {
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
   });
 });

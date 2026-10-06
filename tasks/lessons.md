@@ -28,3 +28,8 @@
 - Native bootstrap must read chain metadata directly. A generic display-cache hit cannot prove the native asset scale.
 - Authenticate native identity and quote from the same valuation snapshot; clearing a live display cache during an earlier await must not erase a proven stablecoin charge.
 - Every headless review launch sets the repository and working directory explicitly, then checks the source head before invoking the provider.
+- Fresh-install requirements do not imply migration work for old stored balance rows. Keep that scope explicit.
+- Respect an explicit USDCX loading default and fixed $1 unit quote. Price per unit is separate from verified raw-unit scale; quantity, allowance and fee gates keep their own checks.
+- Audit native-token defaults together with fee warnings, funding prompts and settings copy. Update both locale message metadata and generated runtime bundles; keep genuine separate tokens and SDK identifiers intact.
+- Apply an explicit session change of review workflow immediately. Preserve completed evidence and stop launching the superseded workflow.
+- Preserve the canonical byte format of generated locale messages. A formatting-only difference can trigger an unnecessary translation commit and change the reviewed source head.

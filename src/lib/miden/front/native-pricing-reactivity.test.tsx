@@ -65,11 +65,16 @@ jest.mock('lib/miden/front', () => ({
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => false, isMobile: () => false }));
 
+let priceComputations = 0;
+
 function MemoizedPrice() {
   const prices = mockStore(state => state.tokenPrices);
   const row = mockStore(state => state.balances.account?.[0]);
   const id = 'native-fixed';
-  const price = useMemo(() => tokenQuote(prices, id, 'USDCX')?.price, [prices, id]);
+  const price = useMemo(() => {
+    priceComputations += 1;
+    return tokenQuote(prices, id, 'USDCX')?.price;
+  }, [prices, id]);
   return (
     <div>
       <span data-testid="memo-price">{price ?? 'waiting'}</span>
@@ -85,7 +90,8 @@ it('re-evaluates memoized prices and stored balances after metadata completes at
       <MemoizedPrice />
     </TokensMetadataProvider>
   );
-  expect(screen.getByTestId('memo-price')).toHaveTextContent('waiting');
+  expect(screen.getByTestId('memo-price')).toHaveTextContent('1');
+  const initialComputations = priceComputations;
   expect(screen.getByTestId('balance-fiat')).toHaveTextContent('0');
   const initialFeed = mockStore.getState().tokenPrices;
   act(() => {
@@ -94,6 +100,7 @@ it('re-evaluates memoized prices and stored balances after metadata completes at
   });
   expect(mockStore.getState().tokenPrices).toEqual({});
   expect(mockStore.getState().tokenPrices).not.toBe(initialFeed);
+  expect(priceComputations).toBeGreaterThan(initialComputations);
   expect(screen.getByTestId('memo-price')).toHaveTextContent('1');
   expect(screen.getByTestId('balance-fiat')).toHaveTextContent('1');
   expect(screen.getByTestId('ready')).toHaveTextContent('true');

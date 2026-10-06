@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [FIX][all] Fresh native token defaults and fee, funding and auto-accept labels use USDCX with a fixed $1 unit quote. Quantity and fee calculations still wait for confirmed chain metadata.
+
 - [FIX][all] Discover the fee token after chain sync without a configured faucet, preserve its on-chain symbol and decimals, and show Send's maximum network fee on fee-charging chains. SDK-confirmed native USDCX is valued at $1 without a market feed, including spending limits.
 
 - [FIX][ci] Normalize Windows helper checkouts when validating the SDK relay patch, allowing desktop installers to build without weakening stale-patch checks.

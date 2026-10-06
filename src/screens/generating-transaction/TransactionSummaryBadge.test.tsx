@@ -440,7 +440,8 @@ describe('useTransactionSummaryBadgeContent', () => {
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 42n, secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('MIDEN');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('USDCX');
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).not.toContain('42');
     act(() => root.unmount());
   });
 

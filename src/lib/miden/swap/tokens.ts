@@ -168,13 +168,9 @@ export function normalizedFaucetId(faucetId: string): string {
 function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
   const nativeId = getNativeAssetIdSync();
   const metadata = getNativeAssetMetadataSync();
-  const syncedId = metadata?.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
+  const syncedId = !metadata || metadata.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
   const fixedNative =
-    nativeId &&
-    syncedId &&
-    metadata &&
-    hasKnownScale({ ...metadata, name: metadata.symbol }) &&
-    normalizedFaucetId(nativeId) === normalizedFaucetId(syncedId)
+    nativeId && syncedId && normalizedFaucetId(nativeId) === normalizedFaucetId(syncedId)
       ? [{ faucetId: nativeId, priceSymbol: 'USDCX' }]
       : [];
   return [

@@ -11,7 +11,9 @@
 - [ ] Run full tests, unchanged 95% coverage gates and browser regressions on the final PR head in CI only.
 - [x] Publish PR #1351 against `next` while completing review, as explicitly requested.
 - [x] Correct the confirmed stale-metadata bootstrap P1 and the explicitly reopened valuation snapshot P2.
-- [ ] Certify the corrected committed checkpoint with the final independent panel; other P2/P3 findings remain nonblocking.
+- [x] Default fresh native display to USDCX and a fixed $1 unit quote; require confirmed scale for quantities and fees.
+- [x] Update native fee, funding and auto-accept copy across all 14 locales and align default token selectors.
+- [x] Finish the remaining internal review on the corrected committed checkpoint; other P2/P3 findings remain nonblocking.
 - [ ] Babysit the PR to green and admin squash merge.
 - [ ] Babysit `origin/next` to green and publish wallet `v1.17.1` with all required assets verified.
 - Store publishing is handled by the user; preserve the existing `v1.17.0` release and tag.

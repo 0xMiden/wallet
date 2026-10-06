@@ -4,7 +4,7 @@
 
 **Spec:** `tasks/fee-faucet-discovery.md` plus the requested devnet USDCX pricing and Send fee investigation.
 
-**Architecture:** Record the SDK's `feeFaucetId()` after sync inside the existing WASM hold. Publish only plain account ID data into the native asset module's RPC-and-network scoped cache. Read the same authoritative metadata in balance, pricing, and fee display paths. A fixed USDCX quote applies only after faucet identity and chain metadata agree.
+**Architecture:** Record the SDK's `feeFaucetId()` after sync inside the existing WASM hold. Publish only plain account ID data into the native asset module's RPC-and-network scoped cache. Read the same authoritative metadata in balance, pricing, and fee display paths. A fixed USDCX unit quote follows the SDK-confirmed native identity and the requested USDCX default while metadata loads. Authoritative chain symbols take precedence, and known scale remains required for balances, allowances and fees.
 
 **Tech stack:** TypeScript, React, SDK 0.17.0, Jest, Playwright.
 
@@ -72,7 +72,18 @@
 - [x] Read native metadata from the chain even when generic display metadata contains a stale cached scale.
 - [x] Retain the authenticated native USDCX fixed quote across an earlier foreign metadata or price await.
 - [x] Prove both defects with failing regressions, passing controls and exact restored-source mutations.
-- [ ] Run fresh PR CI and the final independent medium-effort panel on the corrected committed head.
+- [ ] Run fresh PR CI and the final medium-effort internal review on the corrected committed head.
+
+## Fresh-install native defaults
+
+- [x] Use USDCX name and symbol for provisional native metadata rather than MIDEN.
+- [x] Keep generic native branding from supplying an unverified quantity scale.
+- [x] Give SDK-confirmed native USDCX a fixed $1 unit quote independent of scale readiness.
+- [x] Preserve foreign quote exclusion, genuine chain MIDEN, and unknown-scale quantity, fee and allowance refusals.
+- [x] Verify focused RED/GREEN and guard mutations, then finish the internal review; fresh signed-source CI follows.
+- [x] Update native fee, funding and auto-accept copy across all 14 locales, including runtime bundles and source metadata; preserve placeholders and leave no stale translations.
+- [x] Align Chrome, iOS and Android default token-selector fixtures with USDCX.
+- Scope is fresh installs. No cached balance-row migration or provider projection changes.
 
 ## Task 4: Merge and release wallet 1.17.1
 
@@ -104,3 +115,10 @@
 - Explicit overrides keep precedence. Scoped identity, metadata and fee records cannot migrate into another endpoint; native-only fixed pricing does not authorize copied stablecoin symbols.
 
 PR #1351 is open. Final review certification of the corrected source, the authorized admin squash merge and wallet `v1.17.1` release follow this source checkpoint. Their final status is recorded in the PR and release.
+
+### Fresh-default validation
+
+- 331 tests across 15 native, pricing and smoke suites pass; nine focused mutations produce 23 intended assertion failures and restore exact source bytes.
+- 119 tests across three settings, auto-consume and transaction-error suites pass.
+- Full TypeScript and scoped zero-warning lint and format checks pass. All 14 locale runtime/source bundles agree across 1304 keys with unchanged placeholders and no pending translations.
+- Three internal medium-effort reviews report no P0/P1 findings. Final full coverage, platform builds and browser regressions remain CI-only and must run on the pushed head.

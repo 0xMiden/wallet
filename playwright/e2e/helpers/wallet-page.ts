@@ -2855,7 +2855,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    */
   /**
    * `tokenSymbol` picks that token's row from the SelectToken list; the default is the first
-   * non-MIDEN row, which is fine only when one fundable token exists. `tokenId` is the exact
+   * non-USDCX row, which is fine only when one fundable token exists. `tokenId` is the exact
    * faucet account id the stress suite selects by instead.
    */
   async prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void> {
@@ -2922,12 +2922,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       if (symbolRowCount > 0) {
         await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
       } else {
-        // No row for the requested symbol — fall back to the first non-MIDEN row
-        // (MIDEN typically sits at 0 balance above the real fundable token).
-        await this.clickFirstNonMidenTokenRow(this.page, STEP_TIMEOUT_MS);
+        // No row for the requested symbol - fall back to the first non-USDCX row
+        // (USDCX can sit at zero balance above the funded token).
+        await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
       }
     } else {
-      await this.clickFirstNonMidenTokenRow(this.page, STEP_TIMEOUT_MS);
+      await this.clickFirstNonNativeTokenRow(this.page, STEP_TIMEOUT_MS);
     }
 
     // Back on SelectAmount after the sub-screen closes.
@@ -3025,10 +3025,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   /**
    * In the SelectToken sub-screen, click the first available token row whose
-   * testid is not `send-token-MIDEN`. Falls back to the very first row if
-   * MIDEN is the only one present.
+   * testid is not `send-token-USDCX`. Falls back to the very first row if
+   * USDCX is the only one present.
    */
-  private async clickFirstNonMidenTokenRow(
+  private async clickFirstNonNativeTokenRow(
     scope: Page | ReturnType<Page['getByTestId']>,
     timeoutMs: number
   ): Promise<void> {
@@ -3037,14 +3037,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     for (let i = 0; i < total; i++) {
       const row = rows.nth(i);
       const testid = (await row.getAttribute('data-testid').catch(() => '')) ?? '';
-      // Skip the token selector control itself and the MIDEN row.
-      if (testid === 'send-token-selector' || testid === 'send-token-search' || testid === 'send-token-MIDEN') {
+      // Skip the token selector control itself and the USDCX row.
+      if (testid === 'send-token-selector' || testid === 'send-token-search' || testid === 'send-token-USDCX') {
         continue;
       }
       await row.click({ timeout: timeoutMs });
       return;
     }
-    // Only MIDEN (or no non-MIDEN rows) — take the first row.
+    // Only USDCX (or no other token rows) - take the first row.
     await rows.first().click({ timeout: timeoutMs });
   }
 

@@ -2880,16 +2880,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "Günlük anahtarınızı etkinleştirmek için MIDEN'i ekleyin",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "Günlük anahtarınızı etkinleştirmek için USDCX'i ekleyin",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "Günlük anahtarınızı etkinleştirmek bir işlemdir ve her işlemde MIDEN cinsinden küçük bir ağ ücreti ödenir. Aşağıdaki bu hesabın adresine MIDEN gönderin. Cüzdan bunu alır ve anahtarınızı otomatik olarak etkinleştirir.",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "Günlük anahtarınızı etkinleştirmek bir işlemdir ve her işlemde USDCX cinsinden küçük bir ağ ücreti ödenir. Aşağıdaki bu hesabın adresine USDCX gönderin. Cüzdan bunu alır ve anahtarınızı otomatik olarak etkinleştirir.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "En az $amount$ MIDEN gönderin.",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "En az $amount$ USDCX gönderin.",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2901,28 +2901,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "MIDEN'in gelmesini bekliyorum…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "USDCX'in gelmesini bekliyorum…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "Aldığınız MIDEN, ağ ücretini ödemek için yetersizdir. Biraz daha gönderin.",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "Aldığınız USDCX, ağ ücretini ödemek için yetersizdir. Biraz daha gönderin.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "MIDEN alındı. Talep ediliyor…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "USDCX alındı. Talep ediliyor…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "Günlük anahtarınızı etkinleştirme…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "Aldığınız MIDEN talep edilememiştir.",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "Aldığınız USDCX talep edilememiştir.",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "Cüzdan, aldığınız MIDEN'in talep edilip edilmediğini doğrulayamadı. Tekrar denemeden önce cüzdanın senkronize olması için bir dakika bekleyin.",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "Cüzdan, aldığınız USDCX'in talep edilip edilmediğini doğrulayamadı. Tekrar denemeden önce cüzdanın senkronize olması için bir dakika bekleyin.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Tekrar deneyin",
@@ -3086,28 +3086,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "USDCX'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla USDCX alın.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Tutar, bakiyeden az olmalıdır",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN transferlerini otomatik kabul et",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "USDCX transferlerini otomatik kabul et",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Gelen MIDEN transferlerini bakiyenize otomatik olarak kabul eder — Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "Gelen USDCX transferlerini bakiyenize otomatik olarak kabul eder - Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Cüzdan dosyanız oluşturuluyor…",
@@ -5448,8 +5448,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",
