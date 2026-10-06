@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "A sincronizar transferências públicas…",
   "guardianNoteRecoveryPublicStep": "A sincronizar transferências públicas: bloco $current$ de $latest$",
   "pendingNotesPromptTitle": "Você tem transferências para aceitar",
-  "pendingNotesPromptBody": "$count$ aguardando",
+  "pendingNotesPromptBodyReview": "$count$ aguardando · toque para revisar",
   "verifySeedPhrasePromptTitle": "Faça backup da sua carteira",
   "verifySeedPhrasePromptBody": "Guarde sua frase de recuperação para poder restaurar esta carteira em um novo dispositivo.",
   "hotKeyHardwareErrorPromptTitle": "Assinatura segura indisponível",

@@ -248,6 +248,8 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
                 address={account.publicKey}
                 tokenId={tokenId}
                 fullHistory={true}
+                // The section's heading names the list; each day is a quiet caption under it.
+                dateStyle="caption"
                 scrollParentRef={scrollParentRef}
               />
             </div>

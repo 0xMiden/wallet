@@ -10,7 +10,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 import { Card } from './Card';
 
-export type PromptCardVariant = 'default' | 'warning' | 'critical';
+/** `receive`: money waiting for the wallet, drawn on the Receive tint with its ink. */
+export type PromptCardVariant = 'default' | 'warning' | 'critical' | 'receive';
 export type PromptCardStatus = 'idle' | 'loading' | 'success' | 'failure';
 
 /**
@@ -72,18 +73,21 @@ const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> =
  * The tone of an icon bubble: the accent for anything neutral or in progress, the status green for
  * a finished one, the status red for a failed one.
  */
-type PromptIconTone = 'accent' | 'positive' | 'negative';
+type PromptIconTone = 'accent' | 'positive' | 'negative' | 'receive';
 
 const ICON_BUBBLE_TONE: Record<PromptIconTone, string> = {
   accent: 'bg-accent-primary/15 text-accent-primary',
   positive: 'bg-status-positive/15 text-status-positive',
-  negative: 'bg-status-negative/15 text-status-negative'
+  negative: 'bg-status-negative/15 text-status-negative',
+  // On the Receive tint a tint bubble would vanish, so it is the solid Receive colour with its
+  // on-colour glyph: the one solid bubble, for money waiting.
+  receive: 'bg-accent-receive text-accent-receive-on'
 };
 
 interface PromptIconBubbleProps {
   tone: PromptIconTone;
-  /** 24px for a status mark in the corner, 36px for the icon beside a title. */
-  size: 24 | 36;
+  /** 24px for a status mark in the corner, 36px for the icon beside a title, 44px on a `receive` card. */
+  size: 24 | 36 | 44;
   role?: 'status';
   'aria-label'?: string;
   className?: string;
@@ -113,7 +117,7 @@ const PromptIconBubble: FC<PromptIconBubbleProps> = ({
     aria-label={ariaLabel}
     className={classNames(
       'flex shrink-0 items-center justify-center overflow-hidden rounded-full',
-      size === 24 ? 'h-6 w-6' : 'h-9 w-9',
+      size === 24 ? 'h-6 w-6' : size === 44 ? 'h-11 w-11' : 'h-9 w-9',
       ICON_BUBBLE_TONE[tone],
       className
     )}
@@ -127,6 +131,7 @@ export const PromptCard: FC<PromptCardProps> = ({
   body,
   bodyValue,
   icon,
+  variant = 'default',
   hero,
   onClick,
   actionLabel,
@@ -238,7 +243,14 @@ export const PromptCard: FC<PromptCardProps> = ({
   return (
     // `outline`, like Activity's rows: a single actionable card that has to separate itself where it
     // sits on the page, not a grey block on the home page.
-    <Card asChild surface="outline" padding="none">
+    <Card
+      asChild
+      surface="outline"
+      padding="none"
+      // On Card itself, not the child: the Slot only joins the two class lists, so the outline's
+      // `bg-page` would win over a tint set on the child.
+      className={variant === 'receive' ? 'border-transparent bg-accent-receive-tint' : undefined}
+    >
       <div
         ref={containerRef}
         data-testid={testId}
@@ -264,8 +276,18 @@ export const PromptCard: FC<PromptCardProps> = ({
         )}
       >
         {!hero && icon && (
-          <PromptIconBubble tone="accent" size={36} className={status === 'loading' ? 'animate-pulse' : undefined}>
-            <Icon name={icon} size="sm" fill="currentColor" />
+          <PromptIconBubble
+            tone={variant === 'receive' ? 'receive' : 'accent'}
+            size={variant === 'receive' ? 44 : 36}
+            className={status === 'loading' ? 'animate-pulse' : undefined}
+          >
+            {/* The 44px Receive bubble carries a 14px glyph, as small inside it as the 36px one's. */}
+            <Icon
+              name={icon}
+              size="sm"
+              fill="currentColor"
+              className={variant === 'receive' ? '!h-3.5 !w-3.5' : undefined}
+            />
           </PromptIconBubble>
         )}
         {/* The hero replaces the title, body and CTA outright, so this is the only
@@ -320,10 +342,22 @@ export const PromptCard: FC<PromptCardProps> = ({
           </motion.div>
         ) : (
           <Lockup className="flex flex-col gap-0.5 min-w-0 flex-1 text-left text-ink">
-            <div className="text-row-title truncate">{title}</div>
+            <div className={classNames('text-row-title truncate', variant === 'receive' && 'font-extrabold')}>
+              {title}
+            </div>
             {(body || bodyValue) && (
               <div className="flex min-w-0 items-baseline gap-1.5">
-                {body && <span className="line-clamp-2 min-w-0 text-caption text-muted">{body}</span>}
+                {body && (
+                  <span
+                    className={classNames(
+                      'line-clamp-2 min-w-0 text-caption',
+                      // The receive line in Nunito semibold: `face-heading` points the caption's own face there.
+                      variant === 'receive' ? 'face-heading font-semibold text-accent-receive-ink' : 'text-muted'
+                    )}
+                  >
+                    {body}
+                  </span>
+                )}
                 {bodyValue && <span className="shrink-0 text-value text-ink">{bodyValue}</span>}
               </div>
             )}
@@ -352,7 +386,12 @@ export const PromptCard: FC<PromptCardProps> = ({
             <>
               {StatusIndicator}
               {ActionButton}
-              <Icon name={IconName.ChevronRight} size="xs" className="dark:stroke-pure-white" />
+              <Icon
+                name={IconName.ChevronRight}
+                size="xs"
+                // The chevron's stroke is set on its path, so the colour has to reach the path.
+                className={variant === 'receive' ? '[&_path]:stroke-accent-receive-ink' : 'dark:stroke-pure-white'}
+              />
             </>
           )
         )}

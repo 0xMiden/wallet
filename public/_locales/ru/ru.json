@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Синхронизация публичных переводов…",
   "guardianNoteRecoveryPublicStep": "Синхронизация публичных переводов: блок $current$ из $latest$",
   "pendingNotesPromptTitle": "У вас есть переводы для принятия",
-  "pendingNotesPromptBody": "$count$ в ожидании",
+  "pendingNotesPromptBodyReview": "$count$ в ожидании · нажмите, чтобы просмотреть",
   "verifySeedPhrasePromptTitle": "Сделайте резервную копию своего кошелька",
   "verifySeedPhrasePromptBody": "Сохраните фразу для восстановления, чтобы восстановить этот кошелёк на новом устройстве.",
   "hotKeyHardwareErrorPromptTitle": "Безопасная подпись недоступна",

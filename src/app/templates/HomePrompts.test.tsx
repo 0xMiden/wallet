@@ -3553,7 +3553,7 @@ describe('HomePrompts', () => {
     );
 
     expect(screen.getByTestId('prompt-card-value')).not.toHaveTextContent('$4.50');
-    expect(screen.getByText('pendingNotesPromptBody:1')).toBeInTheDocument();
+    expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
 
     // Restore puts it back, and the banner agrees again.
     mockHiddenNotes.ids = new Set();
@@ -3568,7 +3568,7 @@ describe('HomePrompts', () => {
       />
     );
     expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
-    expect(screen.getByText('pendingNotesPromptBody:2')).toBeInTheDocument();
+    expect(screen.getByText('pendingNotesPromptBodyReview:2')).toBeInTheDocument();
   });
 
   it('shows nothing at all when every pending transfer has been declined', () => {

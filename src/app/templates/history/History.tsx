@@ -52,6 +52,11 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /**
+   * `caption`: each day is a small grey caption ("Monday, October 5") rather than the bold date and
+   * coloured weekday, for a list that already sits under its own section heading (Token Detail).
+   */
+  dateStyle?: 'header' | 'caption';
   /** The claims a card stands for; the consume row each would repeat is hidden. */
   pendingItems?: PendingActivityItem[];
   /** The cards drawn in the timeline, when fewer than `pendingItems` (a search); defaults to `pendingItems`. */
@@ -133,6 +138,7 @@ const History = memo<HistoryProps>(
     scrollParentRef,
     fullHistory,
     centerEmptyState,
+    dateStyle,
     tokenId,
     searchQuery,
     filter,
@@ -446,6 +452,7 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        dateStyle={dateStyle}
         pendingItems={drawnPendingItems ?? pendingItems}
         renderPendingItem={renderPendingItem}
         className={className}

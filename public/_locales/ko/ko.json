@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "공개 이체를 동기화하는 중…",
   "guardianNoteRecoveryPublicStep": "공개 이체 동기화 중: 블록 $current$ / $latest$",
   "pendingNotesPromptTitle": "수락할 전송이 있습니다",
-  "pendingNotesPromptBody": "$count$건 대기 중",
+  "pendingNotesPromptBodyReview": "$count$건 대기 중 · 탭하여 확인",
   "verifySeedPhrasePromptTitle": "지갑을 백업하세요",
   "verifySeedPhrasePromptBody": "새 기기에서 이 지갑을 복원할 수 있도록 복구 문구를 저장하세요.",
   "hotKeyHardwareErrorPromptTitle": "보안 서명 사용 불가",

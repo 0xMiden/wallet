@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "正在同步公开转账…",
   "guardianNoteRecoveryPublicStep": "正在同步公开转账：区块 $current$ / $latest$",
   "pendingNotesPromptTitle": "您有待接受的转账",
-  "pendingNotesPromptBody": "$count$ 笔等待中",
+  "pendingNotesPromptBodyReview": "$count$ 笔等待中 · 点按查看",
   "verifySeedPhrasePromptTitle": "备份您的钱包",
   "verifySeedPhrasePromptBody": "保存您的恢复短语，以便在新设备上恢复此钱包。",
   "hotKeyHardwareErrorPromptTitle": "无法进行安全签名",

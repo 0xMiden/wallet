@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Öffentliche Überweisungen werden synchronisiert…",
   "guardianNoteRecoveryPublicStep": "Öffentliche Überweisungen werden synchronisiert: Block $current$ von $latest$",
   "pendingNotesPromptTitle": "Sie haben Überweisungen zum Annehmen",
-  "pendingNotesPromptBody": "$count$ wartend",
+  "pendingNotesPromptBodyReview": "$count$ wartend · zum Prüfen tippen",
   "verifySeedPhrasePromptTitle": "Erstellen Sie ein Backup Ihrer Wallet",
   "verifySeedPhrasePromptBody": "Speichern Sie Ihre Wiederherstellungsphrase, damit Sie diese Wallet auf einem neuen Gerät wiederherstellen können.",
   "hotKeyHardwareErrorPromptTitle": "Sichere Signatur nicht verfügbar",

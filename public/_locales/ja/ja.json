@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "公開送金を同期しています…",
   "guardianNoteRecoveryPublicStep": "公開送金を同期しています：ブロック $current$ / $latest$",
   "pendingNotesPromptTitle": "承認待ちの送金があります",
-  "pendingNotesPromptBody": "$count$ 件待機中",
+  "pendingNotesPromptBodyReview": "$count$ 件待機中 · タップして確認",
   "verifySeedPhrasePromptTitle": "ウォレットのバックアップを取る",
   "verifySeedPhrasePromptBody": "新しいデバイスでこのウォレットを復元できるよう、リカバリーフレーズを保管してください。",
   "hotKeyHardwareErrorPromptTitle": "安全な署名機能は利用できません",

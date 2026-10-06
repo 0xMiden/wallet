@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Syncing public transfers…",
   "guardianNoteRecoveryPublicStep": "Syncing public transfers: block $current$ of $latest$",
   "pendingNotesPromptTitle": "You have transfers to accept",
-  "pendingNotesPromptBody": "$count$ waiting",
+  "pendingNotesPromptBodyReview": "$count$ waiting · tap to review",
   "verifySeedPhrasePromptTitle": "Back up your wallet",
   "verifySeedPhrasePromptBody": "Save your recovery phrase so you can restore this wallet on a new device.",
   "hotKeyHardwareErrorPromptTitle": "Secure signing unavailable",

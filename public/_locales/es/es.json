@@ -411,7 +411,7 @@
   "guardianNoteRecoveryPublicPreparingStep": "Sincronizando transferencias públicas…",
   "guardianNoteRecoveryPublicStep": "Sincronizando transferencias públicas: bloque $current$ de $latest$",
   "pendingNotesPromptTitle": "Tienes transferencias por aceptar",
-  "pendingNotesPromptBody": "$count$ en espera",
+  "pendingNotesPromptBodyReview": "$count$ en espera · toca para revisar",
   "verifySeedPhrasePromptTitle": "Haz una copia de seguridad de tu monedero",
   "verifySeedPhrasePromptBody": "Guarda tu frase de recuperación para poder restaurar este monedero en un dispositivo nuevo.",
   "hotKeyHardwareErrorPromptTitle": "La firma segura no está disponible",

@@ -92,6 +92,17 @@ describe('PromptCard', () => {
     expect(screen.getByText('You need MIDEN.')).toHaveClass('text-caption', 'text-muted');
   });
 
+  it('draws the `receive` variant on the Receive tint with its ink', () => {
+    const { container } = render(
+      <PromptCard title="You have transfers to accept" body="1 waiting" variant="receive" icon={IconName.Receive} />
+    );
+
+    const card = container.firstChild as HTMLElement;
+    expect(card).toHaveClass('bg-accent-receive-tint', 'border-transparent');
+    expect(screen.getByText('1 waiting')).toHaveClass('text-accent-receive-ink');
+    expect(screen.getByText('1 waiting')).not.toHaveClass('text-muted');
+  });
+
   it('runs the card action when its content is clicked', () => {
     const onClick = jest.fn();
     render(<PromptCard title="Fund your wallet" onClick={onClick} />);

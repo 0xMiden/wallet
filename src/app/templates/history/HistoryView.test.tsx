@@ -675,6 +675,17 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(screen.getByText('Tuesday')).toBeInTheDocument();
   });
 
+  it('draws each day as a quiet caption, with the year only when it is not this year', () => {
+    render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+    // The 2024 fixtures are not this year, so their captions carry it; no separate weekday header.
+    const caption = screen.getByText('Monday, January 15, 2024');
+    expect(caption).toHaveClass('text-caption-heading', 'text-muted');
+    expect(screen.getByText('Tuesday, January 16, 2024')).toBeInTheDocument();
+    expect(screen.queryByText('Monday')).not.toBeInTheDocument();
+    expect(screen.queryByText('January 15, 2024')).not.toBeInTheDocument();
+  });
+
   it('renders the faucet row (RECEIVE icon)', () => {
     renderFull();
     const row = rowByTitle('faucetRequestTitle');
