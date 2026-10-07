@@ -1,7 +1,13 @@
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 
-import { recordNoteDelivery, relayAckedNoteIdsOf, relayNoteIdsOf, relayRecipientOf } from './helper';
+import {
+  noteDeliveryWriteCount,
+  recordNoteDelivery,
+  relayAckedNoteIdsOf,
+  relayNoteIdsOf,
+  relayRecipientOf
+} from './helper';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { INoteDeliveryState, ITransaction } from '../db/types';
 import { errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
@@ -223,14 +229,23 @@ interface PassState {
   pushesStopped?: 'notConfigured' | 'outage';
   /** A push succeeded in this pass, so the rows an outage deferred are due now. */
   caughtUp: boolean;
+  /** The earliest time (unix seconds) a row the pass saw next needs the sweep. */
+  nextDueAt: number;
 }
+
+const noteDue = (pass: PassState, at: number) => {
+  pass.nextDueAt = Math.min(pass.nextDueAt, at);
+};
 
 type RowOutcome = 'done' | 'awaiting-catch-up' | 'interrupted';
 
-const scheduleReceipt = (row: ITransaction) =>
-  Repo.transactions.where({ id: row.id }).modify(tx => {
-    tx.nextRelayAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
+const scheduleReceipt = async (row: ITransaction, pass: PassState) => {
+  const receiptAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
+  await Repo.transactions.where({ id: row.id }).modify(tx => {
+    tx.nextRelayAt = receiptAt;
   });
+  noteDue(pass, receiptAt);
+};
 
 const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise<RowOutcome> => {
   const targets = targetsOf(row);
@@ -251,16 +266,21 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     // `completedAt` means the terminal write has not run, so the relay IS in flight and
     // the wait starts now. Clamped to now so a clock that moved backwards cannot park the
     // row in the future.
+    const now = nowSeconds();
+    const armedAt = Math.min(row.completedAt ?? now, now) + retryDelayFor(1);
     await Repo.transactions.where({ id: row.id }).modify(tx => {
-      const now = nowSeconds();
       tx.relayAttempts = attemptsOf(row);
-      tx.nextRelayAt = Math.min(row.completedAt ?? now, now) + retryDelayFor(1);
+      tx.nextRelayAt = armedAt;
     });
+    noteDue(pass, armedAt);
     return 'done';
   }
 
   const catchUp = row.relayOutageDeferred === true && pass.caughtUp;
-  if (row.nextRelayAt > at && !catchUp) return row.relayOutageDeferred ? 'awaiting-catch-up' : 'done';
+  if (row.nextRelayAt > at && !catchUp) {
+    noteDue(pass, row.nextRelayAt);
+    return row.relayOutageDeferred ? 'awaiting-catch-up' : 'done';
+  }
 
   if (await allConsumed(row, targets.owed)) {
     // Consumed on chain: the recipient had every body. Terminal, and it clears any
@@ -273,26 +293,29 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   if (noteIds.length === 0) {
     // Pushes are over for this row; receipts go on hourly until the receipt window ends.
     await markRetriesStopped(row, targets, at);
+    const receiptAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
     await Repo.transactions.where({ id: row.id }).modify(tx => {
-      tx.nextRelayAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
+      tx.nextRelayAt = receiptAt;
       delete tx.relayOutageDeferred;
     });
+    noteDue(pass, receiptAt);
     return 'done';
   }
 
   if (pass.pushesStopped === 'notConfigured') {
     // No transport: no push and nothing spent. The receipt above is all this row gets.
-    await scheduleReceipt(row);
+    await scheduleReceipt(row, pass);
     return 'done';
   }
   if (pass.pushesStopped === 'outage') {
-    // The pass stopped pushing before this row. It spends nothing, and the first push
-    // that succeeds in a later pass makes it due at once.
+    // The pass stopped pushing before this row. It spends nothing and stays due, and the
+    // first push that succeeds in a later pass makes it due at once wherever it falls.
     if (!row.relayOutageDeferred) {
       await Repo.transactions.where({ id: row.id }).modify(tx => {
         tx.relayOutageDeferred = true;
       });
     }
+    noteDue(pass, row.nextRelayAt);
     return 'done';
   }
 
@@ -326,7 +349,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
       if (failure === 'interrupted') return 'interrupted';
       if (failure === 'notConfigured') {
         pass.pushesStopped = 'notConfigured';
-        await scheduleReceipt(row);
+        await scheduleReceipt(row, pass);
         return 'done';
       }
       if (failure === 'storeLoss') dead.push(noteId);
@@ -374,6 +397,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     if (outage) tx.relayOutageDeferred = true;
     else delete tx.relayOutageDeferred;
   });
+  noteDue(pass, nextRelayAt);
   await markRetriesStopped(updated, after, at);
   return 'done';
 };
@@ -386,6 +410,54 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
 const candidateRows = async (at: number): Promise<ITransaction[]> => {
   const rows = await Repo.transactions.where('noteDelivery').anyOf(SWEEPABLE).toArray();
   return rows.filter(row => at - relayedAt(row) <= RECEIPT_WINDOW_SECONDS).sort((a, b) => relayedAt(a) - relayedAt(b));
+};
+
+let running: Promise<void> | undefined;
+/** Until when no pass has work, as the last pass found it, and the delivery-write count it found it at. */
+let idle: { until: number; writes: number } | undefined;
+
+/** Forget the last pass's idle finding, so the next call queries. */
+export const __resetNoteDeliverySweepForTests = () => {
+  idle = undefined;
+};
+
+const runGuardedPass = async (): Promise<void> => {
+  const writes = noteDeliveryWriteCount();
+  idle = undefined;
+  try {
+    const nextDueAt = await runPass();
+    // A pass that stopped early leaves the next call to query.
+    if (nextDueAt !== undefined) {
+      idle = { until: Math.min(nextDueAt, nowSeconds() + RECEIPT_INTERVAL_SECONDS), writes };
+    }
+  } catch (error) {
+    console.warn('[noteDeliverySweep] pass failed', error);
+  }
+};
+
+/** One pass over the candidate rows. Resolves to when a row next needs one, or `undefined` if it stopped early. */
+const runPass = async (): Promise<number | undefined> => {
+  // Eligibility is judged against one snapshot so a single pass is internally consistent.
+  const at = nowSeconds();
+  const rows = await candidateRows(at);
+  const pass: PassState = isNoteTransportConfigured()
+    ? { caughtUp: false, nextDueAt: Infinity }
+    : { caughtUp: false, nextDueAt: Infinity, pushesStopped: 'notConfigured' };
+  const awaitingCatchUp: ITransaction[] = [];
+
+  for (const row of rows) {
+    const outcome = await sweepRow(row, at, pass);
+    if (outcome === 'interrupted') return undefined;
+    if (outcome === 'awaiting-catch-up') awaitingCatchUp.push(row);
+  }
+
+  // Rows an outage deferred that the pass reached before its first success.
+  if (pass.caughtUp) {
+    for (const row of awaitingCatchUp) {
+      if ((await sweepRow(row, at, pass)) === 'interrupted') return undefined;
+    }
+  }
+  return pass.nextDueAt;
 };
 
 /**
@@ -409,25 +481,17 @@ const candidateRows = async (at: number): Promise<ITransaction[]> => {
  * the outage deferred due at once. Rows restored from a backup only get receipts, and a
  * row with nothing to push is left alone. A failed push never downgrades an earlier
  * acknowledgement and never fails a landed transaction.
+ *
+ * Every platform calls this after its sync laps, so a call costs nothing when it can:
+ * calls that overlap share one pass, a call before anything is due makes no query (for
+ * an hour at most, and any delivery write ends the wait at once), and it never rejects,
+ * so a caller fires it and forgets it.
  */
-export const sweepNoteDeliveries = async (): Promise<void> => {
-  // Eligibility is judged against one snapshot so a single pass is internally consistent.
-  const at = nowSeconds();
-  const rows = await candidateRows(at);
-  const pass: PassState = isNoteTransportConfigured()
-    ? { caughtUp: false }
-    : { caughtUp: false, pushesStopped: 'notConfigured' };
-  const awaitingCatchUp: ITransaction[] = [];
-
-  for (const row of rows) {
-    const outcome = await sweepRow(row, at, pass);
-    if (outcome === 'interrupted') return;
-    if (outcome === 'awaiting-catch-up') awaitingCatchUp.push(row);
-  }
-
-  // Rows an outage deferred that the pass reached before its first success.
-  if (!pass.caughtUp) return;
-  for (const row of awaitingCatchUp) {
-    if ((await sweepRow(row, at, pass)) === 'interrupted') return;
-  }
+export const sweepNoteDeliveries = (): Promise<void> => {
+  if (running) return running;
+  if (idle && idle.writes === noteDeliveryWriteCount() && nowSeconds() < idle.until) return Promise.resolve();
+  running = runGuardedPass().finally(() => {
+    running = undefined;
+  });
+  return running;
 };

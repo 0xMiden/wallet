@@ -914,6 +914,31 @@ describe('private-note delivery sweep wiring', () => {
     expect(mockSweepNoteDeliveries).toHaveBeenCalled();
   });
 
+  // Fired and forgotten, as the unconfirmed reconcile is: a sweep can push several notes,
+  // each bounded only by a gRPC timeout, and none of that is the lap's business.
+  it('does not hold the lap or its SyncCompleted on a sweep still running', async () => {
+    let finish: () => void = () => {};
+    mockSweepNoteDeliveries.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finish = resolve;
+        })
+    );
+    mockBroadcast.mockClear();
+
+    const lap = doSync();
+    const settled = await Promise.race([
+      lap.then(() => 'settled'),
+      new Promise(resolve => setTimeout(() => resolve('still waiting'), 200))
+    ]);
+    finish();
+    await lap;
+
+    expect(settled).toBe('settled');
+    expect(mockSweepNoteDeliveries).toHaveBeenCalled();
+    expect(mockBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.SyncCompleted }));
+  });
+
   it('does not let a failing sweep break the sync', async () => {
     // Delivery is maintenance behind transactions that already landed, so a
     // transport problem must not fail a sync or trip its circuit breaker.

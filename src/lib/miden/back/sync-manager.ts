@@ -386,7 +386,10 @@ async function runSync(force: boolean): Promise<void> {
     //
     // Never allowed to affect the sync: delivery is maintenance behind
     // transactions that have already landed, so a transport problem here must not
-    // fail a sync or trip its circuit breaker.
+    // fail a sync or trip its circuit breaker. Fired and forgotten, like the
+    // unconfirmed reconcile below: a pass can push several notes, each bounded only
+    // by a gRPC timeout, and SyncCompleted must not wait for them. It never
+    // overlaps itself, so a lap that finds one still running joins it.
     //
     // Skipped on the lap whose inline sync was evicted, for the same reason [Lock 2] is
     // below: the sweep's proxy calls take fresh holds, so after an eviction cleared the
@@ -395,11 +398,7 @@ async function runSync(force: boolean): Promise<void> {
     // already landed — a lap later costs nothing, another two-minute park of this realm's
     // only WASM mutex costs the whole wallet (#777).
     if (!(inlineWasm && syncHoldEvicted)) {
-      try {
-        await sweepNoteDeliveries();
-      } catch (err) {
-        console.warn('[SyncManager] private-note delivery sweep failed', err);
-      }
+      void sweepNoteDeliveries().catch(err => console.warn('[SyncManager] private-note delivery sweep failed', err));
     }
 
     // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten so a slow node or Guardian

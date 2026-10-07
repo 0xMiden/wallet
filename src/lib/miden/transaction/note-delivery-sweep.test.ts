@@ -8,11 +8,13 @@
  */
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
+  __resetNoteDeliverySweepForTests,
   classifyRelayFailure,
   MAX_RELAY_ATTEMPTS,
   RelayFailureClass,
@@ -109,6 +111,8 @@ beforeEach(() => {
   mockRecord.mockResolvedValue(undefined);
   mockTransportConfigured.mockReturnValue(true);
   jest.spyOn(console, 'info').mockImplementation(() => undefined);
+  // What the last pass learned about when work is next due is module state, like the sweep's realm.
+  __resetNoteDeliverySweepForTests();
 });
 
 afterEach(() => {
@@ -1131,5 +1135,83 @@ describe('classifyRelayFailure', () => {
 
   it('reads a thrown string as an outage', () => {
     expect(classifyRelayFailure('fetch failed')).toBe('outage');
+  });
+});
+
+// Hosted on every sync lap of every platform, so a call must cost nothing when nothing is due and
+// never start a second pass beside a running one.
+describe('when a pass runs', () => {
+  const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
+  const queries = () =>
+    jest.mocked(Repo.transactions.where).mock.calls.filter(([arg]) => arg === 'noteDelivery').length;
+
+  it('runs one pass for two calls that overlap', async () => {
+    rows.push(row({ noteDelivery: 'pending' }));
+    let release: () => void = () => {};
+    mockRelayById.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          release = resolve;
+        })
+    );
+
+    const first = sweepNoteDeliveries();
+    const second = sweepNoteDeliveries();
+    for (let turn = 0; turn < 50 && mockRelayById.mock.calls.length === 0; turn++) await Promise.resolve();
+    release();
+    await Promise.all([first, second]);
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(queries()).toBe(1);
+  });
+
+  it('does not query when nothing is due', async () => {
+    rows.push(row({ nextRelayAt: NOW + 600 }));
+
+    await sweepNoteDeliveries();
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(1);
+  });
+
+  it('queries again once the earliest row is due', async () => {
+    rows.push(row({ nextRelayAt: NOW + 600 }));
+
+    await sweepNoteDeliveries();
+    jest.spyOn(Date, 'now').mockReturnValue((NOW + 600) * 1000);
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+  });
+
+  it('queries again after a delivery write, however far off the next row is', async () => {
+    rows.push(row({ nextRelayAt: NOW + 600 }));
+
+    await sweepNoteDeliveries();
+    await recordNoteDelivery('tx-1', 'pending');
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
+  });
+
+  it('queries at least hourly while idle, for rows no delivery write announced', async () => {
+    rows.push(row({ nextRelayAt: NOW + 3 * HOUR }));
+
+    await sweepNoteDeliveries();
+    jest.spyOn(Date, 'now').mockReturnValue((NOW + HOUR) * 1000);
+    await sweepNoteDeliveries();
+
+    expect(queries()).toBe(2);
+  });
+
+  it('never rejects, so a caller may fire it and forget it', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    jest.mocked(Repo.transactions.where).mockImplementationOnce(() => {
+      throw new Error('store closed');
+    });
+
+    await expect(sweepNoteDeliveries()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
   });
 });

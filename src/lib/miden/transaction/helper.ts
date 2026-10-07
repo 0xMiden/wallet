@@ -444,6 +444,15 @@ const relabelForDelivery = (row: ITransaction, label: string): string => {
   return notes === wording.notes ? label : undeliveredDisplayMessage(wording.base, notes);
 };
 
+let noteDeliveryWrites = 0;
+
+/**
+ * How many delivery writes this realm has made. The delivery sweep skips its query while nothing
+ * is due, and a write it did not make itself (a new send owing a relay) is what tells it to look
+ * again before then.
+ */
+export const noteDeliveryWriteCount = (): number => noteDeliveryWrites;
+
 /** `held` plus each of `added` it lacks, in order. */
 const withIds = (held: string[] | undefined, added: string[]): string[] => [
   ...(held ?? []),
@@ -501,6 +510,8 @@ export const recordNoteDelivery = async (
     // there too.
     if (tx.displayMessage) tx.displayMessage = relabelForDelivery(tx, tx.displayMessage);
   });
+  // Counted once the write has landed, so a sweep that reads the new count cannot have queried before the write.
+  noteDeliveryWrites++;
 };
 
 /**
