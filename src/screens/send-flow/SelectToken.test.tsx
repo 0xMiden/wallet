@@ -1,9 +1,15 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
@@ -17,6 +23,17 @@ jest.mock('react-i18next', () => ({
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
 // component consumes so we can drive account / balances / metadata by hand.
@@ -39,9 +56,11 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
 
-// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
+// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says. One `isHidden` across
+// renders, as the hook gives while the set holds, so the search memo recomputes only when its other inputs move.
 const mockHiddenIds = new Set<string>();
-const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+const mockIsHidden = (id: string) => mockHiddenIds.has(id);
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: mockIsHidden }));
 jest.mock('app/hooks/useHiddenTokens', () => ({
   useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
 }));
@@ -394,5 +413,55 @@ describe('SelectTokenDrawer', () => {
     expect(list.className).not.toContain('bg-fill');
     expect(list.className).not.toContain('rounded-2xl');
     expect(screen.getByTestId('send-token-ETH').className).toContain('h-18');
+  });
+});
+
+describe('SelectTokenDrawer testnet bridge USDC label', () => {
+  const BRIDGE_USDC: Balance = {
+    tokenId: TEST_MIDEN_USDC_FAUCET,
+    metadata: { symbol: 'USDC', name: 'USDC', decimals: 6 },
+    balance: 3,
+    fiatPrice: 1
+  };
+
+  it('names the row by the testnet label, keeps its USDC logo and hands the amount step the chain symbol', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    setBalances([BRIDGE_USDC]);
+    const { onSelect } = renderDrawer();
+
+    const row = screen.getByTestId('send-token-USDC');
+    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
+    expect(within(row).getByText('3.00 Test Epoch USDC')).toBeInTheDocument();
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' }));
+  });
+
+  it('finds the row by its label', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    setBalances([BRIDGE_USDC, BTC]);
+    renderDrawer();
+
+    fireEvent.change(search(), { target: { value: 'epoch' } });
+
+    expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+  });
+
+  it('finds the row by its label once the bridge config publishes under a search already typed', () => {
+    setBalances([BRIDGE_USDC, BTC]);
+    renderDrawer();
+    fireEvent.change(search(), { target: { value: 'test epoch' } });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    const row = screen.getByTestId('send-token-USDC');
+    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,12 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import {
@@ -12,6 +17,7 @@ import {
 import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import AssetRowDefault, { AssetRow } from './AssetRow';
 
@@ -32,6 +38,17 @@ jest.mock('components/TokenLogo', () => ({
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 jest.mock('components/ui', () => ({
   // The three figures are nodes now, not strings, so the stub renders them instead of stringifying
@@ -425,6 +442,35 @@ describe('AssetRow', () => {
       render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} data-testid="row" />);
 
       expect(screen.getByTestId('row-amount')).toHaveTextContent('2.00 BTC');
+    });
+  });
+
+  describe('testnet bridge USDC label', () => {
+    const bridgeUsdc = (): TokenBalanceData => ({
+      ...makeAsset({ symbol: 'USDC', name: 'USDC', balance: 3 }),
+      tokenId: TEST_MIDEN_USDC_FAUCET
+    });
+
+    it('names the bridge faucet and suffixes its balance with the testnet label, keeping the USDC logo', () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      render(<AssetRow asset={bridgeUsdc()} tokenPrices={tokenPrices} />);
+
+      expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Test Epoch USDC');
+      expect(screen.getByTestId('row-amount')).toHaveTextContent('3.00 Test Epoch USDC');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    });
+
+    it('shows the label once the bridge config publishes after the first render, with no new props', () => {
+      render(<AssetRow asset={bridgeUsdc()} tokenPrices={tokenPrices} />);
+      expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'USDC');
+
+      act(() => {
+        mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+        publishMockBridgeSnapshot();
+      });
+
+      expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Test Epoch USDC');
+      expect(screen.getByTestId('row-amount')).toHaveTextContent('3.00 Test Epoch USDC');
     });
   });
 });

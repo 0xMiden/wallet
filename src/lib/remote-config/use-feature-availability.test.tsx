@@ -98,6 +98,17 @@ describe('useBridgeConfigSnapshot', () => {
     unmount();
     expect(mockListeners.size).toBe(0);
   });
+
+  it('follows the runtime without loading when asked not to load, on any network', () => {
+    const { result } = renderHook(() => useBridgeConfigSnapshot({ load: false }));
+    const ready = { ...snapshotOn('testnet'), lastFetch: { at: 2, ok: true } };
+    publish(ready);
+    expect(result.current).toBe(ready);
+    publish(snapshotOn('devnet'));
+    expect(result.current.network).toBe('devnet');
+
+    expect(mockLoad).not.toHaveBeenCalled();
+  });
 });
 
 describe('useFeatureAvailability', () => {
