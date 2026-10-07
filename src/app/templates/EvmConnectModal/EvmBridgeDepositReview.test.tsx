@@ -90,6 +90,18 @@ describe('EvmBridgeDepositReview', () => {
     });
   });
 
+  it('names the token by its label in the hero, the amount row and "you receive", keeping the logo on its symbol', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({ amount: '10', symbol: 'USDC', label: 'Test Epoch USDC', outputAmount: '9.5' })}
+      />
+    );
+
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+    expect(screen.getAllByText('10 Test Epoch USDC')).toHaveLength(2);
+    expect(screen.getByText('≈ 9.5 Test Epoch USDC')).toBeInTheDocument();
+  });
+
   describe('route label', () => {
     it('labels the Epoch route "fast" with its arrival estimate', () => {
       render(<EvmBridgeDepositReview {...baseProps({ route: 'epoch' })} />);

@@ -237,16 +237,19 @@ jest.mock('./EvmBridgeDepositReview', () => ({
     amount,
     fiat,
     outputAmount,
+    label,
     onConfirm
   }: {
     amount: string;
     fiat?: number;
     outputAmount?: string;
+    label?: string;
     onConfirm: () => void;
   }) => {
     mockLastReviewConfirm = onConfirm;
     return (
       <div>
+        <span data-testid="review-label">{label}</span>
         <span data-testid="review-amount">{amount}</span>
         <span data-testid="review-fiat">{fiat}</span>
         <span data-testid="review-output">{outputAmount}</span>
@@ -501,6 +504,26 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     renderScreen();
 
     expect(screen.getByTestId('usdc-label')).toHaveTextContent('Test Epoch USDC');
+  });
+
+  it('names the configured USDC by the testnet label on the Review', async () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderScreen();
+
+    await reachSlowUsdcReview();
+
+    expect(await screen.findByTestId('review-label')).toHaveTextContent('Test Epoch USDC');
+  });
+
+  it('keeps ETH on its symbol on the Review on testnet', async () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderScreen();
+
+    await reachReview();
+
+    expect(await screen.findByTestId('review-label')).toHaveTextContent(/^ETH$/);
   });
 
   // The deposit is what the wallet signs for, so it rounds up: never less than leaves the account.

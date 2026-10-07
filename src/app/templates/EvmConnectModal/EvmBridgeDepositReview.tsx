@@ -14,8 +14,10 @@ import { BridgeRoute } from 'screens/send-flow/types';
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
   amount: string;
-  /** Token symbol shown in the hero / rows (e.g. USDC or ETH). */
+  /** Token symbol: keys the logo, and names the token unless `label` is given (e.g. USDC or ETH). */
   symbol: string;
+  /** The token's name in the hero and rows, such as the testnet label (`evmTokenLabel`). */
+  label?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
   /** Selected bridge route — drives the route label + arrival ETA. */
@@ -48,6 +50,7 @@ export interface EvmBridgeDepositReviewProps {
 export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   amount,
   symbol,
+  label,
   fiat,
   route,
   outputAmount,
@@ -64,7 +67,8 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${symbol}`.trim() : symbol;
+  const name = label ?? symbol;
+  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${name}`.trim() : name;
 
   return (
     <ReviewLayout
@@ -76,7 +80,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
           <Hero
             className="mt-2"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
-            value={`${amount} ${symbol}`}
+            value={`${amount} ${name}`}
             subtitle={fiat !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiat) }) : undefined}
           />
         </div>
@@ -95,7 +99,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       secondary={{ label: t('back'), onPress: onBack, disabled: isSubmitting }}
     >
       <DetailCard>
-        <DetailRow label={t('amount')}>{`${amount} ${symbol}`}</DetailRow>
+        <DetailRow label={t('amount')}>{`${amount} ${name}`}</DetailRow>
 
         <DetailRow label={t('from')}>
           <span className="inline-flex items-center gap-2">

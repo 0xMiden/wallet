@@ -246,6 +246,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const evmUsdcAddress = selectedEvmUsdc?.address;
   const evmUsdcChainId = selectedEvmUsdc?.chainId;
   const usdcSymbol = selectedEvmUsdc?.symbol ?? '';
+  const usdcLabel = evmTokenLabel(evmUsdcAddress, usdcSymbol);
   const usdcDecimals = selectedEvmUsdc?.decimals ?? 0;
   const evmUsdc = useMemo<EvmUsdc | null>(
     () =>
@@ -760,6 +761,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             <EvmBridgeDepositReview
               amount={reviewAmount}
               symbol={token === 'ETH' ? ETH_SYMBOL : usdcSymbol}
+              label={token === 'ETH' ? ETH_SYMBOL : usdcLabel}
               fiat={token === 'USDC' ? Number(reviewAmount) : undefined}
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
@@ -835,7 +837,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       selectedBalance.error,
       setupReady,
       slowAvailability,
-      usdcSymbol
+      usdcSymbol,
+      usdcLabel
     ]
   );
 

@@ -13,6 +13,8 @@ import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { findEvmUsdc } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
@@ -37,12 +39,15 @@ const outputLabel = (
 ): string => {
   if (inputs.phase === 'received') {
     const metadata = resolveDisplayMetadata(row.faucetId, assetsMetadata, nativeFaucetId);
-    const symbol = hasKnownScale(metadata) ? metadata.symbol : (inputs.outputSymbol ?? metadata.symbol);
+    const symbol = midenTokenLabel(
+      row.faucetId,
+      hasKnownScale(metadata) ? metadata.symbol : (inputs.outputSymbol ?? metadata.symbol)
+    );
     const amount = creditedAmount(row.amount, metadata);
     return amount === undefined ? symbol : `${amount} ${symbol}`;
   }
   if (!inputs.outputAmount) return 'Miden';
-  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${inputs.outputSymbol ?? ''}`.trim();
+  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${midenTokenLabel(row.faucetId, inputs.outputSymbol ?? '')}`.trim();
 };
 
 /** Bridge-specific post-review progress/failure/success screen. */
@@ -66,7 +71,10 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
     inputs.provider === 'epoch' ? 'pays' : 'typed',
     inputs.sourceSymbol
   );
-  const sourceLabel = `${sourceAmount} ${inputs.sourceSymbol}`;
+  // The Fast route moves only the configured EVM token, so its source is that token.
+  const sourceSymbol =
+    inputs.provider === 'epoch' ? evmTokenLabel(findEvmUsdc()?.address, inputs.sourceSymbol) : inputs.sourceSymbol;
+  const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');

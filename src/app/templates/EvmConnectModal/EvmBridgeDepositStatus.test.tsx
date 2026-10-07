@@ -2,9 +2,11 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 
@@ -22,6 +24,17 @@ jest.mock('lib/store', () => ({
   useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, AssetMetadata> }) => T) =>
     selector({ assetsMetadata: mockAssetsMetadata })
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
@@ -310,5 +323,57 @@ describe('EvmBridgeDepositStatus', () => {
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     expect(screen.getByTestId('summary-badge').textContent).toBe('0.0151235 ETH → 0.0151235 ETH');
+  });
+
+  describe('testnet bridge USDC label', () => {
+    beforeEach(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAssetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', name: 'USDC', decimals: 6 } };
+    });
+
+    it('names both sides of a Fast deposit by the testnet label in flight', () => {
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'delivering', outputAmount: '12', outputSymbol: 'USDC' }), {
+          faucetId: TEST_MIDEN_USDC_FAUCET
+        }),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12 Test Epoch USDC');
+    });
+
+    it('names both sides of a Fast deposit by the testnet label once received', () => {
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'received', outputAmount: '150.2', outputSymbol: 'USDC' }), {
+          faucetId: TEST_MIDEN_USDC_FAUCET,
+          amount: 150_123_456n
+        }),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 150.12 Test Epoch USDC');
+    });
+
+    it('keeps a Slow ETH deposit on ETH', () => {
+      mockRowState = {
+        row: makeRow(
+          makeInputs({
+            provider: 'agglayer',
+            sourceAmount: '0.015',
+            sourceSymbol: 'ETH',
+            outputAmount: '0.015',
+            outputSymbol: 'ETH',
+            phase: 'delivering'
+          }),
+          { faucetId: '' }
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('0.015 ETH → 0.015 ETH');
+    });
   });
 });
