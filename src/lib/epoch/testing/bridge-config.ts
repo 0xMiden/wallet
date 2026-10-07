@@ -84,15 +84,35 @@ export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
   lastFetch: null
 };
 
+const mockRuntimeListeners = new Set<() => void>();
+
 /**
  * A `lib/remote-config/runtime` stand-in whose snapshot is `read()`'s when it returns one, else the real realm's.
  * Install it with
  * `jest.mock('lib/remote-config/runtime', () => jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config').remoteConfigRuntimeMock(() => mockBridgeSnapshot))`,
- * where `mockBridgeSnapshot` is a `let` the suite sets before it renders.
+ * where `mockBridgeSnapshot` is a `let` the suite sets before it renders, then `publishMockBridgeSnapshot()` to
+ * re-render its subscribers. It never fetches or schedules: loading resolves to the snapshot read, and a hold is inert.
  */
 export function remoteConfigRuntimeMock(
   read: () => BridgeConfigSnapshot | undefined
 ): typeof import('lib/remote-config/runtime') {
   const actual = jest.requireActual<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime');
-  return { ...actual, getBridgeConfigSnapshot: () => read() ?? actual.getBridgeConfigSnapshot() };
+  const getBridgeConfigSnapshot = () => read() ?? actual.getBridgeConfigSnapshot();
+  return {
+    ...actual,
+    getBridgeConfigSnapshot,
+    subscribeBridgeConfig: listener => {
+      mockRuntimeListeners.add(listener);
+      return () => {
+        mockRuntimeListeners.delete(listener);
+      };
+    },
+    initBridgeConfig: async () => getBridgeConfigSnapshot(),
+    holdFastPoll: () => () => undefined
+  };
+}
+
+/** Notifies every subscriber of `remoteConfigRuntimeMock`, as the runtime does once it replaces its snapshot. */
+export function publishMockBridgeSnapshot(): void {
+  mockRuntimeListeners.forEach(listener => listener());
 }

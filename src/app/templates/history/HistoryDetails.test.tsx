@@ -319,9 +319,15 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 // The Earn collateral comes from the bridge config: a withdrawal's redeemed side is priced through it, and a
-// deposit's summary falls back to it.
+// deposit's summary falls back to it. The snapshot hook follows the runtime mock below, which the labels read.
 let mockEarnCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
-jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const runtime = jest.requireMock<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime');
+  return {
+    useBridgeConfigSnapshot: () => useSyncExternalStore(runtime.subscribeBridgeConfig, runtime.getBridgeConfigSnapshot)
+  };
+});
 jest.mock('lib/remote-config/values', () => ({
   ...jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values'),
   selectMidenUsdc: () => mockEarnCollateral

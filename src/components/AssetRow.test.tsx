@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, renderHook, screen, fireEvent, within } from '@testing-library/react';
 
 import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { TokenBalanceData } from 'lib/miden/front';
@@ -13,7 +13,8 @@ import {
 import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
-import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { type BridgeConfigSnapshot, holdFastPoll, initBridgeConfig } from 'lib/remote-config/runtime';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 import AssetRowDefault, { AssetRow } from './AssetRow';
 
@@ -455,6 +456,26 @@ describe('AssetRow', () => {
       rerender(<AssetRow asset={bridgeUsdc()} tokenPrices={{ ...tokenPrices }} />);
 
       expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Test Epoch USDC');
+    });
+
+    it('starts no config fetch from a reader that loads under the runtime mock', async () => {
+      const savedFetch = global.fetch;
+      const fetchSpy = jest.fn();
+      global.fetch = fetchSpy;
+      try {
+        mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+        renderHook(() => useBridgeConfigSnapshot());
+        holdFastPoll()();
+        const loaded = await initBridgeConfig();
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(loaded).toBe(TEST_BRIDGE_CONFIG_SNAPSHOT);
+      } finally {
+        global.fetch = savedFetch;
+      }
     });
   });
 });

@@ -62,9 +62,16 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
 
-// The Earn collateral the deposit fallback reads comes from the bridge config.
+// The Earn collateral the deposit fallback reads comes from the bridge config. The snapshot hook follows the runtime
+// mock below, which the labels read.
 let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
-jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const runtime = jest.requireMock<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime');
+  return {
+    useBridgeConfigSnapshot: () => useSyncExternalStore(runtime.subscribeBridgeConfig, runtime.getBridgeConfigSnapshot)
+  };
+});
 jest.mock('lib/remote-config/values', () => ({
   ...jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values'),
   selectMidenUsdc: () => mockCollateral
