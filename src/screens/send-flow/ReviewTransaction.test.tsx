@@ -502,7 +502,7 @@ describe('ReviewTransaction — rendering', () => {
       await flush();
 
       const hero = within(screen.getByTestId('review-amount'));
-      expect(hero.getByText('5 IETH')).toBeInTheDocument();
+      expect(hero.getByText('5 Test iETH')).toBeInTheDocument();
       expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     } finally {
       mockWalletStoreState.tokenPrices = { USDC: { price: 2 } };

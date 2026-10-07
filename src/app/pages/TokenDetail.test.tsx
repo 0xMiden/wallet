@@ -9,7 +9,7 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { normalizedFaucetId, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -312,6 +312,8 @@ jest.mock('framer-motion', () => {
 // A faucet the wallet prices (IETH, at ETH), and a realistic bech32 faucet id, long enough to
 // exercise HashShortView's middle truncation (default trimAfter 20) the way a real Miden faucet id does.
 const TOKEN_ID = TOKEN_IETH.faucetId;
+// A token the wallet gives no name of its own, for the tests that read the symbol the metadata carries.
+const PLAIN_ID = TOKEN_IMIDEN.faucetId;
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
@@ -652,7 +654,7 @@ describe('TokenDetail', () => {
     it('falls back to allTokensMetadata when the token is absent from balances', () => {
       // Empty balances -> no matching token -> metadata comes from the
       // allTokensMetadata map keyed by tokenId.
-      renderPage({ balances: [], metadata: { [TOKEN_ID]: { symbol: 'BTC' } } });
+      renderPage({ balances: [], metadata: { [PLAIN_ID]: { symbol: 'BTC' } } }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('BTC');
       // token undefined -> balance defaults to 0.
@@ -662,14 +664,14 @@ describe('TokenDetail', () => {
     it('shows the "unknown" symbol and zero balance when nothing resolves', () => {
       // balances undefined path (optional chaining short-circuits) + empty
       // metadata map -> metadata undefined -> symbol falls back to t('unknown').
-      renderPage({ balances: null, metadata: {} });
+      renderPage({ balances: null, metadata: {} }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('unknown');
       expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'unknown');
     });
 
     it('handles a matched token whose balance is nullish', () => {
-      renderPage({ balances: [{ tokenId: TOKEN_ID, metadata: { symbol: 'USDC' } }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, metadata: { symbol: 'USDC' } }] }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('USDC');
       // balance ?? 0 -> "0.00".
@@ -747,7 +749,7 @@ describe('TokenDetail', () => {
     });
 
     it('still names the token in the header and the logo', () => {
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 12.5, metadata: unresolved }] }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('Unknown');
     });

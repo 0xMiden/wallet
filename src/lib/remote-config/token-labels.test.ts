@@ -8,13 +8,14 @@ import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import { evmUsdcLabel, midenTokenLabel, TEST_EPOCH_USDC_LABEL } from './token-labels';
+import { evmUsdcLabel, midenTokenLabel, TEST_EPOCH_USDC_LABEL, TEST_IETH_LABEL } from './token-labels';
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getTestNetworkNameKey: jest.fn() }));
 // normalizedFaucetId reduces every spelling of a faucet to one id: here, the configured faucet's hex to its bech32.
 const mockUsdcFaucetBech32 = 'mtst1arjemrxne8lj5qz4mg9c8mtyxv5mjv7j';
 jest.mock('lib/miden/swap/tokens', () => ({
+  TOKEN_IETH: { symbol: 'IETH', faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h', decimals: 8, logoSymbol: 'ETH' },
   normalizedFaucetId: (faucetId: string) =>
     faucetId === '0x537c15a622074e91188aa894456c52' ? mockUsdcFaucetBech32 : faucetId
 }));
@@ -41,6 +42,20 @@ afterAll(() => {
 });
 
 describe('token labels', () => {
+  const IETH_FAUCET = 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h';
+
+  it('names iETH "Test iETH" on testnet by its faucet, before the bridge config loads too', () => {
+    expect(TEST_IETH_LABEL).toBe('Test iETH');
+    expect(midenTokenLabel(UNLOADED, IETH_FAUCET, 'IETH')).toBe('Test iETH');
+    expect(midenTokenLabel(LOADED, IETH_FAUCET, 'IETH')).toBe('Test iETH');
+  });
+
+  it('keeps the symbol of a token that only calls itself IETH, and of iETH off testnet', () => {
+    expect(midenTokenLabel(LOADED, TEST_NATIVE_ETH_FAUCET, 'IETH')).toBe('IETH');
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('devnet');
+    expect(midenTokenLabel(LOADED, IETH_FAUCET, 'IETH')).toBe('IETH');
+  });
+
   it('is the untranslated token name', () => {
     expect(TEST_EPOCH_USDC_LABEL).toBe('Test Epoch USDC');
   });
