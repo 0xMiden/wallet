@@ -156,7 +156,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
-  const { inSymbol, outSymbol, outAmount, providerLabel, network, status } =
+  const { inLabel, outLabel, outAmount, providerLabel, network, status } =
     entry.txType === 'bridged-send' ? bridgeRowDisplay(entry) : bridgeInRowDisplay(entry);
 
   return (
@@ -176,7 +176,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
 
       <div className="flex flex-col grow min-w-0">
         <span className="text-ink font-medium truncate text-sm leading-none">
-          {t('bridgeRowTitle', { from: inSymbol, to: outSymbol })}
+          {t('bridgeRowTitle', { from: inLabel, to: outLabel })}
         </span>
         <span className="text-xs text-grey-500 truncate mt-1">
           {t('bridgeRowVia', { provider: providerLabel, network })}
@@ -186,7 +186,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
       <div className="flex flex-col items-end shrink-0 gap-1">
         {outAmount !== undefined && (
           <span className="text-sm font-medium leading-none text-ink">
-            {outAmount} {outSymbol}
+            {outAmount} {outLabel}
           </span>
         )}
         <StatusBadge status={status} />

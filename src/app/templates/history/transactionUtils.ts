@@ -16,6 +16,8 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { findEvmUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
@@ -253,6 +255,9 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
+  /** The name each side is shown under (`midenTokenLabel`, `evmTokenLabel`); the symbols above format the amounts. */
+  inLabel: string;
+  outLabel: string;
   /**
    * What the destination side receives, ready to show. Bridge-out: the stored quote rounded down,
    * or the typed send amount for a row without a quote (Slow). Bridge-in: the typed "you receive"
@@ -276,7 +281,18 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
+  // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
+  const outLabel = entry.bridgeProvider === 'epoch' ? evmTokenLabel(findEvmUsdc()?.address, outSymbol) : outSymbol;
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel: midenTokenLabel(entry.faucetId, inSymbol),
+    outLabel,
+    outAmount,
+    providerLabel,
+    network: 'Sepolia',
+    status: bridgeStatusOf(entry)
+  };
 };
 
 /**
@@ -310,7 +326,18 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
       : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
+  // The bridge-in picker offers only ETH and the configured USDC, so any non-ETH source is that USDC.
+  const inLabel = inSymbol === 'ETH' ? inSymbol : evmTokenLabel(findEvmUsdc()?.address, inSymbol);
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel,
+    outLabel: midenTokenLabel(entry.faucetId, outSymbol),
+    outAmount,
+    providerLabel,
+    network: 'Miden',
+    status: bridgeStatusOf(entry)
+  };
 };
 
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */

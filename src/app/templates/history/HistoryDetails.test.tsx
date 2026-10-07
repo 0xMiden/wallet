@@ -5,7 +5,10 @@ import { create } from 'zustand';
 
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import {
   preparedExecution,
   PREPARED_FAUCET,
@@ -20,6 +23,7 @@ import {
   USER_CANCELLED_TRANSACTION_REASON,
   isUserCancelledTransaction
 } from 'lib/miden/transaction/constants';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
@@ -318,7 +322,20 @@ jest.mock('lib/miden-chain/constants', () => ({
 // deposit's summary falls back to it.
 let mockEarnCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockEarnCollateral }));
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values'),
+  selectMidenUsdc: () => mockEarnCollateral
+}));
+// This realm's bridge config, which the token labels read: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
@@ -3183,6 +3200,16 @@ describe('HistoryDetails', () => {
       // `currentColor` alone resolves to black with no ancestor setting a text colour; the
       // auto-flipping token the hero's own symbols already use is what makes it muted ink.
       expect(arrow).toHaveClass('text-text-muted');
+    });
+
+    it('names both sides of an Epoch bridge-in hero by the testnet label', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      setMockRow({ ...bridgedReceiveTx, faucetId: MIDEN_USDC_FAUCET });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      const names = screen.getAllByText('Test Epoch USDC').filter(el => el.classList.contains('text-text-muted'));
+      expect(names).toHaveLength(2);
+      expect(names[0]?.parentElement).toBe(names[1]?.parentElement);
     });
 
     it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {

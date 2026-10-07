@@ -2,10 +2,17 @@ import { format } from 'date-fns';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EVM_USDC,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
@@ -54,7 +61,8 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // The DEX swap registry pulls in SDK account-id helpers; stub the single lookup
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokenByFaucetId: jest.fn()
+  getSwapTokenByFaucetId: jest.fn(),
+  normalizedFaucetId: (faucetId: string) => faucetId
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
@@ -69,6 +77,20 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 jest.mock('lib/shared/format', () => ({
   formatAmount: jest.fn((amount: bigint, decimals: number | undefined) => `fmt(${amount},${decimals})`)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
+// The placeholder a bridge row shows for a token it cannot name (U+2014), built so no dash is typed here.
+const NO_TOKEN = String.fromCharCode(0x2014);
 
 const mockGetTokenMetadata = getTokenMetadata as jest.MockedFunction<typeof getTokenMetadata>;
 const mockGetSwapTokenByFaucetId = getSwapTokenByFaucetId as jest.MockedFunction<typeof getSwapTokenByFaucetId>;
@@ -670,6 +692,8 @@ describe('bridgeRowDisplay', () => {
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       // Truncated, not rounded up: a quote must not promise more than it pays.
       outAmount: '4.98',
       providerLabel: 'Epoch',
@@ -696,6 +720,8 @@ describe('bridgeRowDisplay', () => {
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'ETH',
+      inLabel: 'MIDEN',
+      outLabel: 'ETH',
       outAmount: '7',
       providerLabel: 'Agglayer',
       network: 'Sepolia',
@@ -707,6 +733,8 @@ describe('bridgeRowDisplay', () => {
     expect(bridgeRowDisplay(bridgeEntry({}))).toEqual({
       inSymbol: '—',
       outSymbol: 'USDC',
+      inLabel: NO_TOKEN,
+      outLabel: 'USDC',
       outAmount: undefined,
       providerLabel: 'Bridge',
       network: 'Sepolia',
@@ -754,6 +782,8 @@ describe('bridgeInRowDisplay', () => {
     ).toEqual({
       inSymbol: 'ETH',
       outSymbol: 'MIDEN',
+      inLabel: 'ETH',
+      outLabel: 'MIDEN',
       outAmount: '3',
       providerLabel: 'Agglayer',
       network: 'Miden',
@@ -875,11 +905,93 @@ describe('bridgeInRowDisplay', () => {
     expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
       inSymbol: 'USDC',
       outSymbol: '—',
+      inLabel: 'USDC',
+      outLabel: NO_TOKEN,
       outAmount: undefined,
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
     });
+  });
+});
+
+describe('bridge rows testnet bridge USDC label', () => {
+  beforeEach(() => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  });
+
+  it('labels both sides of an Epoch bridge-out of the bridge faucet', () => {
+    expect(
+      bridgeRowDisplay(
+        bridgeEntry({
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '5',
+          bridgeProvider: 'epoch',
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.987654'
+        })
+      )
+    ).toMatchObject({
+      inSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outSymbol: 'USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98'
+    });
+  });
+
+  it.each(['USDC', TEST_EVM_USDC.address])(
+    'labels an old Epoch bridge-in row saved with USDC or with the token address (%s)',
+    saved => {
+      expect(
+        bridgeInRowDisplay(
+          bridgeEntry({
+            txType: 'consume',
+            token: 'USDC',
+            faucetId: MIDEN_USDC_FAUCET,
+            amount: '3',
+            bridgeInProvider: 'epoch',
+            bridgeInSourceSymbol: saved
+          })
+        )
+      ).toMatchObject({ inSymbol: 'USDC', inLabel: 'Test Epoch USDC', outSymbol: 'USDC', outLabel: 'Test Epoch USDC' });
+    }
+  );
+
+  it('labels a Slow-route bridge-in of the configured USDC like the review does', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'consume',
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '3',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'USDC'
+        })
+      )
+    ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
+  });
+
+  it('leaves an Agglayer ETH row on ETH', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'consume',
+          token: 'ETH',
+          faucetId: TEST_NATIVE_ETH_FAUCET,
+          amount: '0.015',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'ETH'
+        })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        bridgeEntry({ token: 'ETH', faucetId: TEST_NATIVE_ETH_FAUCET, amount: '0.015', bridgeProvider: 'agglayer' })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
   });
 });
 

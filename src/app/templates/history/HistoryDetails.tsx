@@ -132,7 +132,7 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 /** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
-  const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+  const { inSymbol, inLabel, outLabel, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
   // A bridge-in's source side is what an Earn withdrawal redeemed (rounded down), what a Fast
   // deposit cost (rounded up) or what was typed on the Slow route. A bridge-out's is the typed
   // Miden-side amount, already exact. The row helpers above format the out side, as the list row
@@ -144,7 +144,7 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
-      <span className="min-w-0 text-text-muted">{inSymbol}</span>
+      <span className="min-w-0 text-text-muted">{inLabel}</span>
       <Icon
         name={IconName.ArrowRight}
         size="md"
@@ -152,7 +152,7 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
         className="mx-0.5 shrink-0 self-center text-text-muted"
       />
       <span className="min-w-0 text-ink">{displayedOutAmount}</span>
-      <span className="min-w-0 text-text-muted">{outSymbol}</span>
+      <span className="min-w-0 text-text-muted">{outLabel}</span>
     </div>
   );
 };

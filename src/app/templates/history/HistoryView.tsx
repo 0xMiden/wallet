@@ -120,11 +120,11 @@ function buildRowProps(
     return {
       icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
       iconBg: failed ? 'bg-status-negative' : 'bg-[#777487]',
-      title: t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
+      title: t('bridgeRowTitle', { from: d.inLabel, to: d.outLabel }),
       subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
       amount: d.outAmount
         ? {
-            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
+            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outLabel}`,
             direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
             // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
             preformatted: true
