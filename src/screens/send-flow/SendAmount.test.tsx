@@ -2,6 +2,9 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
 import { SendAmount, SendAmountProps } from './SendAmount';
 
 jest.mock('react-i18next', () => ({
@@ -16,6 +19,17 @@ jest.mock('lib/platform', () => ({
   isIOS: () => true
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span>{symbol}-logo</span>
 }));
@@ -71,6 +85,15 @@ function renderAmount(overrides: Partial<SendAmountProps> = {}) {
 }
 
 describe('SendAmount', () => {
+  it('names the testnet bridge faucet by its label on the token row, keeping its logo', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderAmount({ token: { ...TOKEN, id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' } });
+
+    const selector = screen.getByTestId('send-token-selector');
+    expect(selector).toHaveTextContent('Test Epoch USDC');
+    expect(selector).toHaveTextContent('USDC-logo');
+  });
+
   it('shows the title, back button, and a disabled Confirm until the amount is valid', () => {
     const props = renderAmount();
 

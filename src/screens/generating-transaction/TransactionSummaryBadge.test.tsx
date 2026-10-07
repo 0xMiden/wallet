@@ -5,7 +5,9 @@ import { join } from 'path';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import {
   ArrowFill,
@@ -63,7 +65,21 @@ jest.mock('lib/store', () => ({
 // The Earn collateral the deposit fallback reads comes from the bridge config.
 let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
 jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values'),
+  selectMidenUsdc: () => mockCollateral
+}));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 const baseTransaction = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ({
@@ -433,6 +449,37 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5000000 TST');
     expect(container.textContent).not.toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it('names a claim and a send of the testnet bridge faucet by its label', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+
+    const claim = await renderProbe(baseTransaction({ type: 'consume', amount: 7n, faucetId: TEST_MIDEN_USDC_FAUCET }));
+    expect(claim.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 Test Epoch USDC');
+    act(() => claim.root.unmount());
+
+    const send = await renderProbe(
+      baseTransaction({ amount: 5n, faucetId: TEST_MIDEN_USDC_FAUCET, secondaryAccountId: 'mtst1aprecipient_addr1234' })
+    );
+    expect(send.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 Test Epoch USDC');
+    act(() => send.root.unmount());
+  });
+
+  it('keeps an Earn deposit of the bridge faucet on its symbol, as the Earn screens around it do', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: TEST_MIDEN_USDC_FAUCET,
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
     act(() => root.unmount());
   });
 

@@ -14,6 +14,7 @@ import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { truncateAddress } from 'utils/string';
 
 import { approxFiatAmount, balanceFormatterFor, formatBalance } from './amount-format';
@@ -127,7 +128,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             )}
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="flex items-center gap-1 font-heading text-lg leading-tight font-bold text-ink">
-                {token ? token.name : t('selectAToken')}
+                {token ? midenTokenLabel(token.id, token.name) : t('selectAToken')}
                 <Icon name={IconName.ChevronDown} size="xs" className="text-accent-send" fill="currentColor" />
               </span>
               {token && (

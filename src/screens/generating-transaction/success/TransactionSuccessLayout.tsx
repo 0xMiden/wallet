@@ -13,6 +13,7 @@ import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
@@ -95,6 +96,7 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
 
   const tokenMetadata = resolveDisplayMetadata(transaction?.faucetId, assetsMetadata, nativeFaucetId);
   const tokenSymbol = tokenMetadata.symbol;
+  const tokenLabel = midenTokenLabel(transaction?.faucetId, tokenSymbol);
   const consumeParts =
     transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId) : [];
   // Same rule as the in-progress badge this receipt replaces: a faucet whose
@@ -104,8 +106,7 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
     transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
       ? formatAmount(transaction.amount, tokenMetadata.decimals)
       : undefined;
-  const amountText =
-    consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
+  const amountText = consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenLabel}` : undefined;
 
   const feeText = useReceiptFeeText(transaction);
 

@@ -12,6 +12,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { listedFiatValue } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -49,7 +50,10 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
     if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
     return visible.filter(
-      b => b.metadata.symbol.toLowerCase().includes(query) || b.metadata.name?.toLowerCase().includes(query)
+      b =>
+        b.metadata.symbol.toLowerCase().includes(query) ||
+        b.metadata.name?.toLowerCase().includes(query) ||
+        midenTokenLabel(b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
     );
   }, [balanceData, isHidden, searchQuery]);
 
@@ -85,19 +89,18 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                 const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(b.balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+                const name = midenTokenLabel(b.tokenId, b.metadata.name || b.metadata.symbol);
+                const unit = midenTokenLabel(b.tokenId, b.metadata.symbol);
                 return (
                   <AssetListItem
                     key={b.tokenId}
                     icon={<TokenLogo symbol={b.metadata.symbol} />}
-                    name={b.metadata.name || b.metadata.symbol}
+                    name={name}
                     amount={
                       scaleIsKnown ? (
-                        <AnimatedNumber
-                          value={b.balance}
-                          format={value => `${formatQuantity(value)} ${b.metadata.symbol}`}
-                        />
+                        <AnimatedNumber value={b.balance} format={value => `${formatQuantity(value)} ${unit}`} />
                       ) : (
-                        b.metadata.symbol
+                        unit
                       )
                     }
                     price={

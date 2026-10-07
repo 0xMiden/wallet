@@ -11,6 +11,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { getSwapTokenByFaucetId, normalizedFaucetId } from 'lib/miden/swap/tokens';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
@@ -271,9 +272,8 @@ export const consumeAssetBreakdown = (
     // withhold the quantity until real metadata resolves. Checked on the
     // resolved record rather than the placeholder's identity because the
     // placeholder is cached, and a stored copy is never `===` the constant.
-    const label = hasKnownScale(resolved)
-      ? `${formatAmount(total.amount, resolved.decimals)} ${resolved.symbol}`
-      : resolved.symbol;
+    const symbol = midenTokenLabel(total.faucetId, resolved.symbol);
+    const label = hasKnownScale(resolved) ? `${formatAmount(total.amount, resolved.decimals)} ${symbol}` : symbol;
     return { faucetId: total.faucetId, label };
   });
 };
@@ -388,7 +388,7 @@ export const useTransactionSummaryBadgeContent = (
     if (transaction?.type !== 'send') return undefined;
 
     const tokenMetadata = resolveDisplayMetadata(transaction.faucetId, assetsMetadata, nativeFaucetId);
-    const symbol = tokenMetadata.symbol;
+    const symbol = midenTokenLabel(transaction.faucetId, tokenMetadata.symbol);
     // A faucet the wallet has never resolved carries the placeholder's guessed
     // 6 decimals. Naming the token alone is honest; converting by a guess is
     // not, and this badge IS the hero of the transaction detail screen.
