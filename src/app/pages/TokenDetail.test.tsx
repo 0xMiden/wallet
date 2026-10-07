@@ -105,7 +105,9 @@ jest.mock('lib/store', () => ({
     })
 }));
 
-// The sheet's content renders only while it is open, as vaul's portal does.
+// The sheet's content stays mounted while it is closed, as the real sheet stays mounted through its
+// 500ms exit, so a reopening within that window finds the previous body unless the host remounts it.
+// `data-open` exposes the state.
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
@@ -118,7 +120,7 @@ jest.mock('lib/ui/drawer', () => ({
   }) => (
     <div data-testid="drawer" data-open={String(open)}>
       <button data-testid="drawer-dismiss" onClick={() => onOpenChange(false)} />
-      {open && children}
+      {children}
     </div>
   ),
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
@@ -1469,8 +1471,13 @@ describe('TokenDetail', () => {
       fireEvent.change(field('name'), { target: { value: 'Draft' } });
       fireEvent.click(screen.getByTestId('drawer-dismiss'));
 
+      // Closed, and the body is still mounted with the draft, as through the real sheet's exit.
+      expect(sheetOpen()).toBe('false');
+      expect(field('name')).toHaveValue('Draft');
+
       fireEvent.click(action());
 
+      expect(sheetOpen()).toBe('true');
       expect(field('name')).toHaveValue('Ether');
     });
 
