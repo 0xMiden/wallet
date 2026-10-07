@@ -38,6 +38,8 @@ export interface AvatarProps {
   image?: string;
   /** Accessible name for `image`. Omit for a decorative image (e.g. a token's own mark). */
   alt?: string;
+  /** Called when `image` fails to load, so a caller can draw something else. */
+  onImageError?: () => void;
   /** Up to a couple of characters, shown centered on `color` when there's no `image`. */
   initials?: string;
   /** A glyph (an inline SVG or icon component), shown when there's no `image` or `initials`. */
@@ -61,6 +63,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   size = 40,
   image,
   alt,
+  onImageError,
   initials,
   icon,
   color,
@@ -78,7 +81,7 @@ export const Avatar: React.FC<AvatarProps> = ({
         style={!image && color ? { backgroundColor: color } : undefined}
       >
         {image ? (
-          <img src={image} alt={alt ?? ''} className="h-full w-full object-cover" />
+          <img src={image} alt={alt ?? ''} onError={onImageError} className="h-full w-full object-cover" />
         ) : initials ? (
           <span aria-hidden="true">{initials}</span>
         ) : (

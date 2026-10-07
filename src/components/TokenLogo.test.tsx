@@ -1,8 +1,19 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 
 import { TokenLogo } from './TokenLogo';
+
+let mockLogo: string | undefined;
+const mockUseTokenLogoUri = jest.fn((_faucetId?: string) => mockLogo);
+jest.mock('lib/token-list/useTokenLogoUri', () => ({
+  useTokenLogoUri: (faucetId?: string) => mockUseTokenLogoUri(faucetId)
+}));
+
+beforeEach(() => {
+  mockLogo = undefined;
+  mockUseTokenLogoUri.mockClear();
+});
 
 // TokenLogo has two branches, both of which now go through the canonical
 // `Avatar` (components/ui/Avatar):
@@ -113,6 +124,60 @@ describe('TokenLogo', () => {
 
       expect(getImg(container)).toBeInTheDocument();
       expect(getSvg(container)).toBeNull();
+    });
+  });
+
+  describe('listed logo', () => {
+    it('draws the bundled mark for a bundled symbol and never asks for a listed logo', () => {
+      mockLogo = 'https://example.com/eth.png';
+      const { container } = render(<TokenLogo symbol="ETH" faucetId="0xfaucet" />);
+
+      expect(getSvg(container)).toBeInTheDocument();
+      expect(getImg(container)).toBeNull();
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith(undefined);
+    });
+
+    it('draws the listed logo of an unbundled symbol inside a bg-fill circle', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+
+      expect(getImg(container).src).toBe('https://example.com/xyz.png');
+      expect(getCircle(container)).toHaveClass('bg-fill');
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith('0xfaucet');
+    });
+
+    it('shows the default mark when the listed logo fails to load', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+
+      fireEvent.error(getImg(container));
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+    });
+
+    it('tries the next token logo after an earlier one failed', () => {
+      mockLogo = 'https://example.com/a.png';
+      const { container, rerender } = render(<TokenLogo symbol="XYZ" faucetId="0xa" />);
+      fireEvent.error(getImg(container));
+
+      mockLogo = 'https://example.com/b.png';
+      rerender(<TokenLogo symbol="XYZ" faucetId="0xb" />);
+
+      expect(getImg(container).src).toBe('https://example.com/b.png');
+    });
+
+    it('keeps the default mark for an unbundled symbol without a faucetId', () => {
+      const { container } = render(<TokenLogo symbol="XYZ" />);
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith(undefined);
+    });
+
+    it('still renders the badge on the listed-logo branch', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { getByTestId } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" badge={<i data-testid="badge" />} />);
+
+      expect(getByTestId('badge')).toBeInTheDocument();
     });
   });
 });

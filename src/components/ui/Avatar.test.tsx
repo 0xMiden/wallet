@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { Avatar } from './Avatar';
 
@@ -124,4 +124,13 @@ describe('variants', () => {
       ...badgeClasses
     );
   });
+});
+
+it('calls onImageError once when the image fails to load', () => {
+  const onImageError = jest.fn();
+  render(<Avatar image="https://example.com/broken.png" onImageError={onImageError} />);
+
+  fireEvent.error(document.querySelector('img') as HTMLImageElement);
+
+  expect(onImageError).toHaveBeenCalledTimes(1);
 });

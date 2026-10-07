@@ -1,4 +1,4 @@
-import React, { FC, SVGProps } from 'react';
+import React, { FC, SVGProps, useState } from 'react';
 
 import clsx from 'clsx';
 
@@ -7,6 +7,7 @@ import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
 import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
 import { ReactComponent as UsdcLogo } from 'app/icons/logos/usdc.svg';
 import { Avatar, AvatarSize } from 'components/ui/Avatar';
+import { useTokenLogoUri } from 'lib/token-list/useTokenLogoUri';
 
 // `bg-white`/`bg-pure-black` (not hex): `white` resolves to `--color-surface`, which auto-flips
 // with the theme, so the MIDEN disc stays a surface color in dark mode instead of a literal
@@ -37,6 +38,8 @@ const ICON_CLASSES: Record<TokenLogoSize, string> = {
 
 interface TokenLogoProps {
   symbol: string;
+  /** The token's faucet id; a token the verified list gives a logo draws it when its symbol has no mark here. */
+  faucetId?: string;
   size?: TokenLogoSize;
   /** A mark on the corner, e.g. the network the token sits on — the `Avatar` badge, unchanged. */
   badge?: React.ReactNode;
@@ -44,8 +47,12 @@ interface TokenLogoProps {
 }
 
 /** A token's mark, in one of the app's four known-logo colors or a generic default. A thin wrapper over `Avatar`. */
-export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', badge, className }) => {
+export const TokenLogo: FC<TokenLogoProps> = ({ symbol, faucetId, size = 'md', badge, className }) => {
   const tokenLogo = TOKEN_LOGOS[symbol === 'USDCX' ? 'USDC' : symbol];
+  // Asked only when no bundled mark applies, so a known symbol never loads the list for its logo.
+  const listedLogo = useTokenLogoUri(tokenLogo ? undefined : faucetId);
+  // Remembered per URL: a TokenLogo the token pickers reuse tries the next token's logo afresh.
+  const [failedLogo, setFailedLogo] = useState<string>();
   const avatarSize = AVATAR_SIZES[size];
 
   if (tokenLogo) {
@@ -55,6 +62,18 @@ export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', badge, clas
         icon={<tokenLogo.Logo className={ICON_CLASSES[size]} />}
         badge={badge}
         className={clsx(tokenLogo.bg, className)}
+      />
+    );
+  }
+
+  if (listedLogo && listedLogo !== failedLogo) {
+    return (
+      <Avatar
+        size={avatarSize}
+        image={listedLogo}
+        onImageError={() => setFailedLogo(listedLogo)}
+        badge={badge}
+        className={clsx('bg-fill', className)}
       />
     );
   }
