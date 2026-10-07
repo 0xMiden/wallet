@@ -42,6 +42,7 @@ import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -572,7 +573,9 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
                       else unhideButtons.current.delete(asset.tokenId);
                     }}
                     className="shrink-0"
-                    aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
+                    aria-label={t('unhideTokenLabel', {
+                      name: midenTokenLabel(asset.tokenId, asset.metadata.name || asset.metadata.symbol)
+                    })}
                     onClick={() => {
                       const inFlight = inFlightUnhides.current;
                       if (inFlight.has(asset.tokenId)) return;

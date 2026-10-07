@@ -3,7 +3,10 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import {
@@ -12,6 +15,7 @@ import {
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
@@ -35,6 +39,16 @@ import enMessages from '../../../public/_locales/en/en.json';
 // sibling ReviewSwap.test.tsx mock).
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -1184,5 +1198,21 @@ describe('TokenDetail', () => {
         warn.mockRestore();
       }
     });
+  });
+});
+
+describe('TokenDetail testnet bridge USDC label', () => {
+  it('titles the bridge faucet by the testnet label and keeps its USDC logo', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderPage(
+      {
+        balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
+        tokenPrices: {}
+      },
+      MIDEN_USDC_FAUCET
+    );
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
   });
 });
