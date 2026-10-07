@@ -68,7 +68,9 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
   const name = label ?? symbol;
-  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${name}`.trim() : name;
+  // Only the Epoch route mints the bridge's Miden faucet the label names; Slow delivers the plain symbol.
+  const receiveName = route === 'agglayer' ? symbol : name;
+  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receiveName}`.trim() : receiveName;
 
   return (
     <ReviewLayout

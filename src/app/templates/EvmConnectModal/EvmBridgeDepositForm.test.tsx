@@ -34,16 +34,6 @@ jest.mock('screens/send-flow/bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
 }));
 
-jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({
-  selectEvmUsdc: () => ({
-    address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
-    symbol: 'USDC.e',
-    decimals: 18,
-    chainId: 1
-  })
-}));
-
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
@@ -89,7 +79,7 @@ describe('EvmBridgeDepositForm (#875)', () => {
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeTestFundsBody');
   });
 
-  it('says the deposit arrives as the output token the config names', () => {
+  it('says an ETH deposit arrives as ETH', () => {
     render(
       <EvmBridgeDepositForm
         token={TOKEN}
@@ -103,7 +93,7 @@ describe('EvmBridgeDepositForm (#875)', () => {
       />
     );
 
-    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-output-symbol', 'USDC.e');
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-output-symbol', 'ETH');
   });
 });
 
@@ -139,11 +129,13 @@ describe('EvmBridgeDepositForm testnet bridge USDC label', () => {
     expect(field).toHaveAttribute('data-output-symbol', 'Test Epoch USDC');
   });
 
-  it('keeps ETH on its symbol on testnet', () => {
+  it('keeps ETH on its symbol on testnet, and has it arrive as ETH', () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     renderForm(TOKEN);
 
-    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-label', 'ETH');
+    const field = screen.getByTestId('select-amount');
+    expect(field).toHaveAttribute('data-token-label', 'ETH');
+    expect(field).toHaveAttribute('data-output-symbol', 'ETH');
   });
 
   it('keeps the chain symbols while no bridge config is loaded', () => {

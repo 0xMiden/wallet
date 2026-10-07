@@ -102,6 +102,27 @@ describe('EvmBridgeDepositReview', () => {
     expect(screen.getByText('≈ 9.5 Test Epoch USDC')).toBeInTheDocument();
   });
 
+  it('names the received token by its symbol on the Slow route, which does not mint the labelled faucet', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({ route: 'agglayer', symbol: 'USDC', label: 'Test Epoch USDC', outputAmount: '12.5' })}
+      />
+    );
+
+    expect(screen.getByText('≈ 12.5 USDC')).toBeInTheDocument();
+    expect(screen.getAllByText('10 Test Epoch USDC')).toHaveLength(2);
+  });
+
+  it('keeps the label in "you receive" on the Fast route', () => {
+    render(
+      <EvmBridgeDepositReview
+        {...baseProps({ route: 'epoch', symbol: 'USDC', label: 'Test Epoch USDC', outputAmount: '12.5' })}
+      />
+    );
+
+    expect(screen.getByText('≈ 12.5 Test Epoch USDC')).toBeInTheDocument();
+  });
+
   describe('route label', () => {
     it('labels the Epoch route "fast" with its arrival estimate', () => {
       render(<EvmBridgeDepositReview {...baseProps({ route: 'epoch' })} />);
