@@ -36,10 +36,12 @@ let mockBundledVersion: number | null = 1;
 let mockBundledItems: ExploreCatalogItem[] = [];
 // The floor storage holds per network; none reads as 0.
 const mockFloors = new Map<string, number>();
+let mockFetchEnabled = true;
 jest.mock('./source', () => ({
   exploreConfigCacheKey: (network: string) => `explore_config_v1:${network}`,
   readStoredExploreConfig: (network: string) => mockReadStored(network),
   readExploreConfigFloor: async (network: string) => mockFloors.get(network) ?? 0,
+  exploreConfigFetchEnabled: () => mockFetchEnabled,
   fetchAndStoreExploreConfig: (network: string) => mockFetch(network),
   bundledExploreCatalog: (network: string) =>
     mockBundledVersion === null ? null : { ...catalog(network, mockBundledVersion), items: mockBundledItems }
@@ -94,6 +96,7 @@ beforeEach(() => {
   mockBundledVersion = 1;
   mockBundledItems = [];
   mockFloors.clear();
+  mockFetchEnabled = true;
   visibility = 'visible';
   mockReadStored.mockClear();
   mockFetch.mockReset().mockRejectedValue(new Error('unexpected fetch'));
@@ -249,6 +252,18 @@ describe('initExploreConfig', () => {
     await initExploreConfig('testnet');
     await flush();
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('never fetches, nor arms a timer, in an E2E build given no catalog URL, and shows the bundled catalog', async () => {
+    mockFetchEnabled = false;
+    await initExploreConfig('testnet');
+    await flush();
+    setVisibility('hidden');
+    setVisibility('visible');
+    await jest.advanceTimersByTimeAsync(POLL_MS);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+    expect(shownVersion()).toBe(1);
   });
 
   it('reads storage but waits for the foreground to fetch while the document is hidden', async () => {

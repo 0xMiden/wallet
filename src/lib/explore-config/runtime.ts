@@ -5,6 +5,7 @@ import type { ExploreCatalog } from './schema';
 import {
   bundledExploreCatalog,
   exploreConfigCacheKey,
+  exploreConfigFetchEnabled,
   fetchAndStoreExploreConfig,
   readExploreConfigFloor,
   readStoredExploreConfig,
@@ -179,10 +180,10 @@ function isDue(state: NetworkState, threshold: number): boolean {
 }
 
 // One timer per realm, for the network the launcher last asked for; none while the document is hidden or a refresh
-// is out, whose end arms it again.
+// is out, whose end arms it again, and none in a build that never fetches.
 function arm(): void {
   clearTimeout(timer);
-  if (current === null || document.visibilityState === 'hidden') return;
+  if (current === null || !exploreConfigFetchEnabled() || document.visibilityState === 'hidden') return;
   const state = states.get(current);
   if (!state || state.refreshing) return;
   timer = setTimeout(() => void check('timer'), Math.max(0, state.checkedAt + pollInterval(state) - Date.now()));
@@ -197,7 +198,7 @@ async function check(kind: 'timer' | 'foreground'): Promise<void> {
   const interval = pollInterval(state);
   // On open and on a return to the foreground, a copy counts as stale after 15 minutes, not 60.
   const threshold = kind === 'foreground' ? Math.min(interval, FOREGROUND_STALE_MS) : interval;
-  if (isDue(state, threshold)) startRefresh(state);
+  if (exploreConfigFetchEnabled() && isDue(state, threshold)) startRefresh(state);
   else arm();
 }
 

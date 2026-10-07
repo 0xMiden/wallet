@@ -3,6 +3,7 @@ import {
   _setExploreConfigSourceDepsForTest,
   exploreConfigBaseUrl,
   exploreConfigCacheKey,
+  exploreConfigFetchEnabled,
   exploreConfigUrl,
   fetchAndStoreExploreConfig,
   PUBLISHED_EXPLORE_BASE_URL,
@@ -97,6 +98,17 @@ describe('exploreConfigUrl', () => {
   ])('ignores MIDEN_EXPLORE_CONFIG_URL in %s', (_label, e2e, url) => {
     setEnv(e2e, url);
     expect(exploreConfigUrl('testnet')).toBe(`${PUBLISHED}/testnet.json`);
+  });
+
+  it.each([
+    ['a production build', 'false', undefined, true],
+    ['a build with no MIDEN_E2E_TEST at all', undefined, undefined, true],
+    ['an E2E build given a catalog URL', 'true', SERVED_BASE, true],
+    ['an E2E build given none', 'true', undefined, false],
+    ['an E2E build whose define left the URL empty', 'true', '', false]
+  ])('tells whether %s fetches', (_label, e2e, url, enabled) => {
+    setEnv(e2e, url);
+    expect(exploreConfigFetchEnabled()).toBe(enabled);
   });
 
   it('keys the stored catalog by network, and the floor once for all networks', () => {

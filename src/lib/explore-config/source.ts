@@ -25,6 +25,14 @@ function e2eBaseUrl(): string | null {
   return base ? base.replace(/\/+$/, '') : null;
 }
 
+/**
+ * False in an E2E build given no catalog URL: it shows the bundled snapshot and never reads the published repo, so an
+ * edit there cannot change what a suite sees.
+ */
+export function exploreConfigFetchEnabled(): boolean {
+  return process.env.MIDEN_E2E_TEST !== 'true' || e2eBaseUrl() !== null;
+}
+
 /** Where this build reads the catalogs, and so their icons, from. */
 export function exploreConfigBaseUrl(): string {
   return e2eBaseUrl() ?? PUBLISHED_EXPLORE_BASE_URL;
