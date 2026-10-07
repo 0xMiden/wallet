@@ -375,6 +375,23 @@ describe('createNotificationAlertGate', () => {
       expect(reconnect).toHaveBeenCalledTimes(1);
     });
 
+    it('reconnects after the first call idb answers only by timing out', async () => {
+      let looks = 0;
+      const dismiss = jest.fn(async (): Promise<boolean> => {
+        looks += 1;
+        if (looks === 1) throw Object.assign(idbError(), { killed: true });
+        return true;
+      });
+      const reconnect = jest.fn(async (): Promise<void> => undefined);
+      const gate = createNotificationAlertGate('udid', { ...noWait, maxConsecutiveErrors: 5, dismiss, reconnect });
+
+      await gate.beforeCapture();
+      await gate.beforeCapture();
+
+      expect(reconnect).toHaveBeenCalledTimes(1);
+      expect(dismiss).toHaveBeenCalledTimes(2);
+    });
+
     it('keeps going when the reconnect itself fails', async () => {
       let looks = 0;
       const dismiss = jest.fn(async (): Promise<boolean> => {

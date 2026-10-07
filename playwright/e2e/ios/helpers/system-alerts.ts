@@ -128,8 +128,11 @@ export function describeIdbError(err: unknown): string {
     text.length > IDB_ERROR_MAX_CHARS
       ? `${text.slice(0, IDB_ERROR_HEAD_CHARS)} ... ${text.slice(-(IDB_ERROR_MAX_CHARS - IDB_ERROR_HEAD_CHARS))}`
       : text;
-  const killed = err instanceof Error && 'killed' in err && err.killed === true;
-  return killed ? `${clipped} (killed at its timeout)` : clipped;
+  return killedAtTimeout(err) ? `${clipped} (killed at its timeout)` : clipped;
+}
+
+function killedAtTimeout(err: unknown): boolean {
+  return err instanceof Error && 'killed' in err && err.killed === true;
 }
 
 /**
@@ -266,6 +269,9 @@ export function createNotificationAlertGate(
     } catch (err) {
       consecutiveErrors += 1;
       lastIdbError = describeIdbError(err);
+      // A call killed at its timeout means the companion has stopped answering. Waiting for a streak of those would
+      // spend a settlePrompt's whole budget on timeouts before the reconnect, so one is the streak.
+      if (killedAtTimeout(err)) consecutiveErrors = Math.max(consecutiveErrors, maxConsecutiveErrors);
       if (consecutiveErrors === 1) onLog(`[system-alerts] idb failed on ${udid}: ${lastIdbError}`);
       if (idbUsable()) return false;
       // One simulator's idb link can break while the other's keeps working (dApp Browser iOS, 2026-10-07): a fresh
