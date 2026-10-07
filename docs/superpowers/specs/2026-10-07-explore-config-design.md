@@ -82,7 +82,7 @@ The floor and acceptance logic moves out of `src/lib/remote-config/source.ts` in
 ### E2E
 
 - `MIDEN_EXPLORE_CONFIG_URL`, honoured only when `MIDEN_E2E_TEST === 'true'`, forwarded in all 5 `vite.*.config.ts` files and declared in `src/react-app.d.ts` (writable, so tests can set it); the define-parity test also scans `src/lib/explore-config`.
-- The dApp-browser E2E needs no fake: the bundled snapshot serves the curated grid offline. `launcher_renders_curated_grid` waits until 2 or more `dapp-grid-card` rows render instead of reading the grid once.
+- The dApp-browser E2E needs no fake: the bundled snapshot serves the curated grid offline, and an E2E build given no `MIDEN_EXPLORE_CONFIG_URL` never fetches the published repo. `launcher_renders_curated_grid` waits until the number of `dapp-grid-card` rows read from the bundled snapshot of `E2E_NETWORK` renders (`bundledGridCardCount`: the distinct items its list sections name, 2 on testnet and 1 on devnet) instead of reading the grid once.
 
 ### Store listing
 
