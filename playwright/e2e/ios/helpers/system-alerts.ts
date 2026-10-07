@@ -1,4 +1,6 @@
 import { execFile } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
@@ -47,7 +49,12 @@ const DESCRIBE_TIMEOUT_MS = 15_000;
 const TAP_TIMEOUT_MS = 10_000;
 const DISCONNECT_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 20_000;
+const COMPANION_EXIT_WAIT_MS = 5_000;
+const COMPANION_EXIT_POLL_MS = 250;
+// fb-idb's BASE_IDB_FILE_PATH, where it binds each simulator's companion socket.
+const IDB_SOCKET_DIR = '/tmp/idb';
 const IDB_ERROR_MAX_CHARS = 2_000;
+const IDB_ERROR_HEAD_CHARS = 300;
 
 // The wallet's Capacitor bridge logs each native call as it starts and as it returns:
 // `native LocalNotifications.requestPermissions (#12)`, then `result LocalNotifications.requestPermissions (#12)`,
@@ -112,16 +119,41 @@ export async function dismissNotificationPermissionAlert(udid: string): Promise<
 
 /**
  * A failed idb call in one line: execFile's message carries idb's stderr after its first line, and that is the
- * only record of why idb failed, so none of it is dropped.
+ * only record of why idb failed. A long one keeps its start (the command) and its end, where idb prints the
+ * exception; only the middle is cut.
  */
 export function describeIdbError(err: unknown): string {
   const text = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim();
+  const clipped =
+    text.length > IDB_ERROR_MAX_CHARS
+      ? `${text.slice(0, IDB_ERROR_HEAD_CHARS)} ... ${text.slice(-(IDB_ERROR_MAX_CHARS - IDB_ERROR_HEAD_CHARS))}`
+      : text;
   const killed = err instanceof Error && 'killed' in err && err.killed === true;
-  return (killed ? `${text} (killed at its timeout)` : text).slice(0, IDB_ERROR_MAX_CHARS);
+  return killed ? `${clipped} (killed at its timeout)` : clipped;
 }
 
-/** Drop idb's connection to this simulator and make a new one, so the next call starts a fresh companion. */
+/**
+ * Give this simulator a new idb companion. `idb disconnect` only forgets idb's record of it, and `idb connect`
+ * adopts any companion whose socket still answers (fb-idb 1.6.6, grpc/management.py), so a companion that is up
+ * but failing would come straight back. This simulator's companion is stopped first; `idb kill` is not used, as it
+ * stops the other simulator's companion too. With its socket gone, `idb connect` spawns a new one.
+ */
 export async function reconnectIdb(udid: string): Promise<void> {
+  const companion = `idb_companion --udid ${udid}`;
+  // pkill and pgrep exit 1 when nothing matches.
+  await execFileAsync('pkill', ['-f', companion]).catch(() => undefined);
+  const running = (): Promise<boolean> =>
+    execFileAsync('pgrep', ['-f', companion]).then(
+      () => true,
+      () => false
+    );
+  const giveUpAt = Date.now() + COMPANION_EXIT_WAIT_MS;
+  let stopped = !(await running());
+  while (!stopped && Date.now() < giveUpAt) {
+    await sleep(COMPANION_EXIT_POLL_MS);
+    stopped = !(await running());
+  }
+  if (stopped) fs.rmSync(path.join(IDB_SOCKET_DIR, `${udid}_companion.sock`), { force: true });
   await execFileAsync(IDB_BIN, ['disconnect', udid], { timeout: DISCONNECT_TIMEOUT_MS }).catch(() => undefined);
   await execFileAsync(IDB_BIN, ['connect', udid], { timeout: CONNECT_TIMEOUT_MS });
 }
@@ -236,12 +268,14 @@ export function createNotificationAlertGate(
       if (reconnectsLeft > 0) {
         reconnectsLeft -= 1;
         onLog(`[system-alerts] idb failed ${consecutiveErrors} times in a row on ${udid}; reconnecting it`);
+        // Usable again before the reconnect runs, not after: a settlePrompt that looks in the meantime has to wait
+        // for the new connection, not report idb as gone while it is being restored.
+        consecutiveErrors = 0;
         try {
           await reconnect(udid);
         } catch (reconnectErr) {
           onLog(`[system-alerts] idb reconnect failed on ${udid}: ${describeIdbError(reconnectErr)}`);
         }
-        consecutiveErrors = 0;
       } else {
         onLog(
           `[system-alerts] giving up on idb on ${udid} after ${consecutiveErrors} failures in a row; ` +

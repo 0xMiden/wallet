@@ -1,4 +1,16 @@
-import { createNotificationAlertGate, describeIdbError, findAllowTapPoint, type AxElement } from './system-alerts';
+import { execFile } from 'child_process';
+import * as fs from 'fs';
+
+import {
+  createNotificationAlertGate,
+  describeIdbError,
+  findAllowTapPoint,
+  reconnectIdb,
+  type AxElement
+} from './system-alerts';
+
+jest.mock('child_process', () => ({ execFile: jest.fn() }));
+jest.mock('fs', () => ({ ...jest.requireActual('fs'), rmSync: jest.fn() }));
 
 // Faithful to a real `idb ui describe-all` tree captured on an iOS 26 sim while
 // the wallet's notification-permission alert was up (Allow button center was
@@ -332,6 +344,37 @@ describe('createNotificationAlertGate', () => {
       expect(logs.some(message => message.includes('giving up') && message.includes('not reachable'))).toBe(true);
     });
 
+    it('keeps a pending prompt waiting while a reconnect another look started is still running', async () => {
+      let looks = 0;
+      let gate: ReturnType<typeof createNotificationAlertGate> | undefined;
+      const dismiss = jest.fn(async (): Promise<boolean> => {
+        looks += 1;
+        if (looks <= 2) throw idbError();
+        gate?.observeConsole('%cresult %cLocalNotifications.requestPermissions (#17)');
+        return true;
+      });
+      let finishReconnect: () => void = () => undefined;
+      const reconnect = jest.fn(
+        () =>
+          new Promise<void>(resolve => {
+            finishReconnect = resolve;
+          })
+      );
+      gate = createNotificationAlertGate('udid', { ...noWait, maxConsecutiveErrors: 2, dismiss, reconnect });
+
+      // The screen poll's looks fail before the app asks; the second starts the reconnect and waits on it.
+      await gate.beforeCapture();
+      const backgroundLook = gate.beforeCapture();
+      await Promise.resolve();
+      gate.observeConsole('%cnative %cLocalNotifications.requestPermissions (#17)');
+      const settled = gate.settlePrompt(60_000);
+      finishReconnect();
+      await backgroundLook;
+
+      await expect(settled).resolves.toEqual({ answered: true });
+      expect(reconnect).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps going when the reconnect itself fails', async () => {
       let looks = 0;
       const dismiss = jest.fn(async (): Promise<boolean> => {
@@ -362,9 +405,94 @@ describe('describeIdbError', () => {
     expect(text).toBe('Command failed: idb ui describe-all --udid A idb: companion not reachable retry later');
   });
 
+  it('keeps the start and the end of a long message, where idb prints the exception', () => {
+    const traceback =
+      'Command failed: idb ui describe-all --udid A\n' +
+      '  File "/opt/site-packages/idb/cli/main.py", line 86, in main\n'.repeat(80) +
+      'idb.common.types.IdbException: Failed to spawn companion';
+    const killed = Object.assign(new Error(traceback), { killed: true });
+
+    const text = describeIdbError(killed);
+
+    expect(text.startsWith('Command failed: idb ui describe-all --udid A')).toBe(true);
+    expect(text).toContain(' ... ');
+    expect(text.endsWith('IdbException: Failed to spawn companion (killed at its timeout)')).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(2_000 + ' ... '.length + ' (killed at its timeout)'.length);
+  });
+
   it('says when the call was killed at its timeout', () => {
     const killed = Object.assign(new Error('Command failed: idb ui describe-all --udid A'), { killed: true });
 
     expect(describeIdbError(killed)).toBe('Command failed: idb ui describe-all --udid A (killed at its timeout)');
+  });
+});
+
+describe('reconnectIdb', () => {
+  const run = jest.mocked(execFile);
+  const COMPANION = 'idb_companion --udid SIM-A';
+  type Callback = (error: Error | null, output: { stdout: string; stderr: string }) => void;
+  const removed = jest.mocked(fs.rmSync);
+
+  /** Answers each command from `reply` (true = exit 0) and records what ran. */
+  function commands(reply: (file: string, args: string[]) => boolean): string[] {
+    const ran: string[] = [];
+    run.mockImplementation(((file: string, args: string[], ...rest: unknown[]) => {
+      ran.push([file, ...args].join(' '));
+      const callback = rest.find((arg): arg is Callback => typeof arg === 'function');
+      callback?.(reply(file, args) ? null : new Error(`Command failed: ${file}`), { stdout: '', stderr: '' });
+    }) as unknown as typeof execFile);
+    return ran;
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    run.mockReset();
+    removed.mockReset();
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it("stops this simulator's companion, waits for it to exit, then connects a new one", async () => {
+    let checks = 0;
+    const ran = commands((file, args) => (file === 'pgrep' ? ++checks === 1 : !args.includes('never')));
+
+    const reconnecting = reconnectIdb('SIM-A');
+    await jest.advanceTimersByTimeAsync(300);
+    await reconnecting;
+
+    expect(ran.map(command => command.replace(/^\S*idb /, 'idb '))).toEqual([
+      `pkill -f ${COMPANION}`,
+      `pgrep -f ${COMPANION}`,
+      `pgrep -f ${COMPANION}`,
+      'idb disconnect SIM-A',
+      'idb connect SIM-A'
+    ]);
+    expect(removed).toHaveBeenCalledWith('/tmp/idb/SIM-A_companion.sock', { force: true });
+  });
+
+  it('still connects when no companion was running and idb has no record of one', async () => {
+    // pkill and pgrep find nothing, and disconnect fails for want of a record: only connect succeeds.
+    const ran = commands((_file, args) => args[0] === 'connect');
+
+    await reconnectIdb('SIM-A');
+
+    expect(ran.at(-1)).toMatch(/connect SIM-A$/);
+    expect(removed).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the socket alone when the companion does not exit, and still connects', async () => {
+    const ran = commands(() => true);
+
+    const reconnecting = reconnectIdb('SIM-A');
+    await jest.advanceTimersByTimeAsync(6_000);
+    await reconnecting;
+
+    expect(removed).not.toHaveBeenCalled();
+    expect(ran.at(-1)).toMatch(/connect SIM-A$/);
+  });
+
+  it('rejects when idb cannot connect, so the gate can log why', async () => {
+    commands((file, args) => file !== 'pgrep' && args[0] !== 'connect');
+
+    await expect(reconnectIdb('SIM-A')).rejects.toThrow('Command failed');
   });
 });
