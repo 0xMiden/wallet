@@ -312,10 +312,9 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.ExportAccountFileResponse);
-      // Buffer is IMPORTED, never the bare global: on every extension page `public/globals.js`
-      // installs a stub whose `from()` ignores the encoding argument, and the entry points keep it
-      // (`globalThis.Buffer = globalThis.Buffer || Buffer`), so a bare global decode returns an
-      // EMPTY array and the user is handed a 0-byte account file with a success message.
+      // Buffer is IMPORTED, never the bare global, so the decode does not depend on whatever global
+      // Buffer a realm has: a stub whose `from()` ignores the encoding (as public/globals.js once
+      // installed) returns an EMPTY array, and the user is handed a 0-byte account file with a success message.
       // A VIEW over the decoded buffer, not a copy of it, so the array the export screen zeroes is
       // the only mutable plaintext of the account's auth key this realm holds. The three-argument
       // form is bounded to this buffer's own region, so Node's shared pool is never exposed.

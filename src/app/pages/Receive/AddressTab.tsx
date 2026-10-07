@@ -20,7 +20,7 @@ import { Notice } from 'components/ui/Notice';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isExtension, isMobile } from 'lib/platform';
+import { isMobile } from 'lib/platform';
 import { useAnyFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
@@ -228,9 +228,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     await copyAddress();
   }, [copyAddress, shareText, t]);
 
-  const showCrossChain = !isExtension();
   // Cross Chain opens either bridge-in route, so it stays enabled while one of them can start.
-  const crossChain = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn'], { hold: showCrossChain });
+  const crossChain = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn']);
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
@@ -321,22 +320,20 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               onClick={() => void handleShare()}
               data-testid="receive-share"
             />
-            {/* WalletConnect is not supported on the extension: the Reown relay
-                rejects the extension bundle's auth JWT (WebSocket close 3000), so
-                the AppKit connect flow can never complete there. */}
-            {showCrossChain && (
-              <ReceiveActionTile
-                icon={IconName.CrossChain}
-                title={t('crossChain')}
-                // Name the actual source test network, not a bare "Testnet" (#875).
-                caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-                onClick={handleOpenEvm}
-                disabled={isFeatureBlocked(crossChain)}
-                data-testid="receive-cross-chain"
-              />
-            )}
+            {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
+                socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
+                bytes. public/globals.js no longer installs one. */}
+            <ReceiveActionTile
+              icon={IconName.CrossChain}
+              title={t('crossChain')}
+              // Name the actual source test network, not a bare "Testnet" (#875).
+              caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+              onClick={handleOpenEvm}
+              disabled={isFeatureBlocked(crossChain)}
+              data-testid="receive-cross-chain"
+            />
           </div>
-          {showCrossChain && <FeatureUnavailableNotice availability={crossChain} variant="inline" />}
+          <FeatureUnavailableNotice availability={crossChain} variant="inline" />
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}
@@ -351,7 +348,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             </Notice>
           )}
         </div>
-        {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
+        <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
       </div>
     </HomeGroupPaneBody>
   );
