@@ -16,7 +16,7 @@ export interface EvmBridgeDepositReviewProps {
   amount: string;
   /** Token symbol: keys the logo, and names the token unless `label` is given (e.g. USDC or ETH). */
   symbol: string;
-  /** The token's name in the hero and rows, such as the testnet label (`evmTokenLabel`). */
+  /** The token's name in the hero and rows, such as the testnet label (`evmUsdcLabel`). */
   label?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;

@@ -956,6 +956,27 @@ describe('bridge rows testnet bridge USDC label', () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
   });
 
+  // The document names the EVM USDC before its Sepolia read succeeds; the Miden side is named from the document too.
+  it('labels the EVM USDC side from the document alone while its token read has not succeeded', () => {
+    const documentOnly: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+    mockBridgeSnapshot = documentOnly;
+
+    const out = bridgeRowDisplay(
+      documentOnly,
+      bridgeEntry({ token: 'USDC', faucetId: MIDEN_USDC_FAUCET, amount: '5', bridgeProvider: 'epoch' })
+    );
+    const usdcIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'USDC', faucetId: MIDEN_USDC_FAUCET, bridgeInProvider: 'epoch' })
+    );
+    const ethIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'ETH', bridgeInProvider: 'agglayer', bridgeInSourceSymbol: 'ETH' })
+    );
+
+    expect([out.outLabel, usdcIn.inLabel, ethIn.inLabel]).toEqual(['Test Epoch USDC', 'Test Epoch USDC', 'ETH']);
+  });
+
   it('labels both sides of an Epoch bridge-out of the bridge faucet', () => {
     expect(
       bridgeRowDisplay(

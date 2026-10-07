@@ -100,9 +100,13 @@ jest.mock('lib/agglayer', () => ({
   AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH',
   midenAddrToEvmAddr: () => '0x00000000000000000000000000000000000000a1'
 }));
+// The symbol the Sepolia token read gave the configured USDC.
+let mockEvmUsdcSymbol = 'USDC';
 jest.mock('lib/remote-config/values', () => ({
   selectEvmUsdc: ({ config }: MockSnapshot) =>
-    config ? { address: config.epoch.evmUsdc, symbol: 'USDC', decimals: 18, chainId: config.evm.chainId } : null,
+    config
+      ? { address: config.epoch.evmUsdc, symbol: mockEvmUsdcSymbol, decimals: 18, chainId: config.evm.chainId }
+      : null,
   selectMidenUsdc: ({ config }: MockSnapshot) =>
     config ? { faucetId: config.epoch.midenUsdcFaucet, symbol: 'USDC', decimals: 6 } : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
@@ -147,9 +151,10 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 // The banner renders nothing on mainnet: pin a test network so its assertion does not rest on jest.setup's default.
+let mockTestNetwork: 'testnet' | 'devnet' = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => 'testnet'
+  getTestNetworkNameKey: () => mockTestNetwork
 }));
 
 // The sheet the banner opens needs a router this suite does not mount; it is never opened here.
@@ -265,7 +270,8 @@ jest.mock('./EvmBridgeDepositStatus', () => ({
   EvmBridgeDepositStatus: () => <div data-testid="deposit-status" />
 }));
 
-// This realm's bridge config, which the token labels read: the real, unloaded one, or the loaded testnet one a case sets.
+// This realm's bridge config, for anything under the screen that reads it: the real, unloaded one, or the loaded testnet
+// one a case sets. The screen's own labels read the screen's snapshot above, so a label case sets both alike.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () =>
   jest
@@ -428,6 +434,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     jest.clearAllMocks();
     mockAvailability = {};
     mockSnapshot = READY_SNAPSHOT;
+    mockTestNetwork = 'testnet';
+    mockEvmUsdcSymbol = 'USDC';
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
   });
@@ -515,6 +523,18 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     await reachSlowUsdcReview();
 
     expect(await screen.findByTestId('review-label')).toHaveTextContent('Test Epoch USDC');
+  });
+
+  // Off testnet no label applies, so the drawer row must carry the symbol the token read gave, as the Review does.
+  it('names the USDC on the drawer row as the Review does, off testnet too', async () => {
+    mockTestNetwork = 'devnet';
+    mockEvmUsdcSymbol = 'USDC.e';
+    renderScreen();
+
+    await reachSlowUsdcReview();
+
+    expect(await screen.findByTestId('review-label')).toHaveTextContent(/^USDC\.e$/);
+    expect(screen.getByTestId('usdc-label')).toHaveTextContent(/^USDC\.e$/);
   });
 
   it('keeps ETH on its symbol on the Review on testnet', async () => {

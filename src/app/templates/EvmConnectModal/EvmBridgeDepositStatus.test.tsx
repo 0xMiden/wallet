@@ -356,6 +356,19 @@ describe('EvmBridgeDepositStatus', () => {
       expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 150.12 Test Epoch USDC');
     });
 
+    it('names a USDC source by the testnet label while the token read has not succeeded', () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'delivering', outputAmount: '12', outputSymbol: 'USDC' }), {
+          faucetId: TEST_MIDEN_USDC_FAUCET
+        }),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12 Test Epoch USDC');
+    });
+
     it('names the source of a Slow USDC deposit by the testnet label, as its Review did', () => {
       mockRowState = {
         row: makeRow(

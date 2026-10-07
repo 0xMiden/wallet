@@ -686,6 +686,19 @@ describe('ReviewTransaction — rendering', () => {
       expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
     });
 
+    it('names the Fast route output by the testnet label while the token read has not succeeded', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
+    });
+
     it('names a send of the bridge faucet by the testnet label in the hero', async () => {
       setValidRoute(MIDEN_USDC_FAUCET);
       mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];

@@ -32,9 +32,10 @@ export function midenTokenLabel(snapshot: BridgeConfigSnapshot, faucetId: string
   return labels.find(({ id }) => normalizedFaucetId(id) === canonical)?.label ?? symbol;
 }
 
-/** The name an EVM token is shown under: on testnet, the label for the bridge's configured token; else `symbol`. */
-export function evmTokenLabel(snapshot: BridgeConfigSnapshot, address: string | undefined, symbol: string): string {
-  if (!address || getTestNetworkNameKey() !== 'testnet') return symbol;
-  const configured = snapshot.config?.epoch.evmUsdc;
-  return configured?.toLowerCase() === address.toLowerCase() ? TEST_EPOCH_USDC_LABEL : symbol;
+/**
+ * The name the bridge's own EVM USDC is shown under, for a caller that names that token by its role: on testnet, the
+ * label whenever the document names an EVM USDC, whether or not the token's Sepolia read has succeeded; else `symbol`.
+ */
+export function evmUsdcLabel(snapshot: BridgeConfigSnapshot, symbol: string): string {
+  return getTestNetworkNameKey() === 'testnet' && snapshot.config?.epoch.evmUsdc ? TEST_EPOCH_USDC_LABEL : symbol;
 }

@@ -4,8 +4,6 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
-import { evmTokenLabel } from 'lib/remote-config/token-labels';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
@@ -14,6 +12,8 @@ import { EvmWalletHeader } from './EvmWalletHeader';
 
 interface EvmBridgeDepositFormProps {
   token: UIToken;
+  /** The token's name, such as the testnet label (`evmUsdcLabel`): ETH arrives as ETH, the bridge USDC as its label. */
+  tokenLabel: string;
   amount: string;
   isValidAmount: boolean;
   error?: string;
@@ -29,6 +29,7 @@ interface EvmBridgeDepositFormProps {
 
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
+  tokenLabel,
   amount,
   isValidAmount,
   error,
@@ -39,9 +40,6 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
-  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
-  // The deposit arrives as the token picked: ETH as ETH, the bridge USDC under its testnet label.
-  const tokenLabel = evmTokenLabel(bridgeConfig, token.id, token.name);
   const title = <EvmWalletHeader address={evmAddress} onSwitch={onSwitch} />;
 
   return (

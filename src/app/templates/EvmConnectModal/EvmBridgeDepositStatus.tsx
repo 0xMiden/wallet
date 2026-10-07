@@ -15,9 +15,8 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { findEvmUsdc } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
@@ -81,7 +80,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   const sourceSymbol =
     inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL
       ? inputs.sourceSymbol
-      : evmTokenLabel(bridgeConfig, findEvmUsdc()?.address, inputs.sourceSymbol);
+      : evmUsdcLabel(bridgeConfig, inputs.sourceSymbol);
   const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';

@@ -2,8 +2,7 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
-import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_EVM_USDC } from 'lib/epoch/testing/bridge-config';
-import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { TEST_EVM_USDC } from 'lib/epoch/testing/bridge-config';
 import type { UIToken } from 'screens/send-flow/types';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
@@ -34,17 +33,6 @@ jest.mock('screens/send-flow/bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
 }));
 
-// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
-let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
-jest.mock('lib/remote-config/runtime', () =>
-  jest
-    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
-);
-afterEach(() => {
-  mockBridgeSnapshot = undefined;
-});
-
 jest.mock('./EvmWalletHeader', () => ({
   EvmWalletHeader: () => null
 }));
@@ -61,6 +49,7 @@ describe('EvmBridgeDepositForm (#875)', () => {
     render(
       <EvmBridgeDepositForm
         token={TOKEN}
+        tokenLabel="ETH"
         amount=""
         isValidAmount={false}
         evmAddress="0xabc"
@@ -83,6 +72,7 @@ describe('EvmBridgeDepositForm (#875)', () => {
     render(
       <EvmBridgeDepositForm
         token={TOKEN}
+        tokenLabel="ETH"
         amount=""
         isValidAmount={false}
         evmAddress="0xabc"
@@ -100,16 +90,19 @@ describe('EvmBridgeDepositForm (#875)', () => {
 describe('EvmBridgeDepositForm testnet bridge USDC label', () => {
   const USDC: UIToken = {
     id: TEST_EVM_USDC.address,
-    name: 'USDC.e',
+    name: 'USDC',
     decimals: 18,
     balance: 0,
     fiatPrice: 1,
     scaleIsKnown: true
   };
-  const renderForm = (token: UIToken) =>
+
+  // The screen names the token once, for the drawer, this step and the Review alike; the form only forwards it.
+  it('names the token and what it arrives as by the name the screen gives it', () => {
     render(
       <EvmBridgeDepositForm
-        token={token}
+        token={USDC}
+        tokenLabel="Test Epoch USDC"
         amount=""
         isValidAmount={false}
         evmAddress="0xabc"
@@ -120,29 +113,8 @@ describe('EvmBridgeDepositForm testnet bridge USDC label', () => {
       />
     );
 
-  it('names the configured token and what it arrives as by the testnet label', () => {
-    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    renderForm(USDC);
-
     const field = screen.getByTestId('select-amount');
     expect(field).toHaveAttribute('data-token-label', 'Test Epoch USDC');
     expect(field).toHaveAttribute('data-output-symbol', 'Test Epoch USDC');
-  });
-
-  it('keeps ETH on its symbol on testnet, and has it arrive as ETH', () => {
-    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-    renderForm(TOKEN);
-
-    const field = screen.getByTestId('select-amount');
-    expect(field).toHaveAttribute('data-token-label', 'ETH');
-    expect(field).toHaveAttribute('data-output-symbol', 'ETH');
-  });
-
-  it('keeps the chain symbols while no bridge config is loaded', () => {
-    renderForm(USDC);
-
-    const field = screen.getByTestId('select-amount');
-    expect(field).toHaveAttribute('data-token-label', 'USDC.e');
-    expect(field).toHaveAttribute('data-output-symbol', 'USDC.e');
   });
 });

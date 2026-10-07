@@ -19,7 +19,7 @@ import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive'
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
-import { evmTokenLabel } from 'lib/remote-config/token-labels';
+import { evmUsdcLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { type EvmUsdc, getAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from 'lib/remote-config/values';
 import { WalletAccount } from 'lib/shared/types';
@@ -246,7 +246,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const evmUsdcAddress = selectedEvmUsdc?.address;
   const evmUsdcChainId = selectedEvmUsdc?.chainId;
   const usdcSymbol = selectedEvmUsdc?.symbol ?? '';
-  const usdcLabel = evmTokenLabel(bridgeConfig, evmUsdcAddress, usdcSymbol);
+  // The one name the drawer, the amount step and the Review give the USDC, while its read is pending too.
+  const usdcLabel = evmUsdcLabel(bridgeConfig, usdcSymbol || 'USDC');
   const usdcDecimals = selectedEvmUsdc?.decimals ?? 0;
   const evmUsdc = useMemo<EvmUsdc | null>(
     () =>
@@ -794,6 +795,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositForm
               token={setupToken}
+              tokenLabel={token === 'ETH' ? ETH_SYMBOL : usdcLabel}
               amount={amount}
               isValidAmount={setupReady}
               error={error ?? selectedBalance.error ?? undefined}
@@ -866,7 +868,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         selected={token}
         ethBalance={ethBalance.formatted}
         usdcBalance={usdcBalance.formatted}
-        usdcLabel={evmTokenLabel(bridgeConfig, evmUsdcAddress, 'USDC')}
+        usdcLabel={usdcLabel}
         ethLoading={ethBalance.loading}
         usdcLoading={usdcBalance.loading}
         onSelect={handleTokenSelect}

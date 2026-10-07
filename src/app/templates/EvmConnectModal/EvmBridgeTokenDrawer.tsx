@@ -25,7 +25,7 @@ export interface EvmBridgeTokenDrawerProps {
   selected: DepositToken;
   ethBalance: string;
   usdcBalance: string;
-  /** The USDC row's name, such as the testnet label (`evmTokenLabel`). */
+  /** The USDC row's name, such as the testnet label (`evmUsdcLabel`). */
   usdcLabel: string;
   ethLoading?: boolean;
   usdcLoading?: boolean;

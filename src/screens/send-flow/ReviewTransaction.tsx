@@ -34,9 +34,8 @@ import {
 import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
-import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { findEvmUsdc } from 'lib/remote-config/values';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
@@ -536,8 +535,7 @@ export const ReviewTransaction: React.FC = () => {
       ? formatMoneyAmount(amount, 'typed')
       : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
   // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
-  const youReceiveSymbol =
-    route === 'agglayer' ? (token?.name ?? '') : evmTokenLabel(bridgeConfig, findEvmUsdc()?.address, epochQuote.symbol);
+  const youReceiveSymbol = route === 'agglayer' ? (token?.name ?? '') : evmUsdcLabel(bridgeConfig, epochQuote.symbol);
   const youReceiveLabel =
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');

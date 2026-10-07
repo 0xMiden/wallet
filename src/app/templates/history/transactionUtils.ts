@@ -17,8 +17,7 @@ import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
-import { findEvmUsdc } from 'lib/remote-config/values';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
@@ -273,7 +272,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
-  /** The name each side is shown under (`midenTokenLabel`, `evmTokenLabel`); the symbols above format the amounts. */
+  /** The name each side is shown under (`midenTokenLabel`, `evmUsdcLabel`); the symbols above format the amounts. */
   inLabel: string;
   outLabel: string;
   /**
@@ -300,8 +299,7 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
   // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
-  const outLabel =
-    entry.bridgeProvider === 'epoch' ? evmTokenLabel(snapshot, findEvmUsdc()?.address, outSymbol) : outSymbol;
+  const outLabel = entry.bridgeProvider === 'epoch' ? evmUsdcLabel(snapshot, outSymbol) : outSymbol;
   return {
     inSymbol,
     outSymbol,
@@ -346,7 +344,7 @@ export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHisto
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   // The bridge-in picker offers only ETH and the configured USDC, so any non-ETH source is that USDC.
-  const inLabel = inSymbol === 'ETH' ? inSymbol : evmTokenLabel(snapshot, findEvmUsdc()?.address, inSymbol);
+  const inLabel = inSymbol === 'ETH' ? inSymbol : evmUsdcLabel(snapshot, inSymbol);
   return {
     inSymbol,
     outSymbol,
