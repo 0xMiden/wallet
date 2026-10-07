@@ -981,7 +981,10 @@ async function requeueWithWake(
   );
 }
 
-/** The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. */
+/**
+ * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. The row
+ * owes notes no client store holds, so the delivery sweep leaves it inert (see `landedValueRowFields`).
+ */
 const landedRowFields = (tx: ITransaction, error: unknown) => {
   const landed = extractLanded(error);
   return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };

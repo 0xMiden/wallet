@@ -49,11 +49,13 @@ jest.mock('../back/miden-client-proxy', () => ({
   }
 }));
 
-const mockRecord = jest.fn<Promise<void>, [string, INoteDeliveryState]>();
+type DeliveryEvidence = Parameters<typeof import('./helper').recordNoteDelivery>[2];
+
+const mockRecord = jest.fn<Promise<void>, [string, INoteDeliveryState, DeliveryEvidence?]>();
 
 jest.mock('./helper', () => ({
   ...jest.requireActual<typeof import('./helper')>('./helper'),
-  recordNoteDelivery: (id: string, state: INoteDeliveryState) => mockRecord(id, state)
+  recordNoteDelivery: (...args: [string, INoteDeliveryState, DeliveryEvidence?]) => mockRecord(...args)
 }));
 
 /** A landed private send that owes a delivery, overridable per case. */
@@ -115,7 +117,7 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
     expect(rows[0]!.relayAttempts).toBe(2);
     expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
   });
@@ -311,7 +313,7 @@ describe('sweepNoteDeliveries', () => {
 
       await sweepNoteDeliveries();
 
-      expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+      expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
       expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
       expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed');
       expect(rows[0]!.relayAttempts).toBe(2);
@@ -327,8 +329,8 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledTimes(2);
-    expect(mockRecord).toHaveBeenCalledWith('acked', 'relayed');
-    expect(mockRecord).toHaveBeenCalledWith('never-acked', 'relayed');
+    expect(mockRecord).toHaveBeenCalledWith('acked', 'relayed', { ackedNoteIds: ['0xnote'] });
+    expect(mockRecord).toHaveBeenCalledWith('never-acked', 'relayed', { ackedNoteIds: ['0xnote'] });
     expect(error).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
@@ -399,6 +401,38 @@ describe('sweepNoteDeliveries', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.relayAttempts).toBe(1);
+  });
+
+  // Each writer that leaves a row with no note the sweep can push: such a row is inert.
+  it.each<[string, Partial<ITransaction>]>([
+    ['a row landed by verdict, with no stored output note', { outputNoteIds: undefined, noteDelivery: 'undelivered' }],
+    [
+      'a Failed private send with no output note',
+      { status: ITransactionStatus.Failed, outputNoteIds: [], noteDelivery: 'undelivered' }
+    ],
+    [
+      'a custom row whose dApp named no recipient',
+      { type: 'execute', relayNoteIds: ['0xnote'], relayRecipientId: undefined, noteDelivery: 'undelivered' }
+    ],
+    [
+      'a custom row whose one note could not be converted for relay',
+      {
+        type: 'execute',
+        relayNoteIds: ['0xnote'],
+        relayRecipientId: 'mtst1recipient',
+        relayDeadNoteIds: ['0xnote'],
+        noteDelivery: 'undelivered'
+      }
+    ]
+  ])('leaves %s inert: no push, no receipt, no attempt', async (_kind, overrides) => {
+    rows.push(row(overrides));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
     expect(rows[0]!.relayAttempts).toBe(1);
   });
 
@@ -482,6 +516,14 @@ describe('the undelivered label', () => {
     expect(rows[0]!.displayMessage).toBe('Sent');
   });
 
+  it('records the note the transport acknowledged on a re-push', async () => {
+    rows.push(row({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND }));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.relayAckedNoteIds).toEqual(['0xnote']);
+  });
+
   it('drops when the sweep finds the note consumed', async () => {
     rows.push(row({ noteDelivery: 'undelivered', displayMessage: UNDELIVERED_SEND }));
     mockIsConsumed.mockResolvedValue(true);
@@ -527,19 +569,46 @@ describe('the undelivered label', () => {
     expect(rows[0]!.displayMessage).toBe('Sent');
   });
 
-  // The row holds one delivery state, and a verdict on one of its notes says nothing of the other.
+  // The label counts the owed notes the transport has not acknowledged, whatever count it carried before.
+  const twoNoteRow = (displayMessage: string) =>
+    row({
+      type: 'execute',
+      outputNoteIds: ['0xnote', '0xnote2'],
+      relayNoteIds: ['0xnote', '0xnote2'],
+      relayRecipientId: 'mtst1recipient',
+      noteDelivery: 'undelivered',
+      displayMessage
+    });
+
   it.each([
-    ['Completed - a private note could not be delivered'],
+    ['Completed - the private note could not be delivered'],
     ['Completed - 2 private notes could not be delivered'],
     ['Completed' + EM + '2 private notes could not be delivered']
-  ])('stays as %p on a two-note row recorded relayed', async displayMessage => {
-    rows.push(
-      row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
-    );
+  ])('counts the one unacknowledged note of a two-note row labelled %p', async displayMessage => {
+    rows.push(twoNoteRow(displayMessage));
 
-    await recordNoteDelivery('tx-1', 'relayed');
+    await recordNoteDelivery('tx-1', 'undelivered', { ackedNoteIds: ['0xnote'] });
 
-    expect(rows[0]!.displayMessage).toBe(displayMessage);
+    expect(rows[0]!.displayMessage).toBe('Completed - a private note could not be delivered');
+  });
+
+  it('drops from a two-note row once both notes are acknowledged', async () => {
+    rows.push(twoNoteRow('Completed - 2 private notes could not be delivered'));
+
+    await recordNoteDelivery('tx-1', 'undelivered', { ackedNoteIds: ['0xnote'] });
+    await recordNoteDelivery('tx-1', 'relayed', { ackedNoteIds: ['0xnote2'] });
+
+    expect(rows[0]!.relayAckedNoteIds).toEqual(['0xnote', '0xnote2']);
+    expect(rows[0]!.displayMessage).toBe('Completed');
+  });
+
+  // With no acknowledgement on record the label's own count is all there is to go on.
+  it('keeps the count of a two-note row with no acknowledgement on record', async () => {
+    rows.push(twoNoteRow('Completed - a private note could not be delivered'));
+
+    await recordNoteDelivery('tx-1', 'undelivered');
+
+    expect(rows[0]!.displayMessage).toBe('Completed - a private note could not be delivered');
   });
 
   // Rows written before `relayNoteIds` fall back to `outputNoteIds`.

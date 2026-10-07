@@ -417,7 +417,8 @@ const planRequeue = async (
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
       // Completed as the landed catches complete a row (#1233). Only `completeSendTransaction`
-      // relays a private send's note, and with no delivery recorded that relay never ran.
+      // relays a private send's note, and with no delivery recorded that relay never ran. A row
+      // re-derived as undelivered with no output note to push is inert to the delivery sweep.
       const completedAt = Math.floor(Date.now() / 1000);
       // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
       // this function is defined over, so this branch used to throw rather than

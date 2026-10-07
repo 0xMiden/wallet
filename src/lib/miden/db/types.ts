@@ -659,6 +659,17 @@ export interface ITransaction {
   relayNoteIds?: string[];
   /** The account a custom row's private notes were relayed to, kept apart from `secondaryAccountId`; see `relayRecipientOf`. */
   relayRecipientId?: string;
+  /**
+   * The owed private notes the transport has acknowledged, each added as its relay or re-push is acknowledged. The
+   * undelivered label counts the owed notes missing from it. Absent on a row written before acknowledgements were
+   * recorded, or with none yet; there `noteDelivery` decides, and `relayed` counts as every owed note acknowledged.
+   */
+  relayAckedNoteIds?: string[];
+  /**
+   * Owed private notes that can never be pushed: no relayable note could be built from them when the row completed.
+   * The sweep never pushes them, and a row whose every owed note is here has nothing to push at all.
+   */
+  relayDeadNoteIds?: string[];
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;

@@ -88,7 +88,8 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
   if (owed.length !== 1) return undefined;
   const noteId = owed[0];
   const recipient = relayRecipientOf(row);
-  if (!noteId || !recipient) return undefined;
+  // A note recorded dead has no relayable form, so a row owing only that one is inert.
+  if (!noteId || !recipient || row.relayDeadNoteIds?.includes(noteId)) return undefined;
   return { noteId, recipient };
 };
 
@@ -177,8 +178,10 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
 
     const attempts = attemptsOf(row) + 1;
     let outcome: INoteDeliveryState = 'relayed';
+    let acknowledged = false;
     try {
       await midenClientProxy.relayPrivateNoteById(target.noteId, target.recipient);
+      acknowledged = true;
       // Duplicate SendNote responses are normalized before WASM sees them, so an
       // ACK can mean either a new insertion or an already-stored note. The relaying
       // realm logs `[noteRelay] SendNote duplicate acknowledged` for the latter, so an
@@ -206,7 +209,8 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       });
     }
 
-    await recordNoteDelivery(row.id, outcome);
+    if (acknowledged) await recordNoteDelivery(row.id, outcome, { ackedNoteIds: [target.noteId] });
+    else await recordNoteDelivery(row.id, outcome);
     await Repo.transactions.where({ id: row.id }).modify(tx => {
       tx.relayAttempts = attempts;
       tx.nextRelayAt = nowSeconds() + backoffFor(attempts);

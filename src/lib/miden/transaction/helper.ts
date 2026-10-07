@@ -392,18 +392,61 @@ export const relayRecipientOf = (
   row: Pick<ITransaction, 'relayNoteIds' | 'relayRecipientId' | 'secondaryAccountId'>
 ): string | undefined => (row.relayNoteIds ? row.relayRecipientId : row.secondaryAccountId);
 
-/** `label`'s base when {@link undeliveredDisplayMessage} built it, now or before 1.16.3, else `label` unchanged. */
-const withoutUndeliveredWording = (label: string): string => {
+/**
+ * `label`'s base and note count when {@link undeliveredDisplayMessage} built it, now or before 1.16.3, else
+ * `undefined`. `notes` is `undefined` for "the private note".
+ */
+const parseUndeliveredWording = (label: string): { base: string; notes: number | undefined } | undefined => {
   for (const separator of [UNDELIVERED_SEPARATOR, LEGACY_UNDELIVERED_SEPARATOR]) {
     const at = label.lastIndexOf(separator);
     if (at < 0) continue;
     const base = label.slice(0, at);
     const count = Number(label.slice(at + separator.length).split(' ', 1)[0]);
     // Rebuilding and comparing makes this the exact inverse, so no near miss loses its text.
-    if ([undefined, 1, count].some(notes => undeliveredLabel(base, notes, separator) === label)) return base;
+    for (const notes of [undefined, 1, count]) {
+      if (undeliveredLabel(base, notes, separator) === label) return { base, notes };
+    }
   }
-  return label;
+  return undefined;
 };
+
+/**
+ * The owed notes the transport has acknowledged, or `undefined` when the row does not say. A row written before
+ * acknowledgements were recorded says so only through its state: `relayed` meant every owed note was acknowledged.
+ */
+export const relayAckedNoteIdsOf = (
+  row: Pick<ITransaction, 'relayAckedNoteIds' | 'relayNoteIds' | 'outputNoteIds' | 'noteDelivery'>
+): string[] | undefined => row.relayAckedNoteIds ?? (row.noteDelivery === 'relayed' ? relayNoteIdsOf(row) : undefined);
+
+/** How many owed notes the transport has not acknowledged, or `undefined` when the row does not say. */
+const unacknowledgedNotesOf = (
+  row: Pick<ITransaction, 'relayAckedNoteIds' | 'relayNoteIds' | 'outputNoteIds' | 'noteDelivery'>
+): number | undefined => {
+  if (row.noteDelivery === 'confirmed') return 0;
+  const acked = relayAckedNoteIdsOf(row);
+  return acked === undefined ? undefined : relayNoteIdsOf(row).filter(noteId => !acked.includes(noteId)).length;
+};
+
+/**
+ * The row's label with its undelivered wording brought in line with the owed notes still unacknowledged: dropped
+ * at none, recounted otherwise. Never added, and kept as written when the row does not say how many.
+ */
+const relabelForDelivery = (row: ITransaction, label: string): string => {
+  const wording = parseUndeliveredWording(label);
+  if (!wording) return label;
+  const unacknowledged = unacknowledgedNotesOf(row);
+  if (unacknowledged === undefined) return label;
+  if (unacknowledged === 0) return wording.base;
+  // A send's one note reads "the private note"; a custom row, which records `relayNoteIds`, counts them.
+  const notes = row.relayNoteIds ? unacknowledged : undefined;
+  return notes === wording.notes ? label : undeliveredDisplayMessage(wording.base, notes);
+};
+
+/** `held` plus each of `added` it lacks, in order. */
+const withIds = (held: string[] | undefined, added: string[]): string[] => [
+  ...(held ?? []),
+  ...added.filter((noteId, at) => !held?.includes(noteId) && added.indexOf(noteId) === at)
+];
 
 /**
  * Record the delivery state of this row's private output note, plus the evidence
@@ -427,22 +470,34 @@ const withoutUndeliveredWording = (label: string): string => {
  * the worst of both, since a later retry then cannot tell the send already
  * happened. `status` is the thing that must not move here, and this never touches
  * it.
+ *
+ * `ackedNoteIds` and `deadNoteIds` are added to what the row already holds, never
+ * replace it: each relay of a custom row persists its own acknowledgement as it
+ * lands, for the same reason.
  */
 export const recordNoteDelivery = async (
   id: string,
   noteDelivery: INoteDeliveryState,
-  evidence?: { transactionId?: string; outputNoteIds?: string[] }
+  evidence?: {
+    transactionId?: string;
+    outputNoteIds?: string[];
+    relayNoteIds?: string[];
+    relayRecipientId?: string;
+    ackedNoteIds?: string[];
+    deadNoteIds?: string[];
+  }
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
     tx.noteDelivery = noteDelivery;
     if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
     if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
-    // History renders the label, not `noteDelivery`, so a delivered note retires its warning there too, but only
-    // on a row owing at most one private note: the row's single state cannot speak for several.
-    const delivered = noteDelivery === 'relayed' || noteDelivery === 'confirmed';
-    if (delivered && relayNoteIdsOf(tx).length <= 1 && tx.displayMessage) {
-      tx.displayMessage = withoutUndeliveredWording(tx.displayMessage);
-    }
+    if (evidence?.relayNoteIds) tx.relayNoteIds = evidence.relayNoteIds;
+    if (evidence?.relayRecipientId) tx.relayRecipientId = evidence.relayRecipientId;
+    if (evidence?.ackedNoteIds?.length) tx.relayAckedNoteIds = withIds(tx.relayAckedNoteIds, evidence.ackedNoteIds);
+    if (evidence?.deadNoteIds?.length) tx.relayDeadNoteIds = withIds(tx.relayDeadNoteIds, evidence.deadNoteIds);
+    // History renders the label, not `noteDelivery`, so a note the transport took retires its share of the warning
+    // there too.
+    if (tx.displayMessage) tx.displayMessage = relabelForDelivery(tx, tx.displayMessage);
   });
 };
 
@@ -495,10 +550,25 @@ export const landedTransactionIdFields = (landed: LandedWithoutResult | undefine
  * An execute's private notes are relayed only by `completeCustomTransaction`, so the same holds for
  * the `privateOutputNotes` its failure counted. Without a count (a refusal, Retry, an unreadable
  * transaction) the recipient its request named says notes were owed, and an 'undelivered' the row
- * already recorded is kept under a label that says so.
+ * already recorded is kept under a label that says so, counting the owed notes the transport did not
+ * acknowledge when the row records which it did.
+ *
+ * None of these rows is ever re-pushed: an apply that failed left the output notes out of this client's
+ * store, so `sendPrivateOutput` has nothing to resend, and the row carries no note id to resend by. The
+ * delivery sweep leaves such a row inert.
  */
 export const landedValueRowFields = (
-  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>,
+  tx: Pick<
+    ITransaction,
+    | 'type'
+    | 'noteType'
+    | 'accountId'
+    | 'secondaryAccountId'
+    | 'noteDelivery'
+    | 'relayNoteIds'
+    | 'relayAckedNoteIds'
+    | 'outputNoteIds'
+  >,
   privateOutputNotes?: number
 ): { displayMessage: string; noteDelivery?: 'undelivered' } => {
   const displayMessage = applyLandedDisplayMessage(tx);
@@ -506,7 +576,9 @@ export const landedValueRowFields = (
     const owed =
       tx.noteDelivery === 'undelivered' ||
       (privateOutputNotes === undefined ? Boolean(tx.secondaryAccountId) : privateOutputNotes > 0);
-    const notes = privateOutputNotes !== undefined && privateOutputNotes > 0 ? privateOutputNotes : undefined;
+    // Only a custom row's relay records `relayNoteIds`, and with them which notes the transport took.
+    const count = privateOutputNotes ?? (tx.relayNoteIds ? unacknowledgedNotesOf(tx) : undefined);
+    const notes = count !== undefined && count > 0 ? count : undefined;
     return owed
       ? { displayMessage: undeliveredDisplayMessage(displayMessage, notes), noteDelivery: 'undelivered' }
       : { displayMessage };
@@ -531,7 +603,17 @@ export const landedValueRowFields = (
  * Pass the row as the write finds it: the sweep or a cancelled pipeline can record an outcome during the node check.
  */
 export const verifiedLandingRowFields = (
-  tx: Pick<ITransaction, 'type' | 'noteType' | 'accountId' | 'secondaryAccountId' | 'noteDelivery'>
+  tx: Pick<
+    ITransaction,
+    | 'type'
+    | 'noteType'
+    | 'accountId'
+    | 'secondaryAccountId'
+    | 'noteDelivery'
+    | 'relayNoteIds'
+    | 'relayAckedNoteIds'
+    | 'outputNoteIds'
+  >
 ): { displayMessage: string; displayIcon: ITransactionIcon; noteDelivery?: 'undelivered' } => ({
   // A Failed row carries the failed icon, which Activity draws for any status.
   displayIcon: ICON_BY_TYPE[tx.type],

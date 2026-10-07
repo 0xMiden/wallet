@@ -81,10 +81,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
   const { userNotes: outputNotes } = splitExecutedOutputNotes(executedTx);
 
-  // Every private note this transaction produced. Collected first so the relays
-  // below are a flat sequence: the commit wait then happens ONCE, after them,
-  // rather than once per note inside the loop.
-  const notesToRelay: Note[] = [];
+  // Every private note this transaction produced, with the id it is owed under. Collected
+  // first so the relays below are a flat sequence: the commit wait then happens ONCE,
+  // after them, rather than once per note inside the loop.
+  const notesToRelay: { noteId: string; fullNote: Note }[] = [];
 
   // How many of this transaction's private notes cannot be shown to have reached
   // the transport. Counted across BOTH phases — conversion and relay — because a
@@ -100,37 +100,56 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   const relayNoteIds: string[] = [];
   // Read before `interpretTransactionResult`, which puts the input note's sender in `secondaryAccountId` on a consume.
   const relayRecipientId = transaction.secondaryAccountId;
+  // Owed notes no relay can ever carry.
+  const relayDeadNoteIds: string[] = [];
 
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
       continue;
     }
-    relayNoteIds.push(note.id().toString());
+    const noteId = note.id().toString();
+    relayNoteIds.push(noteId);
 
     if (!transaction.secondaryAccountId) {
       // The recipient is supplied by the requesting site and is optional, so a
       // custom request that emits a private note without naming one lands here.
+      // The row then has no recipient, which leaves it inert for the delivery
+      // sweep: there is no one to re-push its notes to.
       console.error('Missing recipient account id for private note', { txId: transaction.id });
       undeliveredNotes++;
       continue;
     }
 
-    // intoFull() can throw or return undefined
+    // intoFull() can throw or return undefined. Either way the note is recorded dead:
+    // the sweep re-pushes by id from the same output note record, and a note that
+    // yields no relayable note here yields none there, so pushing it would only
+    // spend attempts.
     try {
       const maybeFullNote = note.intoFull();
       if (!maybeFullNote) {
         console.error('intoFull() returned undefined for output note', { txId: transaction.id });
         undeliveredNotes++;
+        relayDeadNoteIds.push(noteId);
         continue;
       }
-      notesToRelay.push(maybeFullNote);
+      notesToRelay.push({ noteId, fullNote: maybeFullNote });
     } catch (error) {
       console.error('Failed to convert output note into full note', { txId: transaction.id, error });
       undeliveredNotes++;
+      relayDeadNoteIds.push(noteId);
       continue;
     }
   }
+
+  // What the sweep needs to re-push this row's notes if the pipeline stops before its
+  // terminal write: which notes, to whom, and which of them no push can carry.
+  const relayEvidence = () => ({
+    transactionId: executedTx.id().toHex(),
+    relayNoteIds,
+    relayRecipientId,
+    deadNoteIds: relayDeadNoteIds
+  });
 
   let noteDelivery: INoteDeliveryState | undefined;
 
@@ -139,7 +158,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // the SDK's outbox is written from inside the relay, so nothing upstream of that
     // point leaves any durable trace that a note is owed.
     try {
-      await recordNoteDelivery(transaction.id, 'pending', { transactionId: executedTx.id().toHex() });
+      await recordNoteDelivery(transaction.id, 'pending', relayEvidence());
     } catch (error) {
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
@@ -165,7 +184,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       });
     }
 
-    for (const fullNote of notesToRelay) {
+    for (const { noteId, fullNote } of notesToRelay) {
       try {
         await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
       } catch (error) {
@@ -177,6 +196,14 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
           errorMessage: error instanceof Error ? error.message : String(error)
         });
         undeliveredNotes++;
+        continue;
+      }
+      // Persisted per relay: the terminal write below throws on a row Cancel or the
+      // stuck-row reaper finalized while the relays ran.
+      try {
+        await recordNoteDelivery(transaction.id, 'pending', { ackedNoteIds: [noteId] });
+      } catch (error) {
+        console.warn('Could not record the note acknowledgement', { txId: transaction.id, noteId, error });
       }
     }
 
@@ -193,7 +220,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // Private notes existed but none could be turned into a relayable note.
     noteDelivery = 'undelivered';
     try {
-      await recordNoteDelivery(transaction.id, noteDelivery, { transactionId: executedTx.id().toHex() });
+      await recordNoteDelivery(transaction.id, noteDelivery, relayEvidence());
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, error });
     }
@@ -1117,11 +1144,12 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // outcome would be lost with it. This is the same reason `recordNoteDelivery`
     // carries no terminal guard.
     try {
-      await recordNoteDelivery(tx.id, noteDelivery);
+      await recordNoteDelivery(tx.id, noteDelivery, { ackedNoteIds: noteDelivery === 'relayed' ? [noteId] : [] });
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
   } else if (isPrivateSend && (!note || !noteId)) {
+    // No output note id to re-push by, so the delivery sweep leaves this row inert.
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Send failed: note unavailable',
