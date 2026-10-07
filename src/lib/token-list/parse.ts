@@ -31,10 +31,11 @@ export function parseTokenLogos(value: unknown, network: string): Map<string, st
   const logos = new Map<string, string>();
   if (parseTokenList(value, network) === null || !isRecord(value) || !Array.isArray(value.tokens)) return logos;
   for (const entry of value.tokens) {
-    if (!isToken(entry) || entry.network !== network || !isRecord(entry)) continue;
-    const { logoURI } = entry;
-    const own = `${LOGO_PREFIX}${entry.faucetId}/logo.`;
-    if (logoURI === `${own}svg` || logoURI === `${own}png`) logos.set(entry.faucetId, logoURI);
+    if (!isRecord(entry) || entry.network !== network) continue;
+    const { faucetId, logoURI } = entry;
+    if (!isNonEmptyString(faucetId)) continue;
+    const own = `${LOGO_PREFIX}${faucetId}/logo.`;
+    if (logoURI === `${own}svg` || logoURI === `${own}png`) logos.set(faucetId, logoURI);
   }
   return logos;
 }
