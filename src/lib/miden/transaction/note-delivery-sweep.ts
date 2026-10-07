@@ -1,63 +1,120 @@
 import * as Repo from 'lib/miden/repo';
+import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 
-import { recordNoteDelivery, relayNoteIdsOf, relayRecipientOf } from './helper';
+import { recordNoteDelivery, relayAckedNoteIdsOf, relayNoteIdsOf, relayRecipientOf } from './helper';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { INoteDeliveryState, ITransaction } from '../db/types';
+import { errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
+
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
 
 /**
- * How many times a row's private note may be handed to the transport in total,
- * counting the original relay. Four gives three re-pushes.
+ * Delay in seconds before the next push of a note the transport has not acknowledged,
+ * indexed by the row's attempts so far less one (the original relay is the first), the
+ * last entry repeating. Pushes therefore land at +5 m, +15 m, +30 m, +1 h, +2 h and +4 h
+ * after each failed attempt, then every 6 h.
  *
- * Bounded rather than open-ended because a note that is simply not being consumed
- * yet is indistinguishable, from the sender, from one that never arrived: the only
- * receipt available is the nullifier (see `isOutputNoteConsumed`), and a recipient
- * who is merely offline produces the same reading as one who never got the body.
- * So the sweep buys independent chances rather than waiting for certainty, and
- * stops.
+ * Tight at first because the common failure is a transport or connection that was down
+ * for a moment, wide later because a note still unacknowledged after hours is waiting on
+ * something a quick retry will not fix, and each push holds the WASM client for up to a
+ * gRPC timeout.
  */
-export const MAX_RELAY_ATTEMPTS = 4;
+const RETRY_DELAYS_SECONDS = [5 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 4 * HOUR, 6 * HOUR];
 
 /**
- * Delay in seconds before each subsequent attempt, indexed by attempts already
- * made. Spread wide on purpose: the failure this defends against is a transport that
- * accepted a note and did not store it, and retrying immediately would re-run the
- * same race against the same conditions. An hour of coverage across three re-pushes
- * costs nothing and spans far more independent chances than a tight retry would.
+ * How long after the send a note the transport has not acknowledged is still pushed, in
+ * seconds. The output note and its inclusion proof stay in this client's store for good,
+ * so age alone never makes a push fail; the bound is how long a send that keeps failing
+ * goes on before the history card tells the user retries have stopped.
  */
-const RELAY_BACKOFF_SECONDS = [60, 300, 1_800];
+export const RETRY_WINDOW_SECONDS = 72 * HOUR;
 
 /**
- * How old a send may be and still be swept, in seconds.
+ * Delays before the verification pushes of a row whose every live note the transport
+ * acknowledged: 5 minutes after the last acknowledgement, then 30 minutes after that.
  *
- * Bounds the sweep to rows whose delivery could plausibly still be in flight. Two
- * reasons, both about not making things worse. A months-old send whose note the
- * recipient consumed long ago needs no push, and re-pushing it would put note
- * bodies back on the transport for no one. More importantly, a row old enough that
- * this client's store no longer tracks its output note cannot be re-pushed at all -
- * `sendPrivateOutput` rejects with `No output note found for the given id` - and
- * without this bound every historical private send would collect that failure and
- * light up a delivery warning on a send that was fine.
+ * An acknowledgement is not proof of storage (the 0.17 transport also acknowledges a
+ * note it already holds), so two more pushes give a note the transport accepted and
+ * lost two independent chances. A note it does hold costs the recipient nothing.
  */
-const RELAY_WINDOW_SECONDS = 6 * 60 * 60;
+const VERIFY_DELAYS_SECONDS = [5 * MINUTE, 30 * MINUTE];
+
+/** How often a row whose pushes are over is checked for a receipt, in seconds. */
+const RECEIPT_INTERVAL_SECONDS = HOUR;
+
+/** How long after the send a row is checked for a receipt at all, in seconds. */
+export const RECEIPT_WINDOW_SECONDS = 7 * 24 * HOUR;
+
+const retryDelayFor = (attempts: number): number =>
+  RETRY_DELAYS_SECONDS[Math.min(attempts, RETRY_DELAYS_SECONDS.length) - 1] ?? 6 * HOUR;
+
+/**
+ * How many pushes of unacknowledged notes {@link RETRY_DELAYS_SECONDS} fits into
+ * {@link RETRY_WINDOW_SECONDS}, counting the original relay: 17. A backstop, not the
+ * schedule: it bounds a row whose send time cannot be trusted (a clock that moved
+ * backwards puts it in the future, where the window never closes), and the counter it
+ * reads arrives from a store that `importDb` fills from a user-supplied file.
+ */
+export const MAX_RELAY_ATTEMPTS = (() => {
+  let attempts = 1;
+  for (let elapsed = retryDelayFor(1); elapsed <= RETRY_WINDOW_SECONDS; elapsed += retryDelayFor(attempts)) {
+    attempts++;
+  }
+  return attempts;
+})();
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-const backoffFor = (attempts: number): number => {
-  const last = RELAY_BACKOFF_SECONDS[RELAY_BACKOFF_SECONDS.length - 1] ?? 1_800;
-  return RELAY_BACKOFF_SECONDS[Math.min(attempts, RELAY_BACKOFF_SECONDS.length - 1)] ?? last;
-};
-
-/** Delivery states that still warrant a re-push. `confirmed` is terminal. */
+/** Delivery states the sweep still looks at. `confirmed` is terminal. */
 const SWEEPABLE: INoteDeliveryState[] = ['pending', 'relayed', 'undelivered'];
 
+/** What a failed push says about what to do next; see {@link classifyRelayFailure}. */
+export type RelayFailureClass = 'notConfigured' | 'interrupted' | 'outage' | 'storeLoss' | 'noteLocal';
+
+/** gRPC codes for which the request itself, not the transport, is at fault. */
+const NOTE_LOCAL_CODES = ['InvalidArgument', 'FailedPrecondition'];
+
 /**
- * Attempts already made on a row, normalized.
+ * Classify a failed push by what it means for this note, this row and the rest of the
+ * pass. Pure: it reads only the error.
  *
- * Read defensively because this counter is the only thing bounding how often a
- * private note body goes back on the wire, and it arrives from a store that
- * `importDb` populates from a user-supplied backup file. A hand-edited `0`, a
- * negative, or a non-finite value would otherwise never reach the cap and would
- * re-push on every backoff step for the whole window.
+ * - `notConfigured`: the client has no transport (`NoteTransportError::Disabled`). No
+ *   push can work, so none is made and nothing is spent; receipts still run.
+ * - `interrupted`: the call was torn down from outside (a lock eviction poisoning the
+ *   client, or an offscreen kill) and may still be running, so the pass stops and the
+ *   row is left exactly as it was.
+ * - `storeLoss`: this client's store has no relayable copy of the note (a restore into
+ *   a fresh store, a reinstall, a raze, or a record with no details). No later push can
+ *   work, so the note is recorded dead; its siblings go on.
+ * - `noteLocal`: the note's own request was refused (no inclusion proof yet, or the
+ *   transport rejected it as invalid). The note spends its attempt and the pass goes on:
+ *   the next row's note is a different request.
+ * - `outage`: everything else, including a gRPC status the sweep does not know and text
+ *   it does not recognize. A transport that is down or overloaded fails every push the
+ *   same way, so the pass stops pushing rather than spend an attempt on every row.
+ *
+ * Matched on the SDK's error text, with or without the offscreen bus's
+ * `Offscreen call '...' failed:` prefix. A failed send reads
+ * `... Send note with proof failed: Status { code: <Code>, ... }` (tonic's Debug output),
+ * and a failed browser fetch is `Unknown`.
+ */
+export const classifyRelayFailure = (error: unknown): RelayFailureClass => {
+  if (isKilledPipeline(error)) return 'interrupted';
+  const parts = errorMessageParts(error);
+  const has = (phrase: string) => parts.some(part => part.includes(phrase));
+  if (has('note transport is disabled')) return 'notConfigured';
+  if (has('No output note found for the given id') || has('output note has no details to relay')) return 'storeLoss';
+  if (has('output note has no inclusion proof')) return 'noteLocal';
+  const code = parts.map(part => /\bStatus \{ code: (\w+)/.exec(part)?.[1]).find(Boolean);
+  return code && NOTE_LOCAL_CODES.includes(code) ? 'noteLocal' : 'outage';
+};
+
+/**
+ * Attempts already made on a row, normalized. Read defensively because it arrives from a
+ * store that `importDb` fills from a user-supplied file, and it bounds how often a note
+ * body goes back on the wire: a hand-edited `0` or negative counts up from 1, and a
+ * non-finite value counts as spent.
  */
 const attemptsOf = (row: ITransaction): number => {
   const stored = Math.trunc(row.relayAttempts ?? 1);
@@ -65,171 +122,312 @@ const attemptsOf = (row: ITransaction): number => {
   return Math.min(Math.max(stored, 1), MAX_RELAY_ATTEMPTS);
 };
 
-/**
- * Rows the sweep should look at: a private send that has a landed note and has not
- * been proven delivered. Ordered oldest-first so a backlog drains in the order the
- * notes were relayed.
- */
-const candidateRows = async (at: number): Promise<ITransaction[]> => {
-  const rows = await Repo.transactions.where('noteDelivery').anyOf(SWEEPABLE).toArray();
-  // Aged from the relay (`completedAt`), not the queue stamp, for the reason the arming
-  // below gives: a send that waited queued for hours relays only when it completes.
-  const relayedAt = (row: ITransaction) => row.completedAt ?? row.initiatedAt ?? 0;
-  return rows
-    .filter(row => attemptsOf(row) < MAX_RELAY_ATTEMPTS)
-    .filter(row => at - relayedAt(row) <= RELAY_WINDOW_SECONDS)
-    .sort((a, b) => relayedAt(a) - relayedAt(b));
+/** Verification pushes already made on a row, normalized as {@link attemptsOf} is. */
+const verifyPushesOf = (row: ITransaction): number => {
+  const stored = Math.trunc(row.relayVerifyPushes ?? 0);
+  if (!Number.isFinite(stored)) return VERIFY_DELAYS_SECONDS.length;
+  return Math.min(Math.max(stored, 0), VERIFY_DELAYS_SECONDS.length);
 };
 
-const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string } | undefined => {
-  // The row holds one delivery state for the private notes it owes the relay (`relayNoteIdsOf`), so one note's
-  // receipt or re-push speaks for the row only when it owes exactly that one.
+// Aged from the relay (`completedAt`), not the queue stamp: a send that waited queued for
+// hours relays only when it completes.
+const relayedAt = (row: ITransaction) => row.completedAt ?? row.initiatedAt ?? 0;
+
+/** A row's owed notes, split by what the sweep may still do with each. */
+interface DeliveryTargets {
+  /** Every owed private note; receipts cover them all. */
+  owed: string[];
+  recipient: string | undefined;
+  /** Owed notes the transport acknowledged, including those a legacy `relayed` row implies. */
+  acked: string[];
+  /** Live (not dead, with a recipient) and unacknowledged: what the retry schedule pushes. */
+  retry: string[];
+  /** Live and acknowledged: what the verification pushes cover. */
+  verify: string[];
+}
+
+const targetsOf = (row: ITransaction): DeliveryTargets => {
   const owed = relayNoteIdsOf(row);
-  if (owed.length !== 1) return undefined;
-  const noteId = owed[0];
   const recipient = relayRecipientOf(row);
-  // A note recorded dead has no relayable form, so a row owing only that one is inert.
-  if (!noteId || !recipient || row.relayDeadNoteIds?.includes(noteId)) return undefined;
-  return { noteId, recipient };
+  const acked = relayAckedNoteIdsOf(row) ?? [];
+  const live = recipient ? owed.filter(noteId => !row.relayDeadNoteIds?.includes(noteId)) : [];
+  return {
+    owed,
+    recipient,
+    acked,
+    retry: live.filter(noteId => !acked.includes(noteId)),
+    verify: live.filter(noteId => acked.includes(noteId))
+  };
+};
+
+/** No note the sweep could ever push: none owed, no recipient, or every owed note dead. */
+const isInert = (targets: DeliveryTargets) => targets.retry.length === 0 && targets.verify.length === 0;
+
+/** Whether the retry schedule is over: nothing left to retry, the window closed, or the cap reached. */
+const retriesOver = (row: ITransaction, targets: DeliveryTargets, at: number) =>
+  row.restoredFromBackup === true ||
+  targets.retry.length === 0 ||
+  at - relayedAt(row) > RETRY_WINDOW_SECONDS ||
+  attemptsOf(row) >= MAX_RELAY_ATTEMPTS;
+
+/** The notes to push now: the unacknowledged ones while retries last, else the verification pushes. */
+const pushesFor = (row: ITransaction, targets: DeliveryTargets, at: number): string[] => {
+  if (row.restoredFromBackup) return [];
+  if (targets.retry.length > 0) return retriesOver(row, targets, at) ? [] : targets.retry;
+  return verifyPushesOf(row) < VERIFY_DELAYS_SECONDS.length ? targets.verify : [];
 };
 
 /**
- * Retry unconfirmed private-note deliveries with a bounded schedule.
- *
- * An ACK can mean either an insertion or an idempotent duplicate acknowledgement.
- * Neither proves the recipient received the body: a stored note can remain below
- * the recipient's cursor (note-transport-service#77). Only its on-chain nullifier
- * confirms delivery. A genuinely missing note is stored by a retry; an already
- * stored note is acknowledged at the SDK fetch boundary so it leaves the outbox.
- * Every rejection that still reaches the sweep is therefore a failure, including a
- * duplicate that boundary did not recognize, whose outbox entry is then stuck.
- *
- * Per-row failures preserve a prior ACK and never fail a landed transaction.
+ * Mark, once, a row whose retries are over while some owed note never reached the
+ * transport, so the history card stops promoting retries that will not come.
  */
-export const sweepNoteDeliveries = async (): Promise<void> => {
-  // Eligibility is judged against one snapshot so a single pass is internally
-  // consistent. Schedules, though, are stamped from the clock at WRITE time: each
-  // row's relay carries a 45-second deadline, so a sweep with a few slow rows can
-  // outlive a backoff step, and a `nextRelayAt` derived from the sweep's start would
-  // then land in the past - re-pushing on the very next cycle and collapsing exactly
-  // the spread these delays exist to create.
-  const at = nowSeconds();
-  const rows = await candidateRows(at);
+const markRetriesStopped = async (row: ITransaction, targets: DeliveryTargets, at: number): Promise<void> => {
+  const owesDelivery = targets.owed.length === 0 || targets.owed.some(noteId => !targets.acked.includes(noteId));
+  if (row.relayRetriesStopped || !owesDelivery || !retriesOver(row, targets, at)) return;
+  await Repo.transactions.where({ id: row.id }).modify(tx => {
+    tx.relayRetriesStopped = true;
+  });
+  console.warn('[noteDeliverySweep] pushes stopped; receipt checks continue', {
+    txId: row.id,
+    attempts: attemptsOf(row),
+    restored: row.restoredFromBackup === true,
+    inert: isInert(targets),
+    state: row.noteDelivery
+  });
+};
 
-  for (const row of rows) {
-    const target = relayTargetOf(row);
-    if (!target) {
-      // Nothing to re-push with. Leave the row alone rather than counting an
-      // attempt that cannot happen - the existing state already says delivery was
-      // never confirmed, and burning attempts here would only hide that.
-      continue;
+/** Every owed note consumed on chain, which is the only proof the recipient had the bodies. */
+const allConsumed = async (row: ITransaction, owed: string[]): Promise<boolean> => {
+  try {
+    for (const noteId of owed) {
+      if (!(await midenClientProxy.isOutputNoteConsumed(noteId))) return false;
     }
+    return owed.length > 0;
+  } catch (error) {
+    // Unreadable this cycle. Go on to the push: an extra push of a note that was
+    // delivered costs the recipient nothing, whereas skipping one that was not is the
+    // failure this sweep exists to prevent.
+    console.warn('[noteDeliverySweep] could not read delivery receipt; pushing anyway', {
+      txId: row.id,
+      attempts: attemptsOf(row),
+      priorState: row.noteDelivery,
+      error
+    });
+    return false;
+  }
+};
 
-    if (row.nextRelayAt === undefined) {
-      // First sighting: arm the schedule and leave. Pushing again in the same breath
-      // as the original relay would spend an attempt against identical conditions and
-      // prove nothing. Attempts start at 1 to count that original relay.
-      //
-      // The delay is measured from the ORIGINAL RELAY, not from now, because "it just
-      // happened" is only true when the row is fresh. A row first sighted hours later
-      // - the wallet was closed, or this is the first sync since - has already served
-      // the wait, and arming another one from now would push its only attempts toward
-      // the far end of `RELAY_WINDOW_SECONDS`, or past it.
-      //
-      // `completedAt` is the anchor, NOT `initiatedAt`: the latter is stamped when the
-      // transaction was queued, so on a slow send (FIFO wait plus prove plus submit)
-      // it can precede the relay by more than the whole delay - which would arm the
-      // row due-now and re-push it while the original relay is possibly still in
-      // flight, spending an attempt on exactly the identical conditions this wait
-      // exists to avoid. No `completedAt` means the terminal write has not run yet, so
-      // the relay IS still in flight and the wait starts now. Clamped to now so a
-      // clock that moved backwards cannot park the row in the future.
+/** What one pass has learned about the transport so far. */
+interface PassState {
+  /** Why pushes are over for the rest of the pass, if they are. */
+  pushesStopped?: 'notConfigured' | 'outage';
+  /** A push succeeded in this pass, so the rows an outage deferred are due now. */
+  caughtUp: boolean;
+}
+
+type RowOutcome = 'done' | 'awaiting-catch-up' | 'interrupted';
+
+const scheduleReceipt = (row: ITransaction) =>
+  Repo.transactions.where({ id: row.id }).modify(tx => {
+    tx.nextRelayAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
+  });
+
+const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise<RowOutcome> => {
+  const targets = targetsOf(row);
+  if (isInert(targets)) {
+    await markRetriesStopped(row, targets, at);
+    return 'done';
+  }
+
+  if (row.nextRelayAt === undefined) {
+    // First sighting: arm the schedule and leave. Pushing in the same breath as the
+    // original relay would spend an attempt against identical conditions. Attempts start
+    // at 1 to count that original relay.
+    //
+    // Measured from the original relay (`completedAt`), not from now: a row first sighted
+    // hours later (the wallet was closed) has already served the wait. Not `initiatedAt`
+    // either, which is stamped at queue time and can precede the relay by more than the
+    // whole delay, arming a push while the original relay may still be in flight. No
+    // `completedAt` means the terminal write has not run, so the relay IS in flight and
+    // the wait starts now. Clamped to now so a clock that moved backwards cannot park the
+    // row in the future.
+    await Repo.transactions.where({ id: row.id }).modify(tx => {
+      const now = nowSeconds();
+      tx.relayAttempts = attemptsOf(row);
+      tx.nextRelayAt = Math.min(row.completedAt ?? now, now) + retryDelayFor(1);
+    });
+    return 'done';
+  }
+
+  const catchUp = row.relayOutageDeferred === true && pass.caughtUp;
+  if (row.nextRelayAt > at && !catchUp) return row.relayOutageDeferred ? 'awaiting-catch-up' : 'done';
+
+  if (await allConsumed(row, targets.owed)) {
+    // Consumed on chain: the recipient had every body. Terminal, and it clears any
+    // `undelivered` the row picked up on the way.
+    await recordNoteDelivery(row.id, 'confirmed');
+    return 'done';
+  }
+
+  const noteIds = pushesFor(row, targets, at);
+  if (noteIds.length === 0) {
+    // Pushes are over for this row; receipts go on hourly until the receipt window ends.
+    await markRetriesStopped(row, targets, at);
+    await Repo.transactions.where({ id: row.id }).modify(tx => {
+      tx.nextRelayAt = nowSeconds() + RECEIPT_INTERVAL_SECONDS;
+      delete tx.relayOutageDeferred;
+    });
+    return 'done';
+  }
+
+  if (pass.pushesStopped === 'notConfigured') {
+    // No transport: no push and nothing spent. The receipt above is all this row gets.
+    await scheduleReceipt(row);
+    return 'done';
+  }
+  if (pass.pushesStopped === 'outage') {
+    // The pass stopped pushing before this row. It spends nothing, and the first push
+    // that succeeds in a later pass makes it due at once.
+    if (!row.relayOutageDeferred) {
       await Repo.transactions.where({ id: row.id }).modify(tx => {
-        const now = nowSeconds();
-        tx.relayAttempts = attemptsOf(row);
-        tx.nextRelayAt = Math.min(row.completedAt ?? now, now) + backoffFor(1);
+        tx.relayOutageDeferred = true;
       });
-      continue;
     }
+    return 'done';
+  }
 
-    if (row.nextRelayAt > at) continue;
-
+  const verifying = targets.retry.length === 0;
+  const acked: string[] = [];
+  const dead: string[] = [];
+  let outage = false;
+  for (const noteId of noteIds) {
     try {
-      if (await midenClientProxy.isOutputNoteConsumed(target.noteId)) {
-        // Consumed on chain: the recipient had the body. Terminal, and it clears
-        // any `undelivered` this row picked up on the way - a warning that outlived
-        // the problem is its own kind of wrong.
-        await recordNoteDelivery(row.id, 'confirmed');
-        continue;
-      }
-    } catch (error) {
-      // Receipt unreadable this cycle. Fall through to the re-push: an extra push
-      // for a note that was in fact delivered costs the recipient nothing, whereas
-      // skipping one for a note that was not is the failure this whole sweep exists
-      // to prevent.
-      console.warn('[noteDeliverySweep] could not read delivery receipt; re-pushing anyway', {
+      await midenClientProxy.relayPrivateNoteById(noteId, targets.recipient!);
+      acked.push(noteId);
+      pass.caughtUp = true;
+      // The transport acknowledges a note it already holds as it does a new one, so an
+      // ACK proves neither storage nor receipt. Only the nullifier does.
+      console.info('[noteDeliverySweep] transport acknowledged private note', {
         txId: row.id,
-        noteId: target.noteId,
+        noteId,
+        attempts: attemptsOf(row) + 1,
+        priorState: row.noteDelivery
+      });
+    } catch (error) {
+      const failure = classifyRelayFailure(error);
+      console.warn('[noteDeliverySweep] push failed', {
+        txId: row.id,
+        noteId,
+        failure,
         attempts: attemptsOf(row) + 1,
         priorState: row.noteDelivery,
         error
       });
+      if (failure === 'interrupted') return 'interrupted';
+      if (failure === 'notConfigured') {
+        pass.pushesStopped = 'notConfigured';
+        await scheduleReceipt(row);
+        return 'done';
+      }
+      if (failure === 'storeLoss') dead.push(noteId);
+      if (failure === 'outage') {
+        pass.pushesStopped = 'outage';
+        outage = true;
+        break;
+      }
     }
+  }
 
-    const attempts = attemptsOf(row) + 1;
-    let outcome: INoteDeliveryState = 'relayed';
-    let acknowledged = false;
-    try {
-      await midenClientProxy.relayPrivateNoteById(target.noteId, target.recipient);
-      acknowledged = true;
-      // Duplicate SendNote responses are normalized before WASM sees them, so an
-      // ACK can mean either a new insertion or an already-stored note. The relaying
-      // realm logs `[noteRelay] SendNote duplicate acknowledged` for the latter, so an
-      // ACK without that line is a note the transport did not hold: the silent loss
-      // this sweep repairs. Only the nullifier proves delivery.
-      console.info('[noteDeliverySweep] transport acknowledged private note', {
-        txId: row.id,
-        noteId: target.noteId,
-        attempts,
-        priorState: row.noteDelivery
-      });
-    } catch (error) {
-      // A failed RE-push says nothing about the original one. Where the first relay
-      // was ACKed, downgrading the row to `undelivered` here would invent a problem
-      // and show the user a warning about a note that may well be in flight; keep
-      // what the row already knew. Only `pending` - which means no ACK was ever
-      // obtained - becomes `undelivered`.
-      outcome = row.noteDelivery === 'relayed' ? 'relayed' : 'undelivered';
-      console.warn('[noteDeliverySweep] re-push failed', {
-        txId: row.id,
-        noteId: target.noteId,
-        attempts,
-        priorState: row.noteDelivery,
-        error
-      });
-    }
+  // A failed push says nothing against an earlier acknowledgement, so the row reads
+  // `relayed` exactly while every owed note has one.
+  const ackedAfter = [...targets.acked, ...acked.filter(noteId => !targets.acked.includes(noteId))];
+  const allAcked = targets.owed.every(noteId => ackedAfter.includes(noteId));
+  await recordNoteDelivery(row.id, allAcked ? 'relayed' : 'undelivered', {
+    // Every acknowledgement the row implies, not only this pass's: a legacy `relayed` row
+    // records none, and a partial list written now would read as the rest unacknowledged.
+    ackedNoteIds: ackedAfter,
+    ...(dead.length > 0 ? { deadNoteIds: dead } : {})
+  });
 
-    if (acknowledged) await recordNoteDelivery(row.id, outcome, { ackedNoteIds: [target.noteId] });
-    else await recordNoteDelivery(row.id, outcome);
-    await Repo.transactions.where({ id: row.id }).modify(tx => {
-      tx.relayAttempts = attempts;
-      tx.nextRelayAt = nowSeconds() + backoffFor(attempts);
-    });
+  const attempts = attemptsOf(row) + 1;
+  const verifyPushes = verifying ? verifyPushesOf(row) + 1 : 0;
+  const updated: ITransaction = {
+    ...row,
+    relayAttempts: attempts,
+    relayVerifyPushes: verifyPushes,
+    relayAckedNoteIds: ackedAfter,
+    relayDeadNoteIds: [...(row.relayDeadNoteIds ?? []), ...dead]
+  };
+  const after = targetsOf(updated);
+  // Stamped from the clock at write time, not from the pass's start: each push can take a
+  // gRPC timeout, so a slow pass could otherwise stamp a time already past and collapse
+  // the spread these delays exist to create.
+  const now = nowSeconds();
+  let nextRelayAt = now + RECEIPT_INTERVAL_SECONDS;
+  if (after.retry.length > 0) nextRelayAt = now + retryDelayFor(attempts);
+  else if (verifyPushes < VERIFY_DELAYS_SECONDS.length) nextRelayAt = now + VERIFY_DELAYS_SECONDS[verifyPushes]!;
+  await Repo.transactions.where({ id: row.id }).modify(tx => {
+    tx.relayAttempts = attempts;
+    tx.nextRelayAt = nextRelayAt;
+    if (verifying) tx.relayVerifyPushes = verifyPushes;
+    // Each outage mark buys one catch-up push; the push that spends it clears it.
+    if (outage) tx.relayOutageDeferred = true;
+    else delete tx.relayOutageDeferred;
+  });
+  await markRetriesStopped(updated, after, at);
+  return 'done';
+};
 
-    if (attempts >= MAX_RELAY_ATTEMPTS) {
-      // Last attempt: the row drops out of the candidate set after this, so nothing
-      // looks at it again - not even the nullifier check that could still have retired
-      // it as `confirmed`. Worth one line whatever the outcome was, because `relayed`
-      // renders as nothing at all in history, so a row that ends here leaves no other
-      // trace of where it stopped. (Aging past `RELAY_WINDOW_SECONDS` is the other
-      // exit and is deliberately silent: those rows are old enough that a re-push
-      // could not have worked anyway.)
-      console.warn('[noteDeliverySweep] attempts exhausted; no further re-push or receipt check', {
-        txId: row.id,
-        noteId: target.noteId,
-        attempts,
-        finalState: outcome
-      });
-    }
+/**
+ * Rows the sweep looks at: a private send that owes a delivery and has not been proven
+ * delivered, within the receipt window. Ordered oldest-first so a backlog drains in the
+ * order the notes were relayed.
+ */
+const candidateRows = async (at: number): Promise<ITransaction[]> => {
+  const rows = await Repo.transactions.where('noteDelivery').anyOf(SWEEPABLE).toArray();
+  return rows.filter(row => at - relayedAt(row) <= RECEIPT_WINDOW_SECONDS).sort((a, b) => relayedAt(a) - relayedAt(b));
+};
+
+/**
+ * Retry private-note deliveries until the transport takes them, and watch for receipts.
+ *
+ * The SDK does not re-send a private note whose relay failed, so this sweep is the only
+ * retry there is. Each owed note of a row is tracked on its own:
+ *
+ * - A note the transport has not acknowledged is pushed on {@link RETRY_DELAYS_SECONDS}
+ *   until it is acknowledged or {@link RETRY_WINDOW_SECONDS} has passed since the send.
+ * - Once every live note is acknowledged, two verification pushes follow
+ *   ({@link VERIFY_DELAYS_SECONDS}). The 0.17 transport acknowledges a note it already
+ *   holds as it does a new one, so an ACK proves neither storage nor receipt.
+ * - Only the nullifier proves delivery: the recipient cannot consume a private note it
+ *   never received. Every owed note is checked before each push and hourly once pushes
+ *   are over, until {@link RECEIPT_WINDOW_SECONDS} after the send; all of them consumed
+ *   is `confirmed`, which is terminal.
+ *
+ * A failed push is classified ({@link classifyRelayFailure}): an outage stops pushes for
+ * the rest of the pass, and the first push that succeeds in a later pass makes the rows
+ * the outage deferred due at once. Rows restored from a backup only get receipts, and a
+ * row with nothing to push is left alone. A failed push never downgrades an earlier
+ * acknowledgement and never fails a landed transaction.
+ */
+export const sweepNoteDeliveries = async (): Promise<void> => {
+  // Eligibility is judged against one snapshot so a single pass is internally consistent.
+  const at = nowSeconds();
+  const rows = await candidateRows(at);
+  const pass: PassState = isNoteTransportConfigured()
+    ? { caughtUp: false }
+    : { caughtUp: false, pushesStopped: 'notConfigured' };
+  const awaitingCatchUp: ITransaction[] = [];
+
+  for (const row of rows) {
+    const outcome = await sweepRow(row, at, pass);
+    if (outcome === 'interrupted') return;
+    if (outcome === 'awaiting-catch-up') awaitingCatchUp.push(row);
+  }
+
+  // Rows an outage deferred that the pass reached before its first success.
+  if (!pass.caughtUp) return;
+  for (const row of awaitingCatchUp) {
+    if ((await sweepRow(row, at, pass)) === 'interrupted') return;
   }
 };

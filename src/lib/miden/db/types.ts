@@ -666,8 +666,9 @@ export interface ITransaction {
    */
   relayAckedNoteIds?: string[];
   /**
-   * Owed private notes that can never be pushed: no relayable note could be built from them when the row completed.
-   * The sweep never pushes them, and a row whose every owed note is here has nothing to push at all.
+   * Owed private notes that can never be pushed: no relayable note could be built from them when the row completed, or
+   * a push found no relayable copy in this client's store. The sweep never pushes them again, and a row whose every
+   * owed note is here has nothing to push at all.
    */
   relayDeadNoteIds?: string[];
   extraInputs?: any;
@@ -774,21 +775,36 @@ export interface ITransaction {
    */
   noteDelivery?: INoteDeliveryState;
   /**
-   * How many times this row's private note has been handed to the transport,
-   * counting the first attempt. Bounds the re-push sweep so a note nobody ever
-   * consumes cannot be re-pushed forever.
+   * How many times the sweep has pushed this row's private notes, counting the
+   * original relay. Indexes the retry schedule and caps it (`MAX_RELAY_ATTEMPTS`);
+   * the schedule itself ends 72 hours after the send.
    */
   relayAttempts?: number;
   /**
-   * Earliest time (unix seconds) the sweep may re-push this row's private note.
+   * Earliest time (unix seconds) the sweep next looks at this row: its next push,
+   * or its next receipt check once pushes are over.
    *
-   * Spread wide on purpose. Stamped from the clock at write time rather than from
-   * when the sweep began, except for the first arming, which is measured from the
-   * original relay (`completedAt`) so a row first seen long afterwards does not have
-   * to serve the wait twice. See `note-delivery-sweep.ts` for what each re-push
-   * outcome does and does not prove.
+   * Stamped from the clock at write time rather than from when the sweep began,
+   * except for the first arming, which is measured from the original relay
+   * (`completedAt`) so a row first seen long afterwards does not have to serve the
+   * wait twice. See `note-delivery-sweep.ts` for what each push outcome does and
+   * does not prove.
    */
   nextRelayAt?: number;
+  /** Verification pushes made since every live owed note was acknowledged; the sweep makes two. */
+  relayVerifyPushes?: number;
+  /**
+   * Set when an outage stopped the sweep's pushes with this row due: its push failed as an outage, or the pass
+   * stopped before it. The first push that succeeds in a later pass makes the row due at once, and the push that
+   * follows clears it.
+   */
+  relayOutageDeferred?: true;
+  /**
+   * Set once the sweep will not push this row again while some owed note never reached the transport: its retries
+   * ran out, every unacknowledged note is dead, it was restored from a backup, or it has nothing to push. Receipt
+   * checks go on. The history card reads it to stop promising automatic retries.
+   */
+  relayRetriesStopped?: true;
   /**
    * Sticky: set once some attempt on this row reached a point from which a
    * chain submit cannot be ruled out, and never unset. Guards the cached

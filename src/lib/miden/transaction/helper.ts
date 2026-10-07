@@ -437,8 +437,10 @@ const relabelForDelivery = (row: ITransaction, label: string): string => {
   const unacknowledged = unacknowledgedNotesOf(row);
   if (unacknowledged === undefined) return label;
   if (unacknowledged === 0) return wording.base;
-  // A send's one note reads "the private note"; a custom row, which records `relayNoteIds`, counts them.
-  const notes = row.relayNoteIds ? unacknowledged : undefined;
+  // A send's one note reads "the private note"; a custom row, which records `relayNoteIds`, counts them, and so
+  // does any label that already counted.
+  const counted = row.relayNoteIds !== undefined || wording.notes !== undefined || unacknowledged > 1;
+  const notes = counted ? unacknowledged : undefined;
   return notes === wording.notes ? label : undeliveredDisplayMessage(wording.base, notes);
 };
 

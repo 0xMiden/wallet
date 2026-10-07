@@ -7,11 +7,29 @@
  * as `undelivered` nor promoted to `confirmed`. `note-delivery-sweep.ts` has the why.
  */
 
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+
 import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
-import { MAX_RELAY_ATTEMPTS, sweepNoteDeliveries } from './note-delivery-sweep';
+import {
+  classifyRelayFailure,
+  MAX_RELAY_ATTEMPTS,
+  RelayFailureClass,
+  sweepNoteDeliveries
+} from './note-delivery-sweep';
 
 const NOW = 1_800_000_000;
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** The text a 0.17.2 send failure reaches JS with, for the given gRPC code. */
+const sendFailure = (code: string) =>
+  new Error(
+    'failed sending private output note: note transport error: note transport network error: ' +
+      `Send note with proof failed: Status { code: ${code}, message: "transport said no", source: None }`
+  );
 
 const rows: ITransaction[] = [];
 
@@ -49,6 +67,12 @@ jest.mock('../back/miden-client-proxy', () => ({
   }
 }));
 
+const mockTransportConfigured = jest.fn<boolean, []>();
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  isNoteTransportConfigured: () => mockTransportConfigured()
+}));
+
 type DeliveryEvidence = Parameters<typeof import('./helper').recordNoteDelivery>[2];
 
 const mockRecord = jest.fn<Promise<void>, [string, INoteDeliveryState, DeliveryEvidence?]>();
@@ -83,6 +107,8 @@ beforeEach(() => {
   mockIsConsumed.mockResolvedValue(false);
   mockRelayById.mockResolvedValue(undefined);
   mockRecord.mockResolvedValue(undefined);
+  mockTransportConfigured.mockReturnValue(true);
+  jest.spyOn(console, 'info').mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -111,7 +137,7 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
   });
 
-  it('re-pushes an unconsumed note and schedules the next attempt', async () => {
+  it('pushes an unconsumed note and schedules the next attempt', async () => {
     rows.push(row());
 
     await sweepNoteDeliveries();
@@ -216,7 +242,7 @@ describe('sweepNoteDeliveries', () => {
   it.each([[Number.NEGATIVE_INFINITY], [Number.NaN]])(
     'treats a non-finite relayAttempts of %p as spent',
     async attempts => {
-      rows.push(row({ relayAttempts: attempts }));
+      rows.push(row({ noteDelivery: 'pending', relayAttempts: attempts }));
 
       await sweepNoteDeliveries();
 
@@ -234,38 +260,50 @@ describe('sweepNoteDeliveries', () => {
     expect(mockIsConsumed).not.toHaveBeenCalled();
   });
 
-  it('stops pushing once the attempt cap is reached', async () => {
-    rows.push(row({ relayAttempts: MAX_RELAY_ATTEMPTS }));
+  it('stops pushing once the attempt cap is reached, but still checks the receipt', async () => {
+    rows.push(row({ noteDelivery: 'pending', relayAttempts: MAX_RELAY_ATTEMPTS }));
 
     await sweepNoteDeliveries();
 
     expect(mockRelayById).not.toHaveBeenCalled();
     expect(mockRecord).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xnote');
+    expect(rows[0]!.relayRetriesStopped).toBe(true);
   });
 
-  it('ignores sends older than the sweep window', async () => {
-    // Beyond the window this client may no longer track the output note at all, so
-    // a re-push could only fail - and would light up a warning on an old, fine send.
-    rows.push(row({ initiatedAt: NOW - 7 * 60 * 60 }));
+  it('stops pushing a never-acknowledged note 72 hours after the send, but still checks its receipt', async () => {
+    rows.push(row({ noteDelivery: 'pending', initiatedAt: NOW - 73 * HOUR, completedAt: NOW - 73 * HOUR }));
 
     await sweepNoteDeliveries();
 
     expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xnote');
+    expect(rows[0]!.relayRetriesStopped).toBe(true);
+    expect(rows[0]!.nextRelayAt).toBe(NOW + HOUR);
+  });
+
+  it('ignores sends older than the receipt window', async () => {
+    rows.push(row({ noteDelivery: 'pending', initiatedAt: NOW - 8 * DAY }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).not.toHaveBeenCalled();
     expect(mockRecord).not.toHaveBeenCalled();
   });
 
-  it('measures the window from the relay, so a send that waited in the queue is still swept', async () => {
-    // `initiatedAt` is stamped at queue time; a send that sat queued for hours (the app
+  it('measures the window from the relay, so a send that waited in the queue is still pushed', async () => {
+    // `initiatedAt` is stamped at queue time; a send that sat queued for days (the app
     // was closed) relays when it completes, and its delivery is due from then.
-    rows.push(row({ initiatedAt: NOW - 7 * 60 * 60, completedAt: NOW - 600 }));
+    rows.push(row({ noteDelivery: 'pending', initiatedAt: NOW - 80 * HOUR, completedAt: NOW - 600 }));
 
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledTimes(1);
   });
 
-  it('still ignores a send relayed before the window', async () => {
-    rows.push(row({ initiatedAt: NOW - 8 * 60 * 60, completedAt: NOW - 7 * 60 * 60 }));
+  it('still ignores a send relayed before the receipt window', async () => {
+    rows.push(row({ noteDelivery: 'pending', initiatedAt: NOW - 9 * DAY, completedAt: NOW - 8 * DAY }));
 
     await sweepNoteDeliveries();
 
@@ -281,26 +319,21 @@ describe('sweepNoteDeliveries', () => {
 
     // A failed re-push is no evidence against the original ACK. Downgrading here
     // would warn the user about a note that may well be in flight.
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed', { ackedNoteIds: ['0xnote'] });
     expect(rows[0]!.relayAttempts).toBe(2);
   });
 
-  it('reads a rejection carrying the transport duplicate text as a failed re-push', async () => {
-    // The SDK fetch boundary (`note-relay-fetch.mjs`) turns a stored note's duplicate into
-    // an ACK before the sweep sees it. One that still arrives as a rejection was not
-    // recognized there, so its outbox entry is stuck, and the row must not hide that.
+  it('reads a rejection it does not recognize as an outage', async () => {
+    // A transport that is down fails every push the same way, and text the sweep cannot
+    // place is no reason to spend an attempt on every other row too.
     rows.push(row({ noteDelivery: 'pending' }));
-    mockRelayById.mockRejectedValue(
-      new Error(
-        "Offscreen call 'relayPrivateNoteById' failed: Failed to store note: " +
-          'ConstraintViolation("Unique constraint violation: UNIQUE constraint failed: notes.id")'
-      )
-    );
+    mockRelayById.mockRejectedValue(new Error('Failed to store note: something new'));
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
     expect(rows[0]!.relayAttempts).toBe(2);
+    expect(rows[0]!.relayOutageDeferred).toBe(true);
   });
 
   it.each([['pending'], ['undelivered'], ['relayed']] as const)(
@@ -335,44 +368,44 @@ describe('sweepNoteDeliveries', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('says so once when a row exhausts its attempts without a receipt', async () => {
-    // At the cap the row leaves the candidate set for good - no further push, and no
-    // further nullifier check either - while `relayed` renders as nothing at all in
-    // history. Without this line, giving up leaves no trace anywhere.
+  it('says so once when a row spends its last attempt without a receipt', async () => {
+    // Pushes are over for good while receipt checks go on, and `relayRetriesStopped`
+    // is what the history card reads. One line says where the row stopped.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    rows.push(row({ relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
+    rows.push(row({ noteDelivery: 'pending', relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
+    mockRelayById.mockRejectedValue(sendFailure('Unavailable'));
 
     await sweepNoteDeliveries();
+    jest.spyOn(Date, 'now').mockReturnValue((rows[0]!.nextRelayAt! + 1) * 1000);
+    await sweepNoteDeliveries();
 
-    expect(warn.mock.calls.filter(call => String(call[0]).includes('attempts exhausted'))).toHaveLength(1);
+    expect(rows[0]!.relayRetriesStopped).toBe(true);
+    expect(warn.mock.calls.filter(call => String(call[0]).includes('pushes stopped'))).toHaveLength(1);
   });
 
-  it('does not announce exhaustion for a row the nullifier just retired', async () => {
-    // The receipt check exits before the attempt is even counted, so a row confirmed
-    // on its last eligible cycle has not exhausted anything - it succeeded.
+  it('does not announce a stop for a row the nullifier just retired', async () => {
+    // The receipt check comes before the push, so a row confirmed on its last
+    // eligible cycle has not stopped anything - it succeeded.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    rows.push(row({ relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
+    rows.push(row({ noteDelivery: 'pending', relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
     mockIsConsumed.mockResolvedValue(true);
 
     await sweepNoteDeliveries();
 
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
-    expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(
-      expect.stringContaining('attempts exhausted')
-    );
+    expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(expect.stringContaining('pushes stopped'));
   });
 
-  it('does not announce exhaustion while attempts remain', async () => {
+  it('does not announce a stop while attempts remain', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    rows.push(row({ relayAttempts: 1 }));
+    rows.push(row({ noteDelivery: 'pending', relayAttempts: 1 }));
 
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledTimes(1);
     expect(rows[0]!.relayAttempts).toBe(2);
-    expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(
-      expect.stringContaining('attempts exhausted')
-    );
+    expect(rows[0]!.relayRetriesStopped).toBeUndefined();
+    expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(expect.stringContaining('pushes stopped'));
   });
 
   it('marks a never-ACKed row undelivered when the re-push fails', async () => {
@@ -381,7 +414,7 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
   });
 
   it('re-pushes anyway when the delivery receipt cannot be read', async () => {
@@ -434,6 +467,7 @@ describe('sweepNoteDeliveries', () => {
     expect(mockIsConsumed).not.toHaveBeenCalled();
     expect(mockRecord).not.toHaveBeenCalled();
     expect(rows[0]!.relayAttempts).toBe(1);
+    expect(rows[0]!.relayRetriesStopped).toBe(true);
   });
 
   it('never touches a confirmed row again', async () => {
@@ -621,22 +655,25 @@ describe('the undelivered label', () => {
     expect(rows[0]!.displayMessage).toBe('Completed');
   });
 
-  it('stays on an older two-note row with no relayNoteIds, which the sweep neither re-pushes nor records', async () => {
-    const displayMessage = UNDELIVERED_CUSTOM;
+  // Its label counted the one note of two the original relay could not deliver; which one is not on record.
+  it('pushes each note of an older two-note row with no relayNoteIds, and keeps counting', async () => {
     rows.push(
-      row({ type: 'execute', outputNoteIds: ['0xnote', '0xnote2'], noteDelivery: 'undelivered', displayMessage })
+      row({
+        type: 'execute',
+        outputNoteIds: ['0xnote', '0xnote2'],
+        noteDelivery: 'undelivered',
+        displayMessage: UNDELIVERED_CUSTOM
+      })
     );
+    mockRelayById.mockResolvedValueOnce(undefined).mockRejectedValueOnce(sendFailure('InvalidArgument'));
 
     await sweepNoteDeliveries();
 
-    expect(mockIsConsumed).not.toHaveBeenCalled();
-    expect(mockRelayById).not.toHaveBeenCalled();
-    expect(mockRecord).not.toHaveBeenCalled();
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xnote', '0xnote2']);
     expect(rows[0]).toMatchObject({
       noteDelivery: 'undelivered',
-      relayAttempts: 1,
-      nextRelayAt: NOW - 1,
-      displayMessage
+      relayAckedNoteIds: ['0xnote'],
+      displayMessage: UNDELIVERED_CUSTOM
     });
   });
 
@@ -674,27 +711,48 @@ describe('the undelivered label', () => {
     expect(rows[0]!.displayMessage).toBe('Completed');
   });
 
-  it('stays on a row owing two private notes, which the sweep neither re-pushes nor records', async () => {
+  it('pushes each private note of a row owing two, and the label drops once both are acknowledged', async () => {
     rows.push(
       row({
         type: 'execute',
         outputNoteIds: ['0xprivate1', '0xprivate2', '0xpublic'],
         relayNoteIds: ['0xprivate1', '0xprivate2'],
+        relayRecipientId: 'mtst1recipient',
         noteDelivery: 'undelivered',
-        displayMessage: UNDELIVERED_CUSTOM
+        displayMessage: 'Completed - 2 private notes could not be delivered'
       })
     );
 
     await sweepNoteDeliveries();
 
-    expect(mockIsConsumed).not.toHaveBeenCalled();
-    expect(mockRelayById).not.toHaveBeenCalled();
-    expect(mockRecord).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xprivate1');
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xprivate1', '0xprivate2']);
     expect(rows[0]).toMatchObject({
-      noteDelivery: 'undelivered',
-      relayAttempts: 1,
-      displayMessage: UNDELIVERED_CUSTOM
+      noteDelivery: 'relayed',
+      relayAckedNoteIds: ['0xprivate1', '0xprivate2'],
+      relayAttempts: 2,
+      displayMessage: 'Completed'
     });
+  });
+
+  it('confirms a two-note row only once both notes are consumed', async () => {
+    rows.push(
+      row({
+        type: 'execute',
+        relayNoteIds: ['0xprivate1', '0xprivate2'],
+        relayRecipientId: 'mtst1recipient',
+        noteDelivery: 'relayed'
+      })
+    );
+    mockIsConsumed.mockImplementation(async noteId => noteId === '0xprivate1');
+
+    await sweepNoteDeliveries();
+    expect(rows[0]!.noteDelivery).toBe('relayed');
+
+    mockIsConsumed.mockResolvedValue(true);
+    jest.spyOn(Date, 'now').mockReturnValue((rows[0]!.nextRelayAt! + 1) * 1000);
+    await sweepNoteDeliveries();
+    expect(rows[0]!.noteDelivery).toBe('confirmed');
   });
 
   // Its `secondaryAccountId` is the consumed note's sender, a third party the note was never for.
@@ -726,7 +784,7 @@ describe('the undelivered label', () => {
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered', { ackedNoteIds: [] });
     expect(rows[0]!.displayMessage).toBe(UNDELIVERED_SEND);
   });
 
@@ -762,5 +820,316 @@ describe('the undelivered label', () => {
     await recordNoteDelivery('tx-1', 'confirmed');
 
     expect(rows[0]!.displayMessage).toBe(displayMessage);
+  });
+});
+
+// The schedule across many passes, with the real `recordNoteDelivery` so each pass sees what the last one wrote.
+describe('the delivery schedule', () => {
+  const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
+  let clock = NOW;
+  let pushTimes: number[] = [];
+  let receiptTimes: number[] = [];
+
+  beforeEach(() => {
+    clock = NOW;
+    pushTimes = [];
+    receiptTimes = [];
+    mockRecord.mockImplementation(recordNoteDelivery);
+    jest.spyOn(Date, 'now').mockImplementation(() => clock * 1000);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockRelayById.mockImplementation(async () => {
+      pushTimes.push(clock);
+    });
+    mockIsConsumed.mockImplementation(async () => {
+      receiptTimes.push(clock);
+      return false;
+    });
+  });
+
+  /** Run a pass at each time the row asks to be looked at again, until `until`. */
+  const drive = async (until: number) => {
+    for (;;) {
+      await sweepNoteDeliveries();
+      const next = rows[0]!.nextRelayAt;
+      if (next === undefined || next <= clock || next > until) return;
+      clock = next;
+    }
+  };
+
+  const minutesAfter = (start: number, times: number[]) => times.map(time => (time - start) / MINUTE);
+
+  const fresh = (overrides: Partial<ITransaction> = {}) =>
+    row({ initiatedAt: NOW, completedAt: NOW, relayAttempts: undefined, nextRelayAt: undefined, ...overrides });
+
+  // (a) Every step of the retry schedule, then the 72-hour stop, then receipts alone.
+  it('pushes a never-acknowledged note at each step until 72 hours after the send, then only checks receipts', async () => {
+    rows.push(fresh({ noteDelivery: 'pending' }));
+    mockRelayById.mockImplementation(async () => {
+      pushTimes.push(clock);
+      throw sendFailure('Unavailable');
+    });
+
+    await drive(NOW + 8 * DAY);
+
+    expect(minutesAfter(NOW, pushTimes)).toEqual([
+      5, 20, 50, 110, 230, 470, 830, 1190, 1550, 1910, 2270, 2630, 2990, 3350, 3710, 4070
+    ]);
+    expect(rows[0]).toMatchObject({ relayAttempts: 17, relayRetriesStopped: true, noteDelivery: 'undelivered' });
+    const afterStop = receiptTimes.filter(time => time > pushTimes[pushTimes.length - 1]!);
+    expect(afterStop[0]! - NOW).toBeGreaterThan(72 * HOUR);
+    expect(afterStop.slice(1).map((time, at) => time - afterStop[at]!)).toEqual(Array(afterStop.length - 1).fill(HOUR));
+    expect(afterStop[afterStop.length - 1]! - NOW).toBeLessThanOrEqual(7 * DAY);
+    expect(afterStop[afterStop.length - 1]! - NOW).toBeGreaterThan(7 * DAY - HOUR);
+  });
+
+  // (b) An acknowledged note gets two verification pushes and no more.
+  it.each<[string, Partial<ITransaction>]>([
+    ['an acknowledged row', { noteDelivery: 'relayed', relayAckedNoteIds: ['0xnote'] }],
+    ['a relayed row from before acknowledgements were recorded', { noteDelivery: 'relayed' }]
+  ])('pushes %s exactly twice, at 5 and 35 minutes', async (_kind, overrides) => {
+    rows.push(fresh(overrides));
+
+    await drive(NOW + 8 * DAY);
+
+    expect(minutesAfter(NOW, pushTimes)).toEqual([5, 35]);
+    expect(rows[0]).toMatchObject({ noteDelivery: 'relayed', relayVerifyPushes: 2 });
+    expect(rows[0]!.relayRetriesStopped).toBeUndefined();
+  });
+
+  it('times the verification pushes from the acknowledgement a retry got', async () => {
+    rows.push(fresh({ noteDelivery: 'pending' }));
+    mockRelayById
+      .mockImplementationOnce(async () => {
+        pushTimes.push(clock);
+        throw sendFailure('Unavailable');
+      })
+      .mockImplementation(async () => {
+        pushTimes.push(clock);
+      });
+
+    await drive(NOW + 8 * DAY);
+
+    // A failed push at 5, the acknowledgement at 20, then 20 + 5 and 20 + 35.
+    expect(minutesAfter(NOW, pushTimes)).toEqual([5, 20, 25, 55]);
+  });
+
+  // (c)
+  it('keeps checking receipts after pushes stop, and retires the row once the note is consumed', async () => {
+    rows.push(row({ noteDelivery: 'pending', initiatedAt: NOW - 73 * HOUR, completedAt: NOW - 73 * HOUR }));
+
+    await sweepNoteDeliveries();
+    expect(rows[0]!.relayRetriesStopped).toBe(true);
+
+    mockIsConsumed.mockResolvedValue(true);
+    clock = rows[0]!.nextRelayAt!;
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.noteDelivery).toBe('confirmed');
+  });
+
+  const due = (id: string, completedAt: number, overrides: Partial<ITransaction> = {}) =>
+    row({
+      id,
+      noteDelivery: 'pending',
+      initiatedAt: completedAt,
+      completedAt,
+      outputNoteIds: [`0x${id}`],
+      nextRelayAt: NOW - 1,
+      ...overrides
+    });
+
+  // (d)
+  it('stops pushing for the pass after an outage: the next due row spends no attempt and is marked', async () => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    mockRelayById.mockRejectedValue(sendFailure('Unavailable'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfirst']);
+    expect(rows[0]).toMatchObject({ relayAttempts: 2, relayOutageDeferred: true });
+    expect(rows[1]).toMatchObject({ relayAttempts: 1, relayOutageDeferred: true, nextRelayAt: NOW - 1 });
+  });
+
+  // (d2)
+  it('goes on after a failure of the note itself', async () => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    mockRelayById
+      .mockRejectedValueOnce(new Error('output note has no inclusion proof; sync past the block that committed it'))
+      .mockResolvedValue(undefined);
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfirst', '0xsecond']);
+    expect(rows[0]).toMatchObject({ relayAttempts: 2, noteDelivery: 'undelivered' });
+    expect(rows[0]!.relayOutageDeferred).toBeUndefined();
+  });
+
+  // (d3)
+  it('still confirms a row the outage kept it from pushing', async () => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    mockRelayById.mockRejectedValue(sendFailure('Unavailable'));
+    mockIsConsumed.mockImplementation(async noteId => noteId === '0xsecond');
+
+    await sweepNoteDeliveries();
+
+    expect(rows[1]!.noteDelivery).toBe('confirmed');
+  });
+
+  // (e)
+  it('pushes a row an outage deferred in the same pass as the first success, and no row that is not due', async () => {
+    rows.push(
+      due('deferred', NOW - 3000, { nextRelayAt: NOW + 600, relayOutageDeferred: true }),
+      due('due', NOW - 2000),
+      due('waiting', NOW - 1000, { nextRelayAt: NOW + 600 })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xdue', '0xdeferred']);
+    expect(rows[0]!.relayOutageDeferred).toBeUndefined();
+    expect(rows[2]!.relayAttempts).toBe(1);
+  });
+
+  it('keeps a deferred row waiting while nothing succeeds', async () => {
+    rows.push(due('deferred', NOW - 3000, { nextRelayAt: NOW + 600, relayOutageDeferred: true }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.relayOutageDeferred).toBe(true);
+  });
+
+  // (f)
+  it('records a note missing from the store dead and goes on with its sibling', async () => {
+    rows.push(
+      due('pair', NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xlost', '0xkept'],
+        relayRecipientId: 'mtst1recipient',
+        noteDelivery: 'undelivered'
+      })
+    );
+    mockRelayById
+      .mockRejectedValueOnce(
+        new Error("Offscreen call 'relayPrivateNoteById' failed: No output note found for the given id")
+      )
+      .mockResolvedValue(undefined);
+
+    await sweepNoteDeliveries();
+    expect(rows[0]).toMatchObject({
+      relayDeadNoteIds: ['0xlost'],
+      relayAckedNoteIds: ['0xkept'],
+      noteDelivery: 'undelivered',
+      relayRetriesStopped: true
+    });
+
+    mockRelayById.mockClear();
+    clock = rows[0]!.nextRelayAt!;
+    await sweepNoteDeliveries();
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xkept']);
+  });
+
+  // (g)
+  it.each<[INoteDeliveryState, boolean | undefined]>([
+    ['pending', true],
+    ['relayed', undefined]
+  ])('only checks receipts for a %s row restored from a backup', async (noteDelivery, stopped) => {
+    rows.push(due('restored', NOW - 1000, { restoredFromBackup: true, noteDelivery }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xrestored');
+    expect(rows[0]!.relayAttempts).toBe(1);
+    expect(rows[0]!.relayRetriesStopped).toBe(stopped);
+  });
+
+  // (h)
+  it('spends nothing while the network has no transport, and still checks receipts', async () => {
+    rows.push(due('first', NOW - 1000));
+    mockTransportConfigured.mockReturnValue(false);
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xfirst');
+    expect(rows[0]).toMatchObject({ relayAttempts: 1, noteDelivery: 'pending' });
+  });
+
+  it('spends nothing when the client reports its transport disabled', async () => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    mockRelayById.mockRejectedValue(
+      new Error(
+        'failed sending private output note: note transport error: note transport is disabled; ' +
+          'enable it in the client configuration to send or receive notes via P2P'
+      )
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(rows.map(tx => tx.relayAttempts)).toEqual([1, 1]);
+    expect(rows.map(tx => tx.noteDelivery)).toEqual(['pending', 'pending']);
+  });
+
+  // (i)
+  it.each([
+    ['a lock eviction', () => new WasmClientPoisonedError('watchdog')],
+    ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')]
+  ])('stops the pass and changes nothing on %s', async (_kind, makeError) => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    const before = rows.map(tx => ({ ...tx }));
+    mockRelayById.mockRejectedValue(makeError());
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(rows).toEqual(before);
+  });
+});
+
+describe('classifyRelayFailure', () => {
+  const OFFSCREEN = "Offscreen call 'relayPrivateNoteById' failed: ";
+  const SEND = 'failed sending private output note: note transport error: ';
+
+  it.each<[string, RelayFailureClass]>([
+    ['No output note found for the given id', 'storeLoss'],
+    ['output note has no details to relay (recipient unknown): the note record is missing its details', 'storeLoss'],
+    ['output note has no inclusion proof; sync past the block that committed it', 'noteLocal'],
+    [
+      SEND + 'note transport is disabled; enable it in the client configuration to send or receive notes via P2P',
+      'notConfigured'
+    ],
+    [sendFailure('Unavailable').message, 'outage'],
+    [sendFailure('DeadlineExceeded').message, 'outage'],
+    [sendFailure('ResourceExhausted').message, 'outage'],
+    [sendFailure('Cancelled').message, 'outage'],
+    [sendFailure('Internal').message, 'outage'],
+    [
+      SEND +
+        'note transport network error: Send note with proof failed: ' +
+        'Status { code: Unknown, message: "JS API error: TypeError: Failed to fetch", source: None }',
+      'outage'
+    ],
+    [sendFailure('InvalidArgument').message, 'noteLocal'],
+    [sendFailure('FailedPrecondition').message, 'noteLocal'],
+    [SEND + 'connection error: transport error', 'outage'],
+    ['nothing this sweep has seen before', 'outage']
+  ])('reads %p as %s, with or without the offscreen prefix', (message, expected) => {
+    expect(classifyRelayFailure(new Error(message))).toBe(expected);
+    expect(classifyRelayFailure(new Error(OFFSCREEN + message))).toBe(expected);
+  });
+
+  it.each<[string, unknown]>([
+    ['a lock eviction', new WasmClientPoisonedError('watchdog')],
+    ['an offscreen kill', new OperationAbortedError('op-1', 'deadline')],
+    ['a wrapped lock eviction', new Error('relay failed', { cause: new WasmClientPoisonedError('realm-error') })]
+  ])('reads %s as interrupted', (_kind, error) => {
+    expect(classifyRelayFailure(error)).toBe('interrupted');
+  });
+
+  it('reads a thrown string as an outage', () => {
+    expect(classifyRelayFailure('fetch failed')).toBe('outage');
   });
 });
