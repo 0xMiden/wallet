@@ -50,6 +50,7 @@ describe('EvmBridgeDepositForm (#875)', () => {
       <EvmBridgeDepositForm
         token={TOKEN}
         tokenLabel="ETH"
+        arrivingName="ETH"
         amount=""
         isValidAmount={false}
         evmAddress="0xabc"
@@ -73,6 +74,7 @@ describe('EvmBridgeDepositForm (#875)', () => {
       <EvmBridgeDepositForm
         token={TOKEN}
         tokenLabel="ETH"
+        arrivingName="ETH"
         amount=""
         isValidAmount={false}
         evmAddress="0xabc"
@@ -97,12 +99,16 @@ describe('EvmBridgeDepositForm testnet bridge USDC label', () => {
     scaleIsKnown: true
   };
 
-  // The screen names the token once, for the drawer, this step and the Review alike; the form only forwards it.
-  it('names the token and what it arrives as by the name the screen gives it', () => {
+  // The screen names the token and what it arrives as once, by the route, for this step and the Review alike.
+  it.each([
+    ['Fast', 'Test Epoch USDC'],
+    ['Slow', 'USDC']
+  ])('forwards the token name and the %s arriving name unchanged', (_route, arrivingName) => {
     render(
       <EvmBridgeDepositForm
         token={USDC}
         tokenLabel="Test Epoch USDC"
+        arrivingName={arrivingName}
         amount=""
         isValidAmount={false}
         evmAddress="0xabc"
@@ -115,6 +121,6 @@ describe('EvmBridgeDepositForm testnet bridge USDC label', () => {
 
     const field = screen.getByTestId('select-amount');
     expect(field).toHaveAttribute('data-token-label', 'Test Epoch USDC');
-    expect(field).toHaveAttribute('data-output-symbol', 'Test Epoch USDC');
+    expect(field).toHaveAttribute('data-output-symbol', arrivingName);
   });
 });

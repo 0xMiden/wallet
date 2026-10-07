@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { EvmBridgeDepositReview, EvmBridgeDepositReviewProps } from './EvmBridgeDepositReview';
+import { arrivingTokenName, EvmBridgeDepositReview, EvmBridgeDepositReviewProps } from './EvmBridgeDepositReview';
 
 /**
  * Deleting `ReviewAmount.test.tsx` (its behaviour absorbed into `Hero` + a `Pill` caption)
@@ -196,5 +196,13 @@ describe('EvmBridgeDepositReview', () => {
     render(<EvmBridgeDepositReview {...baseProps({ amount: '10', symbol: 'USDC' })} />);
 
     expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
+});
+
+describe('arrivingTokenName', () => {
+  // Only the Epoch route mints the bridge's Miden faucet the label names; Slow delivers the plain symbol.
+  it('names the plain symbol on the Slow route and the label on Fast', () => {
+    expect(arrivingTokenName('agglayer', 'USDC', 'Test Epoch USDC')).toBe('USDC');
+    expect(arrivingTokenName('epoch', 'USDC', 'Test Epoch USDC')).toBe('Test Epoch USDC');
   });
 });

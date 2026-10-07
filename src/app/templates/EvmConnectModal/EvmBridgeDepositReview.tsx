@@ -41,6 +41,14 @@ export interface EvmBridgeDepositReviewProps {
 }
 
 /**
+ * What a deposit arrives on Miden as: only the Epoch route mints the bridge's Miden faucet the label names, so the Slow
+ * route delivers the plain symbol. The amount step and the Review both name the arriving token through it.
+ */
+export function arrivingTokenName(route: BridgeRoute, symbol: string, label: string): string {
+  return route === 'agglayer' ? symbol : label;
+}
+
+/**
  * Review step for the Receive-from-EVM bridge deposit, shown after the route is
  * chosen. Reuses the shared `ReviewLayout` shell (same shell as the Send review)
  * with a `Hero` amount and `DetailCard` rows, and defers the actual submit to
@@ -68,8 +76,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
   const name = label ?? symbol;
-  // Only the Epoch route mints the bridge's Miden faucet the label names; Slow delivers the plain symbol.
-  const receiveName = route === 'agglayer' ? symbol : name;
+  const receiveName = arrivingTokenName(route, symbol, name);
   const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receiveName}`.trim() : receiveName;
 
   return (

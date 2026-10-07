@@ -12,8 +12,10 @@ import { EvmWalletHeader } from './EvmWalletHeader';
 
 interface EvmBridgeDepositFormProps {
   token: UIToken;
-  /** The token's name, such as the testnet label (`evmUsdcLabel`): ETH arrives as ETH, the bridge USDC as its label. */
+  /** The token's name, such as the testnet label (`evmUsdcLabel`). */
   tokenLabel: string;
+  /** What the deposit arrives on Miden as on the route chosen (`arrivingTokenName`), as the Review names it. */
+  arrivingName: string;
   amount: string;
   isValidAmount: boolean;
   error?: string;
@@ -30,6 +32,7 @@ interface EvmBridgeDepositFormProps {
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
   tokenLabel,
+  arrivingName,
   amount,
   isValidAmount,
   error,
@@ -51,7 +54,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       error={error}
       isBridge
       network={DEFAULT_BRIDGE_NETWORK}
-      outputSymbol={tokenLabel}
+      outputSymbol={arrivingName}
       title={title}
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}

@@ -190,7 +190,8 @@ let mockLastConnectAnother: () => void = () => undefined;
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
-    token,
+    tokenLabel,
+    arrivingName,
     amount,
     error,
     onAmountChange,
@@ -198,7 +199,8 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onSelectToken,
     onSwitch
   }: {
-    token: { name: string };
+    tokenLabel: string;
+    arrivingName: string;
     amount: string;
     error?: string;
     onAmountChange: (value?: string) => void;
@@ -211,7 +213,8 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       <div>
         <span data-testid="form-error">{error}</span>
         <span data-testid="form-amount">{amount}</span>
-        <span data-testid="form-token">{token.name}</span>
+        <span data-testid="form-token">{tokenLabel}</span>
+        <span data-testid="form-arriving">{`arrives as ${arrivingName}`}</span>
         <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
           amount
         </button>
@@ -237,7 +240,9 @@ jest.mock('./EvmBridgeDepositForm', () => ({
 
 /** The Review's latest Confirm handler: a tap can land on Review while the Navigator is leaving it. */
 let mockLastReviewConfirm: () => unknown = () => undefined;
+// The real `arrivingTokenName`, so the amount step names the arriving token by the rule the Review renders with.
 jest.mock('./EvmBridgeDepositReview', () => ({
+  ...jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview'),
   EvmBridgeDepositReview: ({
     amount,
     fiat,
@@ -829,6 +834,26 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
   });
 
+  // The screen keeps the route when the user steps back, so the amount step names what that route delivers.
+  it('names the arriving USDC on the amount step by its symbol on the Slow route, as its Review does', async () => {
+    renderScreen();
+    await reachSlowUsdcReview();
+
+    await goBackTo(2);
+
+    expect(screen.getByTestId('form-arriving')).toHaveTextContent(/^arrives as USDC$/);
+  });
+
+  it('names the arriving USDC on the amount step by the testnet label on the Fast route', async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+
+    await goBackTo(2);
+
+    expect(screen.getByTestId('form-arriving')).toHaveTextContent(/^arrives as Test Epoch USDC$/);
+  });
+
   it('lets the route change again once a confirm whose row failed has settled', async () => {
     quoteFast();
     renderScreen();
@@ -874,7 +899,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     act(() => mockLastTokenSelect('ETH'));
     await settle();
 
-    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+    // The default snapshot is testnet's and names the EVM USDC, so the form names it by the label.
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^Test Epoch USDC$/);
     row.release();
     await settle();
   });
@@ -923,7 +949,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     await tryEveryInput();
     expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
-    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^Test Epoch USDC$/);
 
     row.release();
     await settle();

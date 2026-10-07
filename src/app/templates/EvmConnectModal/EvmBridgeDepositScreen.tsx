@@ -30,7 +30,7 @@ import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
-import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
+import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
@@ -248,6 +248,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcSymbol = selectedEvmUsdc?.symbol ?? '';
   // The one name the drawer, the amount step and the Review give the USDC, while its read is pending too.
   const usdcLabel = evmUsdcLabel(bridgeConfig, usdcSymbol || 'USDC');
+  const tokenSymbol = token === 'ETH' ? ETH_SYMBOL : usdcSymbol;
+  const tokenLabel = token === 'ETH' ? ETH_SYMBOL : usdcLabel;
+  // The route stays chosen when the user steps back, so the amount step names the arriving token as the Review does.
+  const arrivingName = arrivingTokenName(route, tokenSymbol, tokenLabel);
   const usdcDecimals = selectedEvmUsdc?.decimals ?? 0;
   const evmUsdc = useMemo<EvmUsdc | null>(
     () =>
@@ -761,8 +765,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositReview
               amount={reviewAmount}
-              symbol={token === 'ETH' ? ETH_SYMBOL : usdcSymbol}
-              label={token === 'ETH' ? ETH_SYMBOL : usdcLabel}
+              symbol={tokenSymbol}
+              label={tokenLabel}
               fiat={token === 'USDC' ? Number(reviewAmount) : undefined}
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
@@ -795,7 +799,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositForm
               token={setupToken}
-              tokenLabel={token === 'ETH' ? ETH_SYMBOL : usdcLabel}
+              tokenLabel={tokenLabel}
+              arrivingName={arrivingName}
               amount={amount}
               isValidAmount={setupReady}
               error={error ?? selectedBalance.error ?? undefined}
@@ -839,8 +844,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       selectedBalance.error,
       setupReady,
       slowAvailability,
-      usdcSymbol,
-      usdcLabel
+      tokenSymbol,
+      tokenLabel,
+      arrivingName
     ]
   );
 
