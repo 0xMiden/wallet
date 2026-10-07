@@ -130,6 +130,13 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
   retireGuardianSyncPasses: () => mockRetireGuardianSyncPasses()
 }));
 
+// The save loads the new network's bridge config in this realm; spied, since the load itself is the runtime's.
+const mockInitBridgeConfig = jest.fn();
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime'),
+  initBridgeConfig: () => mockInitBridgeConfig()
+}));
+
 // `reloadEndpointOverridesInSW` nudges the service worker on the extension
 // (separate JS realm); handleSave's gating on `isExtension()` is asserted
 // against this spy below.
@@ -259,6 +266,32 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
     await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('loads the new network bridge config once the override is applied, without waiting for it', async () => {
+    const order: string[] = [];
+    applyEndpointOverride.mockImplementationOnce(async () => {
+      order.push('apply');
+    });
+    mockInitBridgeConfig.mockImplementationOnce(() => {
+      order.push('init');
+      return new Promise<void>(() => undefined);
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['apply', 'init']);
+  });
+
+  it('loads no bridge config when the endpoint write fails', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await screen.findByRole('alert');
+    expect(mockInitBridgeConfig).not.toHaveBeenCalled();
   });
 
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {

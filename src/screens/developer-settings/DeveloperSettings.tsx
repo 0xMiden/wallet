@@ -29,6 +29,7 @@ import {
 import { EndpointHealthKind, useEndpointHealth } from 'lib/miden-chain/endpoint-health';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { reloadEndpointOverridesInSW, selectIsIdle, useWalletStore } from 'lib/store';
 import { useAlert, useConfirm } from 'lib/ui/dialog';
 import { navigate } from 'lib/woozie';
@@ -217,6 +218,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       void import('lib/miden-chain/native-asset')
         .then(({ primeNativeAssetId }) => primeNativeAssetId())
         .catch(err => console.warn('native-asset prime after endpoint change failed', err));
+      // The bridge config belongs to the network too. This is the only caller that changes it, and the
+      // readers that never load (the label sites) would otherwise keep the old network's snapshot.
+      void initBridgeConfig();
       // On the extension, the service worker is a separate JS realm with its own
       // module-level override cache and a create-once Miden client singleton, so
       // applyEndpointOverride's write doesn't reach it - nudge it to re-hydrate
