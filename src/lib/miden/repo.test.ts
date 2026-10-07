@@ -583,10 +583,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 2', () => {
+  it('keys spending limits by account alone on schema version 3', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(2);
+    expect(db.verno).toBe(3);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -764,7 +764,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(2);
+    expect(upgraded.verno).toBe(3);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -793,7 +793,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
   // Every 1.16.2 install takes this step. The shipped 1.9 shape is pinned to literals for the same
   // reason as 1.7 above: it can never change in users' IndexedDB. The 1.7 case cannot see a later
   // step that clears `spendingLimits`, because it expects that table empty.
-  it('upgrades a populated 1.9 database to 2, keeping its spending limit and indexing type', async () => {
+  it('upgrades a populated 1.9 database through 2, keeping its spending limit and indexing type', async () => {
     const name = `schema-migration-v19-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const seed = new Dexie(name);
     seed.version(1.9).stores({
@@ -815,7 +815,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(2);
+    expect(upgraded.verno).toBe(3);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
