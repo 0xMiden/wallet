@@ -109,13 +109,15 @@ function text(value: unknown, maxChars: number): LocalizedText {
 }
 
 // An IP literal, a local name or a punycode label can pass for a host the user knows.
+// A domain keeps its trailing dot when parsed, and "localhost." still reaches this machine.
 function isDisguisedHost(hostname: string): boolean {
+  const host = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
   return (
-    hostname.startsWith('[') ||
-    IPV4.test(hostname) ||
-    hostname === 'localhost' ||
-    hostname.endsWith('.localhost') ||
-    hostname.split('.').some(label => label.startsWith('xn--'))
+    host.startsWith('[') ||
+    IPV4.test(host) ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.split('.').some(label => label.startsWith('xn--'))
   );
 }
 

@@ -102,6 +102,8 @@ it.each([
   ['an IPv6 host', withItem({ url: 'https://[::1]/' })],
   ['localhost', withItem({ url: 'https://localhost:8080/' })],
   ['a subdomain of localhost', withItem({ url: 'https://app.localhost/' })],
+  ['localhost written with a trailing dot', withItem({ url: 'https://localhost./' })],
+  ['a subdomain of localhost written with a trailing dot', withItem({ url: 'https://app.localhost./' })],
   ['a punycode host', withItem({ url: 'https://xn--fucet-gra.example/' })],
   ['a Unicode host, which reads as punycode', withItem({ url: 'https://fäucet.example/' })],
   ['a category that is not text', withItem({ category: 7 })],
