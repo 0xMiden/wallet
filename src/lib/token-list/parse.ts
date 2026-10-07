@@ -18,3 +18,23 @@ export function parseTokenList(value: unknown, network: string): Set<string> | n
   if (!Array.isArray(tokens) || !tokens.every(isToken)) return null;
   return new Set(tokens.filter(token => token.network === network).map(token => token.faucetId));
 }
+
+const LOGO_PREFIX = 'https://raw.githubusercontent.com/0xMiden/token-list/main/logos/';
+
+/**
+ * The logo of each listed token on `network`, by faucet id as the list spells it. A logo counts only
+ * as the list repository's own file for that token's id; anything else drops that logo and nothing
+ * else, since a logo never decides whether a token is verified. Read only from a document
+ * `parseTokenList` accepted.
+ */
+export function parseTokenLogos(value: unknown, network: string): Map<string, string> {
+  const logos = new Map<string, string>();
+  if (parseTokenList(value, network) === null || !isRecord(value) || !Array.isArray(value.tokens)) return logos;
+  for (const entry of value.tokens) {
+    if (!isToken(entry) || entry.network !== network || !isRecord(entry)) continue;
+    const { logoURI } = entry;
+    const own = `${LOGO_PREFIX}${entry.faucetId}/logo.`;
+    if (logoURI === `${own}svg` || logoURI === `${own}png`) logos.set(entry.faucetId, logoURI);
+  }
+  return logos;
+}

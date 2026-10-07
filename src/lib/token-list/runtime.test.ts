@@ -1,5 +1,6 @@
 import {
   _resetTokenListForTest,
+  loadTokenLogos,
   loadVerifiedFaucetIds,
   onTokenListUpdated,
   TOKEN_LIST_RETRY_BACKOFF_MS,
@@ -42,7 +43,7 @@ const response = (
 });
 
 const NOW = 1_800_000_000_000;
-const KEY = 'token_list_cache_v1:testnet';
+const KEY = 'token_list_cache_v2:testnet';
 const ATTEMPT = 'token_list_attempt_v1:testnet';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -468,9 +469,51 @@ describe('the foreground check', () => {
 });
 
 it('has no list for localnet, whose faucet ids are per machine, and never fetches or reads one', async () => {
-  setup({ 'token_list_cache_v1:localnet': { fetchedAt: NOW, body: doc(['local'], 'localnet') } });
+  setup({ 'token_list_cache_v2:localnet': { fetchedAt: NOW, body: doc(['local'], 'localnet') } });
   await expect(loadVerifiedFaucetIds('localnet')).resolves.toBeNull();
   await flush();
   expect(fetchMock).not.toHaveBeenCalled();
   expect(storage.get).not.toHaveBeenCalled();
+});
+
+describe('token logos', () => {
+  const logoOf = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.svg`;
+  const withLogos = (ids: string[]) => ({
+    ...doc(ids),
+    tokens: doc(ids).tokens.map(token => ({ ...token, logoURI: logoOf(token.faucetId) }))
+  });
+  const SNAPSHOT_LOGO_IDS = [
+    'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec',
+    'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
+    'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
+    'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x'
+  ];
+
+  it('returns the logos of a cached list', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: withLogos(['a']) } });
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map([['a', logoOf('a')]]));
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the bundled snapshot logos when storage is empty', async () => {
+    setup();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map(SNAPSHOT_LOGO_IDS.map(id => [id, logoOf(id)])));
+  });
+
+  it('has no logos for localnet', async () => {
+    setup();
+    await expect(loadTokenLogos('localnet')).resolves.toBeNull();
+    expect(storage.get).not.toHaveBeenCalled();
+  });
+
+  it('ignores a list cached under the v1 key before logos existed, and refreshes', async () => {
+    setup({ 'token_list_cache_v1:testnet': { fetchedAt: NOW - 1_000, body: doc(['old']) } });
+    fetchMock.mockResolvedValue(response(withLogos(['new'])));
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map(SNAPSHOT_LOGO_IDS.map(id => [id, logoOf(id)])));
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(storage.data['token_list_cache_v2:testnet']).toEqual({ fetchedAt: NOW, body: withLogos(['new']) });
+  });
 });

@@ -1,13 +1,13 @@
 {
   "name": "Miden Testnet Verified Tokens",
-  "timestamp": "2026-09-28T00:00:00.000Z",
-  "version": { "major": 1, "minor": 0, "patch": 0 },
+  "timestamp": "2026-10-07T00:00:00.000Z",
+  "version": { "major": 1, "minor": 0, "patch": 1 },
   "keywords": ["miden", "testnet"],
   "tokens": [
-    { "network": "testnet", "faucetId": "mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec", "symbol": "MIDEN", "name": "Miden", "decimals": 6 },
-    { "network": "testnet", "faucetId": "mtst1arqxg9er3xclayt95nud82jnpggl9azj", "symbol": "IMIDEN", "name": "IMIDEN", "decimals": 8 },
-    { "network": "testnet", "faucetId": "mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h", "symbol": "IETH", "name": "IETH", "decimals": 8 },
-    { "network": "testnet", "faucetId": "mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x", "symbol": "IBTC", "name": "IBTC", "decimals": 8 },
+    { "network": "testnet", "faucetId": "mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec", "symbol": "MIDEN", "name": "Miden", "decimals": 6, "logoURI": "https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec/logo.svg" },
+    { "network": "testnet", "faucetId": "mtst1arqxg9er3xclayt95nud82jnpggl9azj", "symbol": "IMIDEN", "name": "IMIDEN", "decimals": 8, "logoURI": "https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1arqxg9er3xclayt95nud82jnpggl9azj/logo.svg" },
+    { "network": "testnet", "faucetId": "mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h", "symbol": "IETH", "name": "IETH", "decimals": 8, "logoURI": "https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h/logo.svg" },
+    { "network": "testnet", "faucetId": "mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x", "symbol": "IBTC", "name": "IBTC", "decimals": 8, "logoURI": "https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x/logo.svg" },
     { "network": "testnet", "faucetId": "mtst1arvdwvzllvg3s5fzjle7nkljeuhkcufr", "symbol": "IUSDT", "name": "IUSDT", "decimals": 8 }
   ]
 }
