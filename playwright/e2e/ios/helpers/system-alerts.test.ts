@@ -1,4 +1,4 @@
-import { createNotificationAlertGate, findAllowTapPoint, type AxElement } from './system-alerts';
+import { createNotificationAlertGate, describeIdbError, findAllowTapPoint, type AxElement } from './system-alerts';
 
 // Faithful to a real `idb ui describe-all` tree captured on an iOS 26 sim while
 // the wallet's notification-permission alert was up (Allow button center was
@@ -258,14 +258,113 @@ describe('createNotificationAlertGate', () => {
         }
       });
 
-      await expect(gate.settlePrompt(60_000)).resolves.toBe(true);
+      await expect(gate.settlePrompt(60_000)).resolves.toEqual({ answered: true });
       expect(taps).toBe(1);
     });
 
-    it('reports an unsettled prompt when the app does not ask in time', async () => {
+    it('reports that the app never asked when no request arrives in time', async () => {
       const gate = createNotificationAlertGate('udid', { ...noWait, dismiss: async () => false });
 
-      await expect(gate.settlePrompt(0)).resolves.toBe(false);
+      await expect(gate.settlePrompt(0)).resolves.toMatchObject({ answered: false, reason: 'not-asked' });
     });
+
+    it('reports an asked but unanswered prompt apart from one that was never asked', async () => {
+      const gate = createNotificationAlertGate('udid', { ...noWait, dismiss: async () => false });
+      gate.observeConsole(asked(15));
+
+      await expect(gate.settlePrompt(0)).resolves.toMatchObject({
+        answered: false,
+        reason: 'not-answered',
+        detail: expect.stringContaining('0 tap(s)')
+      });
+    });
+  });
+
+  describe('when idb fails', () => {
+    const noWait = { ...quiet, promptPollMs: 0, sleep: async (): Promise<void> => undefined };
+    const idbError = (): Error =>
+      new Error('Command failed: idb ui describe-all --udid udid\nidb: companion for udid is not reachable');
+
+    it('reconnects it once after the failures in a row, and goes on looking', async () => {
+      let looks = 0;
+      const dismiss = jest.fn(async (): Promise<boolean> => {
+        looks += 1;
+        if (looks <= 2) throw idbError();
+        return true;
+      });
+      const reconnect = jest.fn(async (): Promise<void> => undefined);
+      const gate = createNotificationAlertGate('udid', { ...noWait, maxConsecutiveErrors: 2, dismiss, reconnect });
+
+      await gate.beforeCapture();
+      await gate.beforeCapture();
+      await gate.beforeCapture();
+      await gate.beforeCapture();
+
+      expect(reconnect).toHaveBeenCalledTimes(1);
+      expect(reconnect).toHaveBeenCalledWith('udid');
+      expect(dismiss).toHaveBeenCalledTimes(3);
+    });
+
+    it("gives up after the reconnect, and the settled prompt carries idb's own error", async () => {
+      const logs: string[] = [];
+      const dismiss = jest.fn(async (): Promise<boolean> => {
+        throw idbError();
+      });
+      const reconnect = jest.fn(async (): Promise<void> => undefined);
+      const gate = createNotificationAlertGate('udid', {
+        ...noWait,
+        maxConsecutiveErrors: 2,
+        dismiss,
+        reconnect,
+        onLog: message => {
+          logs.push(message);
+        }
+      });
+      gate.observeConsole('%cnative %cLocalNotifications.requestPermissions (#16)');
+
+      await expect(gate.settlePrompt(60_000)).resolves.toMatchObject({
+        answered: false,
+        reason: 'idb-unavailable',
+        detail: expect.stringContaining('companion for udid is not reachable')
+      });
+      expect(reconnect).toHaveBeenCalledTimes(1);
+      expect(dismiss).toHaveBeenCalledTimes(4);
+      expect(logs.some(message => message.includes('giving up') && message.includes('not reachable'))).toBe(true);
+    });
+
+    it('keeps going when the reconnect itself fails', async () => {
+      let looks = 0;
+      const dismiss = jest.fn(async (): Promise<boolean> => {
+        looks += 1;
+        if (looks <= 2) throw idbError();
+        return true;
+      });
+      const reconnect = jest.fn(async (): Promise<void> => {
+        throw new Error('Command failed: idb connect udid');
+      });
+      const gate = createNotificationAlertGate('udid', { ...noWait, maxConsecutiveErrors: 2, dismiss, reconnect });
+
+      await gate.beforeCapture();
+      await gate.beforeCapture();
+      await gate.beforeCapture();
+
+      expect(dismiss).toHaveBeenCalledTimes(3);
+    });
+  });
+});
+
+describe('describeIdbError', () => {
+  it('keeps the stderr lines execFile puts after the first line, on one line', () => {
+    const text = describeIdbError(
+      new Error('Command failed: idb ui describe-all --udid A\nidb: companion not reachable\n  retry later')
+    );
+
+    expect(text).toBe('Command failed: idb ui describe-all --udid A idb: companion not reachable retry later');
+  });
+
+  it('says when the call was killed at its timeout', () => {
+    const killed = Object.assign(new Error('Command failed: idb ui describe-all --udid A'), { killed: true });
+
+    expect(describeIdbError(killed)).toBe('Command failed: idb ui describe-all --udid A (killed at its timeout)');
   });
 });
