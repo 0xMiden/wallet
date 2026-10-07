@@ -644,6 +644,8 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 let isDark = self.isDarkColor(color)
                 webViewController.statusBarStyle = isDark ? .lightContent : .darkContent
                 navigationController.forwardsStatusBarStyle = true
+                // The bar's glass button capsules follow the bar's appearance, which otherwise follows the phone.
+                navigationController.navigationBar.overrideUserInterfaceStyle = isDark ? .dark : .light
                 webViewController.updateStatusBarStyle()
 
                 // Apply text color
