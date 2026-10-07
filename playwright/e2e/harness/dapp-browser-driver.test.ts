@@ -139,3 +139,53 @@ describe('DappBrowserDriver screenshot checks', () => {
     expect(elapsed()).toBe(5_000);
   });
 });
+
+describe('DappBrowserDriver curated grid', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // A driver over a page whose grid holds each entry of `grids` in turn, one per read, on a clock only its delays move.
+  function gridDriver(grids: string[][]): { driver: DappBrowserDriver; reads: () => number } {
+    let now = 0;
+    let reads = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const target: DappDriverTarget = {
+      evalJs: async () => JSON.parse(JSON.stringify(grids[Math.min(reads++, grids.length - 1)])),
+      click: async () => undefined,
+      waitFor: async () => undefined,
+      screenshot: async () => undefined,
+      navigateTo: async () => undefined,
+      delay: async ms => {
+        now += ms;
+      }
+    };
+    const server: DappFixtureServer = {
+      port: 0,
+      urlFor: () => '',
+      lastReport: () => report(1),
+      reports: () => [],
+      reset: () => undefined,
+      loadCount: () => 0,
+      stop: async () => undefined
+    };
+    const driver = new DappBrowserDriver({ target, server, artifactDir: '/tmp/dapp-driver-test', label: 'test' });
+    return { driver, reads: () => reads };
+  }
+
+  it('waits for the catalog to land instead of reading the grid once', async () => {
+    const both = ['https://faucet.example/', 'https://forkchoice.example/'];
+    const { driver, reads } = gridDriver([[], ['https://faucet.example/'], both]);
+
+    await expect(driver.waitForGridCards(2)).resolves.toEqual(both);
+    expect(reads()).toBe(3);
+  });
+
+  it('names what it last saw when the grid never fills', async () => {
+    const { driver } = gridDriver([['https://faucet.example/']]);
+
+    await expect(driver.waitForGridCards(2)).rejects.toThrow(
+      /at least 2 curated grid cards\. last value: \["https:\/\/faucet\.example\/"\]/
+    );
+  });
+});

@@ -234,6 +234,19 @@ export class DappBrowserDriver {
   }
 
   /**
+   * The curated grid's card URLs once at least `min` cards render. On testnet the first render
+   * already draws the bundled catalog's rows; the wait guards against a later catalog, or a
+   * network switch, replacing those rows while the step reads them.
+   */
+  async waitForGridCards(min: number): Promise<string[]> {
+    return this.pollUntil(
+      `at least ${min} curated grid cards`,
+      () => this.gridCardUrls(),
+      urls => urls.length >= min
+    );
+  }
+
+  /**
    * Wait until `dappId` is the foreground session AND has finished loading.
    *
    * Waiting on `status === 'active' && !isLoading` rather than a fixed sleep is

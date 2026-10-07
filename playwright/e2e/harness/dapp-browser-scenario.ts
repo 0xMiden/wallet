@@ -42,18 +42,16 @@ export interface DappJourneyOpts {
 export async function runDappBrowserJourney({ driver, server, steps }: DappJourneyOpts): Promise<void> {
   await steps.step('launcher_renders_curated_grid', async () => {
     await driver.gotoBrowserTab();
-    // The curated grid is real product content (featured-dapps.ts). We assert it
-    // renders rows without opening one - opening a live third-party dApp would
-    // put a third party's uptime on this suite's critical path.
-    // The curated grid is the catalogue EXPLORE_CATALOG serves through
-    // `getExploreCatalog` (the two faucet dApps), not the
-    // whole FEATURED_DAPPS list; its rows share `AppRow` with Recents but carry
-    // their own test id (`dapp-grid-card`). Assert the count the
-    // product actually ships plus a real URL per card: a grid that fails to
-    // render gives 0, and a card wired up wrong gives an empty data-dapp-url, so this
+    // The curated grid is real product content: the testnet catalog the launcher
+    // reads from 0xMiden/wallet-explore, or the copy the build bundles until that
+    // fetch lands (the two faucet dApps today). We assert it renders rows without
+    // opening one - opening a live third-party dApp would put a third party's
+    // uptime on this suite's critical path. Its rows share `AppRow` with Recents
+    // but carry their own test id (`dapp-grid-card`). Wait for the count the
+    // product actually ships, then check a real URL per card: a grid that never
+    // renders times out, and a card wired up wrong gives an empty data-dapp-url, so this
     // stays falsifiable without breaking when a third card is added.
-    const gridUrls = await driver.gridCardUrls();
-    expect(gridUrls.length, 'the launcher should render the curated dApp grid').toBeGreaterThanOrEqual(2);
+    const gridUrls = await driver.waitForGridCards(2);
     for (const url of gridUrls) {
       expect(url, 'every curated grid card should carry its dApp URL').toMatch(/^https?:\/\//);
     }
