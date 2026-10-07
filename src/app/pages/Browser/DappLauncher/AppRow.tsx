@@ -8,8 +8,6 @@
 
 import React, { type FC } from 'react';
 
-import { useTranslation } from 'react-i18next';
-
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { type ExploreItem } from 'lib/dapp-browser';
@@ -49,22 +47,18 @@ export interface AppListProps {
   onOpen: (url: string) => void;
 }
 
-export const AppList: FC<AppListProps> = ({ items, onOpen }) => {
-  const { t } = useTranslation();
-
-  return (
-    <ListGroup surface="plain">
-      {items.map(item => (
-        <AppRow
-          key={item.id}
-          url={item.url}
-          name={item.name}
-          icon={item.icon}
-          subtitle={item.taglineKey ? t(item.taglineKey) : item.tagline}
-          onOpen={onOpen}
-          testId="dapp-grid-card"
-        />
-      ))}
-    </ListGroup>
-  );
-};
+export const AppList: FC<AppListProps> = ({ items, onOpen }) => (
+  <ListGroup surface="plain">
+    {items.map(item => (
+      <AppRow
+        key={item.id}
+        url={item.url}
+        name={item.name}
+        icon={item.icon}
+        subtitle={item.tagline}
+        onOpen={onOpen}
+        testId="dapp-grid-card"
+      />
+    ))}
+  </ListGroup>
+);

@@ -2,16 +2,21 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import type { ExploreCatalog, RecentDapp } from 'lib/dapp-browser';
+import type { RecentDapp } from 'lib/dapp-browser';
 import { buildFaviconUrl } from 'lib/dapp-browser/favicon-cache';
+import type { ExploreCatalog } from 'lib/explore-config/schema';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import { DappLauncher } from './index';
 import { markRevealed, resetRevealed } from './reveal-once';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+let mockLanguage: string | undefined = 'en';
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key, i18n: { resolvedLanguage: mockLanguage } })
+}));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
-jest.mock('lib/feature-flags', () => ({ isSwapEnabled: () => true }));
+let mockSwapEnabled = true;
+jest.mock('lib/feature-flags', () => ({ isSwapEnabled: () => mockSwapEnabled }));
 
 let mockRecents: RecentDapp[] = [];
 jest.mock('lib/dapp-browser', () => ({
@@ -19,6 +24,22 @@ jest.mock('lib/dapp-browser', () => ({
   getFaviconUrl: jest.requireActual('lib/dapp-browser/favicon-cache').getFaviconUrl,
   getRecentDapps: () => Promise.resolve(mockRecents)
 }));
+
+// The runtime as the launcher sees it: a store holding the effective network's catalog.
+let mockCatalog: ExploreCatalog | null = null;
+const mockCatalogListeners = new Set<() => void>();
+const mockInit = jest.fn((_network: string) => Promise.resolve());
+jest.mock('lib/explore-config/runtime', () => ({
+  getExploreCatalogSnapshot: () => mockCatalog,
+  subscribeExploreCatalog: (listener: () => void) => {
+    mockCatalogListeners.add(listener);
+    return () => {
+      mockCatalogListeners.delete(listener);
+    };
+  },
+  initExploreConfig: (network: string) => mockInit(network)
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 
 let mockBackHandler: (() => boolean | void) | null = null;
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -34,33 +55,48 @@ jest.mock('framer-motion', () => ({
 }));
 
 const catalog: ExploreCatalog = {
+  network: 'testnet',
+  version: 1,
   items: [
     {
       id: 'faucet',
       category: 'tools',
-      name: 'Faucet',
-      tagline: 'Get testnet MIDEN tokens',
+      name: { en: 'Faucet' },
+      tagline: { en: 'Get testnet MIDEN tokens' },
       url: 'https://faucet.example/',
-      icon: 'faucet.png',
-      brandColor: '#0EA5E9'
+      icon: 'https://cdn.example/icons/faucet.png',
+      brandColor: '#0EA5E9',
+      isExchange: false
     },
     {
       id: 'forkchoice',
       category: 'tools',
-      name: 'Forkchoice Faucet',
-      tagline: 'Get testnet tokens for swap',
-      taglineKey: 'exploreForkchoiceFaucetTagline',
-      url: 'https://forkchoice.example/'
+      name: { en: 'Forkchoice Faucet' },
+      tagline: { en: 'Get testnet tokens for swap', de: 'Testnet-Token für Swaps erhalten' },
+      url: 'https://forkchoice.example/',
+      isExchange: false
     },
-    { id: 'quest', category: 'games', name: 'Quest', tagline: 'Play', url: 'https://quest.example/' }
+    {
+      id: 'quest',
+      category: 'games',
+      name: { en: 'Quest' },
+      tagline: { en: 'Play' },
+      url: 'https://quest.example/',
+      isExchange: false
+    }
   ],
   sections: [
-    { id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet'] },
-    { id: 'helper-tools', kind: 'list', titleKey: 'exploreHelperTools', itemIds: ['faucet', 'forkchoice'] },
-    { id: 'games', kind: 'list', titleKey: 'categoryGames', itemIds: ['quest'] },
-    { id: 'recents', kind: 'recents', titleKey: 'recents' }
+    { id: 'featured', kind: 'featured', title: { en: 'Featured', de: 'Empfohlen' }, itemIds: ['faucet'] },
+    { id: 'helper-tools', kind: 'list', title: { en: 'Helper tools' }, itemIds: ['faucet', 'forkchoice'] },
+    { id: 'games', kind: 'list', title: { en: 'Games' }, itemIds: ['quest'] }
   ]
 };
+
+const publishCatalog = (next: ExploreCatalog | null) =>
+  act(() => {
+    mockCatalog = next;
+    mockCatalogListeners.forEach(listener => listener());
+  });
 
 const recent: RecentDapp = {
   url: 'https://recent.example/',
@@ -70,7 +106,7 @@ const recent: RecentDapp = {
 };
 
 async function renderLauncher(onOpen = jest.fn()) {
-  const view = render(<DappLauncher onOpen={onOpen} catalog={catalog} />);
+  const view = render(<DappLauncher onOpen={onOpen} />);
   // Let the recents load settle.
   await act(async () => {});
   return { ...view, onOpen };
@@ -83,6 +119,9 @@ const sectionIds = () =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCatalog = catalog;
+  mockLanguage = 'en';
+  mockSwapEnabled = true;
   mockRecents = [recent];
   mockReduce = false;
   mockBackHandler = null;
@@ -101,7 +140,7 @@ describe('DappLauncher', () => {
 
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
     expect(screen.getByTestId('explore-section-featured')).toHaveAttribute('data-kind', 'featured');
-    expect(screen.getByRole('heading', { level: 2, name: 'exploreFeatured' })).toHaveClass('text-title-page');
+    expect(screen.getByRole('heading', { level: 2, name: 'Featured' })).toHaveClass('text-title-page');
     expect(screen.getByTestId('explore-featured-card')).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
     expect(within(screen.getByTestId('explore-section-helper-tools')).getAllByTestId('dapp-grid-card')).toHaveLength(2);
     expect(within(screen.getByTestId('explore-section-games')).getByTestId('dapp-grid-card')).toHaveAttribute(
@@ -158,11 +197,11 @@ describe('DappLauncher', () => {
 
   it('lays several featured apps side by side in one scrolling row, each opening its own app', async () => {
     const onOpen = jest.fn();
-    const twoFeatured: ExploreCatalog = {
+    mockCatalog = {
       ...catalog,
-      sections: [{ id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet', 'quest'] }]
+      sections: [{ id: 'featured', kind: 'featured', title: { en: 'Featured' }, itemIds: ['faucet', 'quest'] }]
     };
-    render(<DappLauncher onOpen={onOpen} catalog={twoFeatured} />);
+    render(<DappLauncher onOpen={onOpen} />);
     await act(async () => {});
 
     const cards = screen.getAllByTestId('explore-featured-card');
@@ -260,7 +299,7 @@ describe('DappLauncher', () => {
   // Recents arrive from a promise that resolves after mount. If the first reveal ends on the first
   // commit, the last section on the page rises at index 0 - ahead of every section above it.
   it('gives a late-arriving section its place in the first reveal, not the front', async () => {
-    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    render(<DappLauncher onOpen={jest.fn()} />);
     await act(async () => {});
 
     const indexOf = (id: string) =>
@@ -275,7 +314,7 @@ describe('DappLauncher', () => {
   // reveal that is not happening: it must not wait its turn behind sections that never animated.
   it('gives a late-arriving section no stagger once the reveal has already played', async () => {
     markRevealed();
-    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    render(<DappLauncher onOpen={jest.fn()} />);
     await act(async () => {});
 
     expect(screen.getByTestId('explore-section-recents')).toHaveAttribute('data-reveal-index', '0');
@@ -284,7 +323,7 @@ describe('DappLauncher', () => {
 
   // A section entering because the user changed a chip is answering them, not being introduced.
   it('drops the stagger once the user picks a filter', async () => {
-    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    render(<DappLauncher onOpen={jest.fn()} />);
     await act(async () => {});
 
     await act(async () => {
@@ -304,14 +343,14 @@ describe('DappLauncher', () => {
       lastOpenedAt: i
     }));
 
-    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    render(<DappLauncher onOpen={jest.fn()} />);
     await act(async () => {});
 
     expect(within(screen.getByTestId('explore-recents')).getAllByTestId('recent-dapp-row')).toHaveLength(12);
   });
 
   it('reveals the page on its first mount only', async () => {
-    const first = render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    const first = render(<DappLauncher onOpen={jest.fn()} />);
     // Starts below its place, transparent.
     expect(screen.getByTestId('explore-section-featured').style.opacity).toBe('0');
     expect(screen.getByTestId('explore-section-featured').style.transform).toContain('translateY(12px)');
@@ -319,7 +358,7 @@ describe('DappLauncher', () => {
     first.unmount();
 
     // Back from a dApp: the launcher mounts again, without a reveal.
-    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    render(<DappLauncher onOpen={jest.fn()} />);
     expect(screen.getByTestId('explore-section-featured').style.opacity).not.toBe('0');
     expect(screen.getByTestId('explore-section-featured').style.transform).not.toContain('translateY');
     await act(async () => {});
@@ -327,19 +366,78 @@ describe('DappLauncher', () => {
 
   it('does not reveal under reduced motion', async () => {
     mockReduce = true;
-    render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
+    render(<DappLauncher onOpen={jest.fn()} />);
 
     expect(screen.getByTestId('explore-section-featured').style.opacity).not.toBe('0');
     expect(screen.getByTestId('explore-section-featured').style.transform).not.toContain('translateY');
     await act(async () => {});
   });
 
-  it("shows an item's translated tagline, like the swap faucet's", async () => {
+  it('draws the text in the language the page renders in, else in English', async () => {
+    mockLanguage = 'de';
     await renderLauncher();
+    expect(screen.getByRole('heading', { level: 2, name: 'Empfohlen' })).toBeInTheDocument();
     const section = screen.getByTestId('explore-section-helper-tools');
-    const row = within(section).getByRole('button', { name: 'Forkchoice Faucet' });
-    expect(row).toHaveTextContent('exploreForkchoiceFaucetTagline');
-    expect(row).not.toHaveTextContent('Get testnet tokens for swap');
+    expect(within(section).getByRole('button', { name: 'Forkchoice Faucet' })).toHaveTextContent(
+      'Testnet-Token für Swaps erhalten'
+    );
+    expect(within(section).getByRole('button', { name: 'Faucet' })).toHaveTextContent('Get testnet MIDEN tokens');
+  });
+
+  it('reads English when i18next has resolved no language yet', async () => {
+    mockLanguage = undefined;
+    await renderLauncher();
+    expect(screen.getByRole('heading', { level: 2, name: 'Featured' })).toBeInTheDocument();
+  });
+});
+
+describe('DappLauncher catalog', () => {
+  it("loads the effective network's catalog and draws Recents after every section of it", async () => {
+    await renderLauncher();
+    expect(mockInit).toHaveBeenCalledWith('testnet');
+    expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
+  });
+
+  it('draws a catalog that lands while it is on screen', async () => {
+    await renderLauncher();
+    publishCatalog({
+      ...catalog,
+      version: 2,
+      sections: [{ id: 'games', kind: 'list', title: { en: 'Games' }, itemIds: ['quest'] }]
+    });
+    await waitFor(() => expect(sectionIds()).toEqual(['games', 'recents']));
+  });
+
+  it('shows Recents alone on a network with no catalog, and the empty state with no recents either', async () => {
+    mockCatalog = null;
+    const first = await renderLauncher();
+    expect(sectionIds()).toEqual(['recents']);
+    first.unmount();
+    mockRecents = [];
+    await renderLauncher();
+    expect(screen.getByTestId('explore-empty')).toHaveTextContent('exploreComingSoonTitle');
+  });
+
+  it('hides exchange items where the build ships without swap', async () => {
+    mockSwapEnabled = false;
+    mockCatalog = {
+      ...catalog,
+      items: catalog.items.map(item => (item.id === 'quest' ? { ...item, isExchange: true } : item))
+    };
+    await renderLauncher();
+    expect(sectionIds()).toEqual(['featured', 'helper-tools', 'recents']);
+  });
+
+  it('searches the text as drawn', async () => {
+    mockLanguage = 'de';
+    await renderLauncher();
+    fireEvent.click(screen.getByTestId('explore-search-toggle'));
+    const input = await screen.findByTestId('dapp-hero-search');
+    fireEvent.change(input, { target: { value: 'erhalten' } });
+    await waitFor(() => expect(sectionIds()).toEqual(['search-results']));
+    // Words of the English tagline the German one replaces.
+    fireEvent.change(input, { target: { value: 'tokens for' } });
+    expect(await screen.findByTestId('explore-empty')).toHaveTextContent('exploreNoResultsTitle');
   });
 });
 

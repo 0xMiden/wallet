@@ -6,8 +6,8 @@
  *                       swaps the title for a field (it searches the catalog and opens a typed or
  *                       pasted URL), and under it the category row — All, Tools, DeFi, Games, NFTs,
  *                       Learn — drawn by the same control, at the same height, as Activity's filters
- *   <ExploreSections/>  the catalog's sections for the chosen chip (`lib/dapp-browser/explore-catalog`):
- *                       today a featured card, the helper tools list and recents
+ *   <ExploreSections/>  the sections of the effective network's catalog (`lib/explore-config`, drawn
+ *                       through `lib/dapp-browser/explore-catalog`) for the chosen chip, then recents
  *
  * The launcher reads recents from `recent-dapps.ts` storage on mount. Every tap calls
  * `onOpen(url)`, which the parent (`BrowserScreen`) handles by creating a session and switching to
@@ -27,13 +27,14 @@ import {
   EXPLORE_FILTERS,
   getExploreCatalog,
   getRecentDapps,
+  localizeExploreCatalog,
   resolveExploreSections,
   searchExploreCatalog,
-  type ExploreCatalog,
   type ExploreFilter,
   type RecentDapp,
   type ResolvedExploreSection
 } from 'lib/dapp-browser';
+import { useExploreCatalog } from 'lib/explore-config/use-explore-catalog';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
@@ -43,19 +44,23 @@ import { urlForQuery } from './search-url';
 
 interface DappLauncherProps {
   onOpen: (url: string) => void;
-  /** The catalog to show. Defaults to this platform's (`getExploreCatalog`). */
-  catalog?: ExploreCatalog;
 }
 
 /** The categories are header chrome now, so the reveal starts at the first section. */
 const FIRST_SECTION_REVEAL = 0;
 
-export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogProp }) => {
-  const { t } = useTranslation();
+export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
+  const { t, i18n } = useTranslation();
   const motionTokens = useExploreMotion();
   const [recents, setRecents] = useState<RecentDapp[]>([]);
   const [filter, setFilter] = useState<ExploreFilter>('all');
-  const catalog = useMemo(() => catalogProp ?? getExploreCatalog(), [catalogProp]);
+  const published = useExploreCatalog();
+  // The language the rest of the page renders in, so the document's text matches it.
+  const locale = i18n.resolvedLanguage ?? 'en';
+  const catalog = useMemo(
+    () => localizeExploreCatalog(getExploreCatalog(published), locale, t('recents')),
+    [published, locale, t]
+  );
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searching = query.trim().length > 0;
@@ -71,8 +76,8 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
     if (!searching) return resolveExploreSections(catalog, filter);
     if (results.length === 0) return [];
     const itemIds = results.map(item => item.id);
-    return [{ section: { id: 'search-results', kind: 'list', titleKey: 'exploreResults', itemIds }, items: results }];
-  }, [catalog, filter, searching, results]);
+    return [{ section: { id: 'search-results', kind: 'list', title: t('exploreResults'), itemIds }, items: results }];
+  }, [catalog, filter, searching, results, t]);
 
   const empty: ExploreEmptyState = searching
     ? {
