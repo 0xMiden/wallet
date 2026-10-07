@@ -1,4 +1,4 @@
-import { parseTokenList, parseTokenLogos } from './parse';
+import { parseTokenList } from './parse';
 
 // A visible transform would show if the parser normalized: the hook does, under the network active at render.
 jest.mock('lib/miden/swap/tokens', () => ({ normalizedFaucetId: (id: string) => `norm:${id}` }));
@@ -25,16 +25,16 @@ it('returns the faucet ids of the requested network as the list spells them', ()
     token({ faucetId: 'mtst1bbb', symbol: 'BBB' }),
     token({ network: 'devnet', faucetId: 'mdev1ccc' })
   ]);
-  expect(parseTokenList(doc, 'testnet')).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
+  expect(parseTokenList(doc, 'testnet')?.ids).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
 });
 
 it('reads only the network and faucet id, so a token without the fields nothing reads still counts', () => {
   const bare = { network: 'testnet', faucetId: 'mtst1bbb' };
-  expect(parseTokenList(list([token(), bare]), 'testnet')).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
+  expect(parseTokenList(list([token(), bare]), 'testnet')?.ids).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
 });
 
 it('returns an empty set, not null, when no token is for the requested network', () => {
-  expect(parseTokenList(list([token({ network: 'devnet' })]), 'testnet')).toEqual(new Set());
+  expect(parseTokenList(list([token({ network: 'devnet' })]), 'testnet')?.ids).toEqual(new Set());
 });
 
 it.each([
@@ -63,7 +63,7 @@ it('keeps the logo of each listed token on the requested network, svg or png', (
     token({ faucetId: 'mtst1bbb', logoURI: logo('mtst1bbb', 'png') }),
     token({ network: 'devnet', faucetId: 'mdev1ccc', logoURI: logo('mdev1ccc') })
   ]);
-  expect(parseTokenLogos(doc, 'testnet')).toEqual(
+  expect(parseTokenList(doc, 'testnet')?.logos).toEqual(
     new Map([
       ['mtst1aaa', logo('mtst1aaa')],
       ['mtst1bbb', logo('mtst1bbb', 'png')]
@@ -81,10 +81,13 @@ it.each([
   ['a non-string', 42]
 ])('drops a logoURI on %s and keeps the token verified', (_case, logoURI) => {
   const doc = list([token({ logoURI }), token({ faucetId: 'mtst1bbb', logoURI: logo('mtst1bbb') })]);
-  expect(parseTokenLogos(doc, 'testnet')).toEqual(new Map([['mtst1bbb', logo('mtst1bbb')]]));
-  expect(parseTokenList(doc, 'testnet')).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
+  const parsed = parseTokenList(doc, 'testnet');
+  expect(parsed?.logos).toEqual(new Map([['mtst1bbb', logo('mtst1bbb')]]));
+  expect(parsed?.ids).toEqual(new Set(['mtst1aaa', 'mtst1bbb']));
 });
 
-it('reads no logos from a document parseTokenList rejects', () => {
-  expect(parseTokenLogos({ tokens: 'nope' }, 'testnet')).toEqual(new Map());
+it('yields no logos from a document one bad token rejects', () => {
+  // The listed logo comes first, so a walk that collected it before meeting the bad token must still drop it.
+  const doc = list([token({ faucetId: 'mtst1bbb', logoURI: logo('mtst1bbb') }), token({ network: undefined })]);
+  expect(parseTokenList(doc, 'testnet')).toBeNull();
 });

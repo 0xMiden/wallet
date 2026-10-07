@@ -1,8 +1,8 @@
-import { parseTokenList, parseTokenLogos } from './parse';
+import { parseTokenList } from './parse';
 import { bundledTokenList } from './snapshot';
 
 it('bundles the testnet list with exactly the seeded tokens', () => {
-  expect(parseTokenList(bundledTokenList('testnet'), 'testnet')).toEqual(
+  expect(parseTokenList(bundledTokenList('testnet'), 'testnet')?.ids).toEqual(
     new Set([
       'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec',
       'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
@@ -19,7 +19,7 @@ it.each(['devnet', 'mainnet', 'localnet'])('bundles nothing for %s', network => 
 
 it('bundles the testnet logos for MIDEN, IMIDEN, IETH and IBTC', () => {
   const logo = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.svg`;
-  expect(parseTokenLogos(bundledTokenList('testnet'), 'testnet')).toEqual(
+  expect(parseTokenList(bundledTokenList('testnet'), 'testnet')?.logos).toEqual(
     new Map(
       [
         'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec',

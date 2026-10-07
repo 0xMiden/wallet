@@ -2,7 +2,7 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
 import { fetchBoundedJson, readTimestampedEntry } from 'lib/remote-json';
 
-import { parseTokenList, parseTokenLogos } from './parse';
+import { parseTokenList } from './parse';
 import { bundledTokenList } from './snapshot';
 
 export const TOKEN_LIST_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -84,10 +84,9 @@ async function readList(network: string): Promise<LoadedList> {
   const cached = readTimestampedEntry(stored[cacheKey(network)]);
   const fromCache = cached ? parseTokenList(cached.body, network) : null;
   // Only a list that parsed has an age; an unreadable entry leaves the snapshot standing in and is due at once.
-  if (cached && fromCache)
-    return { ids: fromCache, logos: parseTokenLogos(cached.body, network), fetchedAt: cached.fetchedAt };
-  const bundled = bundledTokenList(network);
-  return { ids: parseTokenList(bundled, network), logos: parseTokenLogos(bundled, network), fetchedAt: null };
+  if (cached && fromCache) return { ...fromCache, fetchedAt: cached.fetchedAt };
+  const bundled = parseTokenList(bundledTokenList(network), network);
+  return { ids: bundled?.ids ?? null, logos: bundled?.logos ?? null, fetchedAt: null };
 }
 
 /** Fetches the list and stores it once it validates; rejects when it is not whole, not valid or not stored. */
