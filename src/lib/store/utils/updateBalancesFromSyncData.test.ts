@@ -54,9 +54,10 @@ describe('updateBalancesFromSyncData', () => {
   describe('the user override of a token', () => {
     it("scales the balance by the faucet's decimals whatever decimals are stored, and the store adopts the faucet record unchanged", async () => {
       const faucetRecord = { name: 'CustomToken', symbol: 'CTK', decimals: 6 };
-      mockGetTokenMetadataOverrides.mockResolvedValue({
-        'custom-faucet-456': { name: 'Mine', symbol: 'MINE', decimals: 2 }
-      });
+      const override = { name: 'Mine', symbol: 'MINE', decimals: 2 };
+      // Stored, and loaded into the store: a landed read shows the store's overrides.
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'custom-faucet-456': override });
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ 'custom-faucet-456': override });
 
       await updateBalancesFromSyncData('account-1', [
         { faucetId: 'custom-faucet-456', amountBaseUnits: '2000000', metadata: faucetRecord }
@@ -74,7 +75,9 @@ describe('updateBalancesFromSyncData', () => {
     });
 
     it('gives a quantity to a token with no metadata once the user states its decimals', async () => {
-      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bare-faucet': { name: 'Mine', symbol: 'MN', decimals: 3 } });
+      const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bare-faucet': override });
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ 'bare-faucet': override });
 
       await updateBalancesFromSyncData('account-1', [{ faucetId: 'bare-faucet', amountBaseUnits: '2000' }]);
 
@@ -103,6 +106,42 @@ describe('updateBalancesFromSyncData', () => {
         tokenSlug: 'MN',
         balance: 2
       });
+    });
+
+    it("shows the store's override when the storage read had not seen it yet", async () => {
+      // Saved in the store; its storage write has not landed, so the sync's read returns none.
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ 'fresh-faucet': { name: 'Mine', symbol: 'MN' } });
+      mockGetTokenMetadataOverrides.mockResolvedValue({});
+
+      await updateBalancesFromSyncData('account-1', [
+        {
+          faucetId: 'fresh-faucet',
+          amountBaseUnits: '2000000',
+          metadata: { name: 'Fresh', symbol: 'FRS', decimals: 6 }
+        }
+      ]);
+
+      const landed = useWalletStore.getState().balances['account-1']!.find(b => b.tokenId === 'fresh-faucet')!;
+      expect(landed.tokenSlug).toBe('MN');
+      expect(landed).toMatchObject({ balance: 2, metadata: { name: 'Mine', symbol: 'MN', decimals: 6 } });
+    });
+
+    it('leaves the display row of a legacy faucet setting as the sync built it', async () => {
+      mockNativeAssetId = 'actual-native';
+      mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+      const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
+      // The legacy faucet's record reaches the store while the sync runs, after it read the store.
+      mockGetTokenMetadataOverrides.mockImplementation(async () => {
+        useWalletStore.getState().setAssetsMetadata({ [MOCK_MIDEN_FAUCET_ID]: legacyRecord });
+        return {};
+      });
+
+      await updateBalancesFromSyncData('account-1', []);
+
+      const display = useWalletStore.getState().balances['account-1']!.find(b => b.tokenId === MOCK_MIDEN_FAUCET_ID)!;
+      expect(display.tokenSlug).toBe('USDCX');
+      expect(display).toMatchObject({ balance: 0, metadata: { symbol: 'USDCX', decimals: 6 } });
+      expect(useWalletStore.getState().assetsMetadata[MOCK_MIDEN_FAUCET_ID]).toEqual(legacyRecord);
     });
 
     it('never applies an override to the native token', async () => {
@@ -152,17 +191,23 @@ describe('updateBalancesFromSyncData', () => {
 
   it("adopts the snapshot's record into the store and leaves persisting it to the service worker", async () => {
     const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
-    const setAssetsMetadata = jest.spyOn(useWalletStore.getState(), 'setAssetsMetadata');
+    // Swapped through the state, not spied on a state object: every later state copies the property.
+    const original = useWalletStore.getState().setAssetsMetadata;
+    const setAssetsMetadata = jest.fn(original);
+    useWalletStore.setState({ setAssetsMetadata });
     const record = { name: 'TOK', symbol: 'TOK', decimals: 6 };
 
-    await updateBalancesFromSyncData('account-1', [
-      { faucetId: 'tok-faucet', amountBaseUnits: '1000000', metadata: record }
-    ]);
+    try {
+      await updateBalancesFromSyncData('account-1', [
+        { faucetId: 'tok-faucet', amountBaseUnits: '1000000', metadata: record }
+      ]);
 
-    expect(setTokensBaseMetadata).not.toHaveBeenCalled();
-    expect(setAssetsMetadata).toHaveBeenCalledWith({ 'tok-faucet': record });
-    expect(faucetMetadataOf('tok-faucet')).toEqual(record);
-    setAssetsMetadata.mockRestore();
+      expect(setTokensBaseMetadata).not.toHaveBeenCalled();
+      expect(setAssetsMetadata).toHaveBeenCalledWith({ 'tok-faucet': record });
+      expect(faucetMetadataOf('tok-faucet')).toEqual(record);
+    } finally {
+      useWalletStore.setState({ setAssetsMetadata: original });
+    }
   });
 
   it('uses pre-fetched metadata from sync data for unknown tokens', async () => {

@@ -9,7 +9,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
-import { faucetMetadataOf, useWalletStore } from '../index';
+import { faucetMetadataOf, useWalletStore, withLandedBalances } from '../index';
 import { balancePrice } from './balancePrice';
 
 /**
@@ -115,10 +115,5 @@ export async function updateBalancesFromSyncData(
     });
   }
 
-  // Update Zustand store
-  useWalletStore.setState(state => ({
-    balances: { ...state.balances, [accountPublicKey]: balances },
-    balancesLoading: { ...state.balancesLoading, [accountPublicKey]: false },
-    balancesLastFetched: { ...state.balancesLastFetched, [accountPublicKey]: Date.now() }
-  }));
+  useWalletStore.setState(state => withLandedBalances(state, accountPublicKey, balances, midenFaucetId));
 }

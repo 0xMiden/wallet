@@ -5,6 +5,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
+import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -144,6 +145,35 @@ function withOverrides(
     );
   }
   return { tokenMetadataOverrides: overrides, assetsMetadata, balances };
+}
+
+/**
+ * Lands an account's balance rows with the overrides current now: a read that began before a save or
+ * a reset built its rows from the overrides it read then. The native row and the `midenFaucetId`
+ * display row stay as the reader built them: it applies no override to either, and the display row
+ * can name a legacy faucet whose own record is not what the row shows. So does a row of a faucet the
+ * store has neither a record nor an override for, which it could only replace with the placeholder.
+ */
+export function withLandedBalances(
+  state: WalletStore,
+  accountAddress: string,
+  rows: WalletStore['balances'][string],
+  midenFaucetId: string | null
+): Pick<
+  WalletStore,
+  'tokenMetadataOverrides' | 'assetsMetadata' | 'balances' | 'balancesLoading' | 'balancesLastFetched'
+> {
+  const landed = { ...state, balances: { ...state.balances, [accountAddress]: rows } };
+  // `withOverrides` skips the native token itself.
+  const faucetIds = rows
+    .map(row => row.tokenId)
+    .filter(id => id !== midenFaucetId)
+    .filter(id => state.tokenMetadataOverrides[id] !== undefined || faucetMetadataFor(state, id) !== undefined);
+  return {
+    ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
+    balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
+    balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
+  };
 }
 
 function withTokenMetadataOverride(
@@ -826,11 +856,9 @@ export const useWalletStore = create<WalletStore>()(
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) return;
-        set(state => ({
-          balances: { ...state.balances, [accountAddress]: balances },
-          balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
-          balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
-        }));
+        // The display faucet setting the read built its MIDEN row for.
+        const midenFaucetId = await getFaucetIdSetting();
+        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId));
       } finally {
         fetchingAddresses.delete(accountAddress);
       }

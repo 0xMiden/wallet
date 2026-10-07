@@ -2,6 +2,9 @@ import '../../../test/jest-mocks';
 
 import axios from 'axios';
 
+import type * as FaucetIdSettingModule from 'lib/miden/assets/faucet-id-setting';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { MidenMessageType } from 'lib/miden/types';
 import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
 import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
@@ -19,6 +22,30 @@ import {
   faucetMetadataOf
 } from './index';
 import { fetchingAddresses } from './utils/fetchBalances';
+import type * as FetchBalancesModule from './utils/fetchBalances';
+
+// A balance read a case holds open. Every other case reads through the real module, which is
+// reached lazily: the module is part of an import cycle, so its exports are not ready at mock time.
+let mockHeldBalanceRead: (() => Promise<unknown>) | null = null;
+jest.mock('./utils/fetchBalances', () => {
+  const actual = jest.requireActual<typeof FetchBalancesModule>('./utils/fetchBalances');
+  return {
+    get fetchingAddresses() {
+      return actual.fetchingAddresses;
+    },
+    fetchBalances: (...args: Parameters<typeof actual.fetchBalances>) =>
+      mockHeldBalanceRead ? mockHeldBalanceRead() : actual.fetchBalances(...args)
+  };
+});
+
+let mockFaucetIdSetting: string | undefined;
+jest.mock('lib/miden/assets/faucet-id-setting', () => {
+  const actual = jest.requireActual<typeof FaucetIdSettingModule>('lib/miden/assets/faucet-id-setting');
+  return {
+    getFaucetIdSetting: () =>
+      mockFaucetIdSetting === undefined ? actual.getFaucetIdSetting() : Promise.resolve(mockFaucetIdSetting)
+  };
+});
 
 // The override write is the storage boundary of the override actions. The apply logic is the real one.
 const mockWriteTokenMetadataOverride = jest.fn();
@@ -652,6 +679,57 @@ describe('useWalletStore', () => {
       expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
       expect(state.assetsMetadata[OTHER]).toEqual({ ...faucetMetadata, name: 'Other', symbol: 'OTH' });
       expect(state.assetsMetadata[NATIVE]).toBeUndefined();
+    });
+
+    describe('a balance read that lands after an override change', () => {
+      const HELD = 'mtst1held';
+      const LEGACY = 'mtst1legacy';
+      let landRead: (rows: unknown[]) => void = () => {};
+
+      beforeEach(() => {
+        mockHeldBalanceRead = () =>
+          new Promise(resolve => {
+            landRead = resolve;
+          });
+        mockFaucetIdSetting = LEGACY;
+      });
+
+      afterEach(() => {
+        mockHeldBalanceRead = null;
+        mockFaucetIdSetting = undefined;
+      });
+
+      it('shows the override saved while it was in flight, scaled by its decimals', async () => {
+        const previous = { name: 'Old', symbol: 'OLD', decimals: 2 };
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [HELD]: previous });
+        // What the read built: the placeholder with the override it read, 150000 base units at 2 decimals.
+        const builtWith = { ...DEFAULT_TOKEN_METADATA, ...previous, scaleIsUnknown: false, scaleFromOverride: true };
+        const read = useWalletStore.getState().fetchBalances('account-1', useWalletStore.getState().assetsMetadata);
+
+        await useWalletStore.getState().setTokenMetadataOverride(HELD, { name: 'New', symbol: 'NEW', decimals: 4 });
+        landRead([row(HELD, 1500, builtWith)]);
+        await read;
+
+        const landed = useWalletStore.getState().balances['account-1']![0]!;
+        expect(landed.tokenSlug).toBe('NEW');
+        expect(landed.balance).toBe(15);
+        expect(landed.metadata).toMatchObject({ symbol: 'NEW', decimals: 4 });
+        expect(useWalletStore.getState().balancesLoading['account-1']).toBe(false);
+      });
+
+      it('leaves the display row of a legacy faucet setting as the read built it', async () => {
+        useWalletStore.getState().setAssetsMetadata({ [LEGACY]: { name: 'Legacy', symbol: 'LEGACY', decimals: 2 } });
+        // The read built the display row before the legacy record reached it: the native display metadata.
+        const display = getNativeDisplayMetadataSync(undefined, LEGACY);
+        const read = useWalletStore.getState().fetchBalances('account-1', {});
+
+        landRead([row(LEGACY, 5, display), row(FAUCET, 1.5, faucetMetadata)]);
+        await read;
+
+        const rows = useWalletStore.getState().balances['account-1']!;
+        expect(rows[0]).toMatchObject({ tokenSlug: display.symbol, balance: 5, metadata: display });
+        expect(rows[1]).toMatchObject({ tokenSlug: 'FCT', balance: 1.5, metadata: faucetMetadata });
+      });
     });
 
     describe('decimals the user stated while the scale was unknown', () => {
