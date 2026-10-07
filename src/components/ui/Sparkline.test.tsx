@@ -69,13 +69,21 @@ describe('Sparkline', () => {
     expect(p.getAttribute('stroke-width')).toBe('3');
   });
 
-  it('falls back to a range of 1 when every point is equal (flat line)', () => {
+  it('falls back to a range of 1 when every point is equal, drawing the flat line mid-box', () => {
     const { container } = render(<Sparkline points={[5, 5, 5]} />);
 
     const p = container.querySelector('path')!;
-    // range = (5-5) || 1 = 1; xStep=(120-4)/2=58; yScale=(32-4)/1=28
-    // every y = 32-2-(5-5)*28 = 30 -> a perfectly flat line
-    expect(p.getAttribute('d')).toBe('M2.00,30.00 L60.00,30.00 L118.00,30.00');
+    // range = (5-5) || 1 = 1, centred: floor = 4.5; xStep=(120-4)/2=58; yScale=(32-4)/1=28
+    // every y = 32-2-(5-4.5)*28 = 16 -> a perfectly flat line through the middle
+    expect(p.getAttribute('d')).toBe('M2.00,16.00 L60.00,16.00 L118.00,16.00');
+  });
+
+  it('draws a series that moves less than minRange at true scale, centred', () => {
+    const { container } = render(<Sparkline points={[99, 101]} width={20} height={24} minRange={20} />);
+
+    // range = max(2, 20) = 20; floor = 100 - 10 = 90; yScale = 20/20 = 1
+    // y(99) = 24-2-9 = 13, y(101) = 24-2-11 = 11: a 2px rise, not the full box
+    expect(container.querySelector('path')!.getAttribute('d')).toBe('M2.00,13.00 L18.00,11.00');
   });
 
   it('starts the path with a moveto and uses lineto for the rest', () => {
@@ -86,6 +94,16 @@ describe('Sparkline', () => {
     expect(commands).toHaveLength(4);
     expect(commands[0]![0]).toBe('M');
     expect(commands.slice(1).every(c => c[0] === 'L')).toBe(true);
+  });
+
+  it('draws one cubic segment per gap through every point when smooth', () => {
+    const { container } = render(<Sparkline points={[1, 3, 2, 4]} width={100} height={20} smooth />);
+    const d = container.querySelector('path')!.getAttribute('d')!;
+    expect(d.startsWith('M2.00,18.00')).toBe(true);
+    const segments = d.match(/C[^C]+/g)!;
+    expect(segments).toHaveLength(3);
+    // The curve ends on the last point: x at the right padding, y at the top padding (the max).
+    expect(segments[2]!.trim().endsWith('98.00,2.00')).toBe(true);
   });
 
   it('exposes the same component as the default and named export', () => {

@@ -10,10 +10,11 @@ import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { CHART_DOT_RING, CHART_POSITIVE, ChartContainer, ChartValueTooltip } from 'lib/ui/charts';
+import { cn } from 'lib/ui/util';
 import { goBack, navigate } from 'lib/woozie';
 
 import { EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle, MetricCard } from './components';
-import { formatApy, placeholderVault } from './earn-mapping';
+import { EARN_PLACEHOLDER, formatApy, placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
 import { ChartDotProps, EarnVault } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
@@ -66,12 +67,29 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
           {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
           <FeatureUnavailableNotice availability={earnDeposit} />
           <EarnHero
+            layout="label-first"
             labelId="earn-vault-apy-title"
+            // 28px more than the body's start, so the caption sits as far under the divider as the
+            // Earn tab's "Total earned" does under its bar.
+            className="mt-7"
             // The APY counts to each new rate; `vault.apy` is what shows before a rate has been read.
             value={<AnimatedNumber value={vault.aprPercent} format={formatApy} placeholder={vault.apy} />}
             valueClassName="text-positive-tint-ink"
             label={t('earnCurrentApy')}
-            meta={vault.apyChange24h}
+            // The move only shows once there is one: a lone placeholder dash under the figure read as
+            // a stray rule. A fall takes `muted`, never the positive ink.
+            meta={
+              vault.apyChange24h !== EARN_PLACEHOLDER && (
+                <span
+                  className={cn(
+                    'text-value',
+                    vault.apyChange24h.startsWith('-') ? 'text-muted' : 'text-positive-tint-ink'
+                  )}
+                >
+                  {vault.apyChange24h}
+                </span>
+              )
+            }
           />
 
           <VaultAreaChart vault={vault} />
@@ -92,9 +110,10 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
   const lastIndex = vault.chartData.length - 1;
 
   return (
-    <div className="h-[140px]">
+    // Edge to edge: the chart steps out of the body's 16px margin so the line runs the full width.
+    <div className="-mx-4 h-[200px]">
       <ChartContainer config={{ apy: { color: CHART_POSITIVE } }} className="h-full w-full aspect-auto">
-        <AreaChart data={vault.chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+        <AreaChart data={vault.chartData} margin={{ top: 40, right: 8, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="earn-vault-area" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={CHART_POSITIVE} stopOpacity={0.28} />
@@ -103,20 +122,23 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
           </defs>
           <YAxis domain={[min - padding, max + padding]} hide />
           <Tooltip
-            cursor={false}
+            // A dashed guide from the scrubbed point to the baseline, held back to a quarter of ink.
+            cursor={{ stroke: 'var(--ds-ink)', strokeOpacity: 0.25, strokeDasharray: '3 4' }}
             content={({ active, payload }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
-              return <ChartValueTooltip value={`${Number(point.value).toFixed(2)}%`} label={point.label} />;
+              // A point with no date yet says only its rate, not a dash under it.
+              const label = point.label === EARN_PLACEHOLDER ? undefined : point.label;
+              return <ChartValueTooltip value={`${Number(point.value).toFixed(2)}%`} label={label} />;
             }}
           />
           <Area
             dataKey="value"
             type="natural"
             stroke="var(--color-apy)"
-            strokeWidth={2.5}
+            strokeWidth={3}
             fill="url(#earn-vault-area)"
-            activeDot={{ r: 4, stroke: CHART_POSITIVE, fill: CHART_POSITIVE, strokeWidth: 1 }}
+            activeDot={{ r: 5, stroke: CHART_DOT_RING, fill: CHART_POSITIVE, strokeWidth: 2.5 }}
             dot={(props: ChartDotProps) =>
               props.index === lastIndex ? (
                 <circle

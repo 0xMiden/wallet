@@ -245,6 +245,9 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
+  // The real network names and default: the network banner's pill pulls in the icon set, which reads
+  // both at import.
+  ...jest.requireActual('lib/miden-chain/constants'),
   ensureSdkWasmReady: jest.fn(),
   getRpcEndpoint: jest.fn(() => 'https://rpc.example')
 }));

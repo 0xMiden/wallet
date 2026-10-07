@@ -69,7 +69,13 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
       ) : pending ? null : (
         <>
           {loadFailed && <EarnLoadError onRetry={refetch} />}
-          <EarnSummaryPanel summary={summary} titleId="earn-position-summary-title" showMetrics={false} />
+          {/* As far under the divider as the vault page's caption and the Earn tab's. */}
+          <EarnSummaryPanel
+            summary={summary}
+            titleId="earn-position-summary-title"
+            showMetrics={false}
+            className="mt-7"
+          />
 
           <PositionAreaChart position={position} />
 
@@ -225,10 +231,10 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
     { label: t('withdraw'), value: position.withdrawTime }
   ];
 
-  // One `fill` card of label/value rows with hairlines between them, in place of the 4px rule and
-  // five hand-built rows.
+  // One outline card of label/value rows with hairlines between them, in Nunito as on the deposit
+  // review and its receipt, in place of the 4px rule and five hand-built rows.
   return (
-    <DetailCard>
+    <DetailCard surface="outline" className="face-heading">
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label}>
           {row.value}

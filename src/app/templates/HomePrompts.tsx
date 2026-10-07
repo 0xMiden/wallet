@@ -99,7 +99,10 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
   },
   [WalletPromptType.PendingNotes]: {
     titleKey: 'pendingNotesPromptTitle',
-    bodyKey: 'pendingNotesPromptBody',
+    bodyKey: 'pendingNotesPromptBodyReview',
+    // Money waiting to be accepted: the Receive tint and glyph, so it stands apart from notices.
+    variant: 'receive',
+    icon: IconName.Receive,
     // Not dismissible: money waiting to be accepted is not a notice to be swept away, and a
     // wallet that dismissed it once must not go quiet about every later transfer.
     dismissible: false
@@ -109,6 +112,7 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
     bodyKey: 'verifySeedPhrasePromptBody',
     route: '/settings/verify-seed-phrase',
     variant: 'warning',
+    icon: IconName.ShieldCheck,
     dismissible: true
   },
   [WalletPromptType.HotKeyHardwareUnavailable]: {

@@ -721,6 +721,50 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(screen.getByText('Tuesday')).toBeInTheDocument();
   });
 
+  it('draws each day as a quiet caption, with the year only when it is not this year', () => {
+    render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+    // The 2024 fixtures are not this year, so their captions carry it; no separate weekday header.
+    const caption = screen.getByText('Monday, January 15, 2024');
+    expect(caption).toHaveClass('text-caption-heading', 'text-muted');
+    expect(screen.getByText('Tuesday, January 16, 2024')).toBeInTheDocument();
+    expect(screen.queryByText('Monday')).not.toBeInTheDocument();
+    expect(screen.queryByText('January 15, 2024')).not.toBeInTheDocument();
+  });
+
+  // A caption list sits under a section heading that already leaves 12px; the header list has only
+  // the Activity tab's filters above it, so it opens 16px down.
+  it('starts the first caption day flush under its heading', () => {
+    render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+    const firstDay = screen.getByText('Monday, January 15, 2024').closest('[data-layout]');
+    expect(firstDay).not.toHaveClass('pt-4');
+    expect(firstDay).toHaveClass('pt-0', 'py-2.5');
+    expect(screen.getByText('Tuesday, January 16, 2024').closest('[data-layout]')).not.toHaveClass('pt-0');
+  });
+
+  it('keeps the first header day 16px under the filters', () => {
+    renderFull();
+
+    const firstDay = screen.getByText('January 15, 2024').closest('[data-layout]');
+    expect(firstDay).toHaveClass('pt-4', 'py-3');
+    expect(firstDay).not.toHaveClass('pt-0');
+    expect(screen.getByText('January 16, 2024').closest('[data-layout]')).not.toHaveClass('pt-4');
+  });
+
+  it('leaves the year off the caption of a day in this year', () => {
+    jest.useFakeTimers({ now: new Date(2024, 5, 1, 12) });
+    try {
+      render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+      expect(screen.getByText('Monday, January 15')).toHaveClass('text-caption-heading', 'text-muted');
+      expect(screen.getByText('Tuesday, January 16')).toBeInTheDocument();
+      expect(screen.queryByText(/2024/)).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('renders the faucet row (RECEIVE icon)', () => {
     renderFull();
     const row = rowByTitle('faucetRequestTitle');
