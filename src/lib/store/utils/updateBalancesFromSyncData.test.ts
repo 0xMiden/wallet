@@ -2,7 +2,7 @@ import '../../../../test/jest-mocks';
 
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { SerializedVaultAsset } from 'lib/shared/types';
-import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
+import { __resetFaucetAssetsMetadataForTest, faucetMetadataOf, useWalletStore } from 'lib/store';
 
 import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
 
@@ -52,8 +52,7 @@ describe('updateBalancesFromSyncData', () => {
   });
 
   describe('the user override of a token', () => {
-    it("scales the balance by the faucet's decimals whatever decimals are stored, and stores the faucet record unchanged", async () => {
-      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+    it("scales the balance by the faucet's decimals whatever decimals are stored, and the store adopts the faucet record unchanged", async () => {
       const faucetRecord = { name: 'CustomToken', symbol: 'CTK', decimals: 6 };
       mockGetTokenMetadataOverrides.mockResolvedValue({
         'custom-faucet-456': { name: 'Mine', symbol: 'MINE', decimals: 2 }
@@ -71,7 +70,7 @@ describe('updateBalancesFromSyncData', () => {
         metadata: { name: 'Mine', symbol: 'MINE', decimals: 6 }
       });
       expect(custom!.metadata.scaleFromOverride).toBeUndefined();
-      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'custom-faucet-456': faucetRecord });
+      expect(faucetMetadataOf('custom-faucet-456')).toEqual(faucetRecord);
     });
 
     it('gives a quantity to a token with no metadata once the user states its decimals', async () => {
@@ -87,7 +86,6 @@ describe('updateBalancesFromSyncData', () => {
     });
 
     it("adopts the sync's record over the placeholder an override made, and shows the override on top", async () => {
-      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
       const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
       // The provider's hydration of a stored override for a faucet with no record. Its decimals make the entry a known scale.
       useWalletStore.getState().hydrateTokenMetadataOverrides({ 'fresh-faucet': override });
@@ -98,7 +96,7 @@ describe('updateBalancesFromSyncData', () => {
         { faucetId: 'fresh-faucet', amountBaseUnits: '2000000', metadata: faucetRecord }
       ]);
 
-      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'fresh-faucet': faucetRecord });
+      expect(faucetMetadataOf('fresh-faucet')).toEqual(faucetRecord);
       const state = useWalletStore.getState();
       expect(state.assetsMetadata['fresh-faucet']).toEqual({ name: 'Mine', symbol: 'MN', decimals: 6 });
       expect(state.balances['account-1']!.find(b => b.tokenId === 'fresh-faucet')).toMatchObject({
@@ -150,6 +148,21 @@ describe('updateBalancesFromSyncData', () => {
     expect(balances.length).toBe(1);
     expect(balances[0]!.tokenId).toBe(MOCK_MIDEN_FAUCET_ID);
     expect(balances[0]!.balance).toBe(0);
+  });
+
+  it("adopts the snapshot's record into the store and leaves persisting it to the service worker", async () => {
+    const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+    const setAssetsMetadata = jest.spyOn(useWalletStore.getState(), 'setAssetsMetadata');
+    const record = { name: 'TOK', symbol: 'TOK', decimals: 6 };
+
+    await updateBalancesFromSyncData('account-1', [
+      { faucetId: 'tok-faucet', amountBaseUnits: '1000000', metadata: record }
+    ]);
+
+    expect(setTokensBaseMetadata).not.toHaveBeenCalled();
+    expect(setAssetsMetadata).toHaveBeenCalledWith({ 'tok-faucet': record });
+    expect(faucetMetadataOf('tok-faucet')).toEqual(record);
+    setAssetsMetadata.mockRestore();
   });
 
   it('uses pre-fetched metadata from sync data for unknown tokens', async () => {
@@ -293,6 +306,8 @@ describe('updateBalancesFromSyncData', () => {
         ([written]: [Record<string, unknown>]) => written && FOREIGN in written
       );
       expect(persisted).toBe(false);
+      // Nor recorded as the faucet's record, which is what decides whether it is fetched again.
+      expect(faucetMetadataOf(FOREIGN)).toBeUndefined();
     });
 
     // The guard that matters here is on the `asset.metadata` branch: a placeholder
@@ -313,6 +328,7 @@ describe('updateBalancesFromSyncData', () => {
 
       expect(wrote(setTokensBaseMetadata.mock.calls)).toBe(false);
       expect(useWalletStore.getState().assetsMetadata[FOREIGN]).toBeUndefined();
+      expect(faucetMetadataOf(FOREIGN)).toBeUndefined();
     });
 
     it('still lists the token so the holding does not vanish', async () => {

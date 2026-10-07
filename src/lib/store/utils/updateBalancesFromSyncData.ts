@@ -9,7 +9,6 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
-import { setTokensBaseMetadata } from '../../miden/front/assets';
 import { faucetMetadataOf, useWalletStore } from '../index';
 import { balancePrice } from './balancePrice';
 
@@ -39,7 +38,7 @@ export async function updateBalancesFromSyncData(
   const balances: TokenBalanceData[] = [];
   let hasMiden = false;
 
-  // Collect metadata from sync data to persist
+  // Collect metadata from sync data to adopt into the store
   const newMetadatas: Record<string, AssetMetadata> = {};
 
   // Build balance list — metadata comes from the sync data (pre-fetched by SW)
@@ -66,14 +65,14 @@ export async function updateBalancesFromSyncData(
         symbol: asset.metadata.symbol,
         name: asset.metadata.name,
         description: asset.metadata.description,
-        // Carried through: this record is PERSISTED by `setTokensBaseMetadata`
-        // below, so dropping the marker here stores the placeholder's guessed
+        // Carried through: this record is adopted below as the faucet's own,
+        // so dropping the marker here records the placeholder's guessed
         // decimals as though the faucet had reported them.
         scaleIsUnknown: asset.metadata.scaleIsUnknown
       };
-      // Only a resolved record is worth storing. Persisting the placeholder
+      // Only a resolved record is worth adopting. Recording the placeholder
       // would freeze the guess in place for a faucet whose lookup merely
-      // failed this once — the sync retries, but the cache would already have
+      // failed this once: the sync retries, but the store would already have
       // an answer for it.
       if (hasKnownScale(tokenMetadata)) newMetadatas[asset.faucetId] = tokenMetadata;
     } else {
@@ -94,9 +93,9 @@ export async function updateBalancesFromSyncData(
     });
   }
 
-  // Persist newly discovered metadata
+  // Adopted into the store only. The service worker already persisted each record it read, under the
+  // current schema; a snapshot an older worker left can still carry the old shape.
   if (Object.keys(newMetadatas).length > 0) {
-    await setTokensBaseMetadata(newMetadatas);
     store.setAssetsMetadata(newMetadatas);
   }
 
