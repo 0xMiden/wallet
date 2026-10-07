@@ -754,6 +754,82 @@ describe('fetchBalances', () => {
     // Should NOT call syncState - that happens separately via AutoSync
     expect(mockSyncState).not.toHaveBeenCalled();
   });
+  describe('a read the store lands builds each row from the faucet record', () => {
+    const LEGACY = 'legacy-faucet';
+    const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
+    const vaultOf = (...entries: [string, string][]) => ({
+      vault: () => ({
+        fungibleAssets: () =>
+          entries.map(([faucetId, amount]) => ({
+            faucetId: () => faucetId,
+            amount: () => ({ toString: () => amount })
+          }))
+      })
+    });
+
+    beforeEach(() => {
+      __resetFaucetAssetsMetadataForTest();
+      useWalletStore.setState({
+        assetsMetadata: {},
+        tokenMetadataOverrides: {},
+        balances: {},
+        tokenPrices: {},
+        balancesDisplayFaucetId: {}
+      });
+    });
+
+    afterEach(() => {
+      mockNativeAssetId = 'miden-faucet-id';
+      jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue('miden-faucet-id');
+    });
+
+    it('shows the placeholder for an unresolved faucet whose override was cleared while the read was held', async () => {
+      const UNRESOLVED = 'bech32-unresolved-faucet';
+      // A failed lookup puts the faucet in backoff, so the held read does not fetch it again.
+      mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
+      mockGetAccount.mockResolvedValueOnce(vaultOf(['unresolved-faucet', '2000000']));
+      await fetchBalances('priming-address', {});
+      useWalletStore
+        .getState()
+        .hydrateTokenMetadataOverrides({ [UNRESOLVED]: { name: 'Mine', symbol: 'MN', decimals: 3 } });
+      let releaseAccount: () => void = () => {};
+      mockGetAccount.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseAccount = () => resolve(vaultOf(['unresolved-faucet', '2000000']));
+          })
+      );
+      const read = useWalletStore.getState().fetchBalances('my-address', useWalletStore.getState().assetsMetadata);
+
+      await useWalletStore.getState().clearTokenMetadataOverride(UNRESOLVED);
+      mockGetTokenMetadataOverrides.mockResolvedValue({});
+      releaseAccount();
+      await read;
+
+      const landed = useWalletStore.getState().balances['my-address']!.find(row => row.tokenId === UNRESOLVED)!;
+      expect(landed.tokenSlug).toBe('Unknown');
+      expect(landed.balance).toBe(2);
+      expect(mockFetchTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    it('builds the display row of a legacy faucet setting from its record, not the entry its override made', async () => {
+      mockNativeAssetId = 'bech32-native-faucet';
+      jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue(LEGACY);
+      // The store holds the record; the storage cache does not.
+      useWalletStore.getState().setAssetsMetadata({ [LEGACY]: legacyRecord });
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: { name: 'Mine', symbol: 'MINE' } });
+      mockGetAccount.mockResolvedValueOnce(vaultOf());
+
+      await useWalletStore.getState().fetchBalances('my-address', useWalletStore.getState().assetsMetadata);
+      const displayRow = () => useWalletStore.getState().balances['my-address']!.find(row => row.tokenId === LEGACY)!;
+
+      expect(displayRow().tokenSlug).toBe('LEGACY');
+      await useWalletStore.getState().clearTokenMetadataOverride(LEGACY);
+      expect(displayRow().tokenSlug).toBe('LEGACY');
+      expect(displayRow().metadata).toMatchObject(legacyRecord);
+    });
+  });
+
   // Neither storing the guess nor re-asking every few seconds is acceptable: the
   // first answers the question forever with a wrong number, the second turns an
   // unreadable faucet into a permanent RPC drip on a list that refreshes every

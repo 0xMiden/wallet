@@ -29,7 +29,6 @@ export async function updateBalancesFromSyncData(
   vaultAssets: SerializedVaultAsset[]
 ): Promise<void> {
   const store = useWalletStore.getState();
-  const localMetadatas = { ...store.assetsMetadata };
   /* c8 ignore next -- tokenPrices always initialized in store */
   const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
@@ -54,13 +53,13 @@ export async function updateBalancesFromSyncData(
     if (isMiden) hasMiden = true;
 
     let tokenMetadata: AssetMetadata;
-    const cached = localMetadatas[asset.faucetId];
     // A cached record whose scale is a guess is provisional: real metadata
     // arriving on a later sync must be allowed to replace it. Preferring the
     // cache unconditionally is what made a single failed lookup permanent.
-    // The scale is judged on the faucet's record: an override's decimals make
-    // the placeholder entry look known, and the sync's record must replace it.
-    const localMeta = hasKnownScale(faucetMetadataOf(asset.faucetId)) ? cached : undefined;
+    // The faucet's own record, not the store entry: an override's decimals make
+    // the placeholder entry look known, and the overrides apply on top below.
+    const record = faucetMetadataOf(asset.faucetId);
+    const localMeta = hasKnownScale(record) ? record : undefined;
     if (asset.faucetId === actualNativeId) {
       tokenMetadata = getNativeDisplayMetadataSync(asset.metadata ?? localMeta, asset.faucetId);
     } else if (localMeta) {
@@ -86,7 +85,6 @@ export async function updateBalancesFromSyncData(
       tokenMetadata = DEFAULT_TOKEN_METADATA;
     }
     // The user's display values apply after the faucet's record is kept to store above.
-    // A cached store entry has them already, and a second application changes nothing.
     if (!isMiden) {
       tokenMetadata = applyOverrideFor(asset.faucetId, tokenMetadata, overrides);
       if (overrideFor(overrides, asset.faucetId)) overridden.add(asset.faucetId);
@@ -112,15 +110,12 @@ export async function updateBalancesFromSyncData(
   // Always include MIDEN token (even if 0 balance) — pre-discovery we omit
   // the placeholder row so the UI doesn't render MIDEN under a stale ID.
   if (!hasMiden && midenFaucetId) {
+    const displayMetadata = getNativeDisplayMetadataSync(faucetMetadataOf(midenFaucetId), midenFaucetId);
     balances.push({
       tokenId: midenFaucetId,
-      tokenSlug: getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId).symbol,
-      metadata: getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId),
-      ...balancePrice(
-        tokenPrices,
-        midenFaucetId,
-        getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId).symbol
-      ),
+      tokenSlug: displayMetadata.symbol,
+      metadata: displayMetadata,
+      ...balancePrice(tokenPrices, midenFaucetId, displayMetadata.symbol),
       balance: 0
     });
   }

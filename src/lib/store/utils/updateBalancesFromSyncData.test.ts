@@ -140,11 +140,11 @@ describe('updateBalancesFromSyncData', () => {
       expect(landed).toMatchObject({ balance: 2, metadata: { name: 'Mine', symbol: 'MN', decimals: 6 } });
     });
 
-    it('leaves the display row of a legacy faucet setting as the sync built it', async () => {
+    it('builds the display row of a legacy faucet setting from the record that reached the store during the sync', async () => {
       mockNativeAssetId = 'actual-native';
       mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
       const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
-      // The legacy faucet's record reaches the store while the sync runs, after it read the store.
+      // The legacy faucet's record reaches the store while the sync runs, before it builds the display row.
       mockGetTokenMetadataOverrides.mockImplementation(async () => {
         useWalletStore.getState().setAssetsMetadata({ [MOCK_MIDEN_FAUCET_ID]: legacyRecord });
         return {};
@@ -153,10 +153,35 @@ describe('updateBalancesFromSyncData', () => {
       await updateBalancesFromSyncData('account-1', []);
 
       const display = useWalletStore.getState().balances['account-1']!.find(b => b.tokenId === MOCK_MIDEN_FAUCET_ID)!;
-      expect(display.tokenSlug).toBe('USDCX');
-      expect(display).toMatchObject({ balance: 0, metadata: { symbol: 'USDCX', decimals: 6 } });
+      expect(display.tokenSlug).toBe('LEGACY');
+      expect(display).toMatchObject({ balance: 0, metadata: legacyRecord });
       expect(useWalletStore.getState().assetsMetadata[MOCK_MIDEN_FAUCET_ID]).toEqual(legacyRecord);
     });
+
+    it.each([
+      ['held in the vault', [{ faucetId: MOCK_MIDEN_FAUCET_ID, amountBaseUnits: '500' }], 5],
+      ['with no holding', [], 0]
+    ])(
+      "builds the legacy display row %s from the faucet's record, not the entry its override made",
+      async (_label, vaultAssets, balance) => {
+        mockNativeAssetId = 'actual-native';
+        mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+        const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
+        useWalletStore.getState().setAssetsMetadata({ [MOCK_MIDEN_FAUCET_ID]: legacyRecord });
+        useWalletStore
+          .getState()
+          .hydrateTokenMetadataOverrides({ [MOCK_MIDEN_FAUCET_ID]: { name: 'Mine', symbol: 'MINE' } });
+
+        await updateBalancesFromSyncData('account-1', vaultAssets);
+        const display = () =>
+          useWalletStore.getState().balances['account-1']!.find(b => b.tokenId === MOCK_MIDEN_FAUCET_ID)!;
+
+        expect(display().tokenSlug).toBe('LEGACY');
+        await useWalletStore.getState().clearTokenMetadataOverride(MOCK_MIDEN_FAUCET_ID);
+        expect(display().tokenSlug).toBe('LEGACY');
+        expect(display()).toMatchObject({ balance, metadata: legacyRecord });
+      }
+    );
 
     it('never applies an override to the native token', async () => {
       mockNativeAssetId = MOCK_MIDEN_FAUCET_ID;

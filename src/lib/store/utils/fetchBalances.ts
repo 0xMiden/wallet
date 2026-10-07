@@ -198,8 +198,13 @@ export async function fetchBalances(
   } = options;
   const balances: TokenBalanceData[] = [];
 
-  // Local copy of metadata that we can add to during this fetch
-  const localMetadatas = { ...tokenMetadatas };
+  // The faucets' own records, never a store entry an override made: the overrides read from storage
+  // apply on top, so a reset that landed while this read was in flight is not undone by it.
+  const localMetadatas: Record<string, AssetMetadata> = {};
+  for (const id of Object.keys(tokenMetadatas)) {
+    const record = faucetMetadataOf(id);
+    if (record) localMetadatas[id] = record;
+  }
 
   // Read the account under the wallet WASM mutex. `getAccount` borrows the
   // WebClient's single RefCell; while a transaction is mid-`_withInnerWebClient`
