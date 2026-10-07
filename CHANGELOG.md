@@ -5,7 +5,7 @@
 ### Fixes
 
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
-- [FIX][ci] E2E Android waits for the stopped app's task to be removed before relaunching it, so the next test's launch is no longer killed by its removal, and every adb call is bounded; iOS E2E reconnects idb once when it fails and says why a notification prompt went unanswered.
+- [FIX][ci] E2E Android waits for the stopped app's task to be removed before relaunching it, so the next test's launch is no longer killed by its removal, and its emulator commands are bounded; iOS E2E restarts a failing simulator's idb companion once and says why a notification prompt went unanswered.
 - [FIX][ui] Text, amount and recipient fields offer a Clear (x) button while they hold a value (not on passwords, key material or a field with its own trailing action), search, text and recipient field placeholders hide while the field is focused, and the explorer and faucet WebView headers follow the app's theme instead of the phone's appearance (#503).
 
 ### Changes

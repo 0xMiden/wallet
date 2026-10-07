@@ -460,7 +460,7 @@ describe('reconnectIdb', () => {
     await reconnecting;
 
     expect(ran.map(command => command.replace(/^\S*idb /, 'idb '))).toEqual([
-      `pkill -f ${COMPANION}`,
+      `pkill -TERM -f ${COMPANION}`,
       `pgrep -f ${COMPANION}`,
       `pgrep -f ${COMPANION}`,
       'idb disconnect SIM-A',
@@ -479,11 +479,26 @@ describe('reconnectIdb', () => {
     expect(removed).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves the socket alone when the companion does not exit, and still connects', async () => {
+  it('kills a companion that ignores the request to exit', async () => {
+    let killed = false;
+    const ran = commands((file, args) => {
+      if (file === 'pkill' && args[0] === '-KILL') killed = true;
+      return file === 'pgrep' ? !killed : true;
+    });
+
+    const reconnecting = reconnectIdb('SIM-A');
+    await jest.advanceTimersByTimeAsync(4_000);
+    await reconnecting;
+
+    expect(ran).toContain(`pkill -KILL -f ${COMPANION}`);
+    expect(removed).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the socket alone when the companion survives being killed, and still connects', async () => {
     const ran = commands(() => true);
 
     const reconnecting = reconnectIdb('SIM-A');
-    await jest.advanceTimersByTimeAsync(6_000);
+    await jest.advanceTimersByTimeAsync(7_000);
     await reconnecting;
 
     expect(removed).not.toHaveBeenCalled();
