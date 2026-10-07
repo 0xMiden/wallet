@@ -253,9 +253,9 @@ export class DappBrowserDriver {
   }
 
   /**
-   * The curated grid's card URLs once at least `min` cards render. The first render already
-   * draws the bundled catalog's rows; the wait guards against a network switch replacing those
-   * rows while the step reads them.
+   * The curated grid's card URLs once at least `min` cards render. The grid draws the bundled
+   * catalog's rows only once the network's floor has been read, so the wait covers that read as
+   * well as a network switch replacing those rows while the step reads them.
    */
   async waitForGridCards(min: number): Promise<string[]> {
     return this.pollUntil(

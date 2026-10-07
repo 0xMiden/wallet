@@ -26,7 +26,7 @@ jest.mock('lib/dapp-browser', () => ({
 }));
 
 // The runtime as the launcher sees it: a store holding the effective network's catalog.
-let mockCatalog: ExploreCatalog | null = null;
+let mockCatalog: ExploreCatalog | null | undefined = null;
 const mockCatalogListeners = new Set<() => void>();
 const mockInit = jest.fn((_network: string) => Promise.resolve());
 jest.mock('lib/explore-config/runtime', () => ({
@@ -416,6 +416,14 @@ describe('DappLauncher catalog', () => {
     mockRecents = [];
     await renderLauncher();
     expect(screen.getByTestId('explore-empty')).toHaveTextContent('exploreComingSoonTitle');
+  });
+
+  it("draws neither sections nor the empty state while the network's catalog is pending", async () => {
+    mockCatalog = undefined;
+    mockRecents = [];
+    await renderLauncher();
+    expect(screen.queryByTestId('explore-empty')).toBeNull();
+    expect(sectionIds()).toEqual([]);
   });
 
   it('hides exchange items where the build ships without swap', async () => {

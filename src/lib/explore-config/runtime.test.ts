@@ -109,11 +109,23 @@ afterEach(() => {
 });
 
 describe('the snapshot', () => {
-  it('is the bundled catalog before anything is read, one object until it changes', () => {
+  it("is pending until its network's floor is read, then the bundled catalog, one object until it changes", async () => {
+    expect(getExploreCatalogSnapshot()).toBeUndefined();
+    expect(mockReadStored).not.toHaveBeenCalled();
+    failFetch();
+    await initExploreConfig('testnet');
     const first = getExploreCatalogSnapshot();
     expect(first).toEqual(catalog('testnet', 1));
     expect(getExploreCatalogSnapshot()).toBe(first);
-    expect(mockReadStored).not.toHaveBeenCalled();
+  });
+
+  it('never shows a bundled catalog below the floor, pending while the floor is read and none after', async () => {
+    mockFloors.set('testnet', 3);
+    failFetch();
+    const init = initExploreConfig('testnet');
+    expect(getExploreCatalogSnapshot()).toBeUndefined();
+    await init;
+    expect(getExploreCatalogSnapshot()).toBeNull();
   });
 
   it('is null on a network with no bundled catalog until a copy lands', async () => {
@@ -176,9 +188,10 @@ describe('the snapshot', () => {
     store('testnet', 2, NOW - 60_000);
     await initExploreConfig('testnet');
     mockNetwork = 'devnet';
-    expect(getExploreCatalogSnapshot()).toEqual(catalog('devnet', 1));
+    expect(getExploreCatalogSnapshot()).toBeUndefined();
     failFetch();
     await initExploreConfig('devnet');
+    expect(getExploreCatalogSnapshot()).toEqual(catalog('devnet', 1));
     await flush();
     // One timer, for the network the launcher shows now.
     expect(jest.getTimerCount()).toBe(1);
@@ -225,7 +238,7 @@ describe('initExploreConfig', () => {
     void initExploreConfig('testnet');
     await flush();
     expect(mockReadStored).not.toHaveBeenCalled();
-    expect(shownVersion()).toBe(1);
+    expect(getExploreCatalogSnapshot()).toBeUndefined();
     attach();
     await flush();
     expect(mockReadStored).toHaveBeenCalledTimes(1);
@@ -439,12 +452,28 @@ describe('other realms and wipes', () => {
     mockStored.clear();
     serve(3);
     await Promise.all(mockRereads.map(reread => reread()));
-    expect(shownVersion()).toBe(1);
+    expect(getExploreCatalogSnapshot()).toBeUndefined();
     // The forgotten entry no longer listens; only the new one does, and the re-read is registered once.
     expect(mockChangeHandlers.get(KEY)?.size).toBe(1);
     expect(mockRereads).toHaveLength(1);
     await flush();
     expect(shownVersion()).toBe(3);
+  });
+
+  it('shows a reader a wipe notifies nothing from a bundled catalog below the floor', async () => {
+    mockFloors.set('testnet', 3);
+    store('testnet', 3, NOW - 60_000);
+    await initExploreConfig('testnet');
+    expect(shownVersion()).toBe(3);
+    const seen: unknown[] = [];
+    subscribeExploreCatalog(() => seen.push(getExploreCatalogSnapshot()));
+    mockStored.clear();
+    failFetch();
+    await Promise.all(mockRereads.map(reread => reread()));
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]).toBeUndefined();
+    await flush();
+    expect(getExploreCatalogSnapshot()).toBeNull();
   });
 
   it('drops the armed timer with the copies a wipe forgets', async () => {

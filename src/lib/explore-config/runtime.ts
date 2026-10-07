@@ -19,13 +19,13 @@ interface NetworkState {
   network: string;
   bundled: ExploreCatalog | null;
   stored: StoredExploreConfig | null;
-  /** The highest version this network has accepted, read on hydration; 0 until then. */
-  floor: number;
+  /** The highest version this network has accepted, read on hydration; null until then. */
+  floor: number | null;
   /**
-   * What readers see: `stored`'s catalog when newer than the bundled one, else the bundled one when at or above
-   * `floor`, else null.
+   * What readers see: undefined (pending) until `floor` is read, then `stored`'s catalog when newer than the bundled
+   * one, else the bundled one when at or above `floor`, else null.
    */
-  catalog: ExploreCatalog | null;
+  catalog: ExploreCatalog | null | undefined;
   hydration: Promise<void> | null;
   refreshing: Promise<void> | null;
   // When this network was last checked: a refresh settled here, or another realm fetched the copy held. 0, so due at
@@ -47,8 +47,9 @@ let schedulerInstalled = false;
 let rereadRegistered = false;
 
 // One version names one document, so at a tie the bundled copy is the same catalog with the icons the build ships. A
-// bundled copy below the floor names an app since delisted, so it is never shown.
-function shown({ stored, bundled, floor }: NetworkState): ExploreCatalog | null {
+// bundled copy below the floor names an app since delisted, so it is never shown, nor before the floor is known.
+function shown({ stored, bundled, floor }: NetworkState): ExploreCatalog | null | undefined {
+  if (floor === null) return undefined;
   const allowed = bundled && bundled.version >= floor ? bundled : null;
   return stored && (!allowed || stored.catalog.version > allowed.version) ? stored.catalog : allowed;
 }
@@ -61,19 +62,19 @@ const isNewer = (candidate: StoredExploreConfig, held: StoredExploreConfig | nul
 function stateFor(network: string): NetworkState {
   const known = states.get(network);
   if (known) return known;
-  const bundled = bundledExploreCatalog(network);
   const state: NetworkState = {
     network,
-    bundled,
+    bundled: bundledExploreCatalog(network),
     stored: null,
-    floor: 0,
-    catalog: bundled,
+    floor: null,
+    catalog: undefined,
     hydration: null,
     refreshing: null,
     checkedAt: 0,
     failures: 0,
     subscriptions: []
   };
+  state.catalog = shown(state);
   states.set(network, state);
   return state;
 }
@@ -83,8 +84,11 @@ function publish(state: NetworkState): void {
   listeners.forEach(listener => listener());
 }
 
-/** The effective network's catalog: the same object until it changes, as useSyncExternalStore needs. */
-export function getExploreCatalogSnapshot(): ExploreCatalog | null {
+/**
+ * The effective network's catalog: the same object until it changes, as useSyncExternalStore needs. Undefined while
+ * that network's floor is unread (pending), null when it has no catalog.
+ */
+export function getExploreCatalogSnapshot(): ExploreCatalog | null | undefined {
   return stateFor(getEffectiveNetworkName()).catalog;
 }
 

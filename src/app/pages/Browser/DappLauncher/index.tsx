@@ -55,10 +55,12 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
   const [recents, setRecents] = useState<RecentDapp[]>([]);
   const [filter, setFilter] = useState<ExploreFilter>('all');
   const published = useExploreCatalog();
+  // Pending for the one storage read before the network's floor is known: nothing is drawn, not even the empty state.
+  const pending = published === undefined;
   // The language the rest of the page renders in, so the document's text matches it.
   const locale = i18n.resolvedLanguage ?? 'en';
   const catalog = useMemo(
-    () => localizeExploreCatalog(getExploreCatalog(published), locale, t('recents')),
+    () => localizeExploreCatalog(getExploreCatalog(published ?? null), locale, t('recents')),
     [published, locale, t]
   );
   const [searchOpen, setSearchOpen] = useState(false);
@@ -190,15 +192,17 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
         style={{ overscrollBehavior: 'contain' }}
         data-testid="explore-launcher"
       >
-        <ExploreSections
-          sections={sections}
-          recents={recents}
-          empty={empty}
-          onOpen={onOpen}
-          reveal={reveal}
-          firstRevealIndex={FIRST_SECTION_REVEAL}
-          staggered={reveal && !settled}
-        />
+        {!pending && (
+          <ExploreSections
+            sections={sections}
+            recents={recents}
+            empty={empty}
+            onOpen={onOpen}
+            reveal={reveal}
+            firstRevealIndex={FIRST_SECTION_REVEAL}
+            staggered={reveal && !settled}
+          />
+        )}
       </motion.main>
     </>
   );
