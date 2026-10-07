@@ -130,8 +130,8 @@ describe('ReviewSwap', () => {
 
       const logos = screen.getAllByTestId('token-logo');
       expect(logos).toHaveLength(2);
-      expect(logos[0]).toHaveAttribute('data-symbol', 'MIDEN');
-      expect(logos[1]).toHaveAttribute('data-symbol', 'ETH');
+      expect(logos[0]).toHaveAttribute('data-symbol', 'IMIDEN');
+      expect(logos[1]).toHaveAttribute('data-symbol', 'IETH');
 
       // Captions come from the translated keys, as neutral Pills beside each Hero.
       expect(screen.getByText('youSend')).toBeInTheDocument();

@@ -174,8 +174,8 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // `logoSymbol` (not `symbol`) drives the logo, at the home asset row's 36px default size.
-    expect(logo).toHaveAttribute('data-symbol', 'ETH');
+    // The token's own symbol keys the logo, as on Home, at the home asset row's 36px default size.
+    expect(logo).toHaveAttribute('data-symbol', 'IETH');
     expect(logo).not.toHaveAttribute('data-size');
   });
 

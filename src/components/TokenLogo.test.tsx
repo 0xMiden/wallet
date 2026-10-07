@@ -223,4 +223,46 @@ describe('TokenLogo', () => {
       expect(getByTestId('badge')).toBeInTheDocument();
     });
   });
+
+  describe('fallback symbol', () => {
+    const LISTED = 'https://example.com/ieth.svg';
+
+    it("draws the list's logo ahead of the fallback's mark", () => {
+      mockLogo = LISTED;
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" fallbackSymbol="ETH" />);
+
+      expect(getImg(container).src).toBe(LISTED);
+      expect(getSvg(container)).toBeNull();
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith('0xieth');
+    });
+
+    it("draws the fallback's mark, not the default, once the list's logo fails, and retries it online", () => {
+      mockLogo = LISTED;
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" fallbackSymbol="ETH" />);
+      fireEvent.error(getImg(container));
+
+      expect(getImg(container)).toBeNull();
+      expect(getCircle(container)).toHaveClass('bg-pure-black');
+
+      act(() => {
+        window.dispatchEvent(new Event('online'));
+      });
+
+      expect(getImg(container).src).toBe(LISTED);
+    });
+
+    it("draws the fallback's mark when the list gives no logo", () => {
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" fallbackSymbol="ETH" />);
+
+      expect(getImg(container)).toBeNull();
+      expect(getCircle(container)).toHaveClass('bg-pure-black');
+      expect(getSvg(container)).toBeInTheDocument();
+    });
+
+    it('draws the default mark with no fallback and no listed logo, as before', () => {
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" />);
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+    });
+  });
 });

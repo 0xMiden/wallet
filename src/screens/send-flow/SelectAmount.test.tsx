@@ -41,8 +41,8 @@ jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({ symbol, fallbackSymbol, size }: { symbol: string; fallbackSymbol?: string; size?: string }) => (
+    <span data-testid="token-logo" data-symbol={symbol} data-fallback-symbol={fallbackSymbol} data-size={size} />
   )
 }));
 
@@ -408,7 +408,9 @@ describe('SelectAmount', () => {
 
     it('honors the logoSymbol override for the token logo', () => {
       renderComponent({ logoSymbol: 'PSWAP' });
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'PSWAP');
+      const logo = screen.getByTestId('token-logo');
+      expect(logo).toHaveAttribute('data-symbol', 'USDC');
+      expect(logo).toHaveAttribute('data-fallback-symbol', 'PSWAP');
     });
 
     it('renders "select a token" text and no logo when no token is selected (page variant)', () => {
