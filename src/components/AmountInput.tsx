@@ -199,14 +199,17 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         ) : (
           input(INLINE_INPUT_LAYOUT)
         )}
-        {showClear && (
+        {showClear ? (
           <ClearFieldButton
             onClear={() => clearFieldValue(inputRef.current)}
             // Centred, the button is the group's last item: one 44px slot, so a long amount scrolls
             // inside the (min-w-0) input rather than running under it.
             className={centered ? 'self-center' : '-mr-3 ml-1 self-center'}
           />
-        )}
+        ) : centered && value && !loading ? (
+          // Holds the button's slot while the field is disabled, so the centred amount does not move.
+          <span aria-hidden="true" className="pointer-events-none h-11 w-11 shrink-0 self-center" />
+        ) : null}
       </div>
 
       {error ? (

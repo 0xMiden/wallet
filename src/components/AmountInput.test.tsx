@@ -435,7 +435,6 @@ describe('AmountInput', () => {
       expect(clear.parentElement).toBe(row);
       expect(amount.nextElementSibling).toBe(clear);
       expect(row).toHaveClass('justify-center');
-      expect(row).not.toHaveClass('px-11');
       expect(clear).toHaveClass('shrink-0', 'self-center');
       expect(clear).not.toHaveClass('absolute');
       // A value too long for the row scrolls inside the input instead of overflowing it.
@@ -443,7 +442,22 @@ describe('AmountInput', () => {
 
       rerender(<AmountInput align="center" prefix="$" value="" data-testid={TESTID} />);
       expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
-      expect(row).not.toHaveClass('px-11');
+      expect(row.querySelector('[aria-hidden="true"].h-11')).toBeNull();
+    });
+
+    it('holds the clear slot with an invisible spacer while a centred field with a value is disabled', () => {
+      const { container, rerender } = render(<AmountInput align="center" value="25" disabled data-testid={TESTID} />);
+      const amount = getInput().parentElement!;
+      const spacer = amount.nextElementSibling as HTMLElement;
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+      expect(spacer).toHaveAttribute('aria-hidden', 'true');
+      expect(spacer).toHaveClass('h-11', 'w-11', 'shrink-0');
+
+      rerender(<AmountInput align="center" value="" disabled data-testid={TESTID} />);
+      expect(container.querySelector('.h-11.w-11')).toBeNull();
+
+      rerender(<AmountInput value="25" disabled data-testid={TESTID} />);
+      expect(container.querySelector('.h-11.w-11')).toBeNull();
     });
   });
 
