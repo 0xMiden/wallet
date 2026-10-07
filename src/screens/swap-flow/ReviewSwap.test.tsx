@@ -165,6 +165,23 @@ describe('ReviewSwap', () => {
       expect(screen.getAllByTestId('token-logo')[1]).toHaveAttribute('data-symbol', 'IETH');
     });
 
+    it.each([
+      ['receive', { requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId } }],
+      ['send', { offerToken: { ...OFFER_TOKEN, faucetId: TOKEN_IETH.faucetId, symbol: 'IETH' } }]
+    ])('puts one (i) on testnet iETH when it is the %s side (#477)', (_side, overrides) => {
+      renderComponent(overrides);
+
+      const buttons = screen.getAllByTestId('swap-token-info-button');
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0]).toHaveAttribute('aria-label', 'tokenInfoLabel_Test iETH');
+    });
+
+    it('puts no (i) on a pair without iETH', () => {
+      renderComponent();
+
+      expect(screen.queryByTestId('swap-token-info-button')).not.toBeInTheDocument();
+    });
+
     it('renders the swap-arrows glyph (an svg) between the two amounts', () => {
       const { container } = renderComponent();
       expect(container.querySelector('svg')).not.toBeNull();

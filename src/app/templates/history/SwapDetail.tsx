@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { Status, StatusBadge } from 'components/ui/StatusBadge';
@@ -319,11 +320,13 @@ export const SwapDetail: FC<SwapDetailProps> = ({
           >
             <span className="truncate">{formattedOffered}</span>
             {entry.token && <span className="text-text-secondary-token">{entry.token}</span>}
+            {entry.token && <SwapTokenInfoButton faucetId={entry.faucetId} label={entry.token} />}
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-tx-swap text-text-on-accent">
               <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
             </span>
             <span className="truncate">{formattedRequested}</span>
             {requestedSymbol && <span className="text-text-secondary-token">{requestedSymbol}</span>}
+            {requestedSymbol && <SwapTokenInfoButton faucetId={requestedFaucetId} label={requestedSymbol} />}
           </div>
 
           {approximateUsdAmount && (

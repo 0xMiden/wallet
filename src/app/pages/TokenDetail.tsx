@@ -32,6 +32,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { swapTokenInfo } from 'lib/miden/swap/token-info';
 import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -406,7 +407,9 @@ function tokenDetailsValues(metadata: AssetMetadata | undefined): TokenDetailsVa
 const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const { t } = useTranslation();
   const network = useNetwork();
-  const description = metadata?.description;
+  // Testnet iETH is a test asset, not ETH: the wallet says so itself instead of trusting its faucet's words.
+  const info = swapTokenInfo(tokenId);
+  const description = info ? t(info.descriptionKey) : metadata?.description;
   const nativeFaucetId = useMidenFaucetId();
   // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.
   const canEdit =
@@ -465,8 +468,9 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard surface="outline">
-        {/* The faucet's own words about the token. It comes first because it describes the token;
-            the rows after it are identifiers. The text can be long, so it wraps under the label.
+        {/* What the token is: the faucet's own words, or the wallet's for testnet iETH. It comes first
+            because it describes the token; the rows after it are identifiers. The text can be long,
+            so it wraps under the label.
             A stacked row breaks inside words, which suits an address but not prose. The span breaks
             at spaces and breaks a word only when the word is wider than the card. */}
         {description && (

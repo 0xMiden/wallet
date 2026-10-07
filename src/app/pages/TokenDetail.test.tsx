@@ -47,8 +47,17 @@ jest.mock('lib/remote-config/runtime', () =>
     .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
     .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
 );
+// The build's network unless a case names another.
+let mockTestNetworkKey: 'devnet' | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey() };
+});
 afterEach(() => {
   mockBridgeSnapshot = undefined;
+  mockTestNetworkKey = undefined;
 });
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -1030,7 +1039,7 @@ describe('TokenDetail', () => {
 
     it("shows the faucet's description first, stacked under its label", () => {
       const description = 'A bridged stablecoin that the Miden faucet mints one to one against USDC.';
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] }, PLAIN_ID);
 
       const info = screen.getByTestId('token-detail-info');
       const row = within(info).getByTestId('token-detail-description');
@@ -1043,7 +1052,10 @@ describe('TokenDetail', () => {
     });
 
     it('reads the description from the base metadata when the balances do not list the token', () => {
-      renderPage({ balances: [], metadata: { [TOKEN_ID]: { symbol: 'ETH', description: 'From the faucet.' } } });
+      renderPage(
+        { balances: [], metadata: { [PLAIN_ID]: { symbol: 'ETH', description: 'From the faucet.' } } },
+        PLAIN_ID
+      );
 
       expect(screen.getByTestId('token-detail-description')).toHaveTextContent('From the faucet.');
     });
@@ -1052,11 +1064,36 @@ describe('TokenDetail', () => {
       ['undefined', undefined],
       ['empty', '']
     ])('shows no description row when the description is %s', (_case, description) => {
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] }, PLAIN_ID);
 
       expect(screen.getByTestId('token-detail-contract')).toBeInTheDocument();
       expect(screen.queryByTestId('token-detail-description')).not.toBeInTheDocument();
       expect(screen.queryByText('tokenDescription')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['another', 'From the faucet.'],
+      ['no', undefined]
+    ])(
+      "describes testnet iETH in the wallet's words when the faucet carries %s description (#477)",
+      (_case, description) => {
+        renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'IETH', description } }] });
+
+        const row = screen.getByTestId('token-detail-description');
+        expect(row).toHaveTextContent('testIethDescription');
+        expect(row).not.toHaveTextContent('From the faucet.');
+      }
+    );
+
+    it("shows the faucet's own description for iETH off testnet", () => {
+      mockTestNetworkKey = 'devnet';
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'IETH', description: 'From the faucet.' } }]
+      });
+
+      const row = screen.getByTestId('token-detail-description');
+      expect(row).toHaveTextContent('From the faucet.');
+      expect(row).not.toHaveTextContent('testIethDescription');
     });
   });
 

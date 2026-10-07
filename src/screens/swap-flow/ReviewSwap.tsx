@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
+import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
@@ -200,7 +201,12 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
-        value={`${offerAmount} ${offerLabel}`}
+        value={
+          <span className="inline-flex items-center gap-1">
+            {`${offerAmount} ${offerLabel}`}
+            <SwapTokenInfoButton faucetId={offerToken.faucetId} label={offerLabel} />
+          </span>
+        }
       />
 
       <div className="my-4 flex w-full items-center gap-3">
@@ -220,7 +226,12 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
-        value={`${requestAmount} ${requestLabel}`}
+        value={
+          <span className="inline-flex items-center gap-1">
+            {`${requestAmount} ${requestLabel}`}
+            <SwapTokenInfoButton faucetId={requestToken.faucetId} label={requestLabel} />
+          </span>
+        }
       />
     </div>
   );
