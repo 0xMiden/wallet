@@ -74,3 +74,23 @@ it('ignores a list loaded for another network until the new network loads', asyn
   rerender({ id: 'mtst1aaa' });
   expect(result.current).toBeUndefined();
 });
+
+it('renders nothing when an update notice reloads equal logos, and the new logo when they differ', async () => {
+  mockLoad.mockResolvedValue(new Map([['mtst1aaa', 'https://x/a.png']]));
+  let renders = 0;
+  const { result } = renderHook(() => {
+    renders += 1;
+    return useTokenLogoUri('mtst1aaa');
+  });
+  await waitFor(() => expect(result.current).toBe('https://x/a.png'));
+  const rendersBefore = renders;
+
+  mockLoad.mockResolvedValue(new Map([['mtst1aaa', 'https://x/a.png']]));
+  await act(async () => mockUpdated?.('testnet'));
+  expect(mockLoad).toHaveBeenCalledTimes(2);
+  expect(renders).toBe(rendersBefore);
+
+  mockLoad.mockResolvedValue(new Map([['mtst1aaa', 'https://x/b.png']]));
+  await act(async () => mockUpdated?.('testnet'));
+  expect(result.current).toBe('https://x/b.png');
+});

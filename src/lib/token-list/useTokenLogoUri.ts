@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-
 import { normalizedFaucetId } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
-import { loadTokenLogos, onTokenListUpdated } from './runtime';
+import { loadTokenLogos } from './runtime';
+import { useLoadedList } from './useLoadedList';
 
-type LoadedLogos = { network: string; logos: Map<string, string> | null };
+const sameLogos = (a: Map<string, string> | null, b: Map<string, string> | null): boolean =>
+  a === b || (a !== null && b !== null && a.size === b.size && Array.from(a).every(([id, uri]) => b.get(id) === uri));
 
 /**
  * The logo the verified list gives `faucetId` on the wallet's network, or `undefined` while the list
@@ -14,28 +14,7 @@ type LoadedLogos = { network: string; logos: Map<string, string> | null };
  */
 export function useTokenLogoUri(faucetId?: string): string | undefined {
   const network = getEffectiveNetworkName();
-  const [loaded, setLoaded] = useState<LoadedLogos | null>(null);
-  const wanted = faucetId !== undefined;
-
-  useEffect(() => {
-    if (!wanted) return undefined;
-    let current = true;
-    const load = () =>
-      loadTokenLogos(network).then(logos => {
-        if (current) setLoaded({ network, logos });
-      });
-    void load();
-    const unsubscribe = onTokenListUpdated(updated => {
-      if (updated === network) void load();
-    });
-    return () => {
-      current = false;
-      unsubscribe();
-    };
-  }, [network, wanted]);
-
-  // A list loaded for another network says nothing about this one.
-  const logos = faucetId !== undefined && loaded?.network === network ? loaded.logos : null;
+  const logos = useLoadedList(network, faucetId === undefined ? null : loadTokenLogos, sameLogos);
   if (!logos || faucetId === undefined) return undefined;
   const id = normalizedFaucetId(faucetId);
   for (const [listed, uri] of logos) if (normalizedFaucetId(listed) === id) return uri;
