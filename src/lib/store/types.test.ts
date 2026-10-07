@@ -102,7 +102,8 @@ describe('lib/store/types', () => {
       const slice: BalancesSlice = {
         balances: { addr: [] },
         balancesLoading: { addr: true },
-        balancesLastFetched: { addr: 1234 }
+        balancesLastFetched: { addr: 1234 },
+        balancesDisplayFaucetId: { addr: 'faucet' }
       };
       expect(slice.balances.addr).toEqual([]);
       expect(slice.balancesLoading.addr).toBe(true);

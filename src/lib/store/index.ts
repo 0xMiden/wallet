@@ -112,6 +112,7 @@ function shownMetadata(
  * Applies `overrides` to the store entries and the balance rows of `faucetIds`.
  * A row's balance was divided by `10 ** row.metadata.decimals`, so a change of decimals shifts it
  * by the difference. Home then shows the new scale at once, with no new read.
+ * The native token's rows and each account's display row (`balancesDisplayFaucetId`) keep the reader's build.
  */
 function withOverrides(
   state: WalletStore,
@@ -131,7 +132,7 @@ function withOverrides(
       Object.entries(balances).map(([account, rows]) => [
         account,
         rows.map(row =>
-          row.tokenId === faucetId
+          row.tokenId === faucetId && faucetId !== state.balancesDisplayFaucetId[account]
             ? {
                 ...row,
                 metadata: rowMetadata,
@@ -149,10 +150,10 @@ function withOverrides(
 
 /**
  * Lands an account's balance rows with the overrides current now: a read that began before a save or
- * a reset built its rows from the overrides it read then. The native row and the `midenFaucetId`
- * display row stay as the reader built them: it applies no override to either, and the display row
- * can name a legacy faucet whose own record is not what the row shows. So does a row of a faucet the
- * store has neither a record nor an override for, which it could only replace with the placeholder.
+ * a reset built its rows from the overrides it read then. It records the account's `midenFaucetId`
+ * first, so `withOverrides` leaves that display row as the reader built it, as it does the native
+ * row. A row of a faucet the store has neither a record nor an override for also stays as built:
+ * the store could only replace it with the placeholder.
  */
 export function withLandedBalances(
   state: WalletStore,
@@ -161,16 +162,23 @@ export function withLandedBalances(
   midenFaucetId: string | null
 ): Pick<
   WalletStore,
-  'tokenMetadataOverrides' | 'assetsMetadata' | 'balances' | 'balancesLoading' | 'balancesLastFetched'
+  | 'tokenMetadataOverrides'
+  | 'assetsMetadata'
+  | 'balances'
+  | 'balancesDisplayFaucetId'
+  | 'balancesLoading'
+  | 'balancesLastFetched'
 > {
-  const landed = { ...state, balances: { ...state.balances, [accountAddress]: rows } };
-  // `withOverrides` skips the native token itself.
+  const balancesDisplayFaucetId = { ...state.balancesDisplayFaucetId };
+  if (midenFaucetId === null) delete balancesDisplayFaucetId[accountAddress];
+  else balancesDisplayFaucetId[accountAddress] = midenFaucetId;
+  const landed = { ...state, balances: { ...state.balances, [accountAddress]: rows }, balancesDisplayFaucetId };
   const faucetIds = rows
     .map(row => row.tokenId)
-    .filter(id => id !== midenFaucetId)
     .filter(id => state.tokenMetadataOverrides[id] !== undefined || faucetMetadataFor(state, id) !== undefined);
   return {
     ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
+    balancesDisplayFaucetId,
     balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
     balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
   };
@@ -237,6 +245,7 @@ export const useWalletStore = create<WalletStore>()(
     balances: {},
     balancesLoading: {},
     balancesLastFetched: {},
+    balancesDisplayFaucetId: {},
 
     // Initial assets state
     assetsMetadata: {},

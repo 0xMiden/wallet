@@ -49,6 +49,11 @@ export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
+  /**
+   * The display faucet id each account's last landed read built its MIDEN row for. No override
+   * rewrites that row: the reader built it as the native token's, not from that faucet's record.
+   */
+  balancesDisplayFaucetId: Record<string, string>;
 }
 
 /**

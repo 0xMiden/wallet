@@ -38,7 +38,7 @@ jest.mock('./utils/fetchBalances', () => {
   };
 });
 
-let mockFaucetIdSetting: string | undefined;
+let mockFaucetIdSetting: string | null | undefined;
 jest.mock('lib/miden/assets/faucet-id-setting', () => {
   const actual = jest.requireActual<typeof FaucetIdSettingModule>('lib/miden/assets/faucet-id-setting');
   return {
@@ -729,6 +729,98 @@ describe('useWalletStore', () => {
         const rows = useWalletStore.getState().balances['account-1']!;
         expect(rows[0]).toMatchObject({ tokenSlug: display.symbol, balance: 5, metadata: display });
         expect(rows[1]).toMatchObject({ tokenSlug: 'FCT', balance: 1.5, metadata: faucetMetadata });
+      });
+    });
+
+    describe("the display row of the faucet-id setting's legacy faucet", () => {
+      const LEGACY = 'mtst1legacy';
+      const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
+      const override = { name: 'Mine', symbol: 'MINE' };
+      // The read built the display row before the legacy record reached it: the native display metadata.
+      const display = getNativeDisplayMetadataSync(undefined, LEGACY);
+      let landRead: (rows: unknown[]) => void = () => {};
+      const land = async (account: string, rows: unknown[]) => {
+        const read = useWalletStore.getState().fetchBalances(account, {});
+        landRead(rows);
+        await read;
+      };
+      const displayRow = (account: string) =>
+        useWalletStore.getState().balances[account]!.find(entry => entry.tokenId === LEGACY)!;
+      const expectAsBuilt = (account: string) => {
+        expect(displayRow(account).tokenSlug).toBe(display.symbol);
+        expect(displayRow(account)).toMatchObject({ balance: 5, metadata: display });
+      };
+
+      beforeEach(() => {
+        useWalletStore.setState({ balancesDisplayFaucetId: {} });
+        mockHeldBalanceRead = () =>
+          new Promise(resolve => {
+            landRead = resolve;
+          });
+        mockFaucetIdSetting = LEGACY;
+        useWalletStore.getState().setAssetsMetadata({ [LEGACY]: legacyRecord });
+      });
+
+      afterEach(() => {
+        mockHeldBalanceRead = null;
+        mockFaucetIdSetting = undefined;
+      });
+
+      it("keeps the reader's build when the hydrate brings an override for that faucet", async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().assetsMetadata[LEGACY]).toEqual({ ...legacyRecord, ...override });
+      });
+
+      it("keeps the reader's build when the user saves an override for that faucet", async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+
+        await useWalletStore.getState().setTokenMetadataOverride(LEGACY, override);
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().assetsMetadata[LEGACY]).toEqual({ ...legacyRecord, ...override });
+      });
+
+      it("keeps the reader's build when the user clears the override of that faucet", async () => {
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+        await land('account-1', [row(LEGACY, 5, display)]);
+
+        await useWalletStore.getState().clearTokenMetadataOverride(LEGACY);
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().assetsMetadata[LEGACY]).toEqual(legacyRecord);
+      });
+
+      it('exempts no row before any read has landed', () => {
+        useWalletStore.setState({ balances: { 'account-1': [row(LEGACY, 5, display)] } });
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expect(displayRow('account-1').tokenSlug).toBe('MINE');
+      });
+
+      it('still applies the override to the row of an account whose read used no display faucet', async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+        mockFaucetIdSetting = null;
+        await land('account-2', [row(LEGACY, 1.25, legacyRecord)]);
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expect(displayRow('account-2').tokenSlug).toBe('MINE');
+        expect(displayRow('account-2')).toMatchObject({ balance: 1.25, metadata: { ...legacyRecord, ...override } });
+      });
+
+      it('lifts the exemption when a later read of that account used no display faucet', async () => {
+        await land('account-1', [row(LEGACY, 5, display)]);
+        mockFaucetIdSetting = null;
+        await land('account-1', [row(LEGACY, 1.25, legacyRecord)]);
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expect(displayRow('account-1').tokenSlug).toBe('MINE');
       });
     });
 
