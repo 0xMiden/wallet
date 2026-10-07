@@ -370,7 +370,8 @@ describe('SelectRecipient: clear (#503)', () => {
     expect(clear.parentElement).toBe(field.parentElement);
     expect(field).toHaveClass('min-w-0', 'flex-1');
     expect(field).not.toHaveClass('w-full');
-    expect(clear).toHaveClass('-my-2', '-mr-3');
+    expect(clear).toHaveClass('-my-2');
+    expect(clear).not.toHaveClass('-mr-3');
   });
 });
 

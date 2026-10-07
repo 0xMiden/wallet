@@ -423,7 +423,8 @@ describe('AmountInput', () => {
       const clear = screen.getByRole('button', { name: 'clear' });
       expect(getInput()).toHaveClass('w-full', 'min-w-0');
       expect(clear.parentElement).toBe(getInput().parentElement);
-      expect(clear).toHaveClass('-mr-3', 'ml-1', 'self-center');
+      expect(clear).toHaveClass('ml-1', 'self-center');
+      expect(clear).not.toHaveClass('-mr-3');
       expect(clear).not.toHaveClass('absolute');
     });
 

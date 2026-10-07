@@ -191,8 +191,8 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           {address !== '' && (
             <ClearFieldButton
               onClear={() => clearFieldValue(textareaRef.current)}
-              // -my-2 keeps the 44px target inside the 28px line; -mr-3 puts the glyph on the margin.
-              className="-my-2 -mr-3 ml-1"
+              // -my-2 keeps the 44px target inside the 28px line; a negative right margin would bleed past the pane gutter.
+              className="-my-2 ml-1"
             />
           )}
         </div>
