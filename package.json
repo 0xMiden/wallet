@@ -66,6 +66,7 @@
     "ts": "tsc --pretty",
     "lint": "eslint src --max-warnings 0",
     "check:prover-pin": "node scripts/check-native-prover-pin.mjs",
+    "check:published-snapshots": "node scripts/check-published-snapshots.mjs",
     "check:update-manifest": "node scripts/validate-update-manifest.mjs",
     "store-listing:copy": "node scripts/store-listing/compose-copy.mjs",
     "store-listing:assets": "node scripts/store-listing/build-assets.mjs",
