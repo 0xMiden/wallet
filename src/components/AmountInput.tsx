@@ -9,15 +9,16 @@ import { Skeleton } from 'components/ui/Skeleton';
 
 /**
  * Scale the amount text down as the entered value grows, to avoid overflow
- * on narrow mobile screens. Tuned so a short value renders ~text-6xl and a
- * long one (16 chars max) settles at text-3xl.
+ * on narrow mobile screens: a short value renders at 4rem and a long one
+ * (16 chars max) settles at text-3xl. The only size an amount takes: a fixed
+ * size beside it would win, since Tailwind emits an arbitrary size after text-3xl.
  */
 export function amountTextSize(value?: string): string {
   const len = value?.length || 4;
   if (len >= 13) return 'text-3xl';
   if (len >= 10) return 'text-4xl';
   if (len >= 7) return 'text-5xl';
-  return 'text-6xl';
+  return 'text-[4rem]';
 }
 
 /**
@@ -123,7 +124,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
-  const amountClasses = classNames(amountFigureClassName(value), 'text-[4rem]', centered ? 'text-center' : 'text-left');
+  const amountClasses = classNames(amountFigureClassName(value), centered ? 'text-center' : 'text-left');
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
   const input = (layoutClassName: string) => (
@@ -164,7 +165,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
           'flex cursor-text mt-3',
-          centered ? classNames('items-start justify-center text-[4rem]', amountTextSize(value)) : 'items-baseline'
+          centered ? classNames('items-start justify-center', amountTextSize(value)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
