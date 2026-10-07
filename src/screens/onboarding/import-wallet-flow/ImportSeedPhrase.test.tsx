@@ -108,6 +108,12 @@ beforeEach(() => {
 
 describe('ImportSeedPhraseScreen', () => {
   describe('rendering', () => {
+    it('keeps the clear action off every word field: a seed word is key material (#503)', () => {
+      setup();
+      expect(mockInputProps).toHaveLength(12);
+      mockInputProps.forEach(props => expect(props.clearable).toBe(false));
+    });
+
     it('renders the headings, 12 prefixed inputs and a disabled continue button by default', () => {
       const { container } = setup();
 

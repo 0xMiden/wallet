@@ -23,6 +23,7 @@ import { Button, ButtonVariant } from './Button';
 import { Card, CardButton } from './Card';
 import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
+import { ClearFieldButton } from './ClearFieldButton';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
@@ -106,6 +107,7 @@ describe('components/ui barrel', () => {
     TabHeaderAction,
     TabRootHeader,
     SearchInput,
+    ClearFieldButton,
     Sparkline,
     ActivityRow,
     EmptyState,
