@@ -7,6 +7,7 @@
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
 - [FIX][extension] Drop the placeholder `Buffer` that every extension page installed before its entry, whose `from()` turned any string into an empty array and so stayed in place of the real polyfill: the WalletConnect relay token was encoded from zero bytes and the relay closed every socket with "JWT validation error", so no pairing QR could render. Receive's Cross-chain tile, hidden on the extension for that reason, is now drawn there too.
 - [FIX][ui] Text, amount and recipient fields offer a Clear (x) button while they hold a value (not on passwords, key material or a field with its own trailing action), search, text and recipient field placeholders hide while the field is focused, and the explorer and faucet WebView headers follow the app's theme instead of the phone's appearance (#503).
+- [FIX][all] On testnet the bridge's own USDC, on Sepolia and on Miden, reads "Test Epoch USDC" in the bridge token picker, deposit and send-to-EVM screens, Home rows and the token page, the send token picker, transaction summaries and Activity, so it is no longer mistaken for Circle's Sepolia USDC, and the send-to-EVM review's Slow route now names the token it sends in its "you receive" line instead of USDC (#1247, #1356).
 
 ### Changes
 

@@ -562,6 +562,17 @@ describe('SelectAmount', () => {
       expect(() => fireEvent.click(networkRow())).not.toThrow();
     });
 
+    it.each([true, false])(
+      'names the token by its label in the selector and the Available line, logo on its symbol (bridge: %s)',
+      isBridge => {
+        renderComponent({ isBridge, network: sepolia, tokenLabel: 'Test Epoch USDC' });
+
+        expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('Test Epoch USDC');
+        expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 Test Epoch USDC');
+        expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+      }
+    );
+
     it('shows the "$" placeholder while no token is chosen', () => {
       renderComponent({ isBridge: true, token: undefined, network: sepolia });
 

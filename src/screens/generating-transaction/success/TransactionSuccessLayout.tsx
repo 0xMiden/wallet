@@ -13,6 +13,8 @@ import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
@@ -93,10 +95,15 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
   const nativeFaucetId = useMidenFaucetId();
 
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+
   const tokenMetadata = resolveDisplayMetadata(transaction?.faucetId, assetsMetadata, nativeFaucetId);
   const tokenSymbol = tokenMetadata.symbol;
+  const tokenLabel = midenTokenLabel(bridgeConfig, transaction?.faucetId, tokenSymbol);
   const consumeParts =
-    transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId) : [];
+    transaction?.type === 'consume'
+      ? formatConsumeAssetParts(bridgeConfig, transaction, assetsMetadata, nativeFaucetId)
+      : [];
   // Same rule as the in-progress badge this receipt replaces: a faucet whose
   // decimals were never resolved has no honest scale, so the asset is named
   // without a quantity instead of being shown at the placeholder's guess.
@@ -104,8 +111,7 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
     transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
       ? formatAmount(transaction.amount, tokenMetadata.decimals)
       : undefined;
-  const amountText =
-    consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
+  const amountText = consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenLabel}` : undefined;
 
   const feeText = useReceiptFeeText(transaction);
 

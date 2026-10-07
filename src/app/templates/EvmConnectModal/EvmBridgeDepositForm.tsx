@@ -4,8 +4,6 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectEvmUsdc } from 'lib/remote-config/values';
 import { DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
@@ -14,6 +12,10 @@ import { EvmWalletHeader } from './EvmWalletHeader';
 
 interface EvmBridgeDepositFormProps {
   token: UIToken;
+  /** The token's name, such as the testnet label (`evmUsdcLabel`). */
+  tokenLabel: string;
+  /** What the deposit arrives on Miden as on the route chosen (`arrivingTokenName`), as the Review names it. */
+  arrivingName: string;
   amount: string;
   isValidAmount: boolean;
   error?: string;
@@ -29,6 +31,8 @@ interface EvmBridgeDepositFormProps {
 
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
+  tokenLabel,
+  arrivingName,
   amount,
   isValidAmount,
   error,
@@ -39,18 +43,18 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   onContinue
 }) => {
   const { t } = useTranslation();
-  const outputSymbol = selectEvmUsdc(useBridgeConfigSnapshot())?.symbol ?? '';
   const title = <EvmWalletHeader address={evmAddress} onSwitch={onSwitch} />;
 
   return (
     <SelectAmount
       token={token}
+      tokenLabel={tokenLabel}
       amount={amount}
       isValidAmount={isValidAmount}
       error={error}
       isBridge
       network={DEFAULT_BRIDGE_NETWORK}
-      outputSymbol={outputSymbol}
+      outputSymbol={arrivingName}
       title={title}
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}

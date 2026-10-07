@@ -2,8 +2,13 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
@@ -35,6 +40,13 @@ let mockRecovery: GuardianNoteRecoveryProgress | null = null;
 let mockRecoveryPending: boolean | undefined = true;
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 jest.mock('lib/wallet-prompts', () => ({
   ...jest.requireActual('lib/wallet-prompts'),
   useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
@@ -167,6 +179,7 @@ beforeEach(() => {
   mockRecoveryPending = true;
   mockHidden.ids = new Set();
   mockHistoryRenders.length = 0;
+  mockBridgeSnapshot = undefined;
   mockConfirm.mockResolvedValue(true);
 });
 
@@ -586,4 +599,27 @@ it('draws each pending transfer as an outlined card on the page', () => {
   expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'overflow-hidden');
   expect(card).not.toHaveClass('bg-fill');
   expect(card).not.toHaveClass('bg-white');
+});
+
+describe('a search for the name a transfer is shown under', () => {
+  const listedIds = () =>
+    Array.from(screen.getByTestId('timeline').querySelectorAll('[data-pending-note-id]')).map(el =>
+      el.getAttribute('data-pending-note-id')
+    );
+
+  it('keeps the card of the bridged USDC faucet when the label is searched', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+
+  it('keeps the card once the bridge config lands after the search is typed', () => {
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual([]);
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
 });
