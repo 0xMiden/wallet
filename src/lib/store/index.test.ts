@@ -26,7 +26,7 @@ import type * as FetchBalancesModule from './utils/fetchBalances';
 
 // A balance read a case holds open. Every other case reads through the real module, which is
 // reached lazily: the module is part of an import cycle, so its exports are not ready at mock time.
-let mockHeldBalanceRead: (() => Promise<unknown>) | null = null;
+let mockHeldBalanceRead: ((options?: FetchBalancesModule.FetchBalancesOptions) => Promise<unknown>) | null = null;
 jest.mock('./utils/fetchBalances', () => {
   const actual = jest.requireActual<typeof FetchBalancesModule>('./utils/fetchBalances');
   return {
@@ -34,7 +34,7 @@ jest.mock('./utils/fetchBalances', () => {
       return actual.fetchingAddresses;
     },
     fetchBalances: (...args: Parameters<typeof actual.fetchBalances>) =>
-      mockHeldBalanceRead ? mockHeldBalanceRead() : actual.fetchBalances(...args)
+      mockHeldBalanceRead ? mockHeldBalanceRead(args[2]) : actual.fetchBalances(...args)
   };
 });
 
@@ -715,6 +715,32 @@ describe('useWalletStore', () => {
         expect(landed.balance).toBe(15);
         expect(landed.metadata).toMatchObject({ symbol: 'NEW', decimals: 4 });
         expect(useWalletStore.getState().balancesLoading['account-1']).toBe(false);
+      });
+
+      it('shows the placeholder for an unresolved faucet whose override was cleared while it was in flight', async () => {
+        const UNRESOLVED = 'mtst1unresolved';
+        const stated = { name: 'Mine', symbol: 'MN', decimals: 3 };
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [UNRESOLVED]: stated });
+        let readOptions: FetchBalancesModule.FetchBalancesOptions | undefined;
+        mockHeldBalanceRead = options => {
+          readOptions = options;
+          return new Promise(resolve => {
+            landRead = resolve;
+          });
+        };
+        const read = useWalletStore.getState().fetchBalances('account-1', useWalletStore.getState().assetsMetadata);
+
+        await useWalletStore.getState().clearTokenMetadataOverride(UNRESOLVED);
+        // As the reader does when its storage read returned the override: 2000 base units at the stated 3.
+        readOptions?.onOverrideApplied?.(UNRESOLVED);
+        const builtWith = { ...DEFAULT_TOKEN_METADATA, ...stated, scaleIsUnknown: false, scaleFromOverride: true };
+        landRead([row(UNRESOLVED, 2, builtWith)]);
+        await read;
+
+        const landed = useWalletStore.getState().balances['account-1']![0]!;
+        expect(landed.tokenSlug).toBe('Unknown');
+        expect(landed.metadata).toEqual(DEFAULT_TOKEN_METADATA);
+        expect(landed.balance).toBe(0.002);
       });
 
       it('leaves the display row of a legacy faucet setting as the read built it', async () => {

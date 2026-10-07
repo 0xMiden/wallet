@@ -502,6 +502,30 @@ describe('fetchBalances', () => {
       });
     });
 
+    it('reports each faucet whose row it built with an override, and only those', async () => {
+      const onOverrideApplied = jest.fn();
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-custom-faucet': { name: 'Mine', symbol: 'MN' },
+        'miden-faucet-id': { name: 'Fake', symbol: 'FAKE' }
+      });
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [
+            { faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '100000000' }) },
+            { faucetId: () => 'plain-faucet', amount: () => ({ toString: () => '100000000' }) }
+          ]
+        })
+      });
+
+      await fetchBalances(
+        'my-address',
+        { 'bech32-custom-faucet': customMetadata, 'bech32-plain-faucet': customMetadata },
+        { onOverrideApplied }
+      );
+
+      expect(onOverrideApplied.mock.calls).toEqual([['bech32-custom-faucet']]);
+    });
+
     it('reads the balances without overrides when the overrides cannot be read', async () => {
       mockGetTokenMetadataOverrides.mockRejectedValue(new Error('storage unavailable'));
       mockGetAccount.mockResolvedValueOnce({

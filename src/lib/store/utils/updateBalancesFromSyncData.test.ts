@@ -108,6 +108,20 @@ describe('updateBalancesFromSyncData', () => {
       });
     });
 
+    it('shows the placeholder for an unresolved faucet whose override the store no longer holds', async () => {
+      // The sync's storage read still returned the override; the store has already dropped it.
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bare-faucet': { name: 'Mine', symbol: 'MN', decimals: 3 } });
+
+      await updateBalancesFromSyncData('account-1', [{ faucetId: 'bare-faucet', amountBaseUnits: '2000' }]);
+
+      const landed = useWalletStore.getState().balances['account-1']!.find(b => b.tokenId === 'bare-faucet')!;
+      expect(landed.tokenSlug).toBe('Unknown');
+      expect(landed).toMatchObject({
+        balance: 0.002,
+        metadata: { symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
+      });
+    });
+
     it("shows the store's override when the storage read had not seen it yet", async () => {
       // Saved in the store; its storage write has not landed, so the sync's read returns none.
       useWalletStore.getState().hydrateTokenMetadataOverrides({ 'fresh-faucet': { name: 'Mine', symbol: 'MN' } });

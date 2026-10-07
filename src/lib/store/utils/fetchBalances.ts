@@ -14,7 +14,12 @@ import {
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
-import { applyOverrideFor, getTokenMetadataOverrides, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
+import {
+  applyOverrideFor,
+  getTokenMetadataOverrides,
+  overrideFor,
+  TokenMetadataOverrides
+} from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
@@ -45,6 +50,8 @@ export interface FetchBalancesOptions {
    * metadata fetch. The store passes its accessor; without it, `tokenMetadatas` are taken as the records.
    */
   faucetMetadataOf?: (faucetId: string) => AssetMetadata | undefined;
+  /** Called for each faucet whose row this read built with an override, so the landing can apply the current one */
+  onOverrideApplied?: (faucetId: string) => void;
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
   /**
@@ -182,6 +189,7 @@ export async function fetchBalances(
   const {
     setAssetsMetadata,
     faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
+    onOverrideApplied,
     tokenPrices = {},
     waitForLock = false
   } = options;
@@ -387,6 +395,7 @@ export async function fetchBalances(
         : isMiden
           ? nativeMetadata
           : applyOverrideFor(tokenId, localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA, overrides);
+    if (tokenId !== actualNativeId && !isMiden && overrideFor(overrides, tokenId)) onOverrideApplied?.(tokenId);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
 

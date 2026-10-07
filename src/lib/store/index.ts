@@ -152,14 +152,16 @@ function withOverrides(
  * Lands an account's balance rows with the overrides current now: a read that began before a save or
  * a reset built its rows from the overrides it read then. It records the account's `midenFaucetId`
  * first, so `withOverrides` leaves that display row as the reader built it, as it does the native
- * row. A row of a faucet the store has neither a record nor an override for also stays as built:
- * the store could only replace it with the placeholder.
+ * row. It re-applies every faucet the read built a row with an override for (`overriddenFaucetIds`),
+ * so a reset in flight still lands, and every faucet the store holds a record or an override for.
+ * Any other row stays as built: the store could only replace it with the placeholder.
  */
 export function withLandedBalances(
   state: WalletStore,
   accountAddress: string,
   rows: WalletStore['balances'][string],
-  midenFaucetId: string | null
+  midenFaucetId: string | null,
+  overriddenFaucetIds: ReadonlySet<string>
 ): Pick<
   WalletStore,
   | 'tokenMetadataOverrides'
@@ -175,7 +177,12 @@ export function withLandedBalances(
   const landed = { ...state, balances: { ...state.balances, [accountAddress]: rows }, balancesDisplayFaucetId };
   const faucetIds = rows
     .map(row => row.tokenId)
-    .filter(id => state.tokenMetadataOverrides[id] !== undefined || faucetMetadataFor(state, id) !== undefined);
+    .filter(
+      id =>
+        overriddenFaucetIds.has(id) ||
+        state.tokenMetadataOverrides[id] !== undefined ||
+        faucetMetadataFor(state, id) !== undefined
+    );
   return {
     ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
     balancesDisplayFaucetId,
@@ -856,9 +863,11 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        const overridden = new Set<string>();
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
           setAssetsMetadata: get().setAssetsMetadata,
           faucetMetadataOf,
+          onOverrideApplied: faucetId => overridden.add(faucetId),
           tokenPrices: get().tokenPrices,
           waitForLock: get().balances[accountAddress] === undefined
         });
@@ -867,7 +876,7 @@ export const useWalletStore = create<WalletStore>()(
         if (balances === null) return;
         // The display faucet setting the read built its MIDEN row for.
         const midenFaucetId = await getFaucetIdSetting();
-        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId));
+        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
       } finally {
         fetchingAddresses.delete(accountAddress);
       }

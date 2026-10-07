@@ -4,7 +4,12 @@ import { getFaucetIdSetting } from 'lib/miden/assets';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
-import { applyOverrideFor, getTokenMetadataOverrides, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
+import {
+  applyOverrideFor,
+  getTokenMetadataOverrides,
+  overrideFor,
+  TokenMetadataOverrides
+} from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { SerializedVaultAsset } from 'lib/shared/types';
@@ -36,6 +41,8 @@ export async function updateBalancesFromSyncData(
   });
 
   const balances: TokenBalanceData[] = [];
+  // The faucets whose rows took an override from the storage read; the landing applies the store's current ones.
+  const overridden = new Set<string>();
   let hasMiden = false;
 
   // Collect metadata from sync data to adopt into the store
@@ -80,7 +87,10 @@ export async function updateBalancesFromSyncData(
     }
     // The user's display values apply after the faucet's record is kept to store above.
     // A cached store entry has them already, and a second application changes nothing.
-    if (!isMiden) tokenMetadata = applyOverrideFor(asset.faucetId, tokenMetadata, overrides);
+    if (!isMiden) {
+      tokenMetadata = applyOverrideFor(asset.faucetId, tokenMetadata, overrides);
+      if (overrideFor(overrides, asset.faucetId)) overridden.add(asset.faucetId);
+    }
 
     const balance = new BigNumber(asset.amountBaseUnits).div(10 ** tokenMetadata.decimals);
 
@@ -115,5 +125,5 @@ export async function updateBalancesFromSyncData(
     });
   }
 
-  useWalletStore.setState(state => withLandedBalances(state, accountPublicKey, balances, midenFaucetId));
+  useWalletStore.setState(state => withLandedBalances(state, accountPublicKey, balances, midenFaucetId, overridden));
 }
