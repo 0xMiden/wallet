@@ -51,3 +51,5 @@
 - Extend the existing real Guardian onboarding journey with public faucet funding rather than adding a duplicate wallet-creation scenario. Preserve local-stack funding while making public-network funding mandatory.
 
 - Playwright clears its configured output directory at startup. Use distinct nested Playwright output directories for sequential CI stages, and never launch another run that clears the shared parent containing live harness evidence.
+
+- A public faucet acceptance receipt proves queue admission, not chain commitment. Compare the note inclusion timestamp with the failure timestamp, then wait for that specific note before running fixture consumption assertions. Never remint a queued grant to hide a short delivery budget.

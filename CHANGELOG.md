@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.2 (TBD)
+
+### Fixes
+
+- [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
+
 ## 1.17.1 (2026-10-07)
 
 ### Fixes

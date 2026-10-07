@@ -5,6 +5,7 @@ import { coerce } from 'semver';
 
 import { discoverFeeFaucetId } from './fee-faucet';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
+import { waitForPublicNoteCommitment } from './public-note-commitment';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 
@@ -525,7 +526,8 @@ export class MidenCli {
     // localnet funders on devnet, where those accounts do not exist and every transfer fails.
     const faucetApi = publicFaucetApiUrl(this.env.name);
     if (faucetApi) {
-      await mintFromPublicFaucet(faucetApi, target);
+      const receipt = await mintFromPublicFaucet(faucetApi, target);
+      await waitForPublicNoteCommitment(this.env.rpcUrl, receipt.noteId);
       return `public faucet ${faucetApi}`;
     }
 
