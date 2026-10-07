@@ -103,7 +103,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 });
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    // The recall note's only parameter is the amount it names; every other key reads as itself.
+    t: (key: string, params?: { amount?: string }) =>
+      key === 'recallReturnsNote' && params?.amount ? `${key} ${params.amount}` : key
+  })
 }));
 
 jest.mock('app/env', () => ({
@@ -523,7 +527,7 @@ describe('ReviewTransaction — rendering', () => {
     // label + reclaim note both present.
     // The reclaim reassurance is one caption under the card, not a note in the expiration row.
     await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
-    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote');
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 MDN');
     expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
@@ -687,6 +691,17 @@ describe('ReviewTransaction — rendering', () => {
       await flush();
 
       expect(within(screen.getByTestId('review-amount')).getByText('5 Test Epoch USDC')).toBeInTheDocument();
+    });
+
+    it('names a send of the bridge faucet by the testnet label in the recall note', async () => {
+      setValidRoute(MIDEN_USDC_FAUCET);
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+      expect(screen.getByTestId('review-recall-note').textContent).toContain('5 Test Epoch USDC');
     });
   });
 });
