@@ -96,6 +96,11 @@ export function useAssetMetadata(_slug: string, assetId: string) {
 }
 
 export async function useAllAssetMetadata(): Promise<Record<string, AssetMetadata>> {
+  try {
+    await ensureTokensMetadataSchema(fetchFromStorage, putToStorage);
+  } catch (error) {
+    console.warn('Token metadata cache check failed', error);
+  }
   return (await fetchFromStorage(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || defaultAllTokensBaseMetadata;
 }
 
@@ -211,6 +216,11 @@ export async function setTokensBaseMetadata(toSet: Record<string, AssetMetadata>
  * Without a cached record, an override applies to the unknown-token placeholder.
  */
 export const getTokensBaseMetadata = async (assetId: string): Promise<AssetMetadata | undefined> => {
+  try {
+    await ensureTokensMetadataSchema(fetchFromStorage, putToStorage);
+  } catch (error) {
+    console.warn('Token metadata cache check failed', error);
+  }
   const [allTokensBaseMetadata, overrides] = await Promise.all([
     fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY),
     getTokenMetadataOverrides().catch(error => {

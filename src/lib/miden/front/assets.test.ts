@@ -86,7 +86,7 @@ import React from 'react';
 
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 
-import { fetchTokenMetadata, onStorageChanged } from 'lib/miden/front';
+import { fetchFromStorage, fetchTokenMetadata, onStorageChanged, putToStorage } from 'lib/miden/front';
 import { TOKENS_METADATA_OVERRIDES_STORAGE_KEY } from 'lib/miden/metadata/overrides';
 import type { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { useWalletStore } from 'lib/store';
@@ -203,6 +203,53 @@ describe('getTokensBaseMetadata', () => {
     };
 
     expect(await getTokensBaseMetadata('miden-faucet-id')).toEqual(native);
+  });
+});
+
+describe('the cache schema check before a direct read', () => {
+  // A record of schema 1, which the check clears.
+  const oldShapeRecord = { decimals: 6, symbol: 'TOK', name: 'TOK', shouldPreferSymbol: true };
+  const clearingCheck = async () => {
+    delete _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY];
+  };
+
+  it('runs before getTokensBaseMetadata reads the cache', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': oldShapeRecord };
+    mockEnsureTokensMetadataSchema.mockImplementation(clearingCheck);
+
+    const result = await getTokensBaseMetadata('asset-1');
+
+    expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledWith(fetchFromStorage, putToStorage);
+    expect(result).toBeUndefined();
+  });
+
+  it('runs before useAllAssetMetadata reads the cache', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': oldShapeRecord };
+    mockEnsureTokensMetadataSchema.mockImplementation(clearingCheck);
+
+    const result = await useAllAssetMetadata();
+
+    expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledWith(fetchFromStorage, putToStorage);
+    expect(result).toEqual({});
+  });
+
+  it('still reads the cache when the check fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const record = { decimals: 6, symbol: 'A1', name: 'Asset 1' };
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': record };
+    mockEnsureTokensMetadataSchema.mockRejectedValue(new Error('storage unavailable'));
+
+    try {
+      const one = await getTokensBaseMetadata('asset-1');
+      const all = await useAllAssetMetadata();
+
+      expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledTimes(2);
+      expect(one).toEqual(record);
+      expect(all).toEqual({ 'asset-1': record });
+      expect(warn).toHaveBeenCalledWith('Token metadata cache check failed', expect.any(Error));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
