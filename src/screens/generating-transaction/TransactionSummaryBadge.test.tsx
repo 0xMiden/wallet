@@ -62,7 +62,11 @@ jest.mock('lib/shared/format', () => ({
   formatAmount: (amount: bigint, decimals?: number) => mockFormatAmount(amount, decimals)
 }));
 
-const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
+const mockState = {
+  assetsMetadata: {} as
+    | Record<string, { symbol?: string; name?: string; decimals?: number; scaleIsUnknown?: boolean }>
+    | undefined
+};
 
 jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
@@ -591,6 +595,45 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(mockFormatAmount).toHaveBeenCalledWith(750n, 2);
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 tUSDC');
+    act(() => root.unmount());
+  });
+
+  // The unknown-token placeholder is not this faucet's scale. As the deposit receipt does, the
+  // collateral the config names stands in, and without it the token and market are named alone.
+  const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
+
+  it("scales a deposit whose metadata is the placeholder by the configured collateral's decimals", async () => {
+    mockFormatAmount.mockClear();
+    mockCollateral = { faucetId: 'mtst1collateral', symbol: 'tUSDC', decimals: 2 };
+    mockState.assetsMetadata = { mtst1collateral: placeholder };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: 'mtst1collateral',
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(mockFormatAmount).toHaveBeenCalledWith(750n, 2);
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(750n, 6);
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 tUSDC');
+    act(() => root.unmount());
+  });
+
+  it('names the token and the market, and no amount, for a placeholder deposit the config does not name', async () => {
+    mockFormatAmount.mockClear();
+    mockState.assetsMetadata = { mtst1other: placeholder };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: 'mtst1other',
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('Unknown');
+    expect(container.textContent).toContain('DUMMY-LENDING');
+    expect(mockFormatAmount).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 

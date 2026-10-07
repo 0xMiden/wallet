@@ -966,6 +966,7 @@
   "invalidAmount": "金額が無効です",
   "tokenPrice": "トークン価格",
   "tokenInfo": "トークン情報",
+  "tokenDescription": "説明",
   "fungible": "代替可能",
   "network": "ネットワーク",
   "recentActivity": "最近の活動",
@@ -1303,5 +1304,18 @@
   "confirmSendReason": "送信の確認",
   "confirmSwapReason": "交換を確認してください",
   "confirmDappTransactionReason": "この取引を確認してください",
-  "confirmEarnDepositReason": "入金を確認してください"
+  "confirmEarnDepositReason": "入金を確認してください",
+  "editTokenDetails": "トークンの詳細を編集する",
+  "editTokenDetailsTitle": "トークンの詳細",
+  "tokenNameLabel": "名前",
+  "tokenSymbolLabel": "記号",
+  "tokenDecimalsLabel": "小数点",
+  "saveTokenDetails": "保存",
+  "resetToFaucetValues": "faucetの値にリセット",
+  "tokenMetadataEdited": "編集済み",
+  "tokenNameInvalid": "1文字から$max$文字の名称を入力してください。",
+  "tokenSymbolInvalid": "1～$max$文字の記号を入力してください。",
+  "tokenDecimalsInvalid": "0から$max$までの整数を入力してください。",
+  "tokenMetadataOverrideNotice": "これらの設定値は、このウォレットがトークンを表示する方法のみを変更します。faucetは独自の設定値を保持します。送信する金額には、ここで設定した小数点以下の桁数が使用されます。",
+  "tokenMetadataSaveError": "トークンの詳細を保存できませんでした。もう一度お試しください。"
 }

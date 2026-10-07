@@ -55,8 +55,10 @@ const mockedMetadata = jest.mocked(fetchTokenMetadata);
 const mockedSdkReady = jest.mocked(ensureSdkWasmReady);
 
 const base = (symbol: string, decimals: number, scaleIsUnknown?: boolean) => ({
-  base: { symbol, decimals, name: symbol, ...(scaleIsUnknown !== undefined && { scaleIsUnknown }) },
-  detailed: { symbol, decimals, name: symbol }
+  symbol,
+  decimals,
+  name: symbol,
+  ...(scaleIsUnknown !== undefined && { scaleIsUnknown })
 });
 
 beforeEach(() => {

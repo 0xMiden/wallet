@@ -34,7 +34,8 @@ const view = {
 
 beforeEach(() => {
   (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => ({
-    base: { decimals: 6, symbol: id === 'fA' ? 'miZK' : 'rETH' }
+    decimals: 6,
+    symbol: id === 'fA' ? 'miZK' : 'rETH'
   }));
 });
 
@@ -130,7 +131,7 @@ it('renders a download button and invokes onDownload when clicked', () => {
 });
 
 it('falls back to the unknown label when a resolved asset has no symbol', async () => {
-  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: undefined } });
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ decimals: 6, symbol: undefined });
   render(
     <TransactionAssetView
       view={{ ...view, outgoing: [{ faucetId: 'fA', amount: 10n }], incoming: [] } as any}
@@ -141,7 +142,7 @@ it('falls back to the unknown label when a resolved asset has no symbol', async 
 });
 
 it('falls back to the unknown label for an incoming asset with no symbol', async () => {
-  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: undefined } });
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ decimals: 6, symbol: undefined });
   render(
     <TransactionAssetView
       view={{ ...view, outgoing: [], incoming: [{ faucetId: 'fB', amount: 5n }] } as any}
@@ -154,7 +155,7 @@ it('falls back to the unknown label for an incoming asset with no symbol', async
 it('still renders (with the unknown fallback) when fetchTokenMetadata rejects for one asset', async () => {
   (fetchTokenMetadata as jest.Mock).mockImplementation(async (id: string) => {
     if (id === 'fA') throw new Error('metadata service down');
-    return { base: { decimals: 6, symbol: 'rETH' } };
+    return { decimals: 6, symbol: 'rETH' };
   });
 
   expect(() => render(<TransactionAssetView view={view as any} mode="verified" />)).not.toThrow();
@@ -176,7 +177,10 @@ it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknow
   // an authoritative claim about an amount that could be off by a factor of a
   // trillion. The asset is still named, so the row is not a mystery.
   (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({
-    base: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
+    decimals: 6,
+    symbol: 'Unknown',
+    name: 'Unknown',
+    scaleIsUnknown: true
   });
   render(
     <TransactionAssetView

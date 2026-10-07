@@ -4212,6 +4212,10 @@
     "message": "Token info",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "Description",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "Fungible",
     "englishSource": "Fungible"
@@ -5748,5 +5752,72 @@
   "confirmEarnDepositReason": {
     "message": "Confirm your deposit",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Edit token details",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Token details",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Name",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Symbol",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Decimals",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Save",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Reset to faucet values",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Edited",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Enter a name of 1 to $max$ characters.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Enter a symbol of 1 to $max$ characters.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Enter a whole number from 0 to $max$.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Could not save the token details. Please try again.",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }

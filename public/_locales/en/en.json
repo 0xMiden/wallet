@@ -966,6 +966,7 @@
   "invalidAmount": "Invalid amount",
   "tokenPrice": "Token price",
   "tokenInfo": "Token info",
+  "tokenDescription": "Description",
   "fungible": "Fungible",
   "network": "Network",
   "recentActivity": "Recent activity",
@@ -1303,5 +1304,18 @@
   "confirmSendReason": "Confirm your send",
   "confirmSwapReason": "Confirm your swap",
   "confirmDappTransactionReason": "Confirm this transaction",
-  "confirmEarnDepositReason": "Confirm your deposit"
+  "confirmEarnDepositReason": "Confirm your deposit",
+  "editTokenDetails": "Edit token details",
+  "editTokenDetailsTitle": "Token details",
+  "tokenNameLabel": "Name",
+  "tokenSymbolLabel": "Symbol",
+  "tokenDecimalsLabel": "Decimals",
+  "saveTokenDetails": "Save",
+  "resetToFaucetValues": "Reset to faucet values",
+  "tokenMetadataEdited": "Edited",
+  "tokenNameInvalid": "Enter a name of 1 to $max$ characters.",
+  "tokenSymbolInvalid": "Enter a symbol of 1 to $max$ characters.",
+  "tokenDecimalsInvalid": "Enter a whole number from 0 to $max$.",
+  "tokenMetadataOverrideNotice": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here.",
+  "tokenMetadataSaveError": "Could not save the token details. Please try again."
 }

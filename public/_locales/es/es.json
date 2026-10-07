@@ -966,6 +966,7 @@
   "invalidAmount": "Importe no válido",
   "tokenPrice": "Precio del token",
   "tokenInfo": "Información sobre el token",
+  "tokenDescription": "Descripción",
   "fungible": "Fungible",
   "network": "Red",
   "recentActivity": "Actividad reciente",
@@ -1303,5 +1304,18 @@
   "confirmSendReason": "Confirma tu envío",
   "confirmSwapReason": "Confirma tu cambio",
   "confirmDappTransactionReason": "Confirma esta transacción",
-  "confirmEarnDepositReason": "Confirma tu depósito"
+  "confirmEarnDepositReason": "Confirma tu depósito",
+  "editTokenDetails": "Editar detalles del token",
+  "editTokenDetailsTitle": "Detalles del token",
+  "tokenNameLabel": "Nombre",
+  "tokenSymbolLabel": "Símbolo",
+  "tokenDecimalsLabel": "Decimales",
+  "saveTokenDetails": "Guardar",
+  "resetToFaucetValues": "Restablecer a los valores de «faucet»",
+  "tokenMetadataEdited": "Editado",
+  "tokenNameInvalid": "Introduce un nombre de entre 1 y$max$es de caracteres.",
+  "tokenSymbolInvalid": "Introduce un símbolo de entre 1 y$max$es caracteres.",
+  "tokenDecimalsInvalid": "Introduce un número entero comprendido entre 0 y $max$.",
+  "tokenMetadataOverrideNotice": "Estos valores solo modifican la forma en que esta cartera muestra el token. El «faucet» conserva sus propios valores. Las cantidades que envíes utilizarán los decimales que configures aquí.",
+  "tokenMetadataSaveError": "No se han podido guardar los datos del token. Inténtalo de nuevo."
 }

@@ -270,7 +270,10 @@ beforeEach(() => {
   mockClient.getConsumableNoteDtos.mockResolvedValue([]);
   mockClient.getAccount.mockResolvedValue(null);
   mockFetchTokenMetadata.mockResolvedValue({
-    base: { decimals: 6, symbol: 'TOK', name: 'Token', thumbnailUri: 'x.png' }
+    decimals: 6,
+    symbol: 'TOK',
+    name: 'Token',
+    description: 'A test token'
   });
   mockMergeAndPersistSeenNoteIds.mockResolvedValue([]);
   mockHasClients.mockReturnValue(true);
@@ -356,6 +359,18 @@ describe('doSync', () => {
       expect.objectContaining({
         miden_cached_consumable_notes: expect.any(Array),
         miden_sync_data: expect.objectContaining({ accountPublicKey: 'pk-1' })
+      })
+    );
+    // The faucet's name and description go to the frontend with the sync data.
+    expect(mockStorageSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        miden_sync_data: expect.objectContaining({
+          vaultAssets: expect.arrayContaining([
+            expect.objectContaining({
+              metadata: expect.objectContaining({ name: 'Token', description: 'A test token' })
+            })
+          ])
+        })
       })
     );
   });

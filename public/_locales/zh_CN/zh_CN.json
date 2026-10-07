@@ -966,6 +966,7 @@
   "invalidAmount": "金额无效",
   "tokenPrice": "代币价格",
   "tokenInfo": "代币信息",
+  "tokenDescription": "描述",
   "fungible": "可互换的",
   "network": "网络",
   "recentActivity": "最近的活动",
@@ -1303,5 +1304,18 @@
   "confirmSendReason": "确认您的转账",
   "confirmSwapReason": "确认您的更换操作",
   "confirmDappTransactionReason": "确认此交易",
-  "confirmEarnDepositReason": "确认您的存款"
+  "confirmEarnDepositReason": "确认您的存款",
+  "editTokenDetails": "编辑代币详情",
+  "editTokenDetailsTitle": "代币详情",
+  "tokenNameLabel": "名称",
+  "tokenSymbolLabel": "符号",
+  "tokenDecimalsLabel": "小数",
+  "saveTokenDetails": "保存",
+  "resetToFaucetValues": "重置为faucet的默认值",
+  "tokenMetadataEdited": "已编辑",
+  "tokenNameInvalid": "请输入1至$max$个字符的名称。",
+  "tokenSymbolInvalid": "请输入1至$max$个字符的符号。",
+  "tokenDecimalsInvalid": "请输入0到$max$之间的整数。",
+  "tokenMetadataOverrideNotice": "这些设置仅影响该钱包显示代币的方式。faucet将保留其自身的数值。您发送的金额将采用您在此处设置的小数位数。",
+  "tokenMetadataSaveError": "无法保存代币详细信息。请重试。"
 }

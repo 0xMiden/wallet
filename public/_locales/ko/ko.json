@@ -966,6 +966,7 @@
   "invalidAmount": "잘못된 금액",
   "tokenPrice": "토큰 가격",
   "tokenInfo": "토큰 정보",
+  "tokenDescription": "설명",
   "fungible": "대체 가능",
   "network": "네트워크",
   "recentActivity": "최근 활동",
@@ -1303,5 +1304,18 @@
   "confirmSendReason": "송금 확인",
   "confirmSwapReason": "교체 확인",
   "confirmDappTransactionReason": "이 거래를 확인하십시오",
-  "confirmEarnDepositReason": "입금 확인"
+  "confirmEarnDepositReason": "입금 확인",
+  "editTokenDetails": "토큰 세부 정보 편집",
+  "editTokenDetailsTitle": "토큰 세부 정보",
+  "tokenNameLabel": "이름",
+  "tokenSymbolLabel": "기호",
+  "tokenDecimalsLabel": "소수점",
+  "saveTokenDetails": "저장",
+  "resetToFaucetValues": "faucet값으로 재설정",
+  "tokenMetadataEdited": "수정됨",
+  "tokenNameInvalid": "1~$max$자 길이의 이름을 입력하십시오.",
+  "tokenSymbolInvalid": "1~$max$자 길이의 기호를 입력하십시오.",
+  "tokenDecimalsInvalid": "0에서 $max$ 사이의 정수를 입력하십시오.",
+  "tokenMetadataOverrideNotice": "이 설정 값들은 해당 지갑에서 토큰을 표시하는 방식만 변경합니다. faucet는 자체적인 값을 유지합니다. 전송하는 금액에는 여기서 설정한 소수점 자릿수가 적용됩니다.",
+  "tokenMetadataSaveError": "토큰 세부 정보를 저장할 수 없습니다. 다시 시도해 주십시오."
 }
