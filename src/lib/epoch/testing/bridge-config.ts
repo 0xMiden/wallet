@@ -1,4 +1,6 @@
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BridgeConfig } from 'lib/remote-config/schema';
 import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
@@ -43,4 +45,54 @@ export function remoteConfigValuesMock() {
     getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
     getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)
   };
+}
+
+/** The testnet document naming the fixtures above. */
+export const TEST_BRIDGE_CONFIG: BridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  evm: { chainId: TEST_EVM_CHAIN_ID },
+  agglayer: {},
+  epoch: {
+    allocatorUrl: TEST_ALLOCATOR_URL,
+    positionsUrl: TEST_POSITIONS_URL,
+    midenUsdcFaucet: TEST_MIDEN_USDC_FAUCET,
+    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+    earnProtocol: 'dummy-lending'
+  },
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+};
+
+const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
+
+/** That document as this realm holds it once loaded, with both USDC tokens read. */
+export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'ready',
+  config: TEST_BRIDGE_CONFIG,
+  derived: {
+    network: 'testnet',
+    version: 1,
+    derivedAt: 0,
+    agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
+    epoch: {
+      allocator: { state: 'ok', value: true },
+      midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
+      evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } }
+    }
+  },
+  lastFetch: null
+};
+
+/**
+ * A `lib/remote-config/runtime` stand-in whose snapshot is `read()`'s when it returns one, else the real realm's.
+ * Install it with
+ * `jest.mock('lib/remote-config/runtime', () => jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config').remoteConfigRuntimeMock(() => mockBridgeSnapshot))`,
+ * where `mockBridgeSnapshot` is a `let` the suite sets before it renders.
+ */
+export function remoteConfigRuntimeMock(
+  read: () => BridgeConfigSnapshot | undefined
+): typeof import('lib/remote-config/runtime') {
+  const actual = jest.requireActual<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime');
+  return { ...actual, getBridgeConfigSnapshot: () => read() ?? actual.getBridgeConfigSnapshot() };
 }
