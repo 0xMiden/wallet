@@ -47,7 +47,8 @@ let schedulerInstalled = false;
 let rereadRegistered = false;
 
 // One version names one document, so at a tie the bundled copy is the same catalog with the icons the build ships. A
-// bundled copy below the floor names an app since delisted, so it is never shown, nor before the floor is known.
+// bundled copy below the floor names an app since delisted, so it is never shown, nor before the floor is known. A
+// floor storage cannot give reads as 0, so a storage failure shows the bundled copy rather than nothing.
 function shown({ stored, bundled, floor }: NetworkState): ExploreCatalog | null | undefined {
   if (floor === null) return undefined;
   const allowed = bundled && bundled.version >= floor ? bundled : null;
