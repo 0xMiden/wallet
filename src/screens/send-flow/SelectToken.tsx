@@ -88,7 +88,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                 return (
                   <AssetListItem
                     key={b.tokenId}
-                    icon={<TokenLogo symbol={b.metadata.symbol} />}
+                    icon={<TokenLogo symbol={b.metadata.symbol} faucetId={b.tokenId} />}
                     name={b.metadata.name || b.metadata.symbol}
                     amount={
                       scaleIsKnown ? (

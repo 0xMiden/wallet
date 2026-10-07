@@ -83,7 +83,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 return (
                   <AssetListItem
                     key={token.faucetId}
-                    icon={<TokenLogo symbol={token.logoSymbol} />}
+                    icon={<TokenLogo symbol={token.logoSymbol} faucetId={token.faucetId} />}
                     name={token.symbol}
                     amount={
                       scaleIsKnown ? (

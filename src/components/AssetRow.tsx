@@ -115,7 +115,7 @@ export const AssetRow: FC<AssetRowProps> = ({
 
   return (
     <AssetListItem
-      icon={<TokenLogo symbol={metadata.symbol} />}
+      icon={<TokenLogo symbol={metadata.symbol} faucetId={asset.tokenId} />}
       name={metadata.name || metadata.symbol}
       amount={
         scaleIsKnown ? (

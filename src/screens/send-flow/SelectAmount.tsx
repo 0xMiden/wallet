@@ -145,7 +145,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
     >
       {token ? (
-        <TokenLogo symbol={logoSymbol ?? token.name} size="sm" />
+        <TokenLogo symbol={logoSymbol ?? token.name} faucetId={token.id} size="sm" />
       ) : embedded ? (
         <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
@@ -168,7 +168,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         className="flex items-center gap-3 text-left"
       >
         {token ? (
-          <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+          <TokenLogo symbol={logoSymbol ?? token.name} faucetId={token.id} size="md" />
         ) : (
           <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
         )}
