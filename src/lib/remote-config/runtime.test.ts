@@ -6,6 +6,7 @@ import {
   type BridgeConfigSnapshot,
   DEGRADED_POLL_MS,
   DEGRADED_VISIBLE_POLL_MS,
+  followEffectiveNetwork,
   FOREGROUND_STALE_MS,
   getBridgeConfigSnapshot,
   HEALTHY_POLL_MS,
@@ -394,6 +395,35 @@ describe('networks', () => {
     });
     await expect(initBridgeConfig()).resolves.toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
     mockNetwork = 'testnet';
+    expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', config: config(1) });
+  });
+
+  it('notifies subscribers and hydrates the new network when followEffectiveNetwork is called after a switch', async () => {
+    seed(1);
+    seed(5, { network: 'devnet' });
+    await initBridgeConfig();
+    await flush();
+    const listener = jest.fn();
+    subscribeBridgeConfig(listener);
+    mockNetwork = 'devnet';
+    followEffectiveNetwork();
+    expect(listener).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'devnet', config: config(5, 'devnet') });
+  });
+
+  it('notifies again on a return to a network this realm already hydrated', async () => {
+    seed(1);
+    seed(5, { network: 'devnet' });
+    await initBridgeConfig();
+    mockNetwork = 'devnet';
+    followEffectiveNetwork();
+    await flush();
+    const listener = jest.fn();
+    subscribeBridgeConfig(listener);
+    mockNetwork = 'testnet';
+    followEffectiveNetwork();
+    expect(listener).toHaveBeenCalledTimes(1);
     expect(getBridgeConfigSnapshot()).toMatchObject({ network: 'testnet', config: config(1) });
   });
 
@@ -821,6 +851,31 @@ describe('the poll schedule', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     }
   );
+
+  it("re-arms for the network it returns to, on that network's own degraded cadence", async () => {
+    mockFeatureAvailability.mockImplementation((_feature, snapshot) =>
+      (snapshot as BridgeConfigSnapshot).network === 'testnet' ? unavailable('service-down') : AVAILABLE
+    );
+    try {
+      seed(1);
+      seed(5, { network: 'devnet' });
+      serve(1);
+      await initBridgeConfig();
+      mockNetwork = 'devnet';
+      followEffectiveNetwork();
+      await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
+      expect(mockFetch).not.toHaveBeenCalled();
+      mockNetwork = 'testnet';
+      followEffectiveNetwork();
+      await flush();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledWith('testnet');
+    } finally {
+      mockFeatureAvailability.mockImplementation(
+        (feature: string): FeatureAvailability => mockAvailability[feature] ?? AVAILABLE
+      );
+    }
+  });
 
   it.each(['off', 'not-configured'] as const)(
     'keeps the hourly cadence while a feature is only %s and no control holds it',

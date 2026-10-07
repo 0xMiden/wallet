@@ -15,8 +15,10 @@ import { bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest 
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
+// A spy, so a case can read the arguments a title was built from.
+const mockT = jest.fn((key: string, _options?: Record<string, unknown>) => key);
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: mockT })
 }));
 
 // The pending card wrapper's props, recorded by the framer-motion mock below. A layout animation
@@ -421,6 +423,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     mockBridgeRowDisplay.mockReturnValue({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       outAmount: '10',
       providerLabel: 'AggLayer',
       network: 'Sepolia',
@@ -447,6 +451,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     mockBridgeRowDisplay.mockReturnValue({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       outAmount: '10.65',
       providerLabel: 'Epoch',
       network: 'Sepolia',
@@ -455,6 +461,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     jest.mocked(bridgeInRowDisplay).mockReturnValue({
       inSymbol: 'USDC',
       outSymbol: 'ETH',
+      inLabel: 'USDC',
+      outLabel: 'ETH',
       outAmount: '0.015123',
       providerLabel: 'Epoch',
       network: 'Miden',
@@ -475,6 +483,44 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       screen.getAllByTestId('activity-row').find(row => row.getAttribute('data-amount-value') === value);
     expect(rowWithAmount('10.65 USDC')).toHaveAttribute('data-amount-preformatted', 'yes');
     expect(rowWithAmount('+0.015123 ETH')).toHaveAttribute('data-amount-preformatted', 'yes');
+  });
+
+  it('shows a bridge row under the labels its display gives, not its symbols', () => {
+    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '3',
+      providerLabel: 'Epoch',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
+          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
+        ]}
+        fullHistory
+      />
+    );
+
+    const values = screen.getAllByTestId('activity-row').map(row => row.getAttribute('data-amount-value'));
+    expect(values).toEqual(expect.arrayContaining(['4.98 Test Epoch USDC', '+3 Test Epoch USDC']));
+    expect(mockT).toHaveBeenCalledWith('bridgeRowTitle', { from: 'Test Epoch USDC', to: 'Test Epoch USDC' });
   });
 
   // One render exercising every icon/title/subtitle/amount/status branch.

@@ -130,6 +130,13 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
   retireGuardianSyncPasses: () => mockRetireGuardianSyncPasses()
 }));
 
+// The save has the bridge config follow the new network in this realm; spied, since the load itself is the runtime's.
+const mockFollowEffectiveNetwork = jest.fn();
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime'),
+  followEffectiveNetwork: () => mockFollowEffectiveNetwork()
+}));
+
 // `reloadEndpointOverridesInSW` nudges the service worker on the extension
 // (separate JS realm); handleSave's gating on `isExtension()` is asserted
 // against this spy below.
@@ -259,6 +266,31 @@ describe('DeveloperSettings', () => {
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
     await waitFor(() => expect(applyEndpointOverride).toHaveBeenCalledTimes(1));
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('has the bridge config follow the new network once the override is applied', async () => {
+    const order: string[] = [];
+    applyEndpointOverride.mockImplementationOnce(async () => {
+      order.push('apply');
+    });
+    mockFollowEffectiveNetwork.mockImplementationOnce(() => {
+      order.push('follow');
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockFollowEffectiveNetwork).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['apply', 'follow']);
+  });
+
+  it('does not follow the network when the endpoint write fails', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await screen.findByRole('alert');
+    expect(mockFollowEffectiveNetwork).not.toHaveBeenCalled();
   });
 
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {

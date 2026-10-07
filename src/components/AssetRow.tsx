@@ -12,6 +12,8 @@ import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 
 export interface AssetRowProps {
@@ -65,7 +67,10 @@ export const AssetRow: FC<AssetRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const verification = useTokenVerification(asset.tokenId);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const { metadata, balance } = asset;
+  const name = midenTokenLabel(bridgeConfig, asset.tokenId, metadata.name || metadata.symbol);
+  const unit = midenTokenLabel(bridgeConfig, asset.tokenId, metadata.symbol);
   // `balance` was divided by `metadata.decimals` upstream, so when those
   // decimals are the unknown-token placeholder's guess the number is not the
   // user's balance — an 18-decimal token reads a trillion times too high. Name
@@ -116,13 +121,9 @@ export const AssetRow: FC<AssetRowProps> = ({
   return (
     <AssetListItem
       icon={<TokenLogo symbol={metadata.symbol} />}
-      name={metadata.name || metadata.symbol}
+      name={name}
       amount={
-        scaleIsKnown ? (
-          <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${metadata.symbol}`} />
-        ) : (
-          metadata.symbol
-        )
+        scaleIsKnown ? <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${unit}`} /> : unit
       }
       chart={
         sparkline && !isFixedQuote(quote) ? (

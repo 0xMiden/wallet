@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
 import { TFunction } from 'i18next';
@@ -78,6 +78,7 @@ import {
   formatDate,
   formatMoneyAmount,
   isBridgeInEntry,
+  labelHistoryEntry,
   swapSettlementOf
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
@@ -131,8 +132,11 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 
 /** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const bridgeIn = isBridgeInEntry(entry);
-  const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+  const { inSymbol, inLabel, outLabel, outAmount } = bridgeIn
+    ? bridgeInRowDisplay(bridgeConfig, entry)
+    : bridgeRowDisplay(bridgeConfig, entry);
   // A bridge-in's source side is what an Earn withdrawal redeemed (rounded down), what a Fast
   // deposit cost (rounded up) or what was typed on the Slow route. A bridge-out's is the typed
   // Miden-side amount, already exact. The row helpers above format the out side, as the list row
@@ -144,7 +148,7 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
-      <span className="min-w-0 text-text-muted">{inSymbol}</span>
+      <span className="min-w-0 text-text-muted">{inLabel}</span>
       <Icon
         name={IconName.ArrowRight}
         size="md"
@@ -152,7 +156,7 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
         className="mx-0.5 shrink-0 self-center text-text-muted"
       />
       <span className="min-w-0 text-ink">{displayedOutAmount}</span>
-      <span className="min-w-0 text-text-muted">{outSymbol}</span>
+      <span className="min-w-0 text-text-muted">{outLabel}</span>
     </div>
   );
 };
@@ -265,12 +269,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
   const configuredNativeFaucet = useMidenFaucetId();
+  const bridgeConfig = useBridgeConfigSnapshot();
   // An Earn withdrawal's redeemed USDC is priced through the collateral faucet the config names.
-  const earnCollateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  const earnCollateral = selectMidenUsdc(bridgeConfig);
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
-  const [entry, setEntry] = useState<IHistoryEntry | null>(null);
+  const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
+  // Labelled at render, so the page follows a config publish without deriving the row again.
+  const entry = useMemo(
+    () => (derivedEntry ? labelHistoryEntry(bridgeConfig, derivedEntry) : null),
+    [bridgeConfig, derivedEntry]
+  );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
@@ -304,7 +314,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (!row) {
       if (loaded) {
-        setEntry(null);
+        setDerivedEntry(null);
         setTransaction(undefined);
       }
       return;
@@ -457,7 +467,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         setEarnWithdraw(earnWithdrawExtra ?? null);
         setEarnDeposit(earnDepositExtra ?? null);
         setTransaction(tx);
-        setEntry(historyEntry);
+        setDerivedEntry(historyEntry);
       } catch (error) {
         console.error('[HistoryDetails] Failed to derive transaction view:', { transactionId, error });
         if (!cancelled) {
@@ -600,7 +610,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // synchronously, so a faucet the store resolves later re-renders both.
   const assetBreakdown =
     spansMultipleAssets && transaction
-      ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
+      ? consumeAssetBreakdown(bridgeConfig, transaction, assetsMetadata, configuredNativeFaucet)
       : [];
   // The hero and the badge print one amount. An Earn withdrawal's is already formatted, and an
   // Earn deposit's and a (cancelled) bridge-out's are the amount typed, each as its Activity row shows it.
@@ -630,7 +640,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     (entry?.txType === 'swap' && requestedToken !== null) ||
     (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);
   const pricedAmount =
-    entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : heroPrintsRowAmount ? entry?.amount : historyAmount;
+    entry && isBridgeIn
+      ? bridgeInRowDisplay(bridgeConfig, entry).outAmount
+      : heroPrintsRowAmount
+        ? entry?.amount
+        : historyAmount;
   // An Earn withdrawal's row names the native asset it credits, so while its hero prints the redeemed USDC that
   // side is priced through the Earn collateral faucet.
   const pricedFaucetId =
