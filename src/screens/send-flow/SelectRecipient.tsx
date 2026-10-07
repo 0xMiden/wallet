@@ -170,7 +170,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
               'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
               // Below the tab title, never above it: 24px holds the placeholder to two lines on a
               // 375pt phone, and a pasted address wraps to three.
-              'text-hero-name font-bold wrap-break-word placeholder:text-muted/70',
+              'text-hero-name font-bold wrap-break-word placeholder:text-muted/70 focus:placeholder:text-transparent',
               'caret-accent-send',
               error ? 'text-negative-tint-ink' : 'text-ink'
             )}

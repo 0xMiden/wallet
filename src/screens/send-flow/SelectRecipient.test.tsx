@@ -78,6 +78,13 @@ describe('SelectRecipient', () => {
     expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
+  it('hides the placeholder while the recipient field is focused, as the other text fields do', () => {
+    renderRecipient({ onScan: jest.fn() });
+    const field = screen.getByTestId('send-recipient-input');
+    expect(field).toHaveClass('focus:placeholder:text-transparent');
+    expect(field).toHaveAttribute('placeholder');
+  });
+
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', onScan: jest.fn() });
 
