@@ -3,6 +3,7 @@
  */
 import { InAppBrowser } from '@miden/dapp-browser';
 import { isMobile } from 'lib/platform';
+import { THEME_STORAGE_KEY } from 'lib/settings/constants';
 
 import { openFaucetWebview } from './faucet-webview';
 import { PREVENT_INPUT_ZOOM_SCRIPT } from './prevent-input-zoom';
@@ -61,5 +62,27 @@ describe('openFaucetWebview — input-zoom prevention (#503)', () => {
     await listeners['browserPageLoaded']?.({ id: 'some-other-instance' });
 
     expect(mockExecuteScript).not.toHaveBeenCalled();
+  });
+});
+
+describe('openFaucetWebview: native header theme (#503)', () => {
+  const mockOpenWebView = InAppBrowser.openWebView as jest.Mock;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsMobile.mockReturnValue(true);
+    mockAddListener.mockResolvedValue({ remove: jest.fn() });
+  });
+  afterEach(() => localStorage.clear());
+
+  it.each([
+    ['dark', '#191919', '#ffffff'],
+    ['light', '#ffffff', '#000000']
+  ])("colours the header for the app's %s theme", async (theme, toolbarColor, toolbarTextColor) => {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+
+    await openFaucetWebview({ url: 'https://faucet.testnet.miden.io', title: 'Faucet' });
+
+    expect(mockOpenWebView).toHaveBeenCalledWith(expect.objectContaining({ toolbarColor, toolbarTextColor }));
   });
 });
