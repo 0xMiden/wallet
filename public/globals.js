@@ -3,18 +3,13 @@
 // External file (not inline) to comply with extension CSP.
 window.process = window.process || { env: {}, browser: true };
 window.global = window.global || window;
-// Buffer polyfill will be set by the first module that imports 'buffer'
-// For now, set a stub that will be overridden
-if (typeof window.Buffer === 'undefined') {
-  window.Buffer = {
-    isBuffer: function () {
-      return false;
-    },
-    from: function (a) {
-      return new Uint8Array(a);
-    }
-  };
-}
+// No Buffer stub here. Each page entry (popup, fullpage, sidepanel, options, confirm) installs the real
+// `buffer` polyfill with `globalThis.Buffer = globalThis.Buffer || Buffer`, so a stub set here is never
+// replaced. The old stub's `from()` ignored the encoding argument and turned a string into an EMPTY
+// Uint8Array. `uint8arrays` prefers `globalThis.Buffer.from(string, 'utf-8')` when a global Buffer exists,
+// so the WalletConnect relay JWT got an empty payload and the relay closed the socket with code 3000
+// ("JWT validation error: EOF while parsing a value"). A bare `Buffer.from(x, 'base64')` returned the
+// same empty array (see exportAccountFile in lib/store/index.ts).
 
 // Pre-React theme bootstrap. Reads the same localStorage key the React
 // `applyTheme` helper writes (`theme_setting` / 'light' | 'dark' | 'system')

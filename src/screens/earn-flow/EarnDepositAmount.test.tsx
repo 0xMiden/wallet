@@ -64,6 +64,8 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
     confirmTitle?: string;
     showNetworkPill?: boolean;
     showBalanceHelper?: boolean;
+    pageInset?: boolean;
+    showAmountDivider?: boolean;
     onAmountChange: (amount: string) => void;
     onSelectToken: () => void;
     onConfirm?: () => void;
@@ -77,6 +79,8 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
       data-confirm-title={props.confirmTitle}
       data-show-network-pill={String(props.showNetworkPill)}
       data-show-balance-helper={String(props.showBalanceHelper)}
+      data-page-inset={String(props.pageInset)}
+      data-show-amount-divider={String(props.showAmountDivider)}
       data-token-id={props.token?.id}
       data-token-name={props.token?.name}
       data-token-decimals={String(props.token?.decimals)}
@@ -238,6 +242,9 @@ describe('EarnDepositAmount', () => {
     expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
     expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');
+    // On the earn pages' 16px margin under the header, with no rule under a typed amount.
+    expect(select).toHaveAttribute('data-page-inset', 'true');
+    expect(select).toHaveAttribute('data-show-amount-divider', 'false');
   });
 
   it('names no vault in the header when vaultId matches nothing', () => {
@@ -254,7 +261,7 @@ describe('EarnDepositAmount', () => {
     // Empty amount => hasAmount false => isValidAmount short-circuits false, helper shown.
     expect(select).toHaveAttribute('data-amount', '');
     expect(select).toHaveAttribute('data-valid', 'false');
-    expect(select).toHaveAttribute('data-show-balance-helper', 'true');
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -268,7 +275,7 @@ describe('EarnDepositAmount', () => {
     const select = screen.getByTestId('select-amount');
     expect(select).toHaveAttribute('data-amount', 'abc');
     expect(select).toHaveAttribute('data-valid', 'false');
-    expect(select).toHaveAttribute('data-show-balance-helper', 'true');
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -283,7 +290,8 @@ describe('EarnDepositAmount', () => {
     const select = screen.getByTestId('select-amount');
     expect(select).toHaveAttribute('data-amount', '1,50');
     expect(select).toHaveAttribute('data-valid', 'true');
-    expect(select).toHaveAttribute('data-show-balance-helper', 'false');
+    // The available balance stays up while an amount is typed, as in the send flow.
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).toHaveBeenCalledTimes(1);
@@ -300,7 +308,8 @@ describe('EarnDepositAmount', () => {
     const select = screen.getByTestId('select-amount');
     expect(select).toHaveAttribute('data-valid', 'false');
     // hasAmount is true, so the balance helper is hidden even though it's invalid.
-    expect(select).toHaveAttribute('data-show-balance-helper', 'false');
+    // The available balance stays up while an amount is typed, as in the send flow.
+    expect(select).not.toHaveAttribute('data-show-balance-helper', 'false');
 
     fireEvent.click(screen.getByTestId('confirm'));
     expect(mockNavigate).not.toHaveBeenCalled();

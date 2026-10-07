@@ -42,6 +42,8 @@ import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -494,6 +496,7 @@ interface HiddenAssetsProps {
 /** The held tokens the user hid (#813), folded under the asset list: each opens its page or comes back. */
 const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, assetListRef }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const [open, setOpen] = useState(false);
   // The last Unhide's own result (#813): the hook reports none, only what each call resolves with.
   const [unhideFailed, setUnhideFailed] = useState(false);
@@ -572,7 +575,9 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
                       else unhideButtons.current.delete(asset.tokenId);
                     }}
                     className="shrink-0"
-                    aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
+                    aria-label={t('unhideTokenLabel', {
+                      name: midenTokenLabel(bridgeConfig, asset.tokenId, asset.metadata.name || asset.metadata.symbol)
+                    })}
                     onClick={() => {
                       const inFlight = inFlightUnhides.current;
                       if (inFlight.has(asset.tokenId)) return;

@@ -987,6 +987,39 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  const stepsCardFor = async (activeType: 'earn-deposit' | 'send') => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        isGuardian={false}
+        activeStage="submitting"
+        activeType={activeType}
+      />
+    );
+    const card = container.querySelector('[data-transaction-step]')?.parentElement;
+    expect(card).toBeTruthy();
+    return { card: card!, root };
+  };
+
+  it("draws an earn-deposit row's steps on the outline surface, in the heading face", async () => {
+    const { card, root } = await stepsCardFor('earn-deposit');
+
+    expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'face-heading');
+    expect(card).not.toHaveClass('bg-fill');
+    act(() => root.unmount());
+  });
+
+  it("keeps a send row's steps on the fill card, in the default face", async () => {
+    const { card, root } = await stepsCardFor('send');
+
+    expect(card).toHaveClass('bg-fill');
+    expect(card).not.toHaveClass('bg-page');
+    expect(card).not.toHaveClass('border-hairline');
+    expect(card).not.toHaveClass('face-heading');
+    act(() => root.unmount());
+  });
+
   it('renders per-step durations from persisted stage timestamps (no fabricated zero)', async () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction

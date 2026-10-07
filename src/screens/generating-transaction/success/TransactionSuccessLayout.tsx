@@ -13,6 +13,8 @@ import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
@@ -93,10 +95,15 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
   const nativeFaucetId = useMidenFaucetId();
 
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+
   const tokenMetadata = resolveDisplayMetadata(transaction?.faucetId, assetsMetadata, nativeFaucetId);
   const tokenSymbol = tokenMetadata.symbol;
+  const tokenLabel = midenTokenLabel(bridgeConfig, transaction?.faucetId, tokenSymbol);
   const consumeParts =
-    transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId) : [];
+    transaction?.type === 'consume'
+      ? formatConsumeAssetParts(bridgeConfig, transaction, assetsMetadata, nativeFaucetId)
+      : [];
   // Same rule as the in-progress badge this receipt replaces: a faucet whose
   // decimals were never resolved has no honest scale, so the asset is named
   // without a quantity instead of being shown at the placeholder's guess.
@@ -104,8 +111,7 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
     transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
       ? formatAmount(transaction.amount, tokenMetadata.decimals)
       : undefined;
-  const amountText =
-    consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
+  const amountText = consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenLabel}` : undefined;
 
   const feeText = useReceiptFeeText(transaction);
 
@@ -150,12 +156,17 @@ export const SuccessSummaryPill: FC<{
   <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} fillForArrow={fillForArrow} className="mt-1" />
 );
 
-/** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows. */
-export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {
+/** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows.
+ *  `surface="outline"` draws it on the page with a hairline edge, set in Nunito (the earn flow's). */
+export const ReceiptRows: FC<{ rows: ReceiptRow[]; surface?: 'fill' | 'outline'; className?: string }> = ({
+  rows,
+  surface = 'fill',
+  className
+}) => {
   if (rows.length === 0) return null;
 
   return (
-    <DetailCard className={classNames('w-full', className)}>
+    <DetailCard surface={surface} className={classNames('w-full', surface === 'outline' && 'face-heading', className)}>
       {rows.map(row => (
         <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
           {row.onClick ? (

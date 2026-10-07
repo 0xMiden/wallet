@@ -82,13 +82,16 @@ function useFitText(active: boolean, maxPx: number, network: string, language: s
  * It follows the effective network, so a Developer Settings override shows here too, and renders
  * nothing on mainnet.
  */
-export const NetworkModePill: FC = () => {
+export const NetworkModePill: FC<{ 'data-testid'?: string }> = ({
+  'data-testid': dataTestId = 'network-mode-pill'
+}) => {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
 
   const networkKey = getTestNetworkNameKey();
   const network = networkKey ? t(networkKey) : '';
-  const language = i18n.resolvedLanguage ?? i18n.language ?? 'en';
+  // `i18n` is optional so a screen rendered under a bare `useTranslation` stub (one with only `t`) still draws the pill.
+  const language = i18n?.resolvedLanguage ?? i18n?.language ?? 'en';
   const maxPx = language.startsWith('en') ? TEXT_ENGLISH_PX : TEXT_OTHER_PX;
   const { textRef, separatorRef, fontPx } = useFitText(networkKey !== null, maxPx, network, language);
   if (!networkKey) return null;
@@ -99,7 +102,7 @@ export const NetworkModePill: FC = () => {
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        data-testid="network-mode-pill"
+        data-testid={dataTestId}
         className="w-full"
         icon={<span aria-hidden="true" className="h-2 w-2 rounded-full bg-accent-primary" />}
         trailingIcon={<Icon name={IconName.Information} size="xs" fill="currentColor" className="text-muted" />}

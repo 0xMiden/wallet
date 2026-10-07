@@ -3,7 +3,11 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import {
@@ -12,6 +16,7 @@ import {
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import TokenDetail from './TokenDetail';
 import enMessages from '../../../public/_locales/en/en.json';
@@ -35,6 +40,16 @@ import enMessages from '../../../public/_locales/en/en.json';
 // sibling ReviewSwap.test.tsx mock).
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -166,21 +181,41 @@ jest.mock('components/PageHeader', () => ({
 }));
 
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size, className }: { symbol: string; size?: string; className?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} className={className} />
+  TokenLogo: ({
+    symbol,
+    size,
+    className,
+    badge
+  }: {
+    symbol: string;
+    size?: string;
+    className?: string;
+    badge?: React.ReactNode;
+  }) => (
+    <span data-testid="token-logo" data-symbol={symbol} data-size={size} className={className}>
+      {badge}
+    </span>
   )
+}));
+
+// The sheet's drawer pulls in the dApp browser provider; here it only has to show whether the pill
+// opened it, and hand back a way to close it.
+jest.mock('components/UnverifiedTokenSheet', () => ({
+  UnverifiedTokenSheet: ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) =>
+    open ? <button type="button" data-testid="unverified-token-sheet" onClick={() => onOpenChange(false)} /> : null
 }));
 
 // The History template is SWR/SDK-backed; stub it and surface the props
 // TokenDetail forwards.
 jest.mock('app/templates/history/History', () => ({
   __esModule: true,
-  default: (props: { address: string; tokenId?: string; fullHistory?: boolean }) => (
+  default: (props: { address: string; tokenId?: string; fullHistory?: boolean; dateStyle?: string }) => (
     <div
       data-testid="history"
       data-address={props.address}
       data-token-id={props.tokenId}
       data-full-history={String(props.fullHistory)}
+      data-date-style={props.dateStyle ?? ''}
     />
   )
 }));
@@ -524,6 +559,21 @@ describe('TokenDetail', () => {
     expect(history).toHaveAttribute('data-full-history', 'true');
   });
 
+  // The caption list starts flush under the heading on its own; a margin pulling it up would also
+  // pull up History's empty, error and loading branches, which keep their own spacing.
+  it('hands History the caption style without a negative margin', () => {
+    renderPage();
+
+    const section = screen.getByTestId('token-detail-activity');
+    const history = within(section).getByTestId('history');
+    expect(history).toHaveAttribute('data-date-style', 'caption');
+    const negativeMargins: string[] = [];
+    for (let node = history.parentElement; node && node !== section; node = node.parentElement) {
+      negativeMargins.push(...Array.from(node.classList).filter(name => name.startsWith('-m')));
+    }
+    expect(negativeMargins).toEqual([]);
+  });
+
   it('calls goBack from the navigation header', () => {
     renderPage();
 
@@ -578,7 +628,7 @@ describe('TokenDetail', () => {
       ['token-detail-activity', 'recentActivity']
     ] as const) {
       const heading = within(screen.getByTestId(section)).getByRole('heading', { level: 2, name: key });
-      expect(heading).toHaveClass('text-muted', 'text-title-section');
+      expect(heading).toHaveClass('text-hero-name', 'font-extrabold', 'text-muted');
       expect(heading).not.toHaveClass('uppercase');
       expect(heading).not.toHaveClass('text-center');
       // The English copy itself is sentence case: only the first word is capitalised.
@@ -900,7 +950,13 @@ describe('TokenDetail', () => {
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
       // The shared DetailCard: `fill`, 16px radius, hairlines between rows.
-      expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
+      expect(contract.parentElement).toHaveClass(
+        'bg-page',
+        'border',
+        'border-hairline',
+        'rounded-2xl',
+        'divide-hairline'
+      );
       // One name for one thing: "Faucet ID", as the transaction detail page says it.
       expect(within(contract).getByText('faucetId')).toBeInTheDocument();
 
@@ -1000,29 +1056,38 @@ describe('TokenDetail', () => {
       expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
     });
 
-    it('shows the Unverified mark, its warning pill and explanation for an unverified token', () => {
+    it('marks an unverified token with a badge on its logo and a pill that opens the explanation', () => {
       mockVerifyToken.mockReturnValue('unverified');
       renderPage();
+
+      // The warning badge rides on the token's own mark.
+      expect(within(screen.getByTestId('token-logo')).getByTestId('token-detail-unverified-badge')).toBeInTheDocument();
 
       const mark = screen.getByTestId('token-detail-unverified');
       // Directly under the Hero, not buried further down the page.
       expect(screen.getByTestId('token-detail-hero').nextElementSibling).toBe(mark);
-      expect(mark).toHaveClass('flex', 'flex-col', 'items-center', 'gap-2');
 
-      // The pill itself: `sm`/`warning`, not any other size or tone.
-      const pill = within(mark).getByText('unverifiedToken').parentElement;
-      expect(pill).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-tint-ink');
+      // One tinted pill: the warning glyph, "Unverified token", an info glyph; no paragraph on the page.
+      const pill = screen.getByTestId('token-detail-unverified-pill');
+      expect(pill).toHaveTextContent('unverifiedTokenTitle');
+      expect(pill).toHaveClass('text-pending-tint-ink');
+      expect(within(mark).queryByRole('note')).not.toBeInTheDocument();
 
-      // The explanation is the design system's footnote, an inline warning Notice, under the pill.
-      const notice = within(mark).getByRole('note');
-      expect(notice).toHaveTextContent('unverifiedTokenDescription');
-      expect(notice).toHaveAttribute('data-variant', 'inline');
-      expect(notice).toHaveAttribute('data-tone', 'warning');
-      expect(notice).toHaveClass('justify-center', 'text-center');
-      expect(notice).not.toHaveClass('text-left');
-      expect(Array.from(mark.children)).toEqual([pill, notice]);
+      // Tapping it opens the sheet and reports it expanded; closing the sheet collapses it.
+      expect(screen.queryByTestId('unverified-token-sheet')).not.toBeInTheDocument();
+      expect(pill).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(pill);
+      expect(screen.getByTestId('unverified-token-sheet')).toBeInTheDocument();
+      expect(pill).toHaveAttribute('aria-expanded', 'true');
+      fireEvent.click(screen.getByTestId('unverified-token-sheet'));
+      expect(screen.queryByTestId('unverified-token-sheet')).not.toBeInTheDocument();
+    });
 
-      expect(mockVerifyToken).toHaveBeenCalledWith(TOKEN_ID);
+    it('draws no badge on the logo of a verified token', () => {
+      mockVerifyToken.mockReturnValue('verified');
+      renderPage();
+
+      expect(screen.queryByTestId('token-detail-unverified-badge')).not.toBeInTheDocument();
     });
   });
 
@@ -1421,5 +1486,39 @@ describe('TokenDetail', () => {
 
       expect(screen.queryByTestId('token-detail-edited')).toBeNull();
     });
+  });
+});
+
+describe('TokenDetail testnet bridge USDC label', () => {
+  it('titles the bridge faucet by the testnet label and keeps its USDC logo', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderPage(
+      {
+        balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
+        tokenPrices: {}
+      },
+      MIDEN_USDC_FAUCET
+    );
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+  });
+
+  it('retitles the bridge faucet by the label once the bridge config publishes, with no new props', () => {
+    renderPage(
+      {
+        balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
+        tokenPrices: {}
+      },
+      MIDEN_USDC_FAUCET
+    );
+    expect(screen.getByTestId('nav-title')).toHaveTextContent(/^USDC$/);
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
   });
 });

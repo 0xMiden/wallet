@@ -25,6 +25,8 @@
 import React from 'react';
 
 import { act } from '@testing-library/react';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 // ---------------------------------------------------------------------------
 // Stable jest.fn identities captured once; behaviour reconfigured per test.
@@ -195,6 +197,27 @@ describe('src/popup.tsx', () => {
       delete (globalThis as unknown as { Buffer?: unknown }).Buffer;
       await loadPopup();
       expect((globalThis as unknown as { Buffer?: unknown }).Buffer).toBeDefined();
+    } finally {
+      (globalThis as unknown as { Buffer?: unknown }).Buffer = saved;
+    }
+  });
+
+  it('ends with a working Buffer after public/globals.js ran first, as on every extension page', async () => {
+    // The entry keeps any global Buffer it finds, so a Buffer-shaped stub in globals.js would win over the
+    // real polyfill. The old one encoded every string as zero bytes and broke the WalletConnect relay token.
+    mockGetViews.mockReturnValue([window]);
+    mockIsPopupModeEnabled.mockReturnValue(true);
+
+    const saved = (globalThis as unknown as { Buffer?: unknown }).Buffer;
+    try {
+      delete (globalThis as unknown as { Buffer?: unknown }).Buffer;
+      // eslint-disable-next-line no-new-func -- runs the page script in this window, as the extension HTML does
+      new Function(readFileSync(join(__dirname, '..', 'public', 'globals.js'), 'utf8'))();
+      await loadPopup();
+      const pageBuffer = (
+        globalThis as unknown as { Buffer: { from: (value: string, encoding: string) => Uint8Array } }
+      ).Buffer;
+      expect(pageBuffer.from('ab', 'utf-8')).toHaveLength(2);
     } finally {
       (globalThis as unknown as { Buffer?: unknown }).Buffer = saved;
     }

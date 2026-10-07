@@ -370,17 +370,19 @@ describe('Receive - Address', () => {
     expect(hapticLight).not.toHaveBeenCalled();
   });
 
-  // The fast poll is held only for a greyed-out Cross Chain tile, and the extension draws none.
+  // Every platform draws Cross Chain, the extension included (its relay socket closed only because
+  // the page's placeholder Buffer broke the relay token), so each one holds the fast poll.
   it.each([
-    ['off the extension', false, true],
-    ['on the extension', true, false]
-  ])('asks for the fast-poll hold exactly where it draws Cross Chain: %s', async (_where, extension, hold) => {
+    ['off the extension', false],
+    ['on the extension', true]
+  ])('draws Cross Chain and asks for the fast-poll hold: %s', async (_where, extension) => {
     mockIsExtension.mockReturnValue(extension);
     mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
     const container = await renderReceive();
 
-    expect(container.querySelector('[data-testid="receive-cross-chain"]') !== null).toBe(hold);
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold });
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
+    // No options: the hook's default hold applies on every platform.
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], undefined);
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

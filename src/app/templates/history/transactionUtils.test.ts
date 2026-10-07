@@ -2,10 +2,17 @@ import { format } from 'date-fns';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EVM_USDC,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
@@ -26,6 +33,7 @@ import {
   isFaucetMintTransaction,
   isFaucetRequest,
   isReceiveEntry,
+  labelHistoryEntry,
   MoneyKind,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
@@ -54,7 +62,8 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // The DEX swap registry pulls in SDK account-id helpers; stub the single lookup
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokenByFaucetId: jest.fn()
+  getSwapTokenByFaucetId: jest.fn(),
+  normalizedFaucetId: (faucetId: string) => faucetId
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
@@ -69,6 +78,29 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 jest.mock('lib/shared/format', () => ({
   formatAmount: jest.fn((amount: bigint, decimals: number | undefined) => `fmt(${amount},${decimals})`)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
+// The placeholder a bridge row shows for a token it cannot name (U+2014), built so no dash is typed here.
+const NO_TOKEN = String.fromCharCode(0x2014);
+
+// The bridge config as a page holds it before the document loads: nothing is labelled.
+const UNLOADED: BridgeConfigSnapshot = {
+  network: 'testnet',
+  status: 'loading',
+  config: null,
+  derived: null,
+  lastFetch: null
+};
 
 const mockGetTokenMetadata = getTokenMetadata as jest.MockedFunction<typeof getTokenMetadata>;
 const mockGetSwapTokenByFaucetId = getSwapTokenByFaucetId as jest.MockedFunction<typeof getSwapTokenByFaucetId>;
@@ -98,6 +130,21 @@ describe('resolveConsumeExtraAmounts', () => {
 
   it('returns nothing for a legacy consume row without assetTotals', async () => {
     await expect(resolveConsumeExtraAmounts(consumeTx(undefined))).resolves.toEqual([]);
+  });
+
+  // The row names it at render (`labelHistoryEntry`), so a stored line never holds a label the config may move off.
+  it('keeps the chain symbol of a claimed line of the testnet bridge faucet', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', name: 'USDC', decimals: 6 });
+
+    await expect(
+      resolveConsumeExtraAmounts(
+        consumeTx([
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: MIDEN_USDC_FAUCET, amount: 5n }
+        ])
+      )
+    ).resolves.toEqual([{ faucetId: MIDEN_USDC_FAUCET, amount: 'fmt(5,6)', token: 'USDC' }]);
   });
 
   it('excludes the primary faucet and formats each secondary with its own decimals', async () => {
@@ -658,6 +705,7 @@ describe('bridgeRowDisplay', () => {
   it('renders an epoch row from its quoted output', () => {
     expect(
       bridgeRowDisplay(
+        UNLOADED,
         bridgeEntry({
           token: 'MIDEN',
           amount: '5',
@@ -670,6 +718,8 @@ describe('bridgeRowDisplay', () => {
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       // Truncated, not rounded up: a quote must not promise more than it pays.
       outAmount: '4.98',
       providerLabel: 'Epoch',
@@ -680,8 +730,10 @@ describe('bridgeRowDisplay', () => {
 
   it('rounds a stored quote down and drops the padding of a legacy display string', () => {
     const quoted = (bridgeOutputAmount: string) =>
-      bridgeRowDisplay(bridgeEntry({ token: 'MIDEN', amount: '5', bridgeProvider: 'epoch', bridgeOutputAmount }))
-        .outAmount;
+      bridgeRowDisplay(
+        UNLOADED,
+        bridgeEntry({ token: 'MIDEN', amount: '5', bridgeProvider: 'epoch', bridgeOutputAmount })
+      ).outAmount;
 
     expect(quoted('10.655599')).toBe('10.65');
     expect(quoted('12.00')).toBe('12');
@@ -691,11 +743,14 @@ describe('bridgeRowDisplay', () => {
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
     expect(
       bridgeRowDisplay(
+        UNLOADED,
         bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
       )
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'ETH',
+      inLabel: 'MIDEN',
+      outLabel: 'ETH',
       outAmount: '7',
       providerLabel: 'Agglayer',
       network: 'Sepolia',
@@ -704,9 +759,11 @@ describe('bridgeRowDisplay', () => {
   });
 
   it('falls back to em dash / USDC / "Bridge" when the row carries no provider or token', () => {
-    expect(bridgeRowDisplay(bridgeEntry({}))).toEqual({
+    expect(bridgeRowDisplay(UNLOADED, bridgeEntry({}))).toEqual({
       inSymbol: '—',
       outSymbol: 'USDC',
+      inLabel: NO_TOKEN,
+      outLabel: 'USDC',
       outAmount: undefined,
       providerLabel: 'Bridge',
       network: 'Sepolia',
@@ -719,9 +776,9 @@ describe('bridgeRowDisplay', () => {
   // An agglayer row never carries a quoted output (that field is Epoch-only), so this is the
   // typed Miden-side send amount and must show as entered, not cut to two decimals.
   it('shows a Slow-route amount as entered in the fallback path, not cut to two decimals', () => {
-    expect(bridgeRowDisplay(bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount).toBe(
-      '0.015'
-    );
+    expect(
+      bridgeRowDisplay(UNLOADED, bridgeEntry({ token: 'ETH', amount: '0.015', bridgeProvider: 'agglayer' })).outAmount
+    ).toBe('0.015');
   });
 });
 
@@ -743,6 +800,7 @@ describe('bridgeInRowDisplay', () => {
   it('flips the direction: EVM source token in, Miden token out', () => {
     expect(
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'consume',
           token: 'MIDEN',
@@ -754,6 +812,8 @@ describe('bridgeInRowDisplay', () => {
     ).toEqual({
       inSymbol: 'ETH',
       outSymbol: 'MIDEN',
+      inLabel: 'ETH',
+      outLabel: 'MIDEN',
       outAmount: '3',
       providerLabel: 'Agglayer',
       network: 'Miden',
@@ -766,6 +826,7 @@ describe('bridgeInRowDisplay', () => {
   it('prefers the row amount over the quoted output once the phase is received', () => {
     expect(
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'received',
@@ -781,6 +842,7 @@ describe('bridgeInRowDisplay', () => {
   it("rounds a received bridge-in's credited amount down at the asset precision", () => {
     const received = (amount: string, symbol: string) =>
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'received',
@@ -798,6 +860,7 @@ describe('bridgeInRowDisplay', () => {
   it('shows an in-flight "you receive" amount as typed, without padding', () => {
     const inFlight = (bridgeInOutputAmount: string) =>
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'delivering',
@@ -816,6 +879,7 @@ describe('bridgeInRowDisplay', () => {
   it('shows an in-flight "you receive" a restored backup left as a number or a BigInt', () => {
     const inFlight = (bridgeInOutputAmount: unknown) =>
       bridgeInRowDisplay(
+        UNLOADED,
         restoredEntry(
           { txType: 'bridged-receive', bridgeInPhase: 'delivering', amount: '10', bridgeInProvider: 'epoch' },
           { bridgeInOutputAmount }
@@ -831,6 +895,7 @@ describe('bridgeInRowDisplay', () => {
   describe('an in-flight bridge-in with no stored "you receive"', () => {
     const fallback = (bridgeInProvider: IHistoryEntry['bridgeInProvider'], amount: string) =>
       bridgeInRowDisplay(
+        UNLOADED,
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'delivering',
@@ -858,6 +923,7 @@ describe('bridgeInRowDisplay', () => {
   it('ignores a stored symbol that is an EVM contract address', () => {
     const address = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
     const display = bridgeInRowDisplay(
+      UNLOADED,
       bridgeEntry({
         txType: 'bridged-receive',
         bridgeInPhase: 'received',
@@ -872,15 +938,159 @@ describe('bridgeInRowDisplay', () => {
   });
 
   it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {
-    expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
+    expect(bridgeInRowDisplay(UNLOADED, bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
       inSymbol: 'USDC',
       outSymbol: '—',
+      inLabel: 'USDC',
+      outLabel: NO_TOKEN,
       outAmount: undefined,
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
     });
   });
+});
+
+describe('bridge rows testnet bridge USDC label', () => {
+  beforeEach(() => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  });
+
+  // The document names the EVM USDC before its Sepolia read succeeds; the Miden side is named from the document too.
+  it('labels the EVM USDC side from the document alone while its token read has not succeeded', () => {
+    const documentOnly: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+    mockBridgeSnapshot = documentOnly;
+
+    const out = bridgeRowDisplay(
+      documentOnly,
+      bridgeEntry({ token: 'USDC', faucetId: MIDEN_USDC_FAUCET, amount: '5', bridgeProvider: 'epoch' })
+    );
+    const usdcIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'USDC', faucetId: MIDEN_USDC_FAUCET, bridgeInProvider: 'epoch' })
+    );
+    const ethIn = bridgeInRowDisplay(
+      documentOnly,
+      bridgeEntry({ txType: 'consume', token: 'ETH', bridgeInProvider: 'agglayer', bridgeInSourceSymbol: 'ETH' })
+    );
+
+    expect([out.outLabel, usdcIn.inLabel, ethIn.inLabel]).toEqual(['Test Epoch USDC', 'Test Epoch USDC', 'ETH']);
+  });
+
+  it('labels both sides of an Epoch bridge-out of the bridge faucet', () => {
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '5',
+          bridgeProvider: 'epoch',
+          bridgeOutputSymbol: 'USDC',
+          bridgeOutputAmount: '4.987654'
+        })
+      )
+    ).toMatchObject({
+      inSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outSymbol: 'USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98'
+    });
+  });
+
+  it.each(['USDC', TEST_EVM_USDC.address])(
+    'labels an old Epoch bridge-in row saved with USDC or with the token address (%s)',
+    saved => {
+      expect(
+        bridgeInRowDisplay(
+          TEST_BRIDGE_CONFIG_SNAPSHOT,
+          bridgeEntry({
+            txType: 'consume',
+            token: 'USDC',
+            faucetId: MIDEN_USDC_FAUCET,
+            amount: '3',
+            bridgeInProvider: 'epoch',
+            bridgeInSourceSymbol: saved
+          })
+        )
+      ).toMatchObject({ inSymbol: 'USDC', inLabel: 'Test Epoch USDC', outSymbol: 'USDC', outLabel: 'Test Epoch USDC' });
+    }
+  );
+
+  it('labels a Slow-route bridge-in of the configured USDC like the review does', () => {
+    expect(
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'consume',
+          token: 'USDC',
+          faucetId: MIDEN_USDC_FAUCET,
+          amount: '3',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'USDC'
+        })
+      )
+    ).toMatchObject({ inLabel: 'Test Epoch USDC', outLabel: 'Test Epoch USDC' });
+  });
+
+  it('leaves an Agglayer ETH row on ETH', () => {
+    expect(
+      bridgeInRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({
+          txType: 'consume',
+          token: 'ETH',
+          faucetId: TEST_NATIVE_ETH_FAUCET,
+          amount: '0.015',
+          bridgeInProvider: 'agglayer',
+          bridgeInSourceSymbol: 'ETH'
+        })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
+    expect(
+      bridgeRowDisplay(
+        TEST_BRIDGE_CONFIG_SNAPSHOT,
+        bridgeEntry({ token: 'ETH', faucetId: TEST_NATIVE_ETH_FAUCET, amount: '0.015', bridgeProvider: 'agglayer' })
+      )
+    ).toMatchObject({ inLabel: 'ETH', outLabel: 'ETH' });
+  });
+});
+
+describe('labelHistoryEntry', () => {
+  const claim = bridgeEntry({
+    txType: 'consume',
+    faucetId: MIDEN_USDC_FAUCET,
+    token: 'USDC',
+    amount: '5',
+    extraAmounts: [
+      { faucetId: MIDEN_USDC_FAUCET, amount: '2', token: 'USDC' },
+      { faucetId: TEST_NATIVE_ETH_FAUCET, amount: '1', token: 'ETH' }
+    ]
+  });
+
+  it("labels a row's token and each extra amount by its own faucet", () => {
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, claim)).toEqual({
+      ...claim,
+      token: 'Test Epoch USDC',
+      extraAmounts: [
+        { faucetId: MIDEN_USDC_FAUCET, amount: '2', token: 'Test Epoch USDC' },
+        { faucetId: TEST_NATIVE_ETH_FAUCET, amount: '1', token: 'ETH' }
+      ]
+    });
+  });
+
+  it('keeps every symbol before the bridge config loads', () => {
+    expect(labelHistoryEntry(UNLOADED, claim)).toEqual(claim);
+  });
+
+  it.each(['swap', 'earn-withdraw', 'earn-deposit'] as const)(
+    'leaves a %s row on the token its own fields chose',
+    txType => {
+      const row = bridgeEntry({ txType, faucetId: MIDEN_USDC_FAUCET, token: 'USDC', amount: '5' });
+      expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, row)).toEqual(row);
+    }
+  );
 });
 
 describe('swap settlement state', () => {

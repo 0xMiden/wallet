@@ -14,6 +14,8 @@ import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { truncateAddress } from 'utils/string';
 
@@ -66,6 +68,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const transition = useMotion(springs.standard);
   const reveal = usePreset('reveal');
   const readState = useActivityReadState();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   // An incoming transfer stays unread until it is accepted or declined, whichever comes first —
   // a decision, not a glance, is what settles it. `receivedAt` can be absent, and an unusable
   // timestamp never falls under the high-water mark, so such a note simply stays unread until
@@ -76,7 +79,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const [expanded, setExpanded] = useState(false);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
   const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
-  const amountLabel = amount === undefined ? note.metadata.symbol : `${amount} ${note.metadata.symbol}`;
+  const tokenLabel = midenTokenLabel(bridgeConfig, note.faucetId, note.metadata.symbol);
+  const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.
   const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
   const held = status === 'claiming' && item.held === true;
@@ -136,7 +140,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
       subtitle={`${t('from')}: ${sender}`}
       amount={{
         value: amount === undefined ? '' : `+${amount}`,
-        symbol: note.metadata.symbol,
+        symbol: tokenLabel,
         direction: 'positive'
       }}
       status="pending"

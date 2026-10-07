@@ -5,6 +5,7 @@ import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
+import { THEME_STORAGE_KEY } from 'lib/settings/constants';
 
 import { openExternalUrl } from './external-browser';
 
@@ -117,5 +118,33 @@ describe('openExternalUrl', () => {
     expect(markReturningFromWebview).not.toHaveBeenCalled();
     expect(removeListener).not.toHaveBeenCalled();
     expect(resetViewportAfterWebview).not.toHaveBeenCalled();
+  });
+
+  describe('native header theme (#503)', () => {
+    beforeEach(() => {
+      mockIsMobile.mockReturnValue(true);
+      mockAddListener.mockResolvedValue({ remove: jest.fn() });
+    });
+    afterEach(() => localStorage.clear());
+
+    it("colours the header with the app's theme, not the phone's", async () => {
+      localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+
+      await openExternalUrl({ url: 'https://testnet.midenscan.com/tx/0xabc', title: 'Midenscan' });
+
+      expect(mockOpenWebView).toHaveBeenCalledWith(expect.objectContaining({ toolbarColor: '#191919' }));
+      expect(mockOpenWebView.mock.calls[0][0]).not.toHaveProperty('toolbarTextColor');
+    });
+
+    it('reads the theme at every open, so a theme switched since the last one applies', async () => {
+      localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+      await openExternalUrl({ url: 'https://testnet.midenscan.com/tx/0xabc', title: 'Midenscan' });
+      localStorage.setItem(THEME_STORAGE_KEY, 'light');
+      await openExternalUrl({ url: 'https://testnet.midenscan.com/tx/0xdef', title: 'Midenscan' });
+
+      expect(mockOpenWebView).toHaveBeenNthCalledWith(1, expect.objectContaining({ toolbarColor: '#191919' }));
+      expect(mockOpenWebView).toHaveBeenNthCalledWith(2, expect.objectContaining({ toolbarColor: '#ffffff' }));
+      expect(mockOpenWebView.mock.calls[1][0]).not.toHaveProperty('toolbarTextColor');
+    });
   });
 });

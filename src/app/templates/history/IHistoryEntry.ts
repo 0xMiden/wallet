@@ -29,6 +29,7 @@ export interface IHistoryExtraAmount {
    * metadata resolves; a missing number is recoverable, a wrong one is not.
    */
   amount?: string;
+  /** The asset's symbol as fetched, or its testnet label once a list names it at render (`labelHistoryEntry`). */
   token: string;
 }
 
@@ -70,6 +71,7 @@ export interface IHistoryEntry {
    * failure is unambiguously pre-submit. Set by the detail page only.
    */
   processingStartedAt?: number;
+  /** The asset's symbol as fetched, or its testnet label once a list names it at render (`labelHistoryEntry`). */
   token?: string;
   /**
    * Formatted for display, like `requestedAmount` below — every producer assigns
