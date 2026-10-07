@@ -87,6 +87,15 @@ function faucetMetadataFor(state: WalletStore, faucetId: string): AssetMetadata 
   return state.tokenMetadataOverrides[faucetId] === undefined ? state.assetsMetadata[faucetId] : undefined;
 }
 
+/**
+ * The faucet's own metadata of a token, never an entry an override made.
+ * Whether a faucet's metadata is fetched or adopted depends on this, not on `assetsMetadata`:
+ * an override on a faucet with no record makes an entry there, and the faucet's record must still come.
+ */
+export function faucetMetadataOf(faucetId: string): AssetMetadata | undefined {
+  return faucetMetadataFor(useWalletStore.getState(), faucetId);
+}
+
 /** The metadata to show. Without the faucet's metadata, an override applies to the unknown-token placeholder. */
 function shownMetadata(
   base: AssetMetadata | undefined,
@@ -791,6 +800,7 @@ export const useWalletStore = create<WalletStore>()(
       try {
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
           setAssetsMetadata: get().setAssetsMetadata,
+          faucetMetadataOf,
           tokenPrices: get().tokenPrices,
           waitForLock: get().balances[accountAddress] === undefined
         });

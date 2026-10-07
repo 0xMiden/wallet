@@ -10,7 +10,7 @@ import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
 import { setTokensBaseMetadata } from '../../miden/front/assets';
-import { useWalletStore } from '../index';
+import { faucetMetadataOf, useWalletStore } from '../index';
 import { balancePrice } from './balancePrice';
 
 /**
@@ -52,7 +52,9 @@ export async function updateBalancesFromSyncData(
     // A cached record whose scale is a guess is provisional: real metadata
     // arriving on a later sync must be allowed to replace it. Preferring the
     // cache unconditionally is what made a single failed lookup permanent.
-    const localMeta = hasKnownScale(cached) ? cached : undefined;
+    // The scale is judged on the faucet's record: an override's decimals make
+    // the placeholder entry look known, and the sync's record must replace it.
+    const localMeta = hasKnownScale(faucetMetadataOf(asset.faucetId)) ? cached : undefined;
     if (asset.faucetId === actualNativeId) {
       tokenMetadata = getNativeDisplayMetadataSync(asset.metadata ?? localMeta, asset.faucetId);
     } else if (localMeta) {

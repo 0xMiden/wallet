@@ -26,7 +26,7 @@ import {
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { ensureTokensMetadataSchema, updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
 import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
-import { useWalletStore } from 'lib/store';
+import { faucetMetadataOf, useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
 
 export const ALL_TOKENS_BASE_METADATA_STORAGE_KEY = 'tokens_base_metadata';
@@ -55,7 +55,8 @@ export function useAssetMetadata(_slug: string, assetId: string) {
   const isMidenFaucet = assetId === midenFaucetId;
   const isNativeFaucet = assetId === getNativeAssetIdSync();
   const tokenMetadata = assetsMetadata[assetId] ?? null;
-  const exist = Boolean(tokenMetadata);
+  // The faucet's record, not the entry: an override on a faucet with no record makes an entry.
+  const exist = faucetMetadataOf(assetId) !== undefined;
 
   // Auto-fetch missing metadata
   useEffect(() => {

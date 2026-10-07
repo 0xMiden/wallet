@@ -12,7 +12,7 @@ const mockWalletStoreState = {
   tokenPrices: {},
   balances: {},
   assetsMetadata: {} as Record<string, any>,
-  tokenMetadataOverrides: {},
+  tokenMetadataOverrides: {} as Record<string, unknown>,
   setAssetsMetadata: mockSetAssetsMetadata,
   fetchAssetMetadata: mockFetchAssetMetadata,
   hydrateTokenMetadataOverrides: mockHydrateTokenMetadataOverrides
@@ -46,7 +46,12 @@ jest.mock('lib/store', () => ({
     setState: jest.fn((update: (state: typeof mockWalletStoreState) => Partial<typeof mockWalletStoreState>) =>
       Object.assign(mockWalletStoreState, update(mockWalletStoreState))
     )
-  })
+  }),
+  // As the store's accessor: an entry no override made is the faucet's record.
+  faucetMetadataOf: (faucetId: string) =>
+    mockWalletStoreState.tokenMetadataOverrides[faucetId] === undefined
+      ? mockWalletStoreState.assetsMetadata[faucetId]
+      : undefined
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -115,6 +120,7 @@ beforeEach(() => {
   mockSetAssetsMetadata.mockReset();
 
   mockWalletStoreState.assetsMetadata = {};
+  mockWalletStoreState.tokenMetadataOverrides = {};
   mockUseWalletStore.mockImplementation((selector: any) => selector(mockWalletStoreState));
   mockOnStorageChanged.mockReturnValue(() => {});
   mockEnsureTokensMetadataSchema.mockReset().mockResolvedValue(undefined);
@@ -249,6 +255,26 @@ describe('metadata hooks and provider', () => {
       expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]).toEqual({
         'asset-missing': describedMetadata
       });
+    });
+  });
+
+  it('auto-fetches the metadata of a faucet whose store entry only an override made', async () => {
+    const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+    // What the store holds for a faucet with no record: the placeholder with the override on top.
+    mockWalletStoreState.assetsMetadata = {
+      'asset-overridden': { name: 'Mine', symbol: 'MN', decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
+    };
+    mockWalletStoreState.tokenMetadataOverrides = { 'asset-overridden': override };
+    mockFetchTokenMetadata.mockResolvedValue(describedMetadata);
+
+    const { result } = renderHook(() => useAssetMetadata('token', 'asset-overridden'));
+
+    expect(result.current).toMatchObject({ symbol: 'MN', decimals: 3 });
+    await waitFor(() => {
+      expect(mockFetchTokenMetadata).toHaveBeenCalledWith('asset-overridden');
+    });
+    await waitFor(() => {
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-overridden': describedMetadata });
     });
   });
 

@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
-import { getIntercom, useWalletStore } from 'lib/store';
+import { faucetMetadataOf, getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -115,14 +116,12 @@ async function buildMetadataMapFromCache(
   return map;
 }
 
-async function findMissingFaucetIds(
-  notes: ParsedNote[],
-  metadataByFaucetId: Record<string, AssetMetadata>
-): Promise<string[]> {
+/** Missing means no faucet record: an entry an override made is shown meanwhile, and the record must still come. */
+async function findMissingFaucetIds(notes: ParsedNote[]): Promise<string[]> {
   const missing = new Set<string>();
   const nativeId = getNativeAssetIdSync();
   for (const n of notes) {
-    if (n.faucetId !== nativeId && !metadataByFaucetId[n.faucetId]) {
+    if (n.faucetId !== nativeId && !faucetMetadataOf(n.faucetId)) {
       missing.add(n.faucetId);
     }
   }
@@ -434,6 +433,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   // the new account's notes, whether the new read is still pending or keeps failing.
   const [claimingRead, setClaimingRead] = useState<ClaimingRead>({ generation: -1, txIdByNoteId: NO_CLAIMING });
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const tokenMetadataOverrides = useWalletStore(s => s.tokenMetadataOverrides);
   // Whether this VISIT has seen the service worker write a sync for this account.
   // miden_sync_data outlives the popup, so the first read is the snapshot a previous
   // session left behind; a consumer that treats the first list as what exists now
@@ -574,7 +574,10 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           id: n.id,
           faucetId: n.faucetId,
           amount: n.amountBaseUnits,
-          metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
+          // The service worker attaches the faucet's metadata; the store entry has the override already.
+          metadata: n.metadata
+            ? applyOverrideFor(n.faucetId, n.metadata as AssetMetadata, tokenMetadataOverrides)
+            : assetsMetadata[n.faucetId]!,
           senderAddress: n.senderAddress,
           isBeingClaimed: claimingTxIds.has(n.id),
           claimingTxId: claimingTxIds.get(n.id),
@@ -585,7 +588,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           standardPayment: n.standardPayment
         }))
     );
-  }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata]);
+  }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata, tokenMetadataOverrides]);
 
   const mutate = useCallback(() => {
     // Trigger a SyncRequest to get fresh data
@@ -641,7 +644,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
     // This doesn't "warm up" the WASM client — it fetches token metadata (symbol, decimals)
     // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
-    const missingFaucetIds = await findMissingFaucetIds(parsedNotes, metadataByFaucetId);
+    const missingFaucetIds = await findMissingFaucetIds(parsedNotes);
     if (missingFaucetIds.length > 0) {
       runWhenClientIdle(async () => {
         const fetched: Record<string, AssetMetadata> = {};

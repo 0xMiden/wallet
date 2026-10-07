@@ -15,7 +15,8 @@ import {
   selectIsIdle,
   getIntercom,
   reloadEndpointOverridesInSW,
-  __resetFaucetAssetsMetadataForTest
+  __resetFaucetAssetsMetadataForTest,
+  faucetMetadataOf
 } from './index';
 import { fetchingAddresses } from './utils/fetchBalances';
 
@@ -622,6 +623,21 @@ describe('useWalletStore', () => {
 
       expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
       expect(useWalletStore.getState().assetsMetadata[NATIVE]).toEqual(native);
+    });
+
+    it("gives the faucet's own record through faucetMetadataOf, never an entry an override made", async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
+      expect(faucetMetadataOf(FAUCET)).toEqual(faucetMetadata);
+
+      // A faucet with no record: the hydration writes the placeholder with the override on top.
+      useWalletStore
+        .getState()
+        .hydrateTokenMetadataOverrides({ mtst1fresh: { name: 'Fresh', symbol: 'FRS', decimals: 3 } });
+      expect(useWalletStore.getState().assetsMetadata.mtst1fresh).toMatchObject({ symbol: 'FRS', decimals: 3 });
+      expect(faucetMetadataOf('mtst1fresh')).toBeUndefined();
+
+      useWalletStore.setState(state => ({ assetsMetadata: { ...state.assetsMetadata, mtst1plain: faucetMetadata } }));
+      expect(faucetMetadataOf('mtst1plain')).toEqual(faucetMetadata);
     });
 
     it('applies the stored overrides on hydrate and removes the ones storage no longer has', async () => {

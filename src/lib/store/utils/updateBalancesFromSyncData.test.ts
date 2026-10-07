@@ -2,7 +2,7 @@ import '../../../../test/jest-mocks';
 
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { SerializedVaultAsset } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
+import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
 
 import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
 
@@ -43,8 +43,10 @@ describe('updateBalancesFromSyncData', () => {
       balances: {},
       balancesLoading: {},
       balancesLastFetched: {},
-      assetsMetadata: {}
+      assetsMetadata: {},
+      tokenMetadataOverrides: {}
     });
+    __resetFaucetAssetsMetadataForTest();
     jest.clearAllMocks();
     mockGetTokenMetadataOverrides.mockReset().mockResolvedValue({});
   });
@@ -81,6 +83,27 @@ describe('updateBalancesFromSyncData', () => {
       expect(bare).toMatchObject({
         balance: 2,
         metadata: { decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
+      });
+    });
+
+    it("adopts the sync's record over the placeholder an override made, and shows the override on top", async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+      // The provider's hydration of a stored override for a faucet with no record. Its decimals make the entry a known scale.
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ 'fresh-faucet': override });
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'fresh-faucet': override });
+      const faucetRecord = { name: 'Fresh', symbol: 'FRS', decimals: 6 };
+
+      await updateBalancesFromSyncData('account-1', [
+        { faucetId: 'fresh-faucet', amountBaseUnits: '2000000', metadata: faucetRecord }
+      ]);
+
+      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'fresh-faucet': faucetRecord });
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata['fresh-faucet']).toEqual({ name: 'Mine', symbol: 'MN', decimals: 6 });
+      expect(state.balances['account-1']!.find(b => b.tokenId === 'fresh-faucet')).toMatchObject({
+        tokenSlug: 'MN',
+        balance: 2
       });
     });
 

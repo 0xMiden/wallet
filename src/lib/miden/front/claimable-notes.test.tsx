@@ -27,6 +27,7 @@ _g.__cnTest = {
   walletState: {
     extensionClaimableNotes: null as any,
     assetsMetadata: {} as Record<string, any>,
+    tokenMetadataOverrides: {} as Record<string, any>,
     setExtensionClaimableNotes: jest.fn(),
     setAssetsMetadata: jest.fn()
   }
@@ -47,7 +48,12 @@ jest.mock('lib/store', () => {
   (fn as any).getState = () => (globalThis as any).__cnTest.walletState;
   return {
     useWalletStore: fn,
-    getIntercom: () => ({ request: (globalThis as any).__cnTest.intercomRequest })
+    getIntercom: () => ({ request: (globalThis as any).__cnTest.intercomRequest }),
+    // As the store's accessor over the same entries the local list reads: an entry no override made is the faucet's record.
+    faucetMetadataOf: (faucetId: string) => {
+      const t = (globalThis as any).__cnTest;
+      return t.walletState.tokenMetadataOverrides[faucetId] === undefined ? t.metadataCache[faucetId] : undefined;
+    }
   };
 });
 
@@ -213,6 +219,7 @@ beforeEach(() => {
   _g.__cnTest.walletState.extensionClaimableNotes = null;
   _g.__cnTest.walletState.extensionClaimingNoteIds = new Set();
   _g.__cnTest.walletState.assetsMetadata = {};
+  _g.__cnTest.walletState.tokenMetadataOverrides = {};
   _g.__cnTest.intercomRequest.mockReset().mockResolvedValue(undefined);
   _g.__cnTest.actualNativeId = 'miden-faucet';
   _g.__cnTest.legacyId = 'miden-faucet';
@@ -646,6 +653,23 @@ describe('useClaimableNotes (extension mode)', () => {
     expect(result.current.data?.[0]?.metadata?.symbol).toBe('A');
   });
 
+  it("shows the user's override over the faucet metadata a note carries", () => {
+    _g.__cnTest.walletState.tokenMetadataOverrides = { f1: { name: 'Mine', symbol: 'MN', decimals: 2 } };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's',
+        noteType: 'public',
+        // The faucet could not be read, so its scale is unknown and the user's decimals apply.
+        metadata: { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
+      }
+    ];
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    expect(result.current.data?.[0]?.metadata).toMatchObject({ name: 'Mine', symbol: 'MN', decimals: 2 });
+  });
+
   it('filters notes that have neither metadata in the note nor in assets', () => {
     _g.__cnTest.walletState.extensionClaimableNotes = [
       {
@@ -1006,6 +1030,24 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       expect.objectContaining({ id: 'legacy-note', metadata: legacyMetadata })
     ]);
     expect(mockRunWhenClientIdle).not.toHaveBeenCalled();
+  });
+
+  it('fetches the metadata of a faucet whose store entry only an override made', async () => {
+    const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+    // What the store holds for a faucet with no record: the placeholder with the override on top.
+    _g.__cnTest.metadataCache = {
+      'overridden-faucet': { name: 'Mine', symbol: 'MN', decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
+    };
+    _g.__cnTest.walletState.tokenMetadataOverrides = { 'overridden-faucet': override };
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'overridden-note', faucetId: 'overridden-faucet' })];
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(mockRunWhenClientIdle).toHaveBeenCalledTimes(1);
+    await mockRunWhenClientIdle.mock.calls[0]![0]();
+    expect(_g.__cnTest.fetchMetadata).toHaveBeenCalledWith('overridden-faucet');
+    expect(_g.__cnTest.setTokensBaseMetadata).toHaveBeenCalledWith({
+      'overridden-faucet': { decimals: 6, symbol: 'X', name: 'X' }
+    });
   });
 
   it('queues a background fetch for an unknown faucet and persists the fetched metadata', async () => {

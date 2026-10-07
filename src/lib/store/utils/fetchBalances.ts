@@ -40,6 +40,11 @@ import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../
 export interface FetchBalancesOptions {
   /** Callback to update asset metadata in the store */
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
+  /**
+   * The faucet's own record of a token, never an entry an override made: only a faucet with one skips the
+   * metadata fetch. The store passes its accessor; without it, `tokenMetadatas` are taken as the records.
+   */
+  faucetMetadataOf?: (faucetId: string) => AssetMetadata | undefined;
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
   /**
@@ -174,7 +179,12 @@ export async function fetchBalances(
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
 ): Promise<TokenBalanceData[] | null> {
-  const { setAssetsMetadata, tokenPrices = {}, waitForLock = false } = options;
+  const {
+    setAssetsMetadata,
+    faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
+    tokenPrices = {},
+    waitForLock = false
+  } = options;
   const balances: TokenBalanceData[] = [];
 
   // Local copy of metadata that we can add to during this fetch
@@ -285,7 +295,12 @@ export async function fetchBalances(
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
-        return assetId !== actualNativeId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
+        return (
+          assetId !== actualNativeId &&
+          !cachedMetadatas[assetId] &&
+          !faucetMetadataOf(assetId) &&
+          shouldRetryUnresolved(assetId, now)
+        );
       })
       .map(async asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());

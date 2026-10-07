@@ -11,6 +11,7 @@ import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
 
@@ -471,6 +472,33 @@ describe('fetchBalances', () => {
       expect(result.find(row => row.tokenId === 'bech32-unknown-faucet')).toMatchObject({
         balance: 2,
         metadata: { decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
+      });
+    });
+
+    it('fetches the metadata of a faucet whose store entry only an override made, and persists its record', async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+      __resetFaucetAssetsMetadataForTest();
+      useWalletStore.setState({ assetsMetadata: {}, tokenMetadataOverrides: {}, balances: {}, tokenPrices: {} });
+      // The provider's hydration of a stored override for a faucet with no record: the placeholder with the override on top.
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ 'bech32-fresh-faucet': override });
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-fresh-faucet': override });
+      mockFetchTokenMetadata.mockResolvedValueOnce(customMetadata);
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'fresh-faucet', amount: () => ({ toString: () => '150000000' }) }]
+        })
+      });
+
+      await useWalletStore.getState().fetchBalances('my-address', useWalletStore.getState().assetsMetadata);
+
+      expect(mockFetchTokenMetadata).toHaveBeenCalledWith('bech32-fresh-faucet');
+      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'bech32-fresh-faucet': customMetadata });
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata['bech32-fresh-faucet']).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
+      expect(state.balances['my-address']!.find(row => row.tokenId === 'bech32-fresh-faucet')).toMatchObject({
+        tokenSlug: 'MN',
+        balance: 1.5
       });
     });
 
