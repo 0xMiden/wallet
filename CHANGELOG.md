@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
+- [FIX][ui] Text, amount and recipient fields offer a Clear (x) button while they hold a value (not on passwords, key material or a field with its own trailing action), search and text field placeholders hide while the field is focused, and the explorer and faucet WebView headers follow the app's theme instead of the phone's appearance (#503).
 
 ### Changes
 
