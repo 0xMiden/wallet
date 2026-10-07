@@ -2,11 +2,10 @@ import React, { FC, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { AcknowledgeSheet } from 'components/AcknowledgeSheet';
+import { InfoHintTrigger } from 'components/ui/InfoHint';
 import { swapTokenInfo, type SwapTokenInfo } from 'lib/miden/swap/token-info';
 import { hapticLight } from 'lib/mobile/haptics';
-import { cn } from 'lib/ui/util';
 
 interface SwapTokenInfoSheetProps {
   open: boolean;
@@ -51,26 +50,16 @@ export const SwapTokenInfoButton: FC<SwapTokenInfoButtonProps> = ({ faucetId, la
   if (!info) return null;
   return (
     <>
-      {/* InfoHint's trigger, so this "i" matches the Rate row's on the same screen: IconButton has no
-          24px inline size, and its `circle` would put a 32px disc in the hero line. */}
-      <button
-        type="button"
+      <InfoHintTrigger
         data-testid="swap-token-info-button"
-        aria-label={t('tokenInfoLabel', { token: label })}
+        label={t('tokenInfoLabel', { token: label })}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={cn(
-          'relative inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted',
-          'before:absolute before:left-1/2 before:top-1/2 before:size-11 before:-translate-x-1/2 before:-translate-y-1/2',
-          'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary'
-        )}
         onClick={() => {
           hapticLight();
           setOpen(true);
         }}
-      >
-        <Icon name={IconName.Information} size="xs" fill="currentColor" aria-hidden="true" />
-      </button>
+      />
       <SwapTokenInfoSheet open={open} onOpenChange={setOpen} label={label} info={info} />
     </>
   );
