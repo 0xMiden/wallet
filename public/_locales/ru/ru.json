@@ -961,6 +961,7 @@
   "invalidAmount": "Неверная сумма",
   "tokenPrice": "Цена токена",
   "tokenInfo": "Информация о токене",
+  "tokenDescription": "Описание",
   "fungible": "Взаимозаменяемый",
   "network": "Сеть",
   "recentActivity": "Последние действия",
@@ -1298,5 +1299,18 @@
   "confirmSendReason": "Подтвердите отправку",
   "confirmSwapReason": "Подтвердите обмен",
   "confirmDappTransactionReason": "Подтвердите эту транзакцию",
-  "confirmEarnDepositReason": "Подтвердите свой депозит"
+  "confirmEarnDepositReason": "Подтвердите свой депозит",
+  "editTokenDetails": "Редактировать сведения о токене",
+  "editTokenDetailsTitle": "Сведения о токене",
+  "tokenNameLabel": "Название",
+  "tokenSymbolLabel": "Символ",
+  "tokenDecimalsLabel": "Десятичные дроби",
+  "saveTokenDetails": "Сохранить",
+  "resetToFaucetValues": "Сброс к значениям по умолчанию (faucet)",
+  "tokenMetadataEdited": "Отредактировано",
+  "tokenNameInvalid": "Введите имя длиной от 1 до $max$ символов.",
+  "tokenSymbolInvalid": "Введите символ длиной от 1 до $max$ символов.",
+  "tokenDecimalsInvalid": "Введите целое число от 0 до $max$.",
+  "tokenMetadataOverrideNotice": "Эти значения влияют только на то, как этот кошелек отображает токен. «faucet» сохраняет свои собственные значения. Суммы, которые вы отправляете, используют десятичные знаки, установленные здесь.",
+  "tokenMetadataSaveError": "Не удалось сохранить данные токена. Попробуйте ещё раз."
 }

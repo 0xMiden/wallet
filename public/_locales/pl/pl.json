@@ -961,6 +961,7 @@
   "invalidAmount": "Nieprawidłowa kwota",
   "tokenPrice": "Cena tokenu",
   "tokenInfo": "Informacje o tokenie",
+  "tokenDescription": "Opis",
   "fungible": "Wymienialny",
   "network": "Sieć",
   "recentActivity": "Ostatnia aktywność",
@@ -1298,5 +1299,18 @@
   "confirmSendReason": "Potwierdź wysyłkę",
   "confirmSwapReason": "Potwierdź wymianę",
   "confirmDappTransactionReason": "Potwierdź tę transakcję",
-  "confirmEarnDepositReason": "Potwierdź swoją wpłatę"
+  "confirmEarnDepositReason": "Potwierdź swoją wpłatę",
+  "editTokenDetails": "Edytuj szczegóły tokenu",
+  "editTokenDetailsTitle": "Szczegóły dotyczące tokenu",
+  "tokenNameLabel": "Nazwa",
+  "tokenSymbolLabel": "Symbol",
+  "tokenDecimalsLabel": "Ułamki dziesiętne",
+  "saveTokenDetails": "Zapisz",
+  "resetToFaucetValues": "Przywróć wartości domyślne dfaucet",
+  "tokenMetadataEdited": "Edytowano",
+  "tokenNameInvalid": "Wprowadź nazwę o długości od 1 do $max$ znaków.",
+  "tokenSymbolInvalid": "Wprowadź symbol składający się z 1 do$max$ów znaków.",
+  "tokenDecimalsInvalid": "Wprowadź liczbę całkowitą z zakresu od 0 do $max$.",
+  "tokenMetadataOverrideNotice": "Te wartości zmieniają jedynie sposób, w jaki ten portfel wyświetla token. Sieć faucet zachowuje swoje własne wartości. Kwoty, które wysyłasz, wykorzystują ustalone tutaj miejsca po przecinku.",
+  "tokenMetadataSaveError": "Nie udało się zapisać szczegółów tokenu. Spróbuj ponownie."
 }

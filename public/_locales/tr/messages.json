@@ -4192,6 +4192,10 @@
     "message": "Token bilgileri",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "Açıklama",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "Değiştirilebilir",
     "englishSource": "Fungible"
@@ -5728,5 +5732,72 @@
   "confirmEarnDepositReason": {
     "message": "Para yatırma işleminizi onaylayın",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Token ayrıntılarını düzenle",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Token ayrıntıları",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Ad",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Sembol",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Ondalık sayılar",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Kaydet",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucet'ın değerlerine sıfırla",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Düzenlendi",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1 ila $max$ karakterden oluşan bir ad girin.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1 ila $max$ karakterden oluşan bir sembol girin.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0 ile $max$ arasında bir tam sayı girin.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Bu değerler yalnızca bu cüzdanın token'ı gösterme şeklini değiştirir. faucet kendi değerlerini korur. Gönderdiğiniz tutarlar, burada ayarladığınız ondalık basamakları kullanır.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Token ayrıntılarını kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }

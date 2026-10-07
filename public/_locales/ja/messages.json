@@ -4192,6 +4192,10 @@
     "message": "トークン情報",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "説明",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "代替可能",
     "englishSource": "Fungible"
@@ -5728,5 +5732,72 @@
   "confirmEarnDepositReason": {
     "message": "入金を確認してください",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "トークンの詳細を編集する",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "トークンの詳細",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "名前",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "記号",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "小数点",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucetの値にリセット",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "編集済み",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1文字から$max$文字の名称を入力してください。",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1～$max$文字の記号を入力してください。",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0から$max$までの整数を入力してください。",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "これらの設定値は、このウォレットがトークンを表示する方法のみを変更します。faucetは独自の設定値を保持します。送信する金額には、ここで設定した小数点以下の桁数が使用されます。",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "トークンの詳細を保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }

@@ -961,6 +961,7 @@
   "invalidAmount": "Valor inválido",
   "tokenPrice": "Preço do token",
   "tokenInfo": "Informações sobre o token",
+  "tokenDescription": "Descrição",
   "fungible": "Fungível",
   "network": "Rede",
   "recentActivity": "Atividades recentes",
@@ -1298,5 +1299,18 @@
   "confirmSendReason": "Confirme seu envio",
   "confirmSwapReason": "Confirme sua troca",
   "confirmDappTransactionReason": "Confirme esta transação",
-  "confirmEarnDepositReason": "Confirme seu depósito"
+  "confirmEarnDepositReason": "Confirme seu depósito",
+  "editTokenDetails": "Editar detalhes do token",
+  "editTokenDetailsTitle": "Detalhes do token",
+  "tokenNameLabel": "Nome",
+  "tokenSymbolLabel": "Símbolo",
+  "tokenDecimalsLabel": "Decimais",
+  "saveTokenDetails": "Salvar",
+  "resetToFaucetValues": "Redefinir para os valores de “faucet”",
+  "tokenMetadataEdited": "Editado",
+  "tokenNameInvalid": "Digite um nome com 1 a$max$es.",
+  "tokenSymbolInvalid": "Digite um símbolo de 1 a$max$es.",
+  "tokenDecimalsInvalid": "Digite um número inteiro de 0 a $max$.",
+  "tokenMetadataOverrideNotice": "Esses valores alteram apenas a forma como esta carteira exibe o token. O faucet mantém seus próprios valores. Os valores que você envia utilizam as casas decimais definidas aqui.",
+  "tokenMetadataSaveError": "Não foi possível salvar os detalhes do token. Tente novamente."
 }

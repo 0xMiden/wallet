@@ -351,10 +351,10 @@ async function discoverMetadata(id: string): Promise<NativeAssetChainMetadata | 
   const { fetchChainTokenMetadata } = await import('lib/miden/metadata');
   if (!isCurrent(snapshot) || memCache !== id) return null;
   try {
-    const { base } = await fetchChainTokenMetadata(id);
-    if (!hasKnownScale(base) || !Number.isInteger(base.decimals) || base.decimals < 0 || base.decimals > 255)
+    const chain = await fetchChainTokenMetadata(id);
+    if (!hasKnownScale(chain) || !Number.isInteger(chain.decimals) || chain.decimals < 0 || chain.decimals > 255)
       return null;
-    const meta: NativeAssetChainMetadata = { symbol: base.symbol, decimals: base.decimals };
+    const meta: NativeAssetChainMetadata = { symbol: chain.symbol, decimals: chain.decimals };
     if (!isCurrent(snapshot) || memCache !== id) return null;
     metaMemCache = meta;
     emit();

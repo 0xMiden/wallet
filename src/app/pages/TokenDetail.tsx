@@ -7,6 +7,7 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
@@ -28,8 +29,10 @@ import { Skeleton } from 'components/ui/Skeleton';
 import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
 import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
+import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -47,6 +50,8 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
 import { truncateHash } from 'utils/string';
+
+import { EditTokenDetailsDrawer, TokenDetailsValues } from './EditTokenDetailsDrawer';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -238,7 +243,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </>
           )}
 
-          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
+          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} metadata={metadata} />
 
           <SectionDivider />
 
@@ -377,9 +382,41 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   );
 };
 
-const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address }) => {
+type TokenInfoProps = {
+  tokenId: string;
+  address: string;
+  /** The metadata the page shows: the faucet's, with the user's override applied. The page resolves it once. */
+  metadata?: AssetMetadata;
+};
+
+/** The decimals are the user's to set while the faucet's scale is unknown: no known scale, or one the user stated. */
+function decimalsAreUsers(metadata: AssetMetadata | undefined): boolean {
+  return !hasKnownScale(metadata) || metadata?.scaleFromOverride === true;
+}
+
+/** The sheet's starting values. Decimals that are a guess are left empty, so the user must state them. */
+function tokenDetailsValues(metadata: AssetMetadata | undefined): TokenDetailsValues {
+  return {
+    name: metadata?.name ?? '',
+    symbol: metadata?.symbol ?? '',
+    decimals: metadata?.scaleFromOverride ? String(metadata.decimals) : ''
+  };
+}
+
+const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const { t } = useTranslation();
   const network = useNetwork();
+  const description = metadata?.description;
+  const nativeFaucetId = useMidenFaucetId();
+  // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.
+  const canEdit =
+    nativeFaucetId !== null &&
+    normalizedFaucetId(tokenId) !== normalizedFaucetId(nativeFaucetId) &&
+    canOverrideMetadata(tokenId);
+  const hasOverride = useWalletStore(s => s.tokenMetadataOverrides[tokenId] !== undefined);
+  const edited = canEdit && hasOverride;
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSession, setEditSession] = useState(0);
   // Undefined on a build with no explorer configured for the effective network (e.g. a custom
   // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
   // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
@@ -403,12 +440,40 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
     void result.then(succeeded => setSaveFailed(!succeeded));
   };
 
+  const handleEdit = () => {
+    hapticLight();
+    setEditSession(session => session + 1);
+    setEditOpen(true);
+  };
+
   return (
     <section data-testid="token-detail-info">
-      <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
+      <SectionHeader
+        size="2xl"
+        tone="muted"
+        className="px-0 pb-3"
+        action={
+          // On the page, not in the card: a neutral pill on the `fill` card would not show.
+          // It says that the name, symbol and decimals on this page are the user's, not the faucet's.
+          edited ? (
+            <Pill size="sm" tone="neutral" data-testid="token-detail-edited">
+              {t('tokenMetadataEdited')}
+            </Pill>
+          ) : undefined
+        }
+      >
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard surface="outline">
+        {/* The faucet's own words about the token. It comes first because it describes the token;
+            the rows after it are identifiers. The text can be long, so it wraps under the label.
+            A stacked row breaks inside words, which suits an address but not prose. The span breaks
+            at spaces and breaks a word only when the word is wider than the card. */}
+        {description && (
+          <DetailRow label={t('tokenDescription')} stacked data-testid="token-detail-description">
+            <span className="break-normal wrap-break-word">{description}</span>
+          </DetailRow>
+        )}
         {/* The faucet that mints this token, under the name the transaction detail page gives every
             faucet id. A bare copy glyph beside the id cut by the shared `truncateHash`, in the row's
             value style; the full id is what gets copied. */}
@@ -445,6 +510,20 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
             <Icon name={IconName.ArrowRightUp} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
           </button>
         )}
+        {canEdit && (
+          // The explorer row's text action. It opens a sheet, so it says so to assistive technology.
+          <button
+            type="button"
+            onClick={handleEdit}
+            aria-haspopup="dialog"
+            aria-expanded={editOpen}
+            data-testid="token-detail-edit"
+            className="flex w-full items-center justify-between px-4 py-3 text-left text-action text-accent-tint-ink"
+          >
+            {t('editTokenDetails')}
+            <Icon name={IconName.Edit} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
+          </button>
+        )}
         {canHide && (
           // The explorer row's text action. Disabled only until the set is read (or when it cannot
           // be): a rolled-back save leaves it usable, so the user can try again.
@@ -479,6 +558,17 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
         <ErrorLine role="note" className="mt-2" data-testid="token-detail-hidden-unreadable">
           {t('hiddenTokensUnreadable')}
         </ErrorLine>
+      )}
+      {canEdit && (
+        <EditTokenDetailsDrawer
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          faucetId={tokenId}
+          initialValues={tokenDetailsValues(metadata)}
+          decimalsEditable={decimalsAreUsers(metadata)}
+          edited={edited}
+          sessionKey={editSession}
+        />
       )}
     </section>
   );

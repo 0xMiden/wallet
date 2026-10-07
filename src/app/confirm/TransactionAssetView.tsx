@@ -50,9 +50,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
           // ON-CHAIN for its real symbol+decimals, degrading to the "Unknown"
           // default (never native MIDEN) on failure — so an unrecognized
           // faucet is never mislabeled as native MIDEN on this security screen.
-          const md = await fetchTokenMetadata(a.faucetId)
-            .then(r => r.base)
-            .catch(() => undefined);
+          const md = await fetchTokenMetadata(a.faucetId).catch(() => undefined);
           return {
             faucetId: a.faucetId,
             amount: a.amount,

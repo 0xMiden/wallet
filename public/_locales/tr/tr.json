@@ -961,6 +961,7 @@
   "invalidAmount": "Geçersiz tutar",
   "tokenPrice": "Token fiyatı",
   "tokenInfo": "Token bilgileri",
+  "tokenDescription": "Açıklama",
   "fungible": "Değiştirilebilir",
   "network": "Ağ",
   "recentActivity": "Son etkinlikler",
@@ -1298,5 +1299,18 @@
   "confirmSendReason": "Gönderiminizi onaylayın",
   "confirmSwapReason": "Değiş tokuş işleminizi onaylayın",
   "confirmDappTransactionReason": "Bu işlemi onaylayın",
-  "confirmEarnDepositReason": "Para yatırma işleminizi onaylayın"
+  "confirmEarnDepositReason": "Para yatırma işleminizi onaylayın",
+  "editTokenDetails": "Token ayrıntılarını düzenle",
+  "editTokenDetailsTitle": "Token ayrıntıları",
+  "tokenNameLabel": "Ad",
+  "tokenSymbolLabel": "Sembol",
+  "tokenDecimalsLabel": "Ondalık sayılar",
+  "saveTokenDetails": "Kaydet",
+  "resetToFaucetValues": "faucet'ın değerlerine sıfırla",
+  "tokenMetadataEdited": "Düzenlendi",
+  "tokenNameInvalid": "1 ila $max$ karakterden oluşan bir ad girin.",
+  "tokenSymbolInvalid": "1 ila $max$ karakterden oluşan bir sembol girin.",
+  "tokenDecimalsInvalid": "0 ile $max$ arasında bir tam sayı girin.",
+  "tokenMetadataOverrideNotice": "Bu değerler yalnızca bu cüzdanın token'ı gösterme şeklini değiştirir. faucet kendi değerlerini korur. Gönderdiğiniz tutarlar, burada ayarladığınız ondalık basamakları kullanır.",
+  "tokenMetadataSaveError": "Token ayrıntılarını kaydedilemedi. Lütfen tekrar deneyin."
 }

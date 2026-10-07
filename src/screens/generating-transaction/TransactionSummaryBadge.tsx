@@ -350,19 +350,20 @@ export const useTransactionSummaryBadgeContent = (
 
     if (transaction?.type === 'earn-deposit') {
       const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-      const decimals = tokenMetadata?.decimals ?? earnCollateral?.decimals;
-      const symbol = tokenMetadata?.symbol ?? earnCollateral?.symbol;
+      // As the deposit receipt: the placeholder's guessed decimals are not this faucet's scale, so the
+      // collateral the config names stands in, and without either the quantity is withheld.
+      const known = hasKnownScale(tokenMetadata) ? tokenMetadata : undefined;
+      const scale = known ?? earnCollateral;
+      const symbol = scale?.symbol ?? tokenMetadata?.symbol;
       const amount =
-        transaction.amount !== undefined && decimals !== undefined
-          ? formatAmount(transaction.amount, decimals)
-          : undefined;
+        transaction.amount !== undefined && scale ? formatAmount(transaction.amount, scale.decimals) : undefined;
       const marketUid: unknown = transaction.extraInputs?.marketUid;
       const rhs = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
 
-      if (!amount || !rhs || !symbol) return undefined;
+      if (transaction.amount === undefined || !rhs || !symbol) return undefined;
 
       return {
-        lhs: `${amount} ${symbol}`,
+        lhs: amount ? `${amount} ${symbol}` : symbol,
         rhs,
         separator: <EarnDepositArrowGlyph />
       };

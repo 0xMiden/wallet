@@ -961,6 +961,7 @@
   "invalidAmount": "Ungültiger Betrag",
   "tokenPrice": "Token-Preis",
   "tokenInfo": "Informationen zum Token",
+  "tokenDescription": "Beschreibung",
   "fungible": "Fungibel",
   "network": "Netzwerk",
   "recentActivity": "Letzte Aktivitäten",
@@ -1298,5 +1299,18 @@
   "confirmSendReason": "Bestätigen Sie Ihre Überweisung",
   "confirmSwapReason": "Bestätigen Sie Ihren Wechsel",
   "confirmDappTransactionReason": "Bestätigen Sie diese Transaktion",
-  "confirmEarnDepositReason": "Bestätigen Sie Ihre Einzahlung"
+  "confirmEarnDepositReason": "Bestätigen Sie Ihre Einzahlung",
+  "editTokenDetails": "Token-Details bearbeiten",
+  "editTokenDetailsTitle": "Details zum Token",
+  "tokenNameLabel": "Name",
+  "tokenSymbolLabel": "Symbol",
+  "tokenDecimalsLabel": "Dezimalstellen",
+  "saveTokenDetails": "Speichern",
+  "resetToFaucetValues": "Auf die Standardwerte vfaucet zurücksetzen",
+  "tokenMetadataEdited": "Bearbeitet",
+  "tokenNameInvalid": "Geben Sie einen Namen mit 1 bis $max$ Zeichen ein.",
+  "tokenSymbolInvalid": "Geben Sie ein Symbol mit 1 bis $max$ Zeichen ein.",
+  "tokenDecimalsInvalid": "Geben Sie eine ganze Zahl zwischen 0 und $max$ ein.",
+  "tokenMetadataOverrideNotice": "Diese Werte beeinflussen lediglich die Darstellung des Tokens in dieser Wallet. Die „faucet“ behält ihre eigenen Werte bei. Bei den von Ihnen gesendeten Beträgen werden die hier festgelegten Dezimalstellen verwendet.",
+  "tokenMetadataSaveError": "Die Token-Details konnten nicht gespeichert werden. Bitte versuchen Sie es erneut."
 }

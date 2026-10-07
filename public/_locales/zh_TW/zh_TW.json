@@ -961,6 +961,7 @@
   "invalidAmount": "金額無效",
   "tokenPrice": "代幣價格",
   "tokenInfo": "代幣資訊",
+  "tokenDescription": "說明",
   "fungible": "可互換的",
   "network": "網路",
   "recentActivity": "近期活動",
@@ -1298,5 +1299,18 @@
   "confirmSendReason": "確認您的轉帳",
   "confirmSwapReason": "確認您的更換操作",
   "confirmDappTransactionReason": "確認此筆交易",
-  "confirmEarnDepositReason": "確認您的存款"
+  "confirmEarnDepositReason": "確認您的存款",
+  "editTokenDetails": "編輯代幣詳細資訊",
+  "editTokenDetailsTitle": "代幣詳情",
+  "tokenNameLabel": "名稱",
+  "tokenSymbolLabel": "符號",
+  "tokenDecimalsLabel": "小數",
+  "saveTokenDetails": "儲存",
+  "resetToFaucetValues": "重設為 faucet 的預設值",
+  "tokenMetadataEdited": "已編輯",
+  "tokenNameInvalid": "請輸入 1 至 $max$ 個字元的名稱。",
+  "tokenSymbolInvalid": "請輸入 1 至 $max$ 個字元的符號。",
+  "tokenDecimalsInvalid": "請輸入 0 至 $max$ 之間的整數。",
+  "tokenMetadataOverrideNotice": "這些設定僅會改變此錢包顯示代幣的方式。faucet 會保留其自身的數值。您發送的金額將採用您在此處設定的小數位數。",
+  "tokenMetadataSaveError": "無法儲存代幣詳細資訊。請重試。"
 }

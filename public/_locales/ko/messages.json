@@ -4192,6 +4192,10 @@
     "message": "토큰 정보",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "설명",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "대체 가능",
     "englishSource": "Fungible"
@@ -5728,5 +5732,72 @@
   "confirmEarnDepositReason": {
     "message": "입금 확인",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "토큰 세부 정보 편집",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "토큰 세부 정보",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "이름",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "기호",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "소수점",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "저장",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucet값으로 재설정",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "수정됨",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1~$max$자 길이의 이름을 입력하십시오.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1~$max$자 길이의 기호를 입력하십시오.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0에서 $max$ 사이의 정수를 입력하십시오.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "이 설정 값들은 해당 지갑에서 토큰을 표시하는 방식만 변경합니다. faucet는 자체적인 값을 유지합니다. 전송하는 금액에는 여기서 설정한 소수점 자릿수가 적용됩니다.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "토큰 세부 정보를 저장할 수 없습니다. 다시 시도해 주십시오.",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }
