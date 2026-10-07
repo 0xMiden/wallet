@@ -271,6 +271,22 @@ describe('Earn page', () => {
     expect(mark).toHaveAttribute('data-network', first.network);
   });
 
+  it('spans a lone position across the row, and keeps several at their own width to scroll', () => {
+    const { unmount } = render(<Earn />);
+    expect(positions.length).toBeGreaterThan(1);
+    positions.forEach(position => {
+      const card = screen.getByTestId(`earn-position-card-${position.id}`);
+      expect(card).toHaveClass('shrink-0');
+      expect(card).not.toHaveClass('w-full');
+    });
+    unmount();
+
+    const lone = positions[0]!;
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, positions: [lone] });
+    render(<Earn />);
+    expect(screen.getByTestId(`earn-position-card-${lone.id}`)).toHaveClass('w-full', 'shrink-0');
+  });
+
   it('uses theme-aware text colors for position and vault labels', () => {
     render(<Earn />);
 

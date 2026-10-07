@@ -97,6 +97,7 @@ jest.mock('../send-flow/SelectAmount', () => ({
         data-testid={`select-amount-${key}`}
         data-embedded={String(props.embedded)}
         data-show-balance-helper={String(props.showBalanceHelper)}
+        data-show-amount-divider={String(props.showAmountDivider)}
         data-amount={props.amount}
         data-valid={String(props.isValidAmount)}
         data-error={props.error}
@@ -165,6 +166,13 @@ describe('SwapAmounts', () => {
       expect(receive).toBeInTheDocument();
       expect(pay).toHaveAttribute('data-embedded', 'true');
       expect(receive).toHaveAttribute('data-embedded', 'true');
+    });
+
+    it('draws no rule under a typed amount on either field', () => {
+      renderComponent();
+
+      expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-show-amount-divider', 'false');
+      expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-show-amount-divider', 'false');
     });
 
     it('shows the available balance on You Pay but not on You Receive (#461)', () => {

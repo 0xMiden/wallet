@@ -64,6 +64,8 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
     confirmTitle?: string;
     showNetworkPill?: boolean;
     showBalanceHelper?: boolean;
+    pageInset?: boolean;
+    showAmountDivider?: boolean;
     onAmountChange: (amount: string) => void;
     onSelectToken: () => void;
     onConfirm?: () => void;
@@ -77,6 +79,8 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
       data-confirm-title={props.confirmTitle}
       data-show-network-pill={String(props.showNetworkPill)}
       data-show-balance-helper={String(props.showBalanceHelper)}
+      data-page-inset={String(props.pageInset)}
+      data-show-amount-divider={String(props.showAmountDivider)}
       data-token-id={props.token?.id}
       data-token-name={props.token?.name}
       data-token-decimals={String(props.token?.decimals)}
@@ -238,6 +242,9 @@ describe('EarnDepositAmount', () => {
     expect(select).toHaveAttribute('data-label', 'earnDepositAmountLabel');
     expect(select).toHaveAttribute('data-confirm-title', 'confirm');
     expect(select).toHaveAttribute('data-show-network-pill', 'false');
+    // On the earn pages' 16px margin under the header, with no rule under a typed amount.
+    expect(select).toHaveAttribute('data-page-inset', 'true');
+    expect(select).toHaveAttribute('data-show-amount-divider', 'false');
   });
 
   it('names no vault in the header when vaultId matches nothing', () => {
