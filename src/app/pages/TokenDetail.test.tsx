@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import { resetHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
+  publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
@@ -1214,5 +1215,23 @@ describe('TokenDetail testnet bridge USDC label', () => {
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+  });
+
+  it('retitles the bridge faucet by the label once the bridge config publishes, with no new props', () => {
+    renderPage(
+      {
+        balances: [{ tokenId: MIDEN_USDC_FAUCET, balance: 1, metadata: { symbol: 'USDC', decimals: 6 } }],
+        tokenPrices: {}
+      },
+      MIDEN_USDC_FAUCET
+    );
+    expect(screen.getByTestId('nav-title')).toHaveTextContent(/^USDC$/);
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('Test Epoch USDC');
   });
 });

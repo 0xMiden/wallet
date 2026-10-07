@@ -5,7 +5,11 @@ import { join } from 'path';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -16,8 +20,10 @@ import {
   useTransactionSummaryBadgeContent
 } from './TransactionSummaryBadge';
 
+// One `t` across renders, as react-i18next gives, so a memo keyed on it recomputes only when its other inputs move.
+const mockT = (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key;
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key })
+  useTranslation: () => ({ t: mockT })
 }));
 
 jest.mock('lib/miden/metadata', () => ({
@@ -472,6 +478,22 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(send.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 Test Epoch USDC');
     act(() => send.root.unmount());
+  });
+
+  it('renames a send of the bridge faucet by its label once the bridge config publishes', async () => {
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ amount: 5n, faucetId: TEST_MIDEN_USDC_FAUCET, secondaryAccountId: 'mtst1aprecipient_addr1234' })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 USDC');
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 Test Epoch USDC');
+    act(() => root.unmount());
   });
 
   it('keeps an Earn deposit of the bridge faucet on its symbol, as the Earn screens around it do', async () => {

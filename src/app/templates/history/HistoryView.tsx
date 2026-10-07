@@ -17,6 +17,8 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -110,6 +112,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 // colored square background, amount string with sign, and status pill (dot +
 // label). Faucet requests get their own dark-blue glyph regardless of icon.
 function buildRowProps(
+  bridgeConfig: BridgeConfigSnapshot,
   entry: IHistoryEntry,
   t: (k: string, opts?: Record<string, unknown>) => string,
   tokenId?: string
@@ -127,7 +130,7 @@ function buildRowProps(
     (entry.txType === 'bridged-send' || isBridgeInEntry(entry))
   ) {
     const bridgeIn = entry.txType !== 'bridged-send';
-    const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+    const d = bridgeIn ? bridgeInRowDisplay(bridgeConfig, entry) : bridgeRowDisplay(bridgeConfig, entry);
     const failed = d.status === 'failed';
     return {
       icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
@@ -491,6 +494,7 @@ const HistoryView = memo<HistoryViewProps>(
     const layoutTransition = useSettleLayoutTransition();
     const shownAgain = useTabShownAgain();
     const readState = useActivityReadState();
+    const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
       const pending: TimelineEntry[] = pendingItems.map(item => ({
@@ -648,7 +652,7 @@ const HistoryView = memo<HistoryViewProps>(
                     </motion.div>
                   );
                 }
-                const props = buildRowProps(entry, t, tokenId);
+                const props = buildRowProps(bridgeConfig, entry, t, tokenId);
                 const unread = isHistoryEntryUnread(readState, entry);
                 return (
                   <Card

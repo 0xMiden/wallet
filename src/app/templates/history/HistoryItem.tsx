@@ -9,6 +9,7 @@ import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { Button, ButtonVariant } from 'components/Button';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { Link } from 'lib/woozie';
 
 import { guardianHistoryActionKey } from './guardianHistoryLabels';
@@ -156,8 +157,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const { inLabel, outLabel, outAmount, providerLabel, network, status } =
-    entry.txType === 'bridged-send' ? bridgeRowDisplay(entry) : bridgeInRowDisplay(entry);
+    entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
 
   return (
     <div

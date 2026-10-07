@@ -493,6 +493,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   });
 
   it('names the USDC row USDC while no bridge config is loaded', () => {
+    mockSnapshot = { status: 'loading', config: null, lastFetch: null };
     renderScreen();
 
     expect(screen.getByTestId('usdc-label')).toHaveTextContent(/^USDC$/);

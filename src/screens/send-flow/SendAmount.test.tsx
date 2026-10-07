@@ -2,7 +2,11 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { SendAmount, SendAmountProps } from './SendAmount';
@@ -92,6 +96,18 @@ describe('SendAmount', () => {
     const selector = screen.getByTestId('send-token-selector');
     expect(selector).toHaveTextContent('Test Epoch USDC');
     expect(selector).toHaveTextContent('USDC-logo');
+  });
+
+  it('names the bridge faucet by its label once the bridge config publishes, with no new props', () => {
+    renderAmount({ token: { ...TOKEN, id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' } });
+    expect(screen.getByTestId('send-token-selector')).not.toHaveTextContent('Test Epoch USDC');
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(screen.getByTestId('send-token-selector')).toHaveTextContent('Test Epoch USDC');
   });
 
   it('shows the title, back button, and a disabled Confirm until the amount is valid', () => {

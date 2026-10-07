@@ -13,6 +13,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { listedFiatValue } from 'lib/prices';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -42,6 +43,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const { isHidden } = useHiddenTokens(publicKey);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredBalances = useMemo(() => {
@@ -53,9 +55,9 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
       b =>
         b.metadata.symbol.toLowerCase().includes(query) ||
         b.metadata.name?.toLowerCase().includes(query) ||
-        midenTokenLabel(b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
+        midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
     );
-  }, [balanceData, isHidden, searchQuery]);
+  }, [balanceData, bridgeConfig, isHidden, searchQuery]);
 
   const onSelectToken = useCallback(
     (token: UIToken) => {
@@ -89,8 +91,8 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                 const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(b.balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
-                const name = midenTokenLabel(b.tokenId, b.metadata.name || b.metadata.symbol);
-                const unit = midenTokenLabel(b.tokenId, b.metadata.symbol);
+                const name = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.name || b.metadata.symbol);
+                const unit = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol);
                 return (
                   <AssetListItem
                     key={b.tokenId}

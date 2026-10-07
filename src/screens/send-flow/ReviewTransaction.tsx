@@ -35,6 +35,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { findEvmUsdc } from 'lib/remote-config/values';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -93,11 +94,12 @@ export const ReviewTransaction: React.FC = () => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
     return match && uiTokenFromBalance(match, tokenPrices);
   }, [balanceData, tokenId, tokenPrices]);
-  const tokenLabel = token ? midenTokenLabel(token.id, token.name) : '';
+  const tokenLabel = token ? midenTokenLabel(bridgeConfig, token.id, token.name) : '';
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;
@@ -535,7 +537,7 @@ export const ReviewTransaction: React.FC = () => {
       : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
   // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
   const youReceiveSymbol =
-    route === 'agglayer' ? (token?.name ?? '') : evmTokenLabel(findEvmUsdc()?.address, epochQuote.symbol);
+    route === 'agglayer' ? (token?.name ?? '') : evmTokenLabel(bridgeConfig, findEvmUsdc()?.address, epochQuote.symbol);
   const youReceiveLabel =
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');

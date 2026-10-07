@@ -2,7 +2,11 @@ import React from 'react';
 
 import { act, render, renderHook, screen, fireEvent, within } from '@testing-library/react';
 
-import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import {
@@ -448,14 +452,17 @@ describe('AssetRow', () => {
       expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
     });
 
-    it('shows the label once the bridge config lands after the first render', () => {
-      const { rerender } = render(<AssetRow asset={bridgeUsdc()} tokenPrices={tokenPrices} />);
+    it('shows the label once the bridge config publishes after the first render, with no new props', () => {
+      render(<AssetRow asset={bridgeUsdc()} tokenPrices={tokenPrices} />);
       expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'USDC');
 
-      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
-      rerender(<AssetRow asset={bridgeUsdc()} tokenPrices={{ ...tokenPrices }} />);
+      act(() => {
+        mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+        publishMockBridgeSnapshot();
+      });
 
       expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-name', 'Test Epoch USDC');
+      expect(screen.getByTestId('row-amount')).toHaveTextContent('3.00 Test Epoch USDC');
     });
 
     it('starts no config fetch from a reader that loads under the runtime mock', async () => {

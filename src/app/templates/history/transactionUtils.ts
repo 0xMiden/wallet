@@ -16,6 +16,7 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { findEvmUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
@@ -57,10 +58,27 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
           typeof total.amount === 'bigint' && hasKnownScale(metadata)
             ? formatAmount(total.amount, metadata.decimals)
             : undefined,
-        token: midenTokenLabel(total.faucetId, metadata.symbol)
+        token: metadata.symbol
       };
     })
   );
+};
+
+/**
+ * The entry as shown: its token and each extra amount named by its own faucet (`midenTokenLabel`). A fetched entry keeps
+ * the chain symbol, so a list labels it at render and follows the snapshot when it publishes. A swap's and an Earn
+ * withdrawal's token is whichever side its own fields chose, so those rows are left as they are.
+ */
+export const labelHistoryEntry = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): IHistoryEntry => {
+  if (entry.txType === 'swap' || entry.txType === 'earn-withdraw') return entry;
+  return {
+    ...entry,
+    token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),
+    extraAmounts: entry.extraAmounts?.map(extra => ({
+      ...extra,
+      token: midenTokenLabel(snapshot, extra.faucetId, extra.token)
+    }))
+  };
 };
 
 /** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
@@ -274,7 +292,7 @@ export interface BridgeRowDisplay {
  * (`HistoryItem`) and the full Activity row (`HistoryView` → `ActivityRow`) render
  * identically: "Bridge IN → OUT", "Via <provider> → <network>", output amount, status.
  */
-export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
   const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
   // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
@@ -282,11 +300,12 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
   // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
-  const outLabel = entry.bridgeProvider === 'epoch' ? evmTokenLabel(findEvmUsdc()?.address, outSymbol) : outSymbol;
+  const outLabel =
+    entry.bridgeProvider === 'epoch' ? evmTokenLabel(snapshot, findEvmUsdc()?.address, outSymbol) : outSymbol;
   return {
     inSymbol,
     outSymbol,
-    inLabel: midenTokenLabel(entry.faucetId, inSymbol),
+    inLabel: midenTokenLabel(snapshot, entry.faucetId, inSymbol),
     outLabel,
     outAmount,
     providerLabel,
@@ -313,7 +332,7 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
  * row is only tagged once the consume is on-chain-final, so status is always
  * confirmed.
  */
-export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
   // Once received (a consume row always is) the row's own amount is what was credited. In flight
@@ -327,12 +346,12 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   // The bridge-in picker offers only ETH and the configured USDC, so any non-ETH source is that USDC.
-  const inLabel = inSymbol === 'ETH' ? inSymbol : evmTokenLabel(findEvmUsdc()?.address, inSymbol);
+  const inLabel = inSymbol === 'ETH' ? inSymbol : evmTokenLabel(snapshot, findEvmUsdc()?.address, inSymbol);
   return {
     inSymbol,
     outSymbol,
     inLabel,
-    outLabel: midenTokenLabel(entry.faucetId, outSymbol),
+    outLabel: midenTokenLabel(snapshot, entry.faucetId, outSymbol),
     outAmount,
     providerLabel,
     network: 'Miden',

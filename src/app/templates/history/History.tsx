@@ -27,7 +27,7 @@ import {
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
-import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
@@ -41,6 +41,7 @@ import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
+  labelHistoryEntry,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf
@@ -275,10 +276,15 @@ const History = memo<HistoryProps>(
       [latestPendingTransactions, mutateTx]
     );
 
+    // Labelled here, over the paged rows too, so every row and the search below follow a config publish.
+    const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     // Don't sort the pending transactions, earliest should come first as they are processed first
     const allEntries = useMemo(
-      () => pendingTransactions.concat(mergeAndSort(latestTransactions ?? [], restEntries)),
-      [latestTransactions, restEntries, pendingTransactions]
+      () =>
+        pendingTransactions
+          .concat(mergeAndSort(latestTransactions ?? [], restEntries))
+          .map(entry => labelHistoryEntry(bridgeConfig, entry)),
+      [bridgeConfig, latestTransactions, restEntries, pendingTransactions]
     );
 
     const loadMore = async (page: number) => {
@@ -540,7 +546,7 @@ async function fetchTransactionsAsHistoryEntries(
         : swapFields
           ? swapFields.token
           : tokenMetadata
-            ? midenTokenLabel(tx.faucetId, tokenMetadata.symbol)
+            ? tokenMetadata.symbol
             : undefined,
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
@@ -623,11 +629,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
           tx.amount !== undefined && hasKnownScale(tokenMetadata)
           ? formatAmount(tx.amount, tokenMetadata?.decimals)
           : undefined,
-      token: swapFields
-        ? swapFields.token
-        : tokenMetadata
-          ? midenTokenLabel(tx.faucetId, tokenMetadata.symbol)
-          : undefined,
+      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,

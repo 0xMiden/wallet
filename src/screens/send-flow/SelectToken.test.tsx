@@ -1,8 +1,12 @@
 import React from 'react';
 
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 
-import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -52,9 +56,11 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
 
-// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
+// The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says. One `isHidden` across
+// renders, as the hook gives while the set holds, so the search memo recomputes only when its other inputs move.
 const mockHiddenIds = new Set<string>();
-const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+const mockIsHidden = (id: string) => mockHiddenIds.has(id);
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: mockIsHidden }));
 jest.mock('app/hooks/useHiddenTokens', () => ({
   useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
 }));
@@ -440,6 +446,22 @@ describe('SelectTokenDrawer testnet bridge USDC label', () => {
     fireEvent.change(search(), { target: { value: 'epoch' } });
 
     expect(screen.getByTestId('send-token-USDC')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
+  });
+
+  it('finds the row by its label once the bridge config publishes under a search already typed', () => {
+    setBalances([BRIDGE_USDC, BTC]);
+    renderDrawer();
+    fireEvent.change(search(), { target: { value: 'test epoch' } });
+    expect(screen.queryByTestId('send-token-USDC')).not.toBeInTheDocument();
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    const row = screen.getByTestId('send-token-USDC');
+    expect(within(row).getByText('Test Epoch USDC')).toBeInTheDocument();
     expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
   });
 });
