@@ -1,4 +1,11 @@
-import { versionedDocumentSource } from '.';
+import {
+  backoffDelay,
+  FOREGROUND_STALE_MS,
+  foregroundThreshold,
+  isCheckDue,
+  MAX_BACKOFF_MS,
+  versionedDocumentSource
+} from '.';
 
 interface Toy {
   network: string;
@@ -180,5 +187,24 @@ describe('readFloor', () => {
     await expect(source.readFloor('testnet')).resolves.toBe(0);
     expect(warn).toHaveBeenCalledWith('[toys] could not read the floor for testnet:', expect.any(Error));
     warn.mockRestore();
+  });
+});
+
+describe('the poll timing the page runtimes share', () => {
+  it('backs off 60 s after a failure, doubling up to 15 minutes', () => {
+    expect([1, 2, 3, 4, 5, 6].map(backoffDelay)).toEqual([60_000, 120_000, 240_000, 480_000, 900_000, 900_000]);
+    expect(MAX_BACKOFF_MS).toBe(900_000);
+  });
+
+  it('counts a check as due once it is the threshold old, or when it is stamped later than the clock', () => {
+    expect(isCheckDue(NOW - 1_000, 1_000, NOW)).toBe(true);
+    expect(isCheckDue(NOW - 999, 1_000, NOW)).toBe(false);
+    expect(isCheckDue(NOW + 1, 1_000, NOW)).toBe(true);
+  });
+
+  it('takes a copy as stale on a return to the foreground after 15 minutes, or sooner when the interval is shorter', () => {
+    expect(FOREGROUND_STALE_MS).toBe(900_000);
+    expect(foregroundThreshold(3_600_000)).toBe(900_000);
+    expect(foregroundThreshold(60_000)).toBe(60_000);
   });
 });

@@ -1,5 +1,6 @@
 import { onStorageChanged, registerStorageReread, type StorageChangeSubscription } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import type { ExploreCatalog } from './schema';
 import {
@@ -13,9 +14,6 @@ import {
 } from './source';
 
 export const POLL_MS = 3_600_000;
-export const FOREGROUND_STALE_MS = 900_000;
-export const MAX_BACKOFF_MS = 900_000;
-const FIRST_BACKOFF_MS = 60_000;
 
 interface NetworkState {
   network: string;
@@ -107,6 +105,7 @@ function adopt(state: NetworkState, stored: StoredExploreConfig): void {
 function forgetAll(): void {
   states.forEach(state => state.subscriptions.forEach(unsubscribe => unsubscribe()));
   states.clear();
+  clearTimeout(timer);
   listeners.forEach(listener => listener());
 }
 
@@ -168,15 +167,10 @@ function startRefresh(state: NetworkState): void {
   });
 }
 
-const backoffDelay = (failures: number) => Math.min(FIRST_BACKOFF_MS * 2 ** (failures - 1), MAX_BACKOFF_MS);
-
 const pollInterval = (state: NetworkState) => (state.failures > 0 ? backoffDelay(state.failures) : POLL_MS);
 
 function isDue(state: NetworkState, threshold: number): boolean {
-  if (state.refreshing) return false;
-  const now = Date.now();
-  // A stamp later than the clock is skew and says nothing about age.
-  return now < state.checkedAt || now - state.checkedAt >= threshold;
+  return !state.refreshing && isCheckDue(state.checkedAt, threshold);
 }
 
 // One timer per realm, for the network the launcher last asked for; none while the document is hidden or a refresh
@@ -197,7 +191,7 @@ async function check(kind: 'timer' | 'foreground'): Promise<void> {
   if (states.get(current) !== state || document.visibilityState === 'hidden') return;
   const interval = pollInterval(state);
   // On open and on a return to the foreground, a copy counts as stale after 15 minutes, not 60.
-  const threshold = kind === 'foreground' ? Math.min(interval, FOREGROUND_STALE_MS) : interval;
+  const threshold = kind === 'foreground' ? foregroundThreshold(interval) : interval;
   if (exploreConfigFetchEnabled() && isDue(state, threshold)) startRefresh(state);
   else arm();
 }

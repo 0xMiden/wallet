@@ -5,6 +5,26 @@ import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-a
 import { fetchBoundedJson, readTimestampedEntry } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 
+// The poll timing every page runtime of a versioned document shares; each keeps its own healthy and degraded cadences.
+/** On open and on a return to the foreground, a copy older than this is refreshed. */
+export const FOREGROUND_STALE_MS = 900_000;
+export const MAX_BACKOFF_MS = 900_000;
+const FIRST_BACKOFF_MS = 60_000;
+
+/** The wait after `failures` consecutive failed fetches: 60 s, doubling to `MAX_BACKOFF_MS`. */
+export const backoffDelay = (failures: number): number =>
+  Math.min(FIRST_BACKOFF_MS * 2 ** (failures - 1), MAX_BACKOFF_MS);
+
+/**
+ * Whether a check made at `checkedAt` is `threshold` old. A stamp later than the clock is skew and says nothing about
+ * age, so it counts as due.
+ */
+export const isCheckDue = (checkedAt: number, threshold: number, now = Date.now()): boolean =>
+  now < checkedAt || now - checkedAt >= threshold;
+
+/** The age a foreground check refreshes at: 15 minutes, or a shorter `interval`. */
+export const foregroundThreshold = (interval: number): number => Math.min(interval, FOREGROUND_STALE_MS);
+
 /**
  * A remote JSON document, one per network, that a wallet accepts only at or above the highest version it has accepted
  * for that network (its floor), so a revert or a stale CDN copy can never bring an older document back.

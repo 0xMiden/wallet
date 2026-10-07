@@ -1,9 +1,9 @@
+import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
+
 import {
   _resetExploreConfigRuntimeForTest,
-  FOREGROUND_STALE_MS,
   getExploreCatalogSnapshot,
   initExploreConfig,
-  MAX_BACKOFF_MS,
   POLL_MS,
   subscribeExploreCatalog
 } from './runtime';
@@ -445,5 +445,20 @@ describe('other realms and wipes', () => {
     expect(mockRereads).toHaveLength(1);
     await flush();
     expect(shownVersion()).toBe(3);
+  });
+
+  it('drops the armed timer with the copies a wipe forgets', async () => {
+    serve(2);
+    await initExploreConfig('testnet');
+    await flush();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(1);
+    mockStored.clear();
+    hold();
+    await Promise.all(mockRereads.map(reread => reread()));
+    await flush();
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // The re-read's fetch is out, so no timer runs until it lands.
+    expect(jest.getTimerCount()).toBe(0);
   });
 });
