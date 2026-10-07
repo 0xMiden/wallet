@@ -1,5 +1,6 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
+import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
@@ -43,9 +44,9 @@ interface IosWalletPageOpts {
   beforeCapture?: () => Promise<void>;
   /**
    * Waits until the app has asked for notification permission and the prompt is answered, tapping Allow the way
-   * the capture gate does. Resolves whether that happened in time.
+   * the capture gate does. Resolves how that ended, and why when the prompt was not answered.
    */
-  settleNotificationPrompt?: () => Promise<boolean>;
+  settleNotificationPrompt?: () => Promise<PromptSettlement>;
 }
 
 /**
@@ -72,7 +73,7 @@ export class IosWalletPage implements WalletPage {
   private cdp: CdpSession;
   private sim: SimulatorControl;
   private beforeCapture?: () => Promise<void>;
-  private settlePrompt?: () => Promise<boolean>;
+  private settlePrompt?: () => Promise<PromptSettlement>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
@@ -96,9 +97,15 @@ export class IosWalletPage implements WalletPage {
     await this.sim.screenshot(this.udid, opts.path);
   }
 
-  /** Whether the app asked for notification permission and the prompt was answered; false with no gate wired. */
-  async settleNotificationPrompt(): Promise<boolean> {
-    return (await this.settlePrompt?.()) ?? false;
+  /** Whether the app asked for notification permission and the prompt was answered, and why not when it was not. */
+  async settleNotificationPrompt(): Promise<PromptSettlement> {
+    return (
+      (await this.settlePrompt?.()) ?? {
+        answered: false,
+        reason: 'no-gate',
+        detail: 'no notification alert gate is wired to this wallet page'
+      }
+    );
   }
 
   async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {

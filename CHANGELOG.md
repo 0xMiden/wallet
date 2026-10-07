@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
+- [FIX][ci] E2E Android waits for the stopped app's task to be removed before relaunching it, so the next test's launch is no longer killed by its removal, and its emulator commands are bounded; iOS E2E restarts a failing simulator's idb companion once and says why a notification prompt went unanswered.
 - [FIX][ui] Text, amount and recipient fields offer a Clear (x) button while they hold a value (not on passwords, key material or a field with its own trailing action), search, text and recipient field placeholders hide while the field is focused, and the explorer and faucet WebView headers follow the app's theme instead of the phone's appearance (#503).
 - [FIX][all] On testnet the bridge's own USDC, on Sepolia and on Miden, reads "Test Epoch USDC" in the bridge token picker, deposit and send-to-EVM screens, Home rows and the token page, the send token picker, transaction summaries and Activity, so it is no longer mistaken for Circle's Sepolia USDC, and the send-to-EVM review's Slow route now names the token it sends in its "you receive" line instead of USDC (#1247, #1356).
 
