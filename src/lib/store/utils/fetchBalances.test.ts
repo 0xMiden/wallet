@@ -415,8 +415,10 @@ describe('fetchBalances', () => {
   describe('the user override of a token', () => {
     const customMetadata = { name: 'Custom', symbol: 'CST', decimals: 8 };
 
-    it('scales the balance by the overridden decimals and shows the overridden symbol', async () => {
-      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-custom-faucet': { symbol: 'MN', decimals: 6 } });
+    it("scales the balance by the faucet's decimals and shows the overridden name and symbol", async () => {
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-custom-faucet': { name: 'Mine', symbol: 'MN', decimals: 6 }
+      });
       mockGetAccount.mockResolvedValueOnce({
         vault: () => ({
           fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '150000000' }) }]
@@ -425,32 +427,38 @@ describe('fetchBalances', () => {
 
       const result = (await fetchBalances('my-address', { 'bech32-custom-faucet': customMetadata }))!;
 
-      // 150000000 base units at the overridden 6 decimals, not the faucet's 8.
-      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({
-        tokenSlug: 'MN',
-        balance: 150,
-        metadata: { name: 'Custom', symbol: 'MN', decimals: 6, scaleIsUnknown: false }
-      });
+      // 150000000 base units at the faucet's 8 decimals: a stored decimals value never rescales a known scale.
+      const row = result.find(entry => entry.tokenId === 'bech32-custom-faucet')!;
+      expect(row).toMatchObject({ tokenSlug: 'MN', balance: 1.5 });
+      expect(row.metadata).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
     });
 
     it('applies the override over a fetched record, and stores the record as the faucet gave it', async () => {
       const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
-      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-custom-faucet': { decimals: 2 } });
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-custom-faucet': { name: 'Mine', symbol: 'MN', decimals: 2 }
+      });
       mockFetchTokenMetadata.mockResolvedValueOnce(customMetadata);
       mockGetAccount.mockResolvedValueOnce({
         vault: () => ({
-          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '500' }) }]
+          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '500000000' }) }]
         })
       });
 
       const result = (await fetchBalances('my-address', {}))!;
 
-      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({ balance: 5 });
+      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({
+        tokenSlug: 'MN',
+        balance: 5,
+        metadata: { name: 'Mine', symbol: 'MN', decimals: 8 }
+      });
       expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'bech32-custom-faucet': customMetadata });
     });
 
     it('gives a quantity to a token whose faucet could not be read, once the user states its decimals', async () => {
-      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-unknown-faucet': { decimals: 3 } });
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-unknown-faucet': { name: 'Mine', symbol: 'MN', decimals: 3 }
+      });
       mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
       mockGetAccount.mockResolvedValueOnce({
         vault: () => ({
@@ -462,7 +470,7 @@ describe('fetchBalances', () => {
 
       expect(result.find(row => row.tokenId === 'bech32-unknown-faucet')).toMatchObject({
         balance: 2,
-        metadata: { decimals: 3, scaleIsUnknown: false }
+        metadata: { decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
       });
     });
 

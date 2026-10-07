@@ -388,12 +388,17 @@ type TokenInfoProps = {
   metadata?: AssetMetadata;
 };
 
-/** The sheet's starting values. A decimals value that is a guess is left empty, so the user must state it. */
+/** The decimals are the user's to set while the faucet's scale is unknown: no known scale, or one the user stated. */
+function decimalsAreUsers(metadata: AssetMetadata | undefined): boolean {
+  return !hasKnownScale(metadata) || metadata?.scaleFromOverride === true;
+}
+
+/** The sheet's starting values. Decimals that are a guess are left empty, so the user must state them. */
 function tokenDetailsValues(metadata: AssetMetadata | undefined): TokenDetailsValues {
   return {
     name: metadata?.name ?? '',
     symbol: metadata?.symbol ?? '',
-    decimals: metadata && hasKnownScale(metadata) ? String(metadata.decimals) : ''
+    decimals: metadata?.scaleFromOverride ? String(metadata.decimals) : ''
   };
 }
 
@@ -559,6 +564,7 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
           onOpenChange={setEditOpen}
           faucetId={tokenId}
           initialValues={tokenDetailsValues(metadata)}
+          decimalsEditable={decimalsAreUsers(metadata)}
           edited={edited}
           sessionKey={editSession}
         />

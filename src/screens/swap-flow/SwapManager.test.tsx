@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
+import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 // Import after the mocks are registered.
@@ -580,6 +581,22 @@ describe('SwapFlow / SwapManager', () => {
       setOffer('10');
 
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+    });
+
+    it('flags an offer above the holding of a registry token whose stored override carries decimals', () => {
+      // 100 AAA in base units at the registry's 8 decimals. The row's scale comes from the faucet
+      // record with the stored override applied, as the store builds every balance row.
+      const faucetRecord = { name: 'Token A', symbol: 'AAA', decimals: mockTokenA.decimals };
+      const rowMetadata = applyOverrideFor('bech32-faucet-A', faucetRecord, {
+        'bech32-faucet-A': { name: 'Mine', symbol: 'MN', decimals: 2 }
+      });
+      mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 10_000_000_000 / 10 ** rowMetadata.decimals }];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      renderFlow();
+      setOffer('150');
+
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('100');
     });
   });
 

@@ -21,4 +21,9 @@ export type AssetMetadata = {
   // it for a private or non-faucet account, and what comes back from storage is
   // a deserialized copy that is never `===` the constant.
   scaleIsUnknown?: boolean;
+
+  // [default: false]
+  // Set only where the faucet's scale is unknown and the user stated the
+  // decimals: `decimals` is the user's value, which the edit sheet shows.
+  scaleFromOverride?: boolean;
 };

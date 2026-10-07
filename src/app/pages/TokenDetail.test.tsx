@@ -1272,8 +1272,13 @@ describe('TokenDetail', () => {
 
   describe('editing the token details', () => {
     const shownMetadata = { name: 'Ether', symbol: 'ETH', decimals: 8 };
+    const unknownScaleMetadata = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+    // A token whose faucet scale is unknown, with the decimals the user stated.
+    const userScaleMetadata = { ...shownMetadata, scaleIsUnknown: false, scaleFromOverride: true };
     const renderEditable = (o: Overrides = {}) =>
       renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: shownMetadata }], ...o });
+    const renderWithMetadata = (metadata: Record<string, unknown>) =>
+      renderEditable({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata }] });
     const action = () => screen.getByTestId('token-detail-edit');
     const field = (name: 'name' | 'symbol' | 'decimals') => screen.getByTestId(`edit-token-${name}`);
     const sheetOpen = () => screen.getByTestId('drawer').getAttribute('data-open');
@@ -1304,7 +1309,7 @@ describe('TokenDetail', () => {
     });
 
     it('opens the sheet with the values the page shows, and a light haptic', () => {
-      renderEditable();
+      renderWithMetadata(userScaleMetadata);
       expect(sheetOpen()).toBe('false');
 
       fireEvent.click(action());
@@ -1320,23 +1325,37 @@ describe('TokenDetail', () => {
     });
 
     it('leaves the decimals empty for a token whose scale is a guess, so the user must state it', () => {
-      renderEditable({
-        balances: [
-          {
-            tokenId: TOKEN_ID,
-            balance: 1,
-            metadata: { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
-          }
-        ]
-      });
+      renderWithMetadata(unknownScaleMetadata);
 
       fireEvent.click(action());
 
       expect(field('decimals')).toHaveValue('');
     });
 
-    it('shows an error under each field that is not valid, and saves nothing', () => {
+    it('hides the decimals field and the notice for a token whose faucet scale is known', () => {
       renderEditable();
+
+      fireEvent.click(action());
+
+      expect(screen.queryByTestId('edit-token-decimals')).toBeNull();
+      expect(screen.queryByTestId('edit-token-notice')).toBeNull();
+      expect(field('name')).toHaveValue('Ether');
+    });
+
+    it.each([
+      ['an unknown-scale token', unknownScaleMetadata],
+      ['a token whose decimals the user set', userScaleMetadata]
+    ])('shows the decimals field and the notice for %s', (_label, metadata) => {
+      renderWithMetadata(metadata);
+
+      fireEvent.click(action());
+
+      expect(field('decimals')).toBeInTheDocument();
+      expect(screen.getByTestId('edit-token-notice')).toHaveTextContent('tokenMetadataOverrideNotice');
+    });
+
+    it('shows an error under each field that is not valid, and saves nothing', () => {
+      renderWithMetadata(unknownScaleMetadata);
       fireEvent.click(action());
 
       fireEvent.change(field('name'), { target: { value: '   ' } });
@@ -1353,7 +1372,7 @@ describe('TokenDetail', () => {
     });
 
     it.each(['1.5', '-1', 'abc', ''])('refuses %p as decimals', decimals => {
-      renderEditable();
+      renderWithMetadata(unknownScaleMetadata);
       fireEvent.click(action());
 
       fireEvent.change(field('decimals'), { target: { value: decimals } });
@@ -1377,7 +1396,7 @@ describe('TokenDetail', () => {
     });
 
     it('saves the trimmed values with the symbol upper-cased, then closes the sheet', async () => {
-      renderEditable();
+      renderWithMetadata(unknownScaleMetadata);
       fireEvent.click(action());
 
       fireEvent.change(field('name'), { target: { value: '  My Ether  ' } });
@@ -1390,6 +1409,19 @@ describe('TokenDetail', () => {
         symbol: 'METH',
         decimals: 18
       });
+      await waitFor(() => expect(sheetOpen()).toBe('false'));
+    });
+
+    it("saves a known-scale token's name and symbol only, so no stored decimals outlive the save", async () => {
+      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Ether', symbol: 'ETH', decimals: 2 } };
+      renderEditable();
+      fireEvent.click(action());
+
+      fireEvent.change(field('name'), { target: { value: 'My Ether' } });
+      fireEvent.click(screen.getByTestId('edit-token-save'));
+
+      expect(mockSetTokenMetadataOverride).toHaveBeenCalledTimes(1);
+      expect(mockSetTokenMetadataOverride.mock.calls[0]).toStrictEqual([TOKEN_ID, { name: 'My Ether', symbol: 'ETH' }]);
       await waitFor(() => expect(sheetOpen()).toBe('false'));
     });
 

@@ -23,7 +23,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer'
 export type TokenDetailsValues = {
   name: string;
   symbol: string;
-  /** Empty when the scale is not known, so the user must state it. */
+  /** The decimals the user set. Empty for an unknown scale, so the user must state it. */
   decimals: string;
 };
 
@@ -34,8 +34,11 @@ type Validation = { override: TokenMetadataOverride; errors?: never } | { overri
 
 const DECIMALS_PATTERN = /^\d+$/;
 
-/** Trims the values and upper-cases the symbol. Returns the override, or the fields that are not valid. */
-function validate(values: TokenDetailsValues): Validation {
+/**
+ * Trims the values and upper-cases the symbol. Returns the override, or the fields that are not valid.
+ * Without `withDecimals` the override has no decimals, so a save drops any stored before.
+ */
+function validate(values: TokenDetailsValues, withDecimals: boolean): Validation {
   const name = values.name.trim();
   const symbol = values.symbol.trim().toUpperCase();
   const decimalsText = values.decimals.trim();
@@ -44,22 +47,23 @@ function validate(values: TokenDetailsValues): Validation {
   const errors: FieldErrors = {};
   if (!isValidTokenName(name)) errors.name = true;
   if (!isValidTokenSymbol(symbol)) errors.symbol = true;
-  if (!isValidTokenDecimals(decimals)) errors.decimals = true;
+  if (withDecimals && !isValidTokenDecimals(decimals)) errors.decimals = true;
 
   if (Object.keys(errors).length > 0) return { errors };
-  return { override: { name, symbol, decimals } };
+  return { override: withDecimals ? { name, symbol, decimals } : { name, symbol } };
 }
 
 type SheetBodyProps = {
   faucetId: string;
   initialValues: TokenDetailsValues;
+  decimalsEditable: boolean;
   edited: boolean;
   onDone: () => void;
   /** Reported upward so the sheet cannot close while a write is in flight. */
   onBusyChange: (busy: boolean) => void;
 };
 
-const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, edited, onDone, onBusyChange }) => {
+const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, decimalsEditable, edited, onDone, onBusyChange }) => {
   const { t } = useTranslation();
   const setTokenMetadataOverride = useWalletStore(s => s.setTokenMetadataOverride);
   const clearTokenMetadataOverride = useWalletStore(s => s.clearTokenMetadataOverride);
@@ -93,7 +97,7 @@ const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, edited, onDone
 
   const save = () => {
     if (busy) return;
-    const result = validate(values);
+    const result = validate(values, decimalsEditable);
     if (result.errors) {
       setErrors(result.errors);
       return;
@@ -137,24 +141,28 @@ const SheetBody: FC<SheetBodyProps> = ({ faucetId, initialValues, edited, onDone
         autoCapitalize="characters"
         autoCorrect="off"
         spellCheck={false}
-        enterKeyHint="next"
+        enterKeyHint={decimalsEditable ? 'next' : 'done'}
         data-testid="edit-token-symbol"
       />
-      <TextField
-        label={t('tokenDecimalsLabel')}
-        value={values.decimals}
-        onChange={event => changeField('decimals', event.target.value)}
-        error={errors.decimals && t('tokenDecimalsInvalid', { max: TOKEN_DECIMALS_MAX })}
-        errorTestId="edit-token-decimals-error"
-        inputMode="numeric"
-        maxLength={2}
-        enterKeyHint="done"
-        data-testid="edit-token-decimals"
-      />
+      {decimalsEditable && (
+        <>
+          <TextField
+            label={t('tokenDecimalsLabel')}
+            value={values.decimals}
+            onChange={event => changeField('decimals', event.target.value)}
+            error={errors.decimals && t('tokenDecimalsInvalid', { max: TOKEN_DECIMALS_MAX })}
+            errorTestId="edit-token-decimals-error"
+            inputMode="numeric"
+            maxLength={2}
+            enterKeyHint="done"
+            data-testid="edit-token-decimals"
+          />
 
-      <Notice variant="inline" data-testid="edit-token-notice">
-        {t('tokenMetadataOverrideNotice')}
-      </Notice>
+          <Notice variant="inline" data-testid="edit-token-notice">
+            {t('tokenMetadataOverrideNotice')}
+          </Notice>
+        </>
+      )}
 
       {saveFailed && <ErrorLine data-testid="edit-token-save-error">{t('tokenMetadataSaveError')}</ErrorLine>}
 
@@ -188,6 +196,8 @@ type EditTokenDetailsDrawerProps = {
   onOpenChange: (open: boolean) => void;
   faucetId: string;
   initialValues: TokenDetailsValues;
+  /** The faucet's scale is unknown, so the decimals are the user's to set. */
+  decimalsEditable: boolean;
   /** The user has set values for this token, so the sheet offers the reset. */
   edited: boolean;
   /** The host changes it on each opening, so the form starts from the values on the page, not from an earlier draft. */
@@ -195,7 +205,8 @@ type EditTokenDetailsDrawerProps = {
 };
 
 /**
- * The sheet where the user sets the name, symbol and decimals this wallet shows for a token.
+ * The sheet where the user sets the name and symbol this wallet shows for a token, and its decimals
+ * while the faucet's scale is unknown.
  * The values are the user's own. The faucet keeps its values, and the reset shows them again.
  * Mobile back closes the sheet through the shared `Drawer`, before the page's own back.
  */
@@ -204,6 +215,7 @@ export const EditTokenDetailsDrawer: FC<EditTokenDetailsDrawerProps> = ({
   onOpenChange,
   faucetId,
   initialValues,
+  decimalsEditable,
   edited,
   sessionKey
 }) => {
@@ -229,6 +241,7 @@ export const EditTokenDetailsDrawer: FC<EditTokenDetailsDrawerProps> = ({
             key={sessionKey}
             faucetId={faucetId}
             initialValues={initialValues}
+            decimalsEditable={decimalsEditable}
             edited={edited}
             onDone={() => onOpenChange(false)}
             onBusyChange={setBusy}

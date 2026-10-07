@@ -158,18 +158,19 @@ describe('getTokensBaseMetadata', () => {
     expect(await getTokensBaseMetadata('any')).toBeUndefined();
   });
 
-  it('applies the user override to the stored record, which stays as the faucet gave it', async () => {
+  it("applies the user override to the stored record on the faucet's scale, and the record stays as the faucet gave it", async () => {
     _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = {
       'asset-1': { decimals: 6, symbol: 'A1', name: 'Asset 1', description: 'From the faucet' }
     };
-    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = { 'asset-1': { symbol: 'MINE', decimals: 2 } };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'asset-1': { name: 'Mine', symbol: 'MINE', decimals: 2 }
+    };
 
-    expect(await getTokensBaseMetadata('asset-1')).toEqual({
-      decimals: 2,
+    expect(await getTokensBaseMetadata('asset-1')).toStrictEqual({
+      decimals: 6,
       symbol: 'MINE',
-      name: 'Asset 1',
-      description: 'From the faucet',
-      scaleIsUnknown: false
+      name: 'Mine',
+      description: 'From the faucet'
     });
     expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]['asset-1'].symbol).toBe('A1');
   });
@@ -183,14 +184,17 @@ describe('getTokensBaseMetadata', () => {
       name: 'Mine',
       symbol: 'MN',
       decimals: 9,
-      scaleIsUnknown: false
+      scaleIsUnknown: false,
+      scaleFromOverride: true
     });
   });
 
   it('never applies an override to the native token', async () => {
     const native = { decimals: 6, symbol: 'MIDEN', name: 'Miden' };
     _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'miden-faucet-id': native };
-    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = { 'miden-faucet-id': { decimals: 18 } };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'miden-faucet-id': { name: 'Fake', symbol: 'FAKE', decimals: 18 }
+    };
 
     expect(await getTokensBaseMetadata('miden-faucet-id')).toEqual(native);
   });
@@ -384,15 +388,16 @@ describe('metadata hooks and provider', () => {
 
   it('loads the stored overrides into the store on mount', async () => {
     _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
-      'asset-1': { symbol: 'MINE' },
-      // Storage is not typed: a value that is not valid is dropped.
-      'asset-2': { decimals: 99 }
+      'asset-1': { name: 'Mine', symbol: 'MINE' },
+      // Storage is not typed: a record without a valid name and symbol is dropped.
+      'asset-2': { decimals: 99 },
+      'asset-3': { symbol: 'ONLY' }
     };
 
     render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
 
     await waitFor(() => {
-      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith({ 'asset-1': { symbol: 'MINE' } });
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith({ 'asset-1': { name: 'Mine', symbol: 'MINE' } });
     });
   });
 
@@ -405,8 +410,12 @@ describe('metadata hooks and provider', () => {
 
     render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
 
-    act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!({ 'asset-3': { name: 'Mine', decimals: 4 } }));
-    expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({ 'asset-3': { name: 'Mine', decimals: 4 } });
+    act(() =>
+      listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!({ 'asset-3': { name: 'Mine', symbol: 'MN', decimals: 4 } })
+    );
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({
+      'asset-3': { name: 'Mine', symbol: 'MN', decimals: 4 }
+    });
 
     act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!(undefined));
     expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({});

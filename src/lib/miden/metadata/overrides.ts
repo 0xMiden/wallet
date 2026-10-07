@@ -3,15 +3,16 @@ import PQueue from 'p-queue';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
+import { hasKnownScale } from './scale';
 import { AssetMetadata } from './types';
 
 /**
- * The display values the user set for a token. Each field is optional: a field that is not set
- * keeps the faucet's value.
+ * The display values the user set for a token. The name and symbol replace the faucet's.
+ * The decimals are set only for a token whose faucet scale is unknown.
  */
 export type TokenMetadataOverride = {
-  name?: string;
-  symbol?: string;
+  name: string;
+  symbol: string;
   decimals?: number;
 };
 
@@ -52,19 +53,19 @@ export function canOverrideMetadata(faucetId: string): boolean {
 }
 
 /**
- * Applies an override to the faucet's metadata.
- * A set name or symbol replaces the faucet's value.
- * A set decimals value is a fact the user stated, so the result has a known scale.
- * This makes an unknown-placeholder token show a quantity.
+ * Applies an override to the faucet's metadata. The name and symbol replace the faucet's.
+ * Stored decimals apply only where the faucet's scale is unknown, which makes an unknown-placeholder
+ * token show a quantity. A known scale is never replaced: send, swap, Earn and the bridge convert
+ * amounts with the faucet's decimals, so the balance rows must use them too.
+ * Applying the same override to its own result changes nothing: decimals it set are a known scale by then.
  */
 export function applyMetadataOverride(base: AssetMetadata, override?: TokenMetadataOverride): AssetMetadata {
   if (!override) return base;
-  const result: AssetMetadata = { ...base };
-  if (override.name !== undefined) result.name = override.name;
-  if (override.symbol !== undefined) result.symbol = override.symbol;
-  if (override.decimals !== undefined) {
+  const result: AssetMetadata = { ...base, name: override.name, symbol: override.symbol };
+  if (override.decimals !== undefined && !hasKnownScale(base)) {
     result.decimals = override.decimals;
     result.scaleIsUnknown = false;
+    result.scaleFromOverride = true;
   }
   return result;
 }
@@ -83,16 +84,19 @@ export function applyOverrideFor(
   return applyMetadataOverride(base, overrideFor(overrides, faucetId));
 }
 
-/** Reads one stored override. Storage is not typed, so a field with a value that is not valid is dropped. */
+/**
+ * Reads one stored override. Storage is not typed: a record without a valid name and symbol is dropped,
+ * and decimals that are not valid are left out.
+ */
 function parseOverride(value: unknown): TokenMetadataOverride | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
-  const override: TokenMetadataOverride = {};
-  if ('name' in value && typeof value.name === 'string' && isValidTokenName(value.name)) override.name = value.name;
-  if ('symbol' in value && typeof value.symbol === 'string' && isValidTokenSymbol(value.symbol)) {
-    override.symbol = value.symbol;
-  }
+  const name = 'name' in value ? value.name : undefined;
+  const symbol = 'symbol' in value ? value.symbol : undefined;
+  if (typeof name !== 'string' || !isValidTokenName(name)) return undefined;
+  if (typeof symbol !== 'string' || !isValidTokenSymbol(symbol)) return undefined;
+  const override: TokenMetadataOverride = { name, symbol };
   if ('decimals' in value && isValidTokenDecimals(value.decimals)) override.decimals = value.decimals;
-  return Object.keys(override).length > 0 ? override : undefined;
+  return override;
 }
 
 /** Reads the stored overrides map. A missing or malformed value gives an empty map. */

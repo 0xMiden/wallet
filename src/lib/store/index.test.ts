@@ -481,16 +481,18 @@ describe('useWalletStore', () => {
       expect(mockWriteTokenMetadataOverride).toHaveBeenCalledWith(FAUCET, { name: 'Mine', symbol: 'MN' });
     });
 
-    it('keeps the override when the faucet metadata comes again', async () => {
-      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { symbol: 'MN', decimals: 2 });
+    it("keeps the override when the faucet metadata comes again, on the faucet's scale", async () => {
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 2 });
 
-      useWalletStore.getState().setAssetsMetadata({ [FAUCET]: { ...faucetMetadata, name: 'Renamed by faucet' } });
+      useWalletStore
+        .getState()
+        .setAssetsMetadata({ [FAUCET]: { ...faucetMetadata, description: 'Described by faucet' } });
 
-      expect(useWalletStore.getState().assetsMetadata[FAUCET]).toEqual({
-        name: 'Renamed by faucet',
+      expect(useWalletStore.getState().assetsMetadata[FAUCET]).toStrictEqual({
+        name: 'Mine',
         symbol: 'MN',
-        decimals: 2,
-        scaleIsUnknown: false
+        decimals: 8,
+        description: 'Described by faucet'
       });
     });
 
@@ -511,23 +513,25 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().assetsMetadata[FAUCET]).toEqual(faucetMetadata);
     });
 
-    it('rescales the balance rows of every account when the decimals change, and back on a clear', async () => {
-      // 1.5 FCT at 8 decimals is 150000000 base units.
+    it("rescales the balance rows of every account when the user states an unknown-scale token's decimals, and back on a clear", async () => {
+      const unknown = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      useWalletStore.getState().setAssetsMetadata({ [FAUCET]: unknown });
+      // 1.5 at the placeholder's guessed 6 decimals is 1500000 base units.
       useWalletStore.setState({
         balances: {
-          'account-1': [row(FAUCET, 1.5, faucetMetadata), row(OTHER, 3, faucetMetadata)],
-          'account-2': [row(FAUCET, 0.25, faucetMetadata)]
+          'account-1': [row(FAUCET, 1.5, unknown), row(OTHER, 3, faucetMetadata)],
+          'account-2': [row(FAUCET, 0.25, unknown)]
         }
       });
 
-      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { symbol: 'MN', decimals: 6 });
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 4 });
 
       let balances = useWalletStore.getState().balances;
       expect(balances['account-1']![0]).toMatchObject({
         tokenId: FAUCET,
         tokenSlug: 'MN',
         balance: 150,
-        metadata: { symbol: 'MN', decimals: 6, scaleIsUnknown: false }
+        metadata: { symbol: 'MN', decimals: 4, scaleIsUnknown: false, scaleFromOverride: true }
       });
       expect(balances['account-1']![1]).toMatchObject({ tokenId: OTHER, balance: 3, metadata: faucetMetadata });
       expect(balances['account-2']![0]).toMatchObject({ tokenId: FAUCET, balance: 25 });
@@ -535,8 +539,19 @@ describe('useWalletStore', () => {
       await useWalletStore.getState().clearTokenMetadataOverride(FAUCET);
 
       balances = useWalletStore.getState().balances;
-      expect(balances['account-1']![0]).toMatchObject({ tokenSlug: 'FCT', balance: 1.5, metadata: faucetMetadata });
+      expect(balances['account-1']![0]).toMatchObject({ tokenSlug: 'Unknown', balance: 1.5, metadata: unknown });
       expect(balances['account-2']![0]).toMatchObject({ balance: 0.25 });
+    });
+
+    it("keeps a known-scale token's balance rows and entry on the faucet's scale when the override carries decimals", async () => {
+      useWalletStore.setState({ balances: { 'account-1': [row(FAUCET, 1.5, faucetMetadata)] } });
+
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 2 });
+
+      const state = useWalletStore.getState();
+      expect(state.balances['account-1']![0]).toMatchObject({ tokenSlug: 'MN', balance: 1.5 });
+      expect(state.balances['account-1']![0]!.metadata).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
+      expect(state.assetsMetadata[FAUCET]).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
     });
 
     it('makes an unknown-scale token quantifiable when the user states its decimals', async () => {
@@ -545,10 +560,14 @@ describe('useWalletStore', () => {
       // 2000 base units, divided by the placeholder's guessed 6 decimals.
       useWalletStore.setState({ balances: { 'account-1': [row(FAUCET, 0.002, unknown)] } });
 
-      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { decimals: 3 });
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN', decimals: 3 });
 
       const state = useWalletStore.getState();
-      expect(state.assetsMetadata[FAUCET]).toMatchObject({ decimals: 3, scaleIsUnknown: false });
+      expect(state.assetsMetadata[FAUCET]).toMatchObject({
+        decimals: 3,
+        scaleIsUnknown: false,
+        scaleFromOverride: true
+      });
       expect(state.balances['account-1']![0]).toMatchObject({ balance: 2, metadata: { scaleIsUnknown: false } });
     });
 
@@ -561,7 +580,7 @@ describe('useWalletStore', () => {
           })
       );
 
-      const saved = useWalletStore.getState().setTokenMetadataOverride(FAUCET, { symbol: 'MN' });
+      const saved = useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
 
       expect(useWalletStore.getState().assetsMetadata[FAUCET]!.symbol).toBe('MN');
       finishWrite();
@@ -570,26 +589,26 @@ describe('useWalletStore', () => {
 
     it('rolls back the metadata and the balances when the write fails', async () => {
       useWalletStore.setState({ balances: { 'account-1': [row(FAUCET, 1.5, faucetMetadata)] } });
-      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { symbol: 'OLD' });
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Old', symbol: 'OLD' });
       mockWriteTokenMetadataOverride.mockRejectedValueOnce(new Error('storage full'));
 
       await expect(
-        useWalletStore.getState().setTokenMetadataOverride(FAUCET, { symbol: 'NEW', decimals: 2 })
+        useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'New', symbol: 'NEW', decimals: 2 })
       ).rejects.toThrow('storage full');
 
       const state = useWalletStore.getState();
-      expect(state.tokenMetadataOverrides).toEqual({ [FAUCET]: { symbol: 'OLD' } });
-      expect(state.assetsMetadata[FAUCET]).toEqual({ ...faucetMetadata, symbol: 'OLD' });
+      expect(state.tokenMetadataOverrides).toEqual({ [FAUCET]: { name: 'Old', symbol: 'OLD' } });
+      expect(state.assetsMetadata[FAUCET]).toEqual({ ...faucetMetadata, name: 'Old', symbol: 'OLD' });
       expect(state.balances['account-1']![0]).toMatchObject({ tokenSlug: 'OLD', balance: 1.5 });
     });
 
     it('rolls back a failed clear', async () => {
-      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine' });
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
       mockWriteTokenMetadataOverride.mockRejectedValueOnce(new Error('storage full'));
 
       await expect(useWalletStore.getState().clearTokenMetadataOverride(FAUCET)).rejects.toThrow('storage full');
 
-      expect(useWalletStore.getState().tokenMetadataOverrides).toEqual({ [FAUCET]: { name: 'Mine' } });
+      expect(useWalletStore.getState().tokenMetadataOverrides).toEqual({ [FAUCET]: { name: 'Mine', symbol: 'MN' } });
       expect(useWalletStore.getState().assetsMetadata[FAUCET]!.name).toBe('Mine');
     });
 
@@ -597,22 +616,25 @@ describe('useWalletStore', () => {
       const native = { name: 'Miden', symbol: 'MIDEN', decimals: 6 };
       useWalletStore.getState().setAssetsMetadata({ [NATIVE]: native });
 
-      await expect(useWalletStore.getState().setTokenMetadataOverride(NATIVE, { decimals: 2 })).rejects.toThrow();
+      await expect(
+        useWalletStore.getState().setTokenMetadataOverride(NATIVE, { name: 'Fake', symbol: 'FAKE', decimals: 2 })
+      ).rejects.toThrow();
 
       expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
       expect(useWalletStore.getState().assetsMetadata[NATIVE]).toEqual(native);
     });
 
     it('applies the stored overrides on hydrate and removes the ones storage no longer has', async () => {
-      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine' });
+      await useWalletStore.getState().setTokenMetadataOverride(FAUCET, { name: 'Mine', symbol: 'MN' });
 
-      useWalletStore
-        .getState()
-        .hydrateTokenMetadataOverrides({ [OTHER]: { symbol: 'OTH' }, [NATIVE]: { decimals: 1 } });
+      useWalletStore.getState().hydrateTokenMetadataOverrides({
+        [OTHER]: { name: 'Other', symbol: 'OTH' },
+        [NATIVE]: { name: 'Fake', symbol: 'FAKE', decimals: 1 }
+      });
 
       const state = useWalletStore.getState();
       expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
-      expect(state.assetsMetadata[OTHER]).toEqual({ ...faucetMetadata, symbol: 'OTH' });
+      expect(state.assetsMetadata[OTHER]).toEqual({ ...faucetMetadata, name: 'Other', symbol: 'OTH' });
       expect(state.assetsMetadata[NATIVE]).toBeUndefined();
     });
   });
