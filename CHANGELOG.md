@@ -6,7 +6,7 @@
 
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
 
-- [FIX][all] On testnet the bridge's own USDC, on Sepolia and on Miden, reads "Test Epoch USDC" in the bridge token picker, deposit and send-to-EVM screens, balances, the send token picker, transaction summaries and Activity, so it is no longer mistaken for Circle's Sepolia USDC (#1247, #1356).
+- [FIX][all] On testnet the bridge's own USDC, on Sepolia and on Miden, reads "Test Epoch USDC" in the bridge token picker, deposit and send-to-EVM screens, Home rows and the token page, the send token picker, transaction summaries and Activity, so it is no longer mistaken for Circle's Sepolia USDC, and the send-to-EVM review's Slow route now names the token it sends in its "you receive" line instead of USDC (#1247, #1356).
 
 ### Changes
 
