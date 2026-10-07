@@ -5,7 +5,6 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -864,18 +863,21 @@ export const useWalletStore = create<WalletStore>()(
 
       try {
         const overridden = new Set<string>();
+        // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
+        let midenFaucetId: string | null = null;
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
           setAssetsMetadata: get().setAssetsMetadata,
           faucetMetadataOf,
           onOverrideApplied: faucetId => overridden.add(faucetId),
+          onDisplayFaucetId: faucetId => {
+            midenFaucetId = faucetId;
+          },
           tokenPrices: get().tokenPrices,
           waitForLock: get().balances[accountAddress] === undefined
         });
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) return;
-        // The display faucet setting the read built its MIDEN row for.
-        const midenFaucetId = await getFaucetIdSetting();
         set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
       } finally {
         fetchingAddresses.delete(accountAddress);

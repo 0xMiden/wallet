@@ -52,6 +52,8 @@ export interface FetchBalancesOptions {
   faucetMetadataOf?: (faucetId: string) => AssetMetadata | undefined;
   /** Called for each faucet whose row this read built with an override, so the landing can apply the current one */
   onOverrideApplied?: (faucetId: string) => void;
+  /** Called once with the display faucet setting this read builds the MIDEN row for, so the landing records that one */
+  onDisplayFaucetId?: (faucetId: string | null) => void;
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
   /**
@@ -190,6 +192,7 @@ export async function fetchBalances(
     setAssetsMetadata,
     faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
     onOverrideApplied,
+    onDisplayFaucetId,
     tokenPrices = {},
     waitForLock = false
   } = options;
@@ -292,6 +295,7 @@ export async function fetchBalances(
     return {};
   });
   const midenFaucetId = await getFaucetIdSetting();
+  onDisplayFaucetId?.(midenFaucetId);
   const actualNativeId = getNativeAssetIdSync();
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client

@@ -26,6 +26,7 @@ import type * as FetchBalancesModule from './utils/fetchBalances';
 
 // A balance read a case holds open. Every other case reads through the real module, which is
 // reached lazily: the module is part of an import cycle, so its exports are not ready at mock time.
+// A held read reports the display faucet setting when it starts, as the reader does.
 let mockHeldBalanceRead: ((options?: FetchBalancesModule.FetchBalancesOptions) => Promise<unknown>) | null = null;
 jest.mock('./utils/fetchBalances', () => {
   const actual = jest.requireActual<typeof FetchBalancesModule>('./utils/fetchBalances');
@@ -33,8 +34,11 @@ jest.mock('./utils/fetchBalances', () => {
     get fetchingAddresses() {
       return actual.fetchingAddresses;
     },
-    fetchBalances: (...args: Parameters<typeof actual.fetchBalances>) =>
-      mockHeldBalanceRead ? mockHeldBalanceRead(args[2]) : actual.fetchBalances(...args)
+    fetchBalances: (...args: Parameters<typeof actual.fetchBalances>) => {
+      if (!mockHeldBalanceRead) return actual.fetchBalances(...args);
+      args[2]?.onDisplayFaucetId?.(mockFaucetIdSetting ?? null);
+      return mockHeldBalanceRead(args[2]);
+    }
   };
 });
 
@@ -837,6 +841,18 @@ describe('useWalletStore', () => {
 
         expect(displayRow('account-2').tokenSlug).toBe('MINE');
         expect(displayRow('account-2')).toMatchObject({ balance: 1.25, metadata: { ...legacyRecord, ...override } });
+      });
+
+      it('records the display faucet the read built the row for, not the setting when it lands', async () => {
+        const read = useWalletStore.getState().fetchBalances('account-1', {});
+        mockFaucetIdSetting = null;
+        landRead([row(LEGACY, 5, display)]);
+        await read;
+
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: override });
+
+        expectAsBuilt('account-1');
+        expect(useWalletStore.getState().balancesDisplayFaucetId['account-1']).toBe(LEGACY);
       });
 
       it('lifts the exemption when a later read of that account used no display faucet', async () => {

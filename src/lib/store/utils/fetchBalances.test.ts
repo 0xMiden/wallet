@@ -502,6 +502,15 @@ describe('fetchBalances', () => {
       });
     });
 
+    it('reports the display faucet setting it read, once', async () => {
+      const onDisplayFaucetId = jest.fn();
+      mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }) });
+
+      await fetchBalances('my-address', {}, { onDisplayFaucetId });
+
+      expect(onDisplayFaucetId.mock.calls).toEqual([['miden-faucet-id']]);
+    });
+
     it('reports each faucet whose row it built with an override, and only those', async () => {
       const onOverrideApplied = jest.fn();
       mockGetTokenMetadataOverrides.mockResolvedValue({
