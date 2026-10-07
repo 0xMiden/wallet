@@ -5,7 +5,9 @@ import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input
 
 import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { ClearFieldButton } from 'components/ui/ClearFieldButton';
 import { Skeleton } from 'components/ui/Skeleton';
+import { clearFieldValue } from 'lib/ui/clear-field';
 
 /**
  * Scale the amount text down as the entered value grows, to avoid overflow
@@ -32,7 +34,8 @@ export function amountFigureClassName(value?: string): string {
 
 /** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
 const CENTERED_INPUT_LAYOUT = '[grid-area:1/1] w-0 min-w-full caret-accent-primary';
-const INLINE_INPUT_LAYOUT = 'w-full';
+// `min-w-0`: an input's automatic flex minimum is its intrinsic width, which would push the clear button out.
+const INLINE_INPUT_LAYOUT = 'w-full min-w-0';
 
 /**
  * Accept a comma as the decimal separator (comma-decimal locales/keyboards — es,
@@ -124,6 +127,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
+  const showClear = Boolean(value) && !disabled && !loading;
   const amountClasses = classNames(amountFigureClassName(value), centered ? 'text-center' : 'text-left');
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
@@ -165,7 +169,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
           'flex cursor-text mt-3',
-          centered ? classNames('items-start justify-center', amountTextSize(value)) : 'items-baseline'
+          centered ? classNames('relative items-start justify-center', amountTextSize(value)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -194,6 +198,13 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           </span>
         ) : (
           input(INLINE_INPUT_LAYOUT)
+        )}
+        {showClear && (
+          <ClearFieldButton
+            onClear={() => clearFieldValue(inputRef.current)}
+            // Centred, the button floats at the row's end so the amount keeps its centre.
+            className={centered ? 'absolute right-0 top-1/2 -translate-y-1/2' : '-mr-3 ml-1 self-center'}
+          />
         )}
       </div>
 
