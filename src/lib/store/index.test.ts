@@ -653,6 +653,63 @@ describe('useWalletStore', () => {
       expect(state.assetsMetadata[OTHER]).toEqual({ ...faucetMetadata, name: 'Other', symbol: 'OTH' });
       expect(state.assetsMetadata[NATIVE]).toBeUndefined();
     });
+
+    describe('decimals the user stated while the scale was unknown', () => {
+      const FRESH = 'mtst1fresh';
+      const stated = { name: 'Mine', symbol: 'MN', decimals: 3 };
+      const unknown = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      const retiredOverride = { name: 'Mine', symbol: 'MN' };
+
+      it('are dropped when the faucet record with a known scale arrives through setAssetsMetadata', async () => {
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [FRESH]: stated });
+
+        useWalletStore.getState().setAssetsMetadata({ [FRESH]: faucetMetadata });
+        await Promise.resolve();
+
+        expect(mockWriteTokenMetadataOverride.mock.calls).toStrictEqual([[FRESH, retiredOverride]]);
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(retiredOverride);
+        expect(useWalletStore.getState().assetsMetadata[FRESH]).toStrictEqual({
+          name: 'Mine',
+          symbol: 'MN',
+          decimals: 8
+        });
+      });
+
+      it('are dropped when the faucet record with a known scale arrives through fetchAssetMetadata', async () => {
+        const { fetchTokenMetadata } = jest.requireMock('lib/miden/metadata');
+        fetchTokenMetadata.mockResolvedValueOnce(faucetMetadata);
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [FRESH]: stated });
+
+        await useWalletStore.getState().fetchAssetMetadata(FRESH);
+
+        expect(mockWriteTokenMetadataOverride.mock.calls).toStrictEqual([[FRESH, retiredOverride]]);
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(retiredOverride);
+      });
+
+      it('are dropped when the override arrives after the known record, and never for the native token', async () => {
+        const native = { name: 'Miden', symbol: 'MIDEN', decimals: 6 };
+        useWalletStore.getState().setAssetsMetadata({ [FRESH]: faucetMetadata, [NATIVE]: native });
+
+        useWalletStore
+          .getState()
+          .hydrateTokenMetadataOverrides({ [FRESH]: stated, [NATIVE]: { name: 'Fake', symbol: 'FAKE', decimals: 1 } });
+        await Promise.resolve();
+
+        expect(mockWriteTokenMetadataOverride.mock.calls).toStrictEqual([[FRESH, retiredOverride]]);
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(retiredOverride);
+      });
+
+      it('stay while the faucet record arriving has an unknown scale', async () => {
+        useWalletStore.getState().hydrateTokenMetadataOverrides({ [FRESH]: stated });
+
+        useWalletStore.getState().setAssetsMetadata({ [FRESH]: unknown });
+        await Promise.resolve();
+
+        expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
+        expect(useWalletStore.getState().tokenMetadataOverrides[FRESH]).toStrictEqual(stated);
+        expect(useWalletStore.getState().assetsMetadata[FRESH]).toMatchObject({ decimals: 3, scaleFromOverride: true });
+      });
+    });
   });
 
   describe('UI actions', () => {

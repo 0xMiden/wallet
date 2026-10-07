@@ -18,6 +18,7 @@ import {
   TokenMetadataOverrides,
   writeTokenMetadataOverride
 } from 'lib/miden/metadata/overrides';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import {
   parsePersistedSpendingLimit,
@@ -171,6 +172,24 @@ async function changeTokenMetadataOverride(
   } catch (error) {
     useWalletStore.setState(state => withTokenMetadataOverride(state, faucetId, previous));
     throw error;
+  }
+}
+
+/**
+ * Drops the decimals from the override of each faucet whose own record has a known scale.
+ * The user stated them while the scale was unknown. Kept, they would come back as a known scale
+ * whenever the record is missing again: a failed fetch, a schema clear, a start before the cache loads.
+ * Runs wherever a record or an override arrives, after the state that records it.
+ */
+function retireStatedDecimals(faucetIds: string[]): void {
+  const state = useWalletStore.getState();
+  for (const faucetId of faucetIds) {
+    const override = state.tokenMetadataOverrides[faucetId];
+    if (override?.decimals === undefined || !canOverrideMetadata(faucetId)) continue;
+    if (!hasKnownScale(faucetMetadataFor(state, faucetId))) continue;
+    changeTokenMetadataOverride(faucetId, { name: override.name, symbol: override.symbol }).catch(error =>
+      console.warn('Token metadata override update failed', error)
+    );
   }
 }
 
@@ -839,6 +858,7 @@ export const useWalletStore = create<WalletStore>()(
           )
         }
       }));
+      retireStatedDecimals(entries.map(([faucetId]) => faucetId));
     },
 
     fetchAssetMetadata: async assetId => {
@@ -851,6 +871,7 @@ export const useWalletStore = create<WalletStore>()(
             [assetId]: applyOverrideFor(assetId, metadata, state.tokenMetadataOverrides)
           }
         }));
+        retireStatedDecimals([assetId]);
         return metadata;
       } catch {
         return null;
@@ -875,6 +896,7 @@ export const useWalletStore = create<WalletStore>()(
         const faucetIds = new Set([...Object.keys(state.tokenMetadataOverrides), ...Object.keys(overrides)]);
         return withOverrides(state, overrides, [...faucetIds]);
       });
+      retireStatedDecimals(Object.keys(overrides));
     },
 
     // Fiat currency actions
