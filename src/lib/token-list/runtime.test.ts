@@ -45,6 +45,7 @@ const response = (
 const NOW = 1_800_000_000_000;
 const KEY = 'token_list_cache_v2:testnet';
 const ATTEMPT = 'token_list_attempt_v1:testnet';
+const V1_KEY = 'token_list_cache_v1:testnet';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 /** Runs `body` as on iOS 15 WebKit and Safari before 16, which have no AbortSignal.timeout. */
@@ -508,12 +509,35 @@ describe('token logos', () => {
     expect(storage.get).not.toHaveBeenCalled();
   });
 
-  it('ignores a list cached under the v1 key before logos existed, and refreshes', async () => {
-    setup({ 'token_list_cache_v1:testnet': { fetchedAt: NOW - 1_000, body: doc(['old']) } });
-    fetchMock.mockResolvedValue(response(withLogos(['new'])));
-    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map(SNAPSHOT_LOGO_IDS.map(id => [id, logoOf(id)])));
+  it('keeps a list cached under the v1 key before logos existed until a refresh lands, refreshing at once', async () => {
+    setup({ [V1_KEY]: { fetchedAt: NOW - 1_000, body: doc(['old']) } });
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['old']));
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map());
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(storage.data['token_list_cache_v2:testnet']).toEqual({ fetchedAt: NOW, body: withLogos(['new']) });
+    expect(storage.data[V1_KEY]).toEqual({ fetchedAt: NOW - 1_000, body: doc(['old']) });
+  });
+
+  it('replaces the v1 entry with the v2 one once a refresh lands', async () => {
+    setup({ [V1_KEY]: { fetchedAt: NOW - 1_000, body: doc(['old']) } });
+    fetchMock.mockResolvedValue(response(withLogos(['new'])));
+    await loadTokenLogos('testnet');
+    await flush();
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: withLogos(['new']) });
+    expect(storage.data).not.toHaveProperty([V1_KEY]);
+  });
+
+  it('counts a refresh as landed when the v1 entry cannot be removed', async () => {
+    setup({ [V1_KEY]: { fetchedAt: NOW - 1_000, body: doc(['old']) } });
+    fetchMock.mockResolvedValue(response(withLogos(['new'])));
+    storage.remove.mockRejectedValue(new Error('storage unavailable'));
+    const listener = jest.fn();
+    onTokenListUpdated(listener);
+    await loadTokenLogos('testnet');
+    await flush();
+    expect(listener).toHaveBeenCalledWith('testnet');
+    expect(storage.data).not.toHaveProperty([ATTEMPT]);
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map([['new', logoOf('new')]]));
   });
 });

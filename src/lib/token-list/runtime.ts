@@ -12,8 +12,10 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_BYTES = 256 * 1_024;
 
 const tokenListUrl = (network: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/${network}.json`;
-// v2: a copy cached before logos were read would hide them for up to a day.
 const cacheKey = (network: string) => `token_list_cache_v2:${network}`;
+// Cached before logos were read, so it may lack logos the list has since gained: it stands in with no
+// age, which makes a refresh due at once, until a v2 entry lands.
+const legacyCacheKey = (network: string) => `token_list_cache_v1:${network}`;
 const attemptKey = (network: string) => `token_list_attempt_v1:${network}`;
 
 interface Dependencies {
@@ -75,7 +77,7 @@ export function onTokenListUpdated(listener: (network: string) => void): () => v
 async function readList(network: string): Promise<LoadedList> {
   let stored: Record<string, unknown> = {};
   try {
-    stored = await deps.storage().get([cacheKey(network), attemptKey(network)]);
+    stored = await deps.storage().get([cacheKey(network), legacyCacheKey(network), attemptKey(network)]);
   } catch {
     // Unreadable storage reads as empty, so the snapshot stands in.
   }
@@ -83,8 +85,11 @@ async function readList(network: string): Promise<LoadedList> {
   if (typeof failedAt === 'number') lastFailure.set(network, failedAt);
   const cached = readTimestampedEntry(stored[cacheKey(network)]);
   const fromCache = cached ? parseTokenList(cached.body, network) : null;
-  // Only a list that parsed has an age; an unreadable entry leaves the snapshot standing in and is due at once.
+  // Only a list that parsed has an age; an unreadable entry leaves an older list standing in and is due at once.
   if (cached && fromCache) return { ...fromCache, fetchedAt: cached.fetchedAt };
+  const legacy = readTimestampedEntry(stored[legacyCacheKey(network)]);
+  const fromLegacy = legacy ? parseTokenList(legacy.body, network) : null;
+  if (fromLegacy) return { ...fromLegacy, fetchedAt: null };
   const bundled = parseTokenList(bundledTokenList(network), network);
   return { ids: bundled?.ids ?? null, logos: bundled?.logos ?? null, fetchedAt: null };
 }
@@ -98,6 +103,11 @@ async function fetchAndStore(network: string): Promise<void> {
   // Validated before storing: every realm trusts this entry for a day.
   if (parseTokenList(body, network) === null) throw new Error('the token list does not parse');
   await deps.storage().set({ [cacheKey(network)]: { fetchedAt: deps.now(), body } });
+  try {
+    await deps.storage().remove([legacyCacheKey(network)]);
+  } catch {
+    // Left behind, it is never read: readList reaches it only when no v2 entry parses.
+  }
 }
 
 async function refresh(network: string): Promise<void> {
