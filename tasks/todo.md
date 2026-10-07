@@ -332,3 +332,33 @@ Testnet advertises `base_amount=10000`, decimals 6 and load difficulty 65536. Th
 with the unmodified wallet solver in 1591 ms and passed an independent SHA-256 check; no mint
 was submitted. Devnet advertises a 100000000-unit base grant. Funding state disables only its
 card action; the nonce search currently executes in the UI realm.
+
+# Live Testnet Guardian faucet consumption
+
+- [x] Reproduce the actual Fund your wallet flow in a fresh isolated Guardian profile.
+- [x] Match the missing digest to the canonical V2 receive-policy callback.
+- [x] Test a compatible browser SDK against the same pending faucet note.
+- [x] Verify fresh-wallet automatic consumption, committed transaction and net vault credit.
+- [x] Capture screenshots and source-bound evidence; review the focused change internally.
+- [x] Build and verify a production Testnet Chrome package with the proven fix.
+
+Focused live browser verification is explicitly requested. Full coverage and broad suites remain in CI.
+
+# Public faucet regression on both public networks
+
+- [x] Prove fresh Testnet Guardian funding with exactly Web SDK 0.17.1 and Guardian 0.18.0.
+- [x] Add the real Fund UI scenario to Testnet and Devnet branch E2E gates.
+- [x] Require committed local note consumption and exact net native vault credit.
+- [x] Verify the same previously failed note consumes after the exact SDK upgrade.
+- [x] Replace the diagnostic SDK archive with official registry 0.17.1 and rerun both network flows.
+- [ ] Complete medium internal review, admin squash merge and full v1.17.1 re-cut.
+
+## Current public funding verification
+
+- Existing Guardian onboarding passed on Testnet and Devnet with fast Web SDK 0.17.1 from the signed release source and stable Guardian 0.18.0.
+- Testnet consumed 10000 base units, paid 133 and retained 9867. Devnet consumed 100000000, paid 133 and retained 99999867.
+- Medium internal review found no P0/P1 issues in the UI funding assertions, CI branch gates, profile ownership or CLI kernel preparation.
+- iOS device/simulator and Android arm64/x86_64 committed prover binaries were rebuilt against the exact SDK 0.17.1 kernel.
+- Coverage and broad browser suites remain in CI; the authorized same-version replacement does not wait for PR or next CI.
+
+Official registry SDK 0.17.1 is installed with its published integrity and exact native optional dependencies. Both existing onboarding tests passed again: Testnet 32.9 s and Devnet 24.7 s, no retries, actual Fund UI and chain-confirmed consumption. Clean frozen installation, six-bundle relay verification, 83 relay tests, 32 CLI/faucet tests, five CLI pin tests, typecheck and native kernel pin check pass. Exact Rust CLI source preparation also compiles successfully.
