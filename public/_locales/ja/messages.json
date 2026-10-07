@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "この出金には、有効なSepoliaアドレスを入力してください。",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "この出金には、有効なArcテストネットアドレスを入力してください。",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCxの引き出しは、Midenテストネット上で設定済みのfaucetでのみ利用可能です。",
@@ -157,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "お持ちのウォレットが開き、正確な金額を承認し、Sepolia上で署名を行うことになります。",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "ウォレットが開き、正確な金額を承認し、ソースネットワーク上で署名を行います。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "受け取る",
@@ -173,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "お使いのウォレットから、$tokenSymbol$ の承認と、Sepolia での入金の署名を求めるメッセージが表示されます。確認後、Miden に資金が入金されます。",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "ウォレットから、$tokenSymbol$の承認と、送信元ネットワークでの入金への署名を求めるメッセージが表示されます。確認後、資金はMidenに反映されます。",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4624,8 +4624,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "ウォレットでリクエストを承認し、Sepoliaによる確認が完了するまでこの画面を開いたままにしておいてください。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "ウォレット内でリクエストを承認し、送信元ネットワークによる確認が完了するまで、この画面を開いたままにしておいてください。",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "ブリッジへの入金が失敗しました",
@@ -4636,8 +4636,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepoliaでの取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "送信元の取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscanで表示",
@@ -4716,8 +4716,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Sepoliaでの取引は確認されました。Miden上でUSDCxが鋳造される前に、Circleによる預入の認証を待っています。",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "ソース取引は確認されました。Miden上でUSDCxが発行される前に、Circleによる入金の認証を待っています。",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "ブロックエクスプローラーで表示",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circleは預入を認証しました。USDCxはまもなくMiden上で発行される予定です。",
@@ -5172,8 +5176,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "このブリッジはイーサリアム・セポリア上で動作します。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、セポリアETHのみをそのウォレットに入金してください。",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "このブリッジは、USDCにはArcテストネットを、ETHにはイーサリアム・セポリアを使用しています。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、テスト用トークンのみを預けてください。",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "ウォレットの改善にご協力ください",
@@ -5391,8 +5395,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "このブリッジは、イーサリアム・セポリアのテストトークンをMidenへ移動させるものです。イーサリアムのメインネットやその他の実稼働ネットワークからブリッジを行わないでください。",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "このブリッジは、ArcテストネットのUSDCまたはイーサリアム・セポリアのETHをMidenへ移動させるものです。メインネットやその他の実稼働ネットワークからのブリッジは絶対にしないでください。",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "隠された送金：$count$",

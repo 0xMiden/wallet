@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "이 인출을 위해 유효한 Sepolia 주소를 입력하십시오.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "이 출금을 위해 유효한 Arc 테스트넷 주소를 입력하십시오.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
@@ -157,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "지갑이 열리면 정확한 금액을 승인하고 Sepolia에서 서명하게 됩니다.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "지갑이 열리면 정확한 금액을 승인하고 소스 네트워크에서 서명하게 됩니다.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "다음과 같은 내용을 받게 됩니다.",
@@ -173,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고 Sepolia에서 입금에 서명하도록 안내할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고, 소스 네트워크에서 입금에 서명하도록 할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4624,8 +4624,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고, Sepolia에서 확인이 완료될 때까지 이 화면을 열어 두세요.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "지갑에서 요청을 승인하고, 소스 네트워크에서 확인이 완료될 때까지 이 화면을 열어 두십시오.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
@@ -4636,8 +4636,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 거래가 확정되었습니다. 브리지 전송이 완료되면 귀하의 자금이 Miden에 표시될 것입니다.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "원본 거래가 확인되었습니다. 브리지 전송이 완료되면 Miden에 자금이 표시될 것입니다.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscan에서 보기",
@@ -4716,8 +4716,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Sepolia 거래가 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "원본 거래가 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "블록 익스플로러에서 보기",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle이 예치금을 인증했습니다. USDCx는 곧 Miden에서 발행될 예정입니다.",
@@ -5172,8 +5176,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "이 브리지는 USDC의 경우 Arc 테스트넷을, ETH의 경우 이더리움 세폴리아를 사용합니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 테스트 토큰만 입금하십시오.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "월렛 개선에 기여해 주세요",
@@ -5391,8 +5395,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 Miden으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "이 브리지는 Arc 테스트넷의 USDC 또는 이더리움 세폴리아(Sepolia)의 ETH를 Miden으로 이동시킵니다. 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "숨겨진 전송: $count$",

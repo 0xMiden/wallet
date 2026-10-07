@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "Wprowadź prawidłowy adres Sepolia dla tej wypłaty.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "Wprowadź prawidłowy adres sieci testowej Arc dla tej wypłaty.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "Wypłaty w USDCx są dostępne wyłącznie dla skonfigurowanego adresu faucet w sieci testowej Miden.",
@@ -157,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "W Twoim portfelu otworzy się okno, w którym będziesz mógł zatwierdzić dokładną kwotę i podpisać transakcję w sieci Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Twój portfel otworzy się, aby zatwierdzić dokładną kwotę i podpisać transakcję w sieci źródłowej.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Otrzymujesz",
@@ -173,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Twój portfel wyświetli prośbę o zatwierdzenie adresu $tokenSymbol$ oraz podpisanie wpłaty w sieci Sepolia. Środki pojawią się na platformie Miden po potwierdzeniu.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Twój portfel poprosi o zatwierdzenie transakcji typu „$tokenSymbol$” oraz podpisanie wpłaty w sieci źródłowej. Środki pojawią się na Miden po potwierdzeniu.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4624,8 +4624,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Zatwierdź żądanie w swoim portfelu i pozostaw ten ekran otwarty, dopóki Sepolia nie potwierdzi transakcji.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Zatwierdź żądanie w swoim portfelu i pozostaw ten ekran otwarty, dopóki sieć źródłowa nie potwierdzi operacji.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Niepowodzenie wpłaty na most",
@@ -4636,8 +4636,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Transakcja Sepolia została potwierdzona. Twoje środki pojawią się na platformie Miden po zakończeniu transferu między łańcuchami.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "Transakcja źródłowa została potwierdzona. Twoje środki pojawią się w Miden po zakończeniu transferu mostkowego.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Zobacz na Etherscan",
@@ -4716,8 +4716,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Transakcja Sepolia została potwierdzona. Czekamy na poświadczenie wpłaty przez Circle przed wyemitowaniem USDCx na platformie Miden.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "Transakcja źródłowa została potwierdzona. Czekamy na potwierdzenie wpłaty przez Circle przed wyemitowaniem USDCx na platformie Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Wyświetl w eksploratorze bloków",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Firma Circle poświadczyła wpłatę. Wkrótce na platformie Miden zostanie wyemitowany token USDCx.",
@@ -5172,8 +5176,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Ten most działa na sieci Ethereum Sepolia. Nie podłączaj portfela, w którym przechowujesz prawdziwe środki. Utwórz nowy portfel i zasil go wyłącznie tokenami ETH z sieci Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Ten most wykorzystuje sieć testową Arc dla USDC oraz Ethereum Sepolia dla ETH. Nie podłączaj portfela, w którym przechowujesz prawdziwe środki. Utwórz nowy portfel i zasil go wyłącznie tokenami testowymi.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Pomóż ulepszyć portfel",
@@ -5391,8 +5395,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Ten most przenosi testowe tokeny Ethereum Sepolia do sieci Miden. Nigdy nie należy tworzyć mostu z sieci głównej Ethereum ani żadnej innej rzeczywistej sieci.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Ten most przenosi USDC z sieci testowej Arc lub ETH z sieci Ethereum Sepolia do Miden. Nigdy nie należy tworzyć mostu z sieci głównej ani żadnej innej rzeczywistej sieci.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Ukryte transfery: $count$",
