@@ -63,7 +63,8 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: jest.fn(),
-  normalizedFaucetId: (faucetId: string) => faucetId
+  normalizedFaucetId: (faucetId: string) => faucetId,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
