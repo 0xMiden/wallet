@@ -88,8 +88,6 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
     animate: { y: 0, opacity: 1 },
     transition: flipTransition
   });
-  // Each side is titled like a tab root's page title, the same weight as Send's "Send to".
-  const fieldLabel = (text: string) => <span className="text-title-tab text-ink">{text}</span>;
   // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
   const awaitingAmount = !(offerAmountValue > 0);
@@ -128,7 +126,10 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         <motion.div {...sideMotion(0, -24)} data-testid="swap-pay-side">
           <SelectAmount
             embedded
-            label={fieldLabel(t('youPay'))}
+            // The amount field's own caption, as on Earn's "Deposit Amount", and no rule under a typed
+            // amount.
+            label={t('youPay')}
+            showAmountDivider={false}
             accent="swap"
             token={swapTokenToUIToken(offerToken, offerBalance)}
             logoSymbol={offerToken.logoSymbol}
@@ -181,7 +182,8 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             // "You Receive" is the swap output — the user's balance of that token
             // isn't the spendable amount here, so no available-balance helper.
             showBalanceHelper={false}
-            label={fieldLabel(t('youReceive'))}
+            label={t('youReceive')}
+            showAmountDivider={false}
             accent="swap"
             token={swapTokenToUIToken(requestToken)}
             logoSymbol={requestToken.logoSymbol}

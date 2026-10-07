@@ -64,7 +64,8 @@ const App: FC<AppProps> = ({ env }) => {
     // every send, so this is the outer of two gates, not the only one.
     if (isTelemetryEnabled()) initCrashReporting();
     // Display prices and the other synchronous readers use the bridge config snapshot, so every page realm loads it at
-    // boot instead of whenever a bridge screen mounts. The first load also starts this realm's poll. It never rejects.
+    // boot instead of whenever a bridge screen mounts, then follows every change of the effective network through
+    // `followEffectiveNetwork`. The first load also starts this realm's poll. It never rejects.
     void initBridgeConfig();
   }, []);
 

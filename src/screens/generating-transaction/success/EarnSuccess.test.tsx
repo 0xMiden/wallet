@@ -97,9 +97,9 @@ jest.mock('./TransactionSuccessLayout', () => ({
       </div>
     );
   },
-  ReceiptRows: ({ rows }: { rows: ReceiptRow[] }) => {
+  ReceiptRows: ({ rows, surface }: { rows: ReceiptRow[]; surface?: 'fill' | 'outline' }) => {
     mockLastRows = rows;
-    return <div data-testid="rows" />;
+    return <div data-testid="rows" data-surface={surface} />;
   },
   // Earn derives its own amount (USDC-denominated), so it reaches the fee through
   // this hook rather than `useReceiptAmount`. Returns a value so the fee row is
@@ -179,6 +179,12 @@ describe('EarnSuccess', () => {
     expect(mockLastRows?.[0]?.value).toBe('DUMMY-LENDING');
     expect(mockLastRows?.[1]?.value).toBe('10000000 USDC');
     expect(mockLastRows?.[2]?.value).toBe('0.17 MIDEN');
+  });
+
+  it('draws its receipt on the outline surface, like the rest of the earn flow', () => {
+    render(<EarnSuccess transaction={earnDeposit()} txHash="0xabc" onDoneClick={() => {}} />);
+
+    expect(screen.getByTestId('rows')).toHaveAttribute('data-surface', 'outline');
   });
 
   it('omits the fee row on a chain that charges nothing', () => {

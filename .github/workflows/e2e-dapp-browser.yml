@@ -60,8 +60,9 @@ jobs:
       # idb lets the harness tap "Allow" on the native notification-permission alert
       # (system-alerts.ts), which lives outside the WebView and otherwise covers the dApp
       # slot in every paint check. Same install as e2e-blockchain.yml: fb-idb needs
-      # Python 3.11 (it calls asyncio.get_event_loop, gone in the runner's 3.14), and
-      # the harness degrades gracefully without idb, so a broken install never fails the job.
+      # Python 3.11 (it calls asyncio.get_event_loop, gone in the runner's 3.14). This
+      # suite needs idb: its create_wallet step fails when the prompt is not answered,
+      # and the error names why (idb-unavailable carries idb's own last error).
       - name: Set up Python for idb
         continue-on-error: true
         uses: actions/setup-python@v5

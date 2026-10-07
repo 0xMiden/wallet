@@ -1900,9 +1900,9 @@
     "message": "您有待接受的轉帳",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ 筆等待中",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ 筆等待中 · 點按查看",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4682,6 +4682,10 @@
   "unverifiedTokenDescription": {
     "message": "此代幣未列入 Miden 的已驗證代幣清單。任何人都可以創建任意名稱的代幣，因此在信任它之前，請先檢查 faucet 的 ID。",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "未驗證的代幣",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "無法透過模擬進行驗證。以下數值均為該網站所聲明者。",

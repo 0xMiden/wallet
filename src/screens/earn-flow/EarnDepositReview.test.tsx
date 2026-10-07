@@ -236,22 +236,34 @@ jest.mock('./components', () => {
       labelId,
       value,
       unit,
-      label
+      label,
+      labelClassName,
+      figureClassName
     }: {
       labelId: string;
       value: string;
       unit?: React.ReactNode;
       label: string;
+      labelClassName?: string;
+      figureClassName?: string;
     }) =>
       R.createElement(
         'section',
         { 'data-testid': 'earn-hero', id: labelId },
-        R.createElement('span', null, value),
+        R.createElement('span', { className: figureClassName }, value),
         unit,
-        R.createElement('span', null, label)
+        R.createElement('span', { className: labelClassName }, label)
       )
   };
 });
+
+// Sentinels for the amount step's entry type, so a review that copies the classes instead of
+// reading AmountInput's exports is caught.
+jest.mock('components/AmountInput', () => ({
+  ...jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput'),
+  amountCaptionClassName: 'amount-caption-sentinel',
+  amountFigureClassName: (value?: string) => `amount-figure-sentinel-${value}`
+}));
 
 const mockOpenEarnPosition = openEarnPosition as jest.Mock;
 const mockConfirmSensitive = confirmSensitiveAction as jest.Mock;
@@ -314,6 +326,15 @@ describe('EarnDepositReview', () => {
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
       expect(logo).toHaveAttribute('data-size', 'md');
       expect(screen.getAllByText('USDC').length).toBeGreaterThan(0);
+    });
+
+    it("sets the caption and the figure in the amount step's own entry type", () => {
+      renderReview('aave-usdc-ethereum-2', '?amount=1,000.50');
+
+      const hero = screen.getByTestId('earn-hero');
+      expect(within(hero).getByText('earnDepositAmountTitle')).toHaveClass('amount-caption-sentinel');
+      // Sized by the figure as shown, not the raw query value.
+      expect(within(hero).getByText('1000.5')).toHaveClass('amount-figure-sentinel-1000.5', 'mt-3', 'text-ink');
     });
 
     it('names no vault in the header when the vaultId matches nothing', () => {
@@ -744,6 +765,20 @@ describe('EarnDepositReview', () => {
       // Route label reuses the shared `route` key; value interpolates protocol + network.
       expect(screen.getByText('route')).toBeInTheDocument();
       expect(screen.getByText('earnDepositRoute_Aave_Ethereum')).toBeInTheDocument();
+    });
+
+    it('sets the projection and the details on outline cards inside one heading-face wrapper', () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      const projection = screen.getByTestId('chart-container').closest<HTMLElement>('.rounded-2xl');
+      const details = screen.getByText('earnCollateralLabel').closest<HTMLElement>('.divide-y');
+      for (const card of [projection, details]) {
+        expect(card).toHaveClass('bg-page', 'border', 'border-hairline');
+        expect(card).not.toHaveClass('bg-fill');
+      }
+      const wrapper = projection?.parentElement;
+      expect(wrapper).toHaveClass('face-heading');
+      expect(wrapper).toContainElement(details);
     });
 
     it('renders zero rewards when the amount is zero', () => {

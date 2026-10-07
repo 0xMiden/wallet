@@ -2153,6 +2153,18 @@ class BlockBarButtonItem: UIBarButtonItem {
     var block: ((WKWebViewController) -> Void)?
 }
 
+/// With its bar showing, a UINavigationController picks the status bar style from the
+/// bar's appearance, which follows the phone, and never asks its child. A header painted
+/// in an explicit colour sets `forwardsStatusBarStyle` so the child's style, derived from
+/// that colour, decides instead and the clock stays legible on it.
+class StatusBarForwardingNavigationController: UINavigationController {
+    var forwardsStatusBarStyle = false
+
+    override var childForStatusBarStyle: UIViewController? {
+        return forwardsStatusBarStyle ? topViewController : super.childForStatusBarStyle
+    }
+}
+
 // MARK: - Native navbar overlay (Architecture A — quality path)
 //
 // The embedded dApp browser wants the dApp WKWebView to fill the screen

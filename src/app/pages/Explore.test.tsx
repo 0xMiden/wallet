@@ -4,12 +4,17 @@ import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@te
 import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
-import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -20,6 +25,16 @@ import Explore from './Explore';
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
@@ -751,6 +766,16 @@ describe('Explore', () => {
       expect(toggle).toHaveTextContent('hiddenAssetsCount:1');
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
+    });
+
+    it('names a hidden bridge faucet by the testnet label on its Unhide button', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden'), makeToken(MIDEN_USDC_FAUCET, 'USDC', 'USDC')];
+      mockStoredHiddenTokens = [MIDEN_USDC_FAUCET];
+      await renderExplore();
+      await openSection();
+
+      expect(screen.getByRole('button', { name: 'unhideTokenLabel:Test Epoch USDC' })).toBeInTheDocument();
     });
 
     it('opens the section to list each hidden token without a sparkline, and opens its page from the row', async () => {

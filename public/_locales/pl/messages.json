@@ -1900,9 +1900,9 @@
     "message": "Masz transfery do zaakceptowania",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ oczekuje",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ oczekuje · dotknij, aby sprawdzić",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4682,6 +4682,10 @@
   "unverifiedTokenDescription": {
     "message": "Ten token nie znajduje się na liście zweryfikowanych tokenów serwisu Miden. Każdy może utworzyć token o dowolnej nazwie, dlatego przed nadaniem mu zaufania sprawdź identyfikator w bazie danych faucet.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "Niezweryfikowany token",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "Nie udało się zweryfikować za pomocą symulacji. Poniższe kwoty są zgodne z danymi podanymi przez stronę.",

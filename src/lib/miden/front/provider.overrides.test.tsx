@@ -24,6 +24,7 @@ jest.mock('lib/miden/front/client', () => ({
 jest.mock('@miden-sdk/react/lazy', () => ({ MidenProvider: ({ children }: any) => <>{children}</> }));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
+jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: jest.fn() }));
 jest.mock('lib/settings/helpers', () => ({ mirrorBackgroundSettings: jest.fn() }));
 jest.mock('./useSyncTrigger', () => ({ useSyncTrigger: jest.fn() }));
 jest.mock('./assets', () => ({
@@ -42,6 +43,7 @@ jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManage
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
 
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 
 import { MidenProvider } from './provider';
 
@@ -97,5 +99,23 @@ it('primes native-asset discovery only AFTER endpoint overrides resolve (not aga
   resolveLoad();
   await waitFor(() => expect(primeNativeAssetId).toHaveBeenCalledTimes(1));
   // The preload is mocked to resolve here; a warning would mean a real storage read ran (an unmocked preload).
+  expect(warn).not.toHaveBeenCalled();
+});
+
+it('makes the bridge config follow the effective network only AFTER endpoint overrides resolve', async () => {
+  let resolveLoad!: () => void;
+  loadEndpointOverrides.mockImplementationOnce(() => new Promise<void>(res => (resolveLoad = () => res())));
+
+  render(
+    <MidenProvider>
+      <div data-testid="child" />
+    </MidenProvider>
+  );
+
+  await Promise.resolve();
+  expect(followEffectiveNetwork).not.toHaveBeenCalled();
+
+  resolveLoad();
+  await waitFor(() => expect(followEffectiveNetwork).toHaveBeenCalledTimes(1));
   expect(warn).not.toHaveBeenCalled();
 });

@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead } from 'lib/settings/activity-read';
 import { useConfirm } from 'lib/ui/dialog';
 
@@ -30,6 +32,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const { items, accept, acceptMany, retryHeld, account, isLoadingNotes } = useActivityClaims();
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const currentItems = useRef(items);
   currentItems.current = items;
 
@@ -47,12 +50,15 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     () =>
       query
         ? representedItems.filter(item =>
-            [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>
-              value?.toLowerCase().includes(query)
-            )
+            [
+              item.note.metadata.symbol,
+              midenTokenLabel(bridgeConfig, item.note.faucetId, item.note.metadata.symbol),
+              item.note.metadata.name,
+              item.note.senderAddress
+            ].some(value => value?.toLowerCase().includes(query))
           )
         : representedItems,
-    [representedItems, query]
+    [representedItems, query, bridgeConfig]
   );
 
   // Declined transfers that could still be accepted, which Restore brings back.
