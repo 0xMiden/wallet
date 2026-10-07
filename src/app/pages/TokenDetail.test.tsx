@@ -159,12 +159,13 @@ jest.mock('components/UnverifiedTokenSheet', () => ({
 // TokenDetail forwards.
 jest.mock('app/templates/history/History', () => ({
   __esModule: true,
-  default: (props: { address: string; tokenId?: string; fullHistory?: boolean }) => (
+  default: (props: { address: string; tokenId?: string; fullHistory?: boolean; dateStyle?: string }) => (
     <div
       data-testid="history"
       data-address={props.address}
       data-token-id={props.tokenId}
       data-full-history={String(props.fullHistory)}
+      data-date-style={props.dateStyle ?? ''}
     />
   )
 }));
@@ -503,6 +504,21 @@ describe('TokenDetail', () => {
     expect(history).toHaveAttribute('data-address', 'pk-123');
     expect(history).toHaveAttribute('data-token-id', TOKEN_ID);
     expect(history).toHaveAttribute('data-full-history', 'true');
+  });
+
+  // The caption list starts flush under the heading on its own; a margin pulling it up would also
+  // pull up History's empty, error and loading branches, which keep their own spacing.
+  it('hands History the caption style without a negative margin', () => {
+    renderPage();
+
+    const section = screen.getByTestId('token-detail-activity');
+    const history = within(section).getByTestId('history');
+    expect(history).toHaveAttribute('data-date-style', 'caption');
+    const negativeMargins: string[] = [];
+    for (let node = history.parentElement; node && node !== section; node = node.parentElement) {
+      negativeMargins.push(...Array.from(node.classList).filter(name => name.startsWith('-m')));
+    }
+    expect(negativeMargins).toEqual([]);
   });
 
   it('calls goBack from the navigation header', () => {

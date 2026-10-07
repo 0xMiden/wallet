@@ -241,19 +241,14 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
               {t('recentActivity')}
             </SectionHeader>
-            {/* The list opens its first date group 16px down, for the Activity tab where nothing sits
-                above it. Here the section label already leaves 12px, as every other section's does, so
-                take the list's 16px back. */}
-            <div className="-mt-4">
-              <History
-                address={account.publicKey}
-                tokenId={tokenId}
-                fullHistory={true}
-                // The section's heading names the list; each day is a quiet caption under it.
-                dateStyle="caption"
-                scrollParentRef={scrollParentRef}
-              />
-            </div>
+            <History
+              address={account.publicKey}
+              tokenId={tokenId}
+              fullHistory={true}
+              // The section's heading names the list; each day is a quiet caption under it.
+              dateStyle="caption"
+              scrollParentRef={scrollParentRef}
+            />
           </section>
         </div>
       </div>

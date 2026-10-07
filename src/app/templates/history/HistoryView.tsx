@@ -599,10 +599,12 @@ const HistoryView = memo<HistoryViewProps>(
             transition={layoutTransition}
             key={dateMs}
             // A caption sits 8px over its rows and days sit 20px apart; a header takes 12px and 24px.
+            // A caption list sits under a section heading that already leaves 12px, so its first day
+            // starts flush; a header list has only the Activity tab's filters above it.
             className={classNames(
               'flex flex-col',
               dateStyle === 'caption' ? 'gap-2 py-2.5' : 'gap-3 py-3',
-              index === 0 && 'pt-4'
+              index === 0 && (dateStyle === 'caption' ? 'pt-0' : 'pt-4')
             )}
           >
             {dateMs === -1 ? (
