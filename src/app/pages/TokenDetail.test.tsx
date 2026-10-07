@@ -148,16 +148,24 @@ jest.mock('components/PageHeader', () => ({
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({
     symbol,
+    faucetId,
     size,
     className,
     badge
   }: {
     symbol: string;
+    faucetId?: string;
     size?: string;
     className?: string;
     badge?: React.ReactNode;
   }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} className={className}>
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-size={size}
+      className={className}
+    >
       {badge}
     </span>
   )
@@ -492,6 +500,7 @@ describe('TokenDetail', () => {
     const hero = screen.getByTestId('token-detail-hero');
     const logo = within(hero).getByTestId('token-logo');
     expect(logo).toHaveAttribute('data-symbol', 'ETH');
+    expect(logo).toHaveAttribute('data-faucet-id', TOKEN_ID);
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.

@@ -41,8 +41,24 @@ jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, fallbackSymbol, size }: { symbol: string; fallbackSymbol?: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-fallback-symbol={fallbackSymbol} data-size={size} />
+  TokenLogo: ({
+    symbol,
+    faucetId,
+    fallbackSymbol,
+    size
+  }: {
+    symbol: string;
+    faucetId?: string;
+    fallbackSymbol?: string;
+    size?: string;
+  }) => (
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-fallback-symbol={fallbackSymbol}
+      data-size={size}
+    />
   )
 }));
 
@@ -166,6 +182,7 @@ describe('SelectAmount', () => {
       // Token logo defaults its symbol to token.name.
       const logo = screen.getByTestId('token-logo');
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
+      expect(logo).toHaveAttribute('data-faucet-id', 't1');
       expect(logo).toHaveAttribute('data-size', 'sm');
 
       // Token name chip + chevron icon.
@@ -529,6 +546,7 @@ describe('SelectAmount', () => {
       const selector = screen.getByTestId('ai-token-selector');
       expect(selector).toHaveTextContent('USDC');
       expect(selector).toHaveTextContent('Sepolia');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 't1');
       // Arrival hint: "{network} · arrives as {symbol}".
       expect(selector).toHaveTextContent('receiveOnArrivesAs');
     });

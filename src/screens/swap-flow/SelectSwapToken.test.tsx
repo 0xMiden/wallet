@@ -69,8 +69,24 @@ jest.mock('lib/store', () => ({
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
 // surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({
+    symbol,
+    faucetId,
+    fallbackSymbol,
+    size
+  }: {
+    symbol: string;
+    faucetId?: string;
+    fallbackSymbol?: string;
+    size?: string;
+  }) => (
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-fallback-symbol={fallbackSymbol}
+      data-size={size}
+    />
   )
 }));
 
@@ -176,6 +192,8 @@ describe('SelectSwapTokenDrawer', () => {
     const logo = within(row).getByTestId('token-logo');
     // The token's own symbol keys the logo, as on Home, at the home asset row's 36px default size.
     expect(logo).toHaveAttribute('data-symbol', 'IETH');
+    expect(logo).toHaveAttribute('data-faucet-id', 'fid-eth');
+    expect(logo).toHaveAttribute('data-fallback-symbol', 'ETH');
     expect(logo).not.toHaveAttribute('data-size');
   });
 
