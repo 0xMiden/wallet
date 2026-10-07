@@ -20,6 +20,15 @@ export function amountTextSize(value?: string): string {
   return 'text-6xl';
 }
 
+/**
+ * The entry's caption and its figure type at the value's length step. A review that restates the
+ * amount it took over (the earn deposit's) sets them from here, so it cannot drift from this step.
+ */
+export const amountCaptionClassName = 'font-heading text-2xl font-bold text-gray leading-none';
+export function amountFigureClassName(value?: string): string {
+  return classNames('font-heading font-bold leading-none', amountTextSize(value));
+}
+
 /** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
 const CENTERED_INPUT_LAYOUT = '[grid-area:1/1] w-0 min-w-full caret-accent-primary';
 const INLINE_INPUT_LAYOUT = 'w-full';
@@ -114,11 +123,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
-  const amountClasses = classNames(
-    'font-heading font-bold leading-none text-[4rem]',
-    centered ? 'text-center' : 'text-left',
-    amountTextSize(value)
-  );
+  const amountClasses = classNames(amountFigureClassName(value), 'text-[4rem]', centered ? 'text-center' : 'text-left');
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
   const input = (layoutClassName: string) => (
@@ -153,12 +158,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
   return (
     <div className={classNames('flex flex-col', className)}>
-      {label != null &&
-        (typeof label === 'string' ? (
-          <span className="font-heading text-2xl font-bold text-gray leading-none">{label}</span>
-        ) : (
-          label
-        ))}
+      {label != null && (typeof label === 'string' ? <span className={amountCaptionClassName}>{label}</span> : label)}
 
       <div
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.

@@ -6,7 +6,7 @@ import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
-import { amountTextSize } from 'components/AmountInput';
+import { amountCaptionClassName, amountFigureClassName } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -278,11 +278,8 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               labelId="earn-deposit-review-amount"
               // The amount step's own caption and entry sizes, so the figure doesn't shrink when the
               // review takes over from the screen it was typed on.
-              labelClassName="font-heading text-2xl font-bold leading-none text-gray"
-              figureClassName={classNames(
-                'mt-3 font-heading font-bold leading-none text-ink',
-                amountTextSize(formatMoneyAmount(amount, 'typed'))
-              )}
+              labelClassName={amountCaptionClassName}
+              figureClassName={classNames('mt-3 text-ink', amountFigureClassName(formatMoneyAmount(amount, 'typed')))}
               value={formatMoneyAmount(amount, 'typed')}
               unit={<EarnAmountUnit symbol={depositSymbol} compact />}
               label={t('earnDepositAmountTitle')}
