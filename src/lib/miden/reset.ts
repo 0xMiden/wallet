@@ -1,3 +1,4 @@
+import { EXPLORE_CONFIG_FLOOR_KEY } from 'lib/explore-config/floor-key';
 import { rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
@@ -11,9 +12,13 @@ import { storageCleared } from 'lib/storage-cleared';
 // selects the network a wallet is created for and is set BEFORE creation; losing it mints the
 // account on one network while the client resolves another. Developer Settings' reset takes it
 // with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards. The
-// bridge config floor is the highest config version each network has accepted; losing it would
-// let a reset wallet accept an older, superseded document.
-export const PRESERVED_STORAGE_KEYS: readonly string[] = [ENDPOINT_OVERRIDE_STORAGE_KEY, BRIDGE_CONFIG_FLOOR_KEY];
+// bridge config and Explore catalog floors are the highest document versions each network has
+// accepted; losing one would let a reset wallet accept an older, superseded document.
+export const PRESERVED_STORAGE_KEYS: readonly string[] = [
+  ENDPOINT_OVERRIDE_STORAGE_KEY,
+  BRIDGE_CONFIG_FLOOR_KEY,
+  EXPLORE_CONFIG_FLOOR_KEY
+];
 
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no
 // failure can lose it, and a failure rejects the reset rather than being swallowed.
