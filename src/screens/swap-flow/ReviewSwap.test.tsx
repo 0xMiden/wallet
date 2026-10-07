@@ -2,7 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { SwapEta } from 'lib/miden/swap/tokens';
+import { SwapEta, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
@@ -38,7 +38,9 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
 // The `SwapToken` type import in the source is erased at compile time, so the
 // mock only needs to supply the runtime `SOLVER_MARGIN` value.
 jest.mock('lib/miden/swap/tokens', () => ({
-  SOLVER_MARGIN: 0.05
+  SOLVER_MARGIN: 0.05,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
 }));
 
 // The real ReviewLayout transitively pulls in `components/Button` (framer-motion +
@@ -150,6 +152,17 @@ describe('ReviewSwap', () => {
       // Amount strings composed from amount + symbol, rendered as the Hero value.
       expect(screen.getByText('1.5 IMIDEN')).toBeInTheDocument();
       expect(screen.getByText('3 IETH')).toBeInTheDocument();
+    });
+
+    it('names the registry iETH "Test iETH" in the receive hero and the rate row, keeping the symbol for the logo (#477)', () => {
+      renderComponent({
+        requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId },
+        swapEta: etaWithRate('2')
+      });
+
+      expect(screen.getByText('3 Test iETH')).toBeInTheDocument();
+      expect(screen.getByTestId('swap-rate-row')).toHaveTextContent('1 IMIDEN ≈ 2 Test iETH');
+      expect(screen.getAllByTestId('token-logo')[1]).toHaveAttribute('data-symbol', 'IETH');
     });
 
     it('renders the swap-arrows glyph (an svg) between the two amounts', () => {

@@ -382,8 +382,18 @@ export const useTransactionSummaryBadgeContent = (
       const requestedAmount = requested.scaleIsKnown ? formatAmount(requestedRaw, requested.decimals) : undefined;
 
       return {
-        lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
-        rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
+        lhs: (
+          <SwapAmountText
+            amount={offeredAmount}
+            symbol={midenTokenLabel(bridgeConfig, transaction.faucetId, offered.symbol)}
+          />
+        ),
+        rhs: (
+          <SwapAmountText
+            amount={requestedAmount}
+            symbol={midenTokenLabel(bridgeConfig, requestedFaucetId, requested.symbol)}
+          />
+        ),
         // The activity token, matching the swap row's icon above it, rather than the brand action
         // colour; `arrowInkFor` gives either spelling a stroke that clears 3:1 in both themes.
         fillForArrow: 'var(--tx-swap)'

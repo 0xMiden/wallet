@@ -753,6 +753,22 @@ describe('HistoryDetails', () => {
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
     });
 
+    it('names the registry iETH requested token "Test iETH" in the swap hero (#477)', async () => {
+      const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
+      mockGetSwapTokenByFaucetId.mockImplementation((id: string) =>
+        id === TOKEN_IETH.faucetId ? { symbol: 'IETH', decimals: 8 } : { symbol: 'MIDEN', decimals: 6 }
+      );
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: 500_000n,
+        extraInputs: { orderId: '42', requestedFaucetId: TOKEN_IETH.faucetId, requestedAmount: 100_000_000n }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.5MIDEN1Test iETH');
+    });
+
     it('does not reread known in-memory metadata on a later transaction emission', async () => {
       mockWalletStore.setState({ assetsMetadata: { 'faucet-1': resolved } });
       setMockRow({ ...baseSendTx, amount: 250_000_000n });
