@@ -12,6 +12,8 @@ export type DepositToken = 'ETH' | 'USDC';
 
 interface TokenRow {
   token: DepositToken;
+  /** The row's title and balance unit: the token, or the USDC token's display label. */
+  name: string;
   /** Formatted balance for display (from the connected EVM wallet). */
   balance: string;
   loading?: boolean;
@@ -23,6 +25,8 @@ export interface EvmBridgeTokenDrawerProps {
   selected: DepositToken;
   ethBalance: string;
   usdcBalance: string;
+  /** The USDC row's name, such as the testnet label (`evmTokenLabel`). */
+  usdcLabel: string;
   ethLoading?: boolean;
   usdcLoading?: boolean;
   onSelect: (token: DepositToken) => void;
@@ -39,6 +43,7 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   selected,
   ethBalance,
   usdcBalance,
+  usdcLabel,
   ethLoading,
   usdcLoading,
   onSelect
@@ -46,8 +51,8 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
   const { t } = useTranslation();
 
   const rows: TokenRow[] = [
-    { token: 'ETH', balance: ethBalance, loading: ethLoading },
-    { token: 'USDC', balance: usdcBalance, loading: usdcLoading }
+    { token: 'ETH', name: 'ETH', balance: ethBalance, loading: ethLoading },
+    { token: 'USDC', name: usdcLabel, balance: usdcBalance, loading: usdcLoading }
   ];
 
   return (
@@ -60,11 +65,11 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
         {/* One grouped list on the shared `fill`, with the design system's round check on the
             chosen token — the same picker the send and swap flows draw. */}
         <ListGroup className="mx-4">
-          {rows.map(({ token, balance, loading }) => (
+          {rows.map(({ token, name, balance, loading }) => (
             <ListRow
               key={token}
-              title={token}
-              subtitle={loading ? t('loading') : `${balance} ${token}`}
+              title={name}
+              subtitle={loading ? t('loading') : `${balance} ${name}`}
               avatar={<TokenLogo symbol={token} size="lg" />}
               checked={token === selected}
               onClick={() => onSelect(token)}

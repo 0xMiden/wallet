@@ -3,8 +3,15 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EVM_CHAIN_ID,
+  TEST_EVM_USDC,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -45,6 +52,19 @@ const READY_SNAPSHOT: MockSnapshot = {
       allocatorUrl: 'https://allocator.test',
       evmUsdc: '0x00000000000000000000000000000000000000c0',
       midenUsdcFaucet: '0x00000000000000000000000000e2e0'
+    }
+  },
+  lastFetch: null
+};
+/** The screen's own snapshot naming the testnet USDC pair the runtime fixture names. */
+const TESTNET_SNAPSHOT: MockSnapshot = {
+  status: 'ready',
+  config: {
+    evm: { chainId: TEST_EVM_CHAIN_ID },
+    epoch: {
+      allocatorUrl: 'https://allocator.test',
+      evmUsdc: TEST_EVM_USDC.address,
+      midenUsdcFaucet: TEST_MIDEN_USDC_FAUCET
     }
   },
   lastFetch: null
@@ -242,21 +262,32 @@ jest.mock('./EvmBridgeDepositStatus', () => ({
   EvmBridgeDepositStatus: () => <div data-testid="deposit-status" />
 }));
 
+// This realm's bridge config, which the token labels read: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+
 jest.mock('./EvmBridgeTokenDrawer', () => ({
   EvmBridgeTokenDrawer: ({
     open,
     onSelect,
     usdcBalance,
+    usdcLabel,
     usdcLoading
   }: {
     open: boolean;
     onSelect: (token: string) => void;
     usdcBalance: string;
+    usdcLabel: string;
     usdcLoading: boolean;
   }) => {
     mockLastTokenSelect = onSelect;
     return (
       <div>
+        <span data-testid="usdc-label">{usdcLabel}</span>
         <span data-testid="usdc-balance">{usdcLoading ? 'loading' : usdcBalance}</span>
         {open ? (
           <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
@@ -401,6 +432,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   // The Fast case below quotes into the shared store; every case starts from it idle.
   afterEach(() => {
     Object.assign(epochState, idleEpoch);
+    mockBridgeSnapshot = undefined;
   });
 
   it('routes the deposit submission through the reporter', async () => {
@@ -455,6 +487,20 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     });
 
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the USDC row USDC while no bridge config is loaded', () => {
+    renderScreen();
+
+    expect(screen.getByTestId('usdc-label')).toHaveTextContent(/^USDC$/);
+  });
+
+  it('names the USDC row by the testnet label once the config names the token', () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderScreen();
+
+    expect(screen.getByTestId('usdc-label')).toHaveTextContent('Test Epoch USDC');
   });
 
   // The deposit is what the wallet signs for, so it rounds up: never less than leaves the account.

@@ -61,6 +61,11 @@ export interface SelectAmountProps {
   accent?: FlowAccent;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
   logoSymbol?: string;
+  /**
+   * The token's name in the selector and the Available line, such as a testnet label. Defaults to `token.name`, which
+   * still keys the logo.
+   */
+  tokenLabel?: string;
   /** Cross-chain deposit — swaps the Miden chip for a destination-network selector. */
   isBridge?: boolean;
   /** Chosen destination network (bridge only). */
@@ -101,6 +106,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   embedded = false,
   accent = 'brand',
   logoSymbol,
+  tokenLabel,
   isBridge = false,
   network,
   outputSymbol,
@@ -138,7 +144,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       ) : embedded ? (
         <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+      <span className="font-heading text-xl font-bold text-ink">
+        {token ? (tokenLabel ?? token.name) : t('selectAToken')}
+      </span>
       <Icon name={IconName.ChevronDown} size="xs" className={accentClasses.text} fill="currentColor" />
     </button>
   );
@@ -161,7 +169,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         ) : (
           <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
         )}
-        <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+        <span className="font-heading text-2xl font-bold text-ink">
+          {token ? (tokenLabel ?? token.name) : t('selectAToken')}
+        </span>
         <Icon name={IconName.ChevronRightLucide} size="sm" className={accentClasses.text} />
       </button>
 
@@ -219,7 +229,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             <AnimatedNumber
               key={token.id}
               value={token.balance}
-              format={value => `${t('available')} ${formatAvailableBalance(value)} ${token.name}`}
+              format={value => `${t('available')} ${formatAvailableBalance(value)} ${tokenLabel ?? token.name}`}
             />
           ) : (
             t('unknownTokenScale')

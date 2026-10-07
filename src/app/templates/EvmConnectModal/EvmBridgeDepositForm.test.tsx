@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_EVM_USDC } from 'lib/epoch/testing/bridge-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { UIToken } from 'screens/send-flow/types';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
@@ -13,8 +15,16 @@ jest.mock('react-i18next', () => ({
 // The real SelectAmount renders its children below the amount field
 // (SelectAmount.tsx), which is where the form's warning lives.
 jest.mock('screens/send-flow/SelectAmount', () => ({
-  SelectAmount: ({ children, outputSymbol }: { children?: React.ReactNode; outputSymbol?: string }) => (
-    <div data-testid="select-amount" data-output-symbol={outputSymbol}>
+  SelectAmount: ({
+    children,
+    outputSymbol,
+    tokenLabel
+  }: {
+    children?: React.ReactNode;
+    outputSymbol?: string;
+    tokenLabel?: string;
+  }) => (
+    <div data-testid="select-amount" data-output-symbol={outputSymbol} data-token-label={tokenLabel}>
       {children}
     </div>
   )
@@ -33,6 +43,17 @@ jest.mock('lib/remote-config/values', () => ({
     chainId: 1
   })
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 jest.mock('./EvmWalletHeader', () => ({
   EvmWalletHeader: () => null
@@ -83,5 +104,53 @@ describe('EvmBridgeDepositForm (#875)', () => {
     );
 
     expect(screen.getByTestId('select-amount')).toHaveAttribute('data-output-symbol', 'USDC.e');
+  });
+});
+
+describe('EvmBridgeDepositForm testnet bridge USDC label', () => {
+  const USDC: UIToken = {
+    id: TEST_EVM_USDC.address,
+    name: 'USDC.e',
+    decimals: 18,
+    balance: 0,
+    fiatPrice: 1,
+    scaleIsKnown: true
+  };
+  const renderForm = (token: UIToken) =>
+    render(
+      <EvmBridgeDepositForm
+        token={token}
+        amount=""
+        isValidAmount={false}
+        evmAddress="0xabc"
+        onAmountChange={jest.fn()}
+        onSelectToken={jest.fn()}
+        onSwitch={jest.fn()}
+        onContinue={jest.fn()}
+      />
+    );
+
+  it('names the configured token and what it arrives as by the testnet label', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderForm(USDC);
+
+    const field = screen.getByTestId('select-amount');
+    expect(field).toHaveAttribute('data-token-label', 'Test Epoch USDC');
+    expect(field).toHaveAttribute('data-output-symbol', 'Test Epoch USDC');
+  });
+
+  it('keeps ETH on its symbol on testnet', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderForm(TOKEN);
+
+    expect(screen.getByTestId('select-amount')).toHaveAttribute('data-token-label', 'ETH');
+  });
+
+  it('keeps the chain symbols while no bridge config is loaded', () => {
+    renderForm(USDC);
+
+    const field = screen.getByTestId('select-amount');
+    expect(field).toHaveAttribute('data-token-label', 'USDC.e');
+    expect(field).toHaveAttribute('data-output-symbol', 'USDC.e');
   });
 });

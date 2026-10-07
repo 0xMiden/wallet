@@ -19,6 +19,7 @@ import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive'
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import { evmTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { type EvmUsdc, getAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from 'lib/remote-config/values';
 import { WalletAccount } from 'lib/shared/types';
@@ -862,6 +863,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         selected={token}
         ethBalance={ethBalance.formatted}
         usdcBalance={usdcBalance.formatted}
+        usdcLabel={evmTokenLabel(evmUsdcAddress, 'USDC')}
         ethLoading={ethBalance.loading}
         usdcLoading={usdcBalance.loading}
         onSelect={handleTokenSelect}
