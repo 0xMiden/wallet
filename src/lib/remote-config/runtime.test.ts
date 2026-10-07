@@ -852,6 +852,32 @@ describe('the poll schedule', () => {
     }
   );
 
+  it('re-arms for the network it returns to, on that network\'s own degraded cadence', async () => {
+    mockFeatureAvailability.mockImplementation(
+      (_feature, snapshot) =>
+        (snapshot as BridgeConfigSnapshot).network === 'testnet' ? unavailable('service-down') : AVAILABLE
+    );
+    try {
+      seed(1);
+      seed(5, { network: 'devnet' });
+      serve(1);
+      await initBridgeConfig();
+      mockNetwork = 'devnet';
+      followEffectiveNetwork();
+      await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS);
+      expect(mockFetch).not.toHaveBeenCalled();
+      mockNetwork = 'testnet';
+      followEffectiveNetwork();
+      await flush();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledWith('testnet');
+    } finally {
+      mockFeatureAvailability.mockImplementation(
+        (feature: string): FeatureAvailability => mockAvailability[feature] ?? AVAILABLE
+      );
+    }
+  });
+
   it.each(['off', 'not-configured'] as const)(
     'keeps the hourly cadence while a feature is only %s and no control holds it',
     async reason => {

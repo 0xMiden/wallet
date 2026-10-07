@@ -423,7 +423,7 @@ export async function _refreshBridgeConfigForTest(): Promise<BridgeConfigSnapsho
 /** A page realm calls this after it changes the effective network: readers re-read, and the new network loads. */
 export function followEffectiveNetwork(): void {
   listeners.forEach(listener => listener());
-  void initBridgeConfig();
+  void initBridgeConfig().then(arm);
 }
 
 /** A greyed-out control on an active page holds the 60 s cadence while it is held. */
