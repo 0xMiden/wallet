@@ -41,8 +41,8 @@ function check(sourceHelper: string, staleBundle?: string, bundleEnding: 'LF' | 
   };
   write('scripts/generate-note-relay-patch.mjs', generator);
   write('scripts/note-relay-bundles.json', JSON.stringify(bundles));
-  write('package.json', JSON.stringify({ dependencies: { '@miden-sdk/miden-sdk': '0.17.0' } }));
-  write('node_modules/@miden-sdk/miden-sdk/package.json', JSON.stringify({ version: '0.17.0' }));
+  write('package.json', JSON.stringify({ dependencies: { '@miden-sdk/miden-sdk': '0.17.1' } }));
+  write('node_modules/@miden-sdk/miden-sdk/package.json', JSON.stringify({ version: '0.17.1' }));
   write('src/lib/miden/sdk/note-relay-fetch.mjs', sourceHelper);
   for (const bundle of bundles) {
     let contents = bundle === staleBundle ? patchedBundle.replace('return request;', 'return null;') : patchedBundle;
@@ -56,7 +56,7 @@ function check(sourceHelper: string, staleBundle?: string, bundleEnding: 'LF' | 
     write(`node_modules/@miden-sdk/miden-sdk/${bundle}`, contents);
   }
   write(
-    'patches/@miden-sdk+miden-sdk+0.17.0.patch',
+    'patches/@miden-sdk+miden-sdk+0.17.1.patch',
     bundles
       .map(
         bundle =>

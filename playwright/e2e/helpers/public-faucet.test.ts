@@ -111,6 +111,85 @@ describe('mintFromPublicFaucet', () => {
     return state;
   }
 
+  it.each([
+    ['Testnet', 10_000],
+    ['Devnet', 100_000_000]
+  ])('uses the %s advertised base grant when amount is omitted', async (_network, baseAmount) => {
+    const urls = serve([
+      reply(200, { base_amount: baseAmount }),
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).resolves.toEqual({ txId: '0xtx', noteId: '0xnote' });
+    expect(urls[0]).toBe(`${BASE}/get_metadata`);
+    expect(new URL(urls[1]!).searchParams.get('amount')).toBe(String(baseAmount));
+    expect(new URL(urls[2]!).searchParams.get('asset_amount')).toBe(String(baseAmount));
+  });
+
+  it.each([
+    null,
+    {},
+    { base_amount: '10000' },
+    { base_amount: 0 },
+    { base_amount: -1 },
+    { base_amount: 1.5 },
+    { base_amount: Number.MAX_SAFE_INTEGER + 1 }
+  ])('rejects malformed grant metadata %p before asking for a challenge', async metadata => {
+    const urls = serve([reply(200, metadata)]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).rejects.toThrow('base_amount must be a positive safe integer');
+    expect(urls).toEqual([`${BASE}/get_metadata`]);
+  });
+
+  it('retains one advertised amount across server and rate-limit retries', async () => {
+    const urls = serve([
+      reply(200, { base_amount: 10_000 }),
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(503, 'Unavailable'),
+      reply(429, 'Account is rate limited for 1 more seconds.'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+    const waits: number[] = [];
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0, async ms => {
+        waits.push(ms);
+      })
+    ).resolves.toEqual({ txId: '0xtx', noteId: '0xnote' });
+    expect(urls.filter(url => url.endsWith('/get_metadata'))).toHaveLength(1);
+    expect(urls.filter(url => url.includes('/pow?')).map(url => new URL(url).searchParams.get('amount'))).toEqual([
+      '10000',
+      '10000',
+      '10000'
+    ]);
+    expect(
+      urls.filter(url => url.includes('/get_tokens?')).map(url => new URL(url).searchParams.get('asset_amount'))
+    ).toEqual(['10000', '10000']);
+    expect(waits).toEqual([0, 2_000]);
+  });
+
+  it('retries a temporary metadata failure before selecting the grant', async () => {
+    const urls = serve([
+      reply(503, 'Unavailable'),
+      reply(200, { base_amount: 10_000 }),
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0)).resolves.toEqual({
+      txId: '0xtx',
+      noteId: '0xnote'
+    });
+    expect(urls.slice(0, 2)).toEqual([`${BASE}/get_metadata`, `${BASE}/get_metadata`]);
+    expect(new URL(urls[2]!).searchParams.get('amount')).toBe('10000');
+  });
+
+  it('reports a rejected metadata request without requesting tokens', async () => {
+    const urls = serve([reply(403, 'Forbidden')]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).rejects.toThrow(
+      'Public faucet metadata request failed (403): Forbidden'
+    );
+    expect(urls).toEqual([`${BASE}/get_metadata`]);
+  });
+
   it('retries a 5xx grant from a fresh challenge', async () => {
     const urls = serve([
       reply(200, { challenge: 'aa', target: EASY_TARGET }),
@@ -214,6 +293,16 @@ describe('mintFromPublicFaucet', () => {
 
     afterEach(() => {
       jest.useRealTimers();
+    });
+
+    it('bounds a stalled metadata body before requesting a challenge', async () => {
+      const urls = serve([stalledReply(200)]);
+      const grant = track(mintFromPublicFaucet(BASE, ACCOUNT));
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(grant.outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(grant.outcome).toMatchObject({ name: 'TimeoutError', message: 'Request timed out after 15000 ms' });
+      expect(urls).toEqual([`${BASE}/get_metadata`]);
     });
 
     it('ends the request at the 15 s bound, which runs through the body read', async () => {

@@ -80,6 +80,8 @@ export interface TransactionRowSnapshot {
   id: string;
   type?: string;
   accountId?: string;
+  noteId?: string;
+  noteIds?: string[];
   status?: number;
   /** Base units, as a decimal string. `undefined` when the row carries no amount. */
   amount?: string;
@@ -203,6 +205,8 @@ function streamTransactionRows(page: Page): Promise<TransactionRowSnapshot[] | n
               id: String(row.id ?? ''),
               type: row.type === undefined ? undefined : String(row.type),
               accountId: row.accountId === undefined ? undefined : String(row.accountId),
+              noteId: row.noteId === undefined ? undefined : String(row.noteId),
+              noteIds: Array.isArray(row.noteIds) ? row.noteIds.map(String) : undefined,
               status: row.status === undefined ? undefined : Number(row.status),
               amount: row.amount === undefined || row.amount === null ? undefined : String(row.amount),
               faucetId: row.faucetId === undefined ? undefined : String(row.faucetId),

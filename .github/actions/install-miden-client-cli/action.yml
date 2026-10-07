@@ -17,12 +17,10 @@ description: >
   tell them apart. The only honest discriminator is a SYMBOL from the patched MASM, which is why
   the last step greps the installed binary for `assert_fee_bound` rather than running --version.
 
-  With no linked Protocol PR this does what the inline steps it replaced did: a plain
-  `cargo install miden-client-cli --git <url> --rev <rev> --locked` (or `--version` for a crates.io
-  pin) into ~/.cargo/bin, skipped when the caller's own cargo cache already restored it. The caller
-  keeps owning THAT cache; the patched build gets a separate cache of its own, keyed on the
-  protocol rev, and installs to a private root so it can never write a patched binary into the
-  shared one.
+  With an exact released protocol pin, the shared source preparer constrains the registry
+  kernel before a locked installation and verifies cached binary provenance. Linked client
+  and Protocol PR builds retain their own source and cache paths. Without a protocol pin,
+  the caller's existing cargo cache and plain git or crates.io installation are retained.
 inputs:
   require-sdk-injection:
     description: >
@@ -113,7 +111,15 @@ runs:
             echo "cache_key="
             echo "bin=miden-client"
           } >> "$GITHUB_OUTPUT"
-          echo "No linked Protocol PR; the CLI installs at its published pin."
+          if [ -n "$(node -p "require('./package.json').midenClientCliProtocolVersion ?? ''")" ]; then
+            identity=$(node scripts/install-pinned-miden-cli.cjs fingerprint)
+            {
+              echo "stable_kernel=1"
+              echo "cache_key=miden-client-cli-${{ runner.os }}-${{ runner.arch }}-kernel-$identity"
+              echo "bin=$root/bin/miden-client"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          echo "No linked Protocol PR; the CLI uses its released source and configured kernel pin."
           exit 0
         fi
 
@@ -399,8 +405,33 @@ runs:
         esac
         echo "MIDEN_CLIENT_BIN=$BIN" >> "$GITHUB_ENV"
         echo "$ROOT/bin" >> "$GITHUB_PATH"
+    - name: Restore the CLI with the exact released kernel
+      id: stable_cli_cache
+      if: steps.pins.outputs.stable_kernel == '1'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.pins.outputs.root }}
+        key: ${{ steps.pins.outputs.cache_key }}
+    - name: Verify or install the CLI with the exact released kernel
+      if: steps.pins.outputs.stable_kernel == '1'
+      shell: bash
+      env:
+        ROOT: ${{ steps.pins.outputs.root }}
+      run: |
+        set -euo pipefail
+        node --test scripts/install-pinned-miden-cli.test.cjs
+        node scripts/install-pinned-miden-cli.cjs install "$ROOT"
+        "$ROOT/bin/miden-client" --version
+        echo "MIDEN_CLIENT_BIN=$ROOT/bin/miden-client" >> "$GITHUB_ENV"
+        echo "$ROOT/bin" >> "$GITHUB_PATH"
+    - name: Save the CLI with the exact released kernel
+      if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.pins.outputs.root }}
+        key: ${{ steps.pins.outputs.cache_key }}
     - name: Install the CLI at its published pin
-      if: steps.pins.outputs.proto_rev == 'none' && steps.pins.outputs.linked_client != '1'
+      if: steps.pins.outputs.proto_rev == 'none' && steps.pins.outputs.linked_client != '1' && steps.pins.outputs.stable_kernel != '1'
       shell: bash
       env:
         GIT_URL: ${{ steps.pins.outputs.git_url }}

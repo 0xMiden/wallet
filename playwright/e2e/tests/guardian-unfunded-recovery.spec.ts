@@ -2,15 +2,9 @@ import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 import { vaultBalanceByFaucetId, walletDiscoveredNativeFaucetId } from '../helpers/balance-truth';
 import { readTransactionRows } from '../helpers/history';
-import { FUNDING_MIDEN } from '../helpers/miden-cli';
-import { PUBLIC_FAUCET_GRANT, publicFaucetApiUrl } from '../helpers/public-faucet';
 import { PASSWORD } from '../helpers/wallet-page';
 
 const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
-
-/** The guardian job's `verification-base-fee`, and the kernel's cap on one transaction's fee multiple. */
-const BASE_FEE = 10_000n;
-const FEE_RESERVE_MULTIPLE = 30n;
 
 /** The opening words of `TRANSACTION_VAULT_SHORTFALL_ERROR` (src/lib/miden/transaction/constants.ts). */
 const VAULT_SHORTFALL_COPY =
@@ -80,6 +74,9 @@ test.describe('Guardian recovery - unfunded account', () => {
       expect(failed).toHaveLength(1);
       expect(failed[0]?.error ?? '').toMatch(VAULT_SHORTFALL_COPY);
       expect(rows.filter(r => r.type === 'consume')).toEqual([]);
+      const nativeFaucetId = await walletDiscoveredNativeFaucetId(walletB.page);
+      expect(nativeFaucetId, 'the recovered wallet must discover its native faucet before funding').not.toBeNull();
+      expect(await vaultBalanceByFaucetId(walletB.page, nativeFaucetId!)).toBe(0n);
     });
 
     await steps.step('fund_the_address', async () => {
@@ -116,20 +113,29 @@ test.describe('Guardian recovery - unfunded account', () => {
         );
         expect(flagged).toBe(false);
 
-        // A public chain's note is the faucet grant. The local chain sends FUNDING_MIDEN.
-        // Two fees can leave, each at most the kernel's cap: the claim's and the rotation's.
-        const funded = publicFaucetApiUrl(getEnvironmentConfig().name) ? PUBLIC_FAUCET_GRANT : BigInt(FUNDING_MIDEN);
-        const floor = funded - 2n * FEE_RESERVE_MULTIPLE * BASE_FEE;
-        // The note pays in the chain's fee asset, whose symbol the chain chooses (USDCX on devnet), so read it by id.
         const feeFaucetId = await walletDiscoveredNativeFaucetId(walletB.page);
-        expect(
-          feeFaucetId,
-          'wallet B never discovered the chain fee faucet, so its fees cannot be measured'
-        ).not.toBeNull();
+        expect(feeFaucetId, 'wallet B must discover the native fee faucet').not.toBeNull();
+        expect(claim.faucetId, 'the recovery claim must receive the native asset').toBe(feeFaucetId);
+        expect(claim.amount, 'the completed claim must record its actual grant').toBeDefined();
+        const granted = BigInt(claim.amount!);
+        // eslint-disable-next-line no-unfalsifiable-balance-assertion -- input guard for the exact conservation check below
+        expect(granted).toBeGreaterThan(0n);
+        expect(claim.feeFaucetId).toBe(feeFaucetId);
+        expect(rotation.feeFaucetId).toBe(feeFaucetId);
+        expect(claim.feeAmount, 'the funding claim must record its paid fee').toBeDefined();
+        expect(rotation.feeAmount, 'the successful rotation must record its paid fee').toBeDefined();
+        const claimFee = BigInt(claim.feeAmount!);
+        const rotationFee = BigInt(rotation.feeAmount!);
+        // eslint-disable-next-line no-unfalsifiable-balance-assertion -- verifies a recorded fee, not a wallet balance
+        expect(claimFee).toBeGreaterThan(0n);
+        // eslint-disable-next-line no-unfalsifiable-balance-assertion -- verifies a recorded fee, not a wallet balance
+        expect(rotationFee).toBeGreaterThan(0n);
+        const expectedBalance = granted - claimFee - rotationFee;
+        // eslint-disable-next-line no-unfalsifiable-balance-assertion -- guards the exact vault equality below
+        expect(expectedBalance, 'the funded recovery must leave spendable native assets').toBeGreaterThan(0n);
         await expect
           .poll(() => vaultBalanceByFaucetId(walletB.page, feeFaucetId!), { timeout: 120_000 })
-          .toBeGreaterThanOrEqual(floor);
-        expect(await vaultBalanceByFaucetId(walletB.page, feeFaucetId!)).toBeLessThan(funded);
+          .toBe(expectedBalance);
       },
       { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
     );

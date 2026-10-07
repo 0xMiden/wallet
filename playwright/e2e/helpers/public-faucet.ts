@@ -20,7 +20,13 @@
  * pass silently — the faucet rejects a bad nonce — so the two can only diverge loudly.
  */
 
+import type { Page } from '@playwright/test';
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+import type { SerializedInputNoteDetail } from '../../../src/lib/shared/types';
 
 /** Public faucet API per network. Absent = no public funding source for that network. */
 const FAUCET_API_BY_NETWORK: Record<string, string | undefined> = {
@@ -28,9 +34,6 @@ const FAUCET_API_BY_NETWORK: Record<string, string | undefined> = {
   testnet: 'https://faucet-api.testnet.miden.io',
   localhost: undefined
 };
-
-/** Grant size, in base units. The devnet faucet's own `base_amount`. */
-export const PUBLIC_FAUCET_GRANT = 100_000_000n;
 
 const FETCH_TIMEOUT_MS = 15_000;
 const POW_SOLVE_DEADLINE_MS = 30_000;
@@ -177,8 +180,21 @@ async function requestGrant(
   });
 }
 
+async function advertisedGrantAmount(baseUrl: string): Promise<bigint> {
+  return faucetFetch(`${baseUrl}/get_metadata`, async response => {
+    if (!response.ok) throw await failedResponse('Public faucet metadata request failed', response);
+    const metadata: unknown = await response.json();
+    const baseAmount = metadata && typeof metadata === 'object' ? Reflect.get(metadata, 'base_amount') : undefined;
+    if (typeof baseAmount !== 'number' || !Number.isSafeInteger(baseAmount) || baseAmount <= 0) {
+      throw new Error('Faucet metadata base_amount must be a positive safe integer');
+    }
+    return BigInt(baseAmount);
+  });
+}
+
 /**
  * Requests `amount` base units of the native asset for `accountId` (bech32).
+ * When omitted, resolves the faucet's advertised base grant once and retains it across retries.
  * Resolves once the faucet has SUBMITTED the note; the caller still has to wait for it
  * to commit and then consume it.
  *
@@ -191,15 +207,17 @@ async function requestGrant(
 export async function mintFromPublicFaucet(
   baseUrl: string,
   accountId: string,
-  amount: bigint = PUBLIC_FAUCET_GRANT,
+  amount?: bigint,
   retryDelayMs: number = GRANT_RETRY_DELAY_MS,
   sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
 ): Promise<{ txId: string; noteId: string }> {
+  let resolvedAmount = amount;
   let serverFailures = 0;
   let rateLimitedMs = 0;
   for (;;) {
     try {
-      return await requestGrant(baseUrl, accountId, amount);
+      resolvedAmount ??= await advertisedGrantAmount(baseUrl);
+      return await requestGrant(baseUrl, accountId, resolvedAmount);
     } catch (error) {
       if (error instanceof FaucetRateLimitedError && rateLimitedMs + error.retryAfterMs <= RATE_LIMIT_BUDGET_MS) {
         rateLimitedMs += error.retryAfterMs;
@@ -209,5 +227,94 @@ export async function mintFromPublicFaucet(
       if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) throw error;
       await sleep(retryDelayMs * serverFailures);
     }
+  }
+}
+
+export async function fundFreshGuardianThroughUi(page: Page, network: string, outputDir: string) {
+  const { vaultBalanceByFaucetId, walletDiscoveredNativeFaucetId } = await import('./balance-truth');
+  const { readTransactionRows, TxStatus } = await import('./history');
+  if (!publicFaucetApiUrl(network)) throw new Error(`No public faucet for ${network}`);
+  if (process.env.CI && (process.env.E2E_RETRY_EXISTING_FAUCET || process.env.E2E_WALLET_A_PROFILE)) {
+    throw new Error('CI public funding must use a fresh profile without replay');
+  }
+  await page.setViewportSize({ width: 1280, height: 960 });
+  fs.mkdirSync(outputDir, { recursive: true });
+  const screenshot = async (name: string) => {
+    const filename = path.join(outputDir, `${name}.png`);
+    await page.screenshot({ path: filename, scale: 'css' });
+    if (process.platform === 'darwin') execFileSync('sips', ['-Z', '1800', filename], { stdio: 'ignore' });
+  };
+  const evidence = async () => {
+    const transactions = await readTransactionRows(page);
+    const nativeFaucetId = await walletDiscoveredNativeFaucetId(page);
+    const balance = nativeFaucetId ? await vaultBalanceByFaucetId(page, nativeFaucetId) : 0n;
+    const consume = transactions.filter(row => row.type === 'consume');
+    const ids = [...new Set(consume.flatMap(row => row.noteIds ?? (row.noteId ? [row.noteId] : [])))];
+    const notes: SerializedInputNoteDetail[] = ids.length
+      ? await page.evaluate(async noteIds => {
+          const intercom = (window as any).__TEST_INTERCOM__;
+          if (!intercom) throw new Error('Missing real wallet intercom');
+          const result = await intercom.request({ type: 'GET_INPUT_NOTE_DETAILS_REQUEST', noteIds });
+          if (result.type !== 'GET_INPUT_NOTE_DETAILS_RESPONSE') throw new Error('Unexpected input note response');
+          return result.notes;
+        }, ids)
+      : [];
+    const snapshot = { network, nativeFaucetId, nativeVaultBaseUnits: balance.toString(), notes, transactions };
+    fs.writeFileSync(path.join(outputDir, 'public-faucet-evidence.json'), JSON.stringify(snapshot, null, 2));
+    return snapshot;
+  };
+  if ((await readTransactionRows(page)).some(row => row.type === 'consume')) {
+    throw new Error('Public faucet verification requires a fresh wallet without previous consumes');
+  }
+  const pinPrompt = page.getByRole('button', { name: 'Got it', exact: true });
+  if (await pinPrompt.isVisible()) await pinPrompt.click();
+  const fund = page.getByRole('button', { name: /Fund your wallet/i });
+  await fund.waitFor({ state: 'visible', timeout: 60_000 });
+  await fund.click();
+  try {
+    // Real tab taps exercise responsiveness without reloading the pending faucet request.
+    await page.getByRole('button', { name: /^Activity(?:,|$)/ }).click({ timeout: 10_000 });
+    await page.waitForURL(/#\/history/, { timeout: 10_000 });
+    await page.getByRole('button', { name: 'Home', exact: true }).click({ timeout: 10_000 });
+    await page.waitForURL(/#\/$/, { timeout: 10_000 });
+    await screenshot('public-faucet-navigation-responsive');
+    const deadline = Date.now() + 240_000;
+    while (Date.now() < deadline) {
+      const snapshot = await evidence();
+      const consume = snapshot.transactions.filter(row => row.type === 'consume');
+      const failed = consume.find(row => row.status === TxStatus.Failed);
+      if (failed)
+        throw new Error(`Public faucet consume failed: ${failed.rawError ?? failed.error ?? JSON.stringify(failed)}`);
+      const completed = consume.filter(row => row.status === TxStatus.Completed);
+      if (completed.length > 1) throw new Error('Fresh faucet wallet unexpectedly completed multiple consumes');
+      const transaction = completed[0];
+      const noteIds = transaction?.noteIds ?? (transaction?.noteId ? [transaction.noteId] : []);
+      // SDK states 4/5 await confirmation; 6/7 carry the chain-confirmed nullifier height.
+      const received = snapshot.notes.filter(note => noteIds.includes(note.noteId) && ['6', '7'].includes(note.state));
+      const balance = BigInt(snapshot.nativeVaultBaseUnits);
+      if (transaction && received.length === noteIds.length && noteIds.length && balance > 0n) {
+        const granted = received
+          .flatMap(note => note.assets)
+          .filter(asset => asset.faucetId === snapshot.nativeFaucetId)
+          .reduce((total, asset) => total + BigInt(asset.amount), 0n);
+        const fee = BigInt(transaction.feeAmount ?? '0');
+        if (
+          !snapshot.nativeFaucetId ||
+          (fee > 0n && transaction.feeFaucetId !== snapshot.nativeFaucetId) ||
+          balance !== granted - fee
+        ) {
+          throw new Error(
+            `Native vault does not equal the consumed public grant minus its fee: ${JSON.stringify(snapshot)}`
+          );
+        }
+        await screenshot('public-faucet-consumed');
+        return snapshot;
+      }
+      await page.waitForTimeout(2_000);
+    }
+    throw new Error(`Public faucet did not consume into a positive vault: ${JSON.stringify(await evidence())}`);
+  } finally {
+    await evidence().catch(() => {});
+    if (!page.isClosed()) await screenshot('public-faucet-final-state').catch(() => {});
   }
 }

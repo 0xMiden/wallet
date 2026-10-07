@@ -64,6 +64,7 @@ import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-pa
  * installed by `installNetworkFaults`.
  */
 export interface GuardianFaultTestApi {
+  readonly ownsProfile: boolean;
   armGuardianFault(policy: GuardianFaultPolicy): void;
   /**
    * Arm one or more whole-infra faults (node/prover/transport/positions/…).
@@ -120,6 +121,10 @@ export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi
 type FailureSnapshots = {
   walletA?: WalletSnapshot;
   walletB?: WalletSnapshot;
+};
+
+type ProfileDebugSession = DebugSession & {
+  ownedProfiles: { A: boolean; B: boolean };
 };
 
 type TwoWalletFixtures = {
@@ -379,7 +384,9 @@ async function launchWalletInstance(
   outputDir: string,
   feeFaucetId?: string
 ) {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
+  const suppliedProfile = process.env[`E2E_WALLET_${label}_PROFILE`];
+  const ownsProfile = suppliedProfile === undefined;
+  const userDataDir = suppliedProfile ?? fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
 
   // `let` (not `const`): reopen()'s relaunch swaps these in place after a
   // browser crash so teardown closes the LIVE context and the fault methods
@@ -566,6 +573,8 @@ async function launchWalletInstance(
       await page
         .locator('[data-testid="onboarding-welcome"]')
         .or(page.locator('[data-testid="explore-page"]'))
+        .or(page.locator('[data-testid="unlock-password"]'))
+        .or(page.locator('[data-testid="onboarding-help-improve-wallet"]'))
         .first()
         .waitFor({ timeout: ATTEMPT_TIMEOUT });
 
@@ -681,6 +690,7 @@ async function launchWalletInstance(
   const walletPage: GuardianAwareWalletPage = Object.assign(
     new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
     {
+      ownsProfile,
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
       guardianFaultHitTimes: () => faults.guardianFaultHitTimes(),
@@ -725,6 +735,7 @@ async function launchWalletInstance(
     },
     extensionId,
     userDataDir,
+    ownsProfile,
     get page() {
       return page;
     }
@@ -778,14 +789,15 @@ async function closeContextQuietly(context: BrowserContext, page: Page): Promise
 function writeDebugSession(
   testName: string,
   reportPath: string,
-  instanceA: { extensionId: string; userDataDir: string },
-  instanceB: { extensionId: string; userDataDir: string },
+  instanceA: { extensionId: string; userDataDir: string; ownsProfile: boolean },
+  instanceB: { extensionId: string; userDataDir: string; ownsProfile: boolean },
   midenCliWorkDir: string
 ): void {
-  const session: DebugSession = {
+  const session: ProfileDebugSession = {
     createdAt: new Date().toISOString(),
     testName,
     reportPath,
+    ownedProfiles: { A: instanceA.ownsProfile, B: instanceB.ownsProfile },
     wallets: {
       A: {
         extensionId: instanceA.extensionId,
@@ -821,12 +833,16 @@ function cleanupStaleSessions(): void {
   if (!fs.existsSync(sessionPath)) return;
 
   try {
-    const session: DebugSession = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    const session: Partial<ProfileDebugSession> = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    if (!session.expiresAt || !session.wallets) return;
     if (new Date(session.expiresAt) < new Date()) {
       // Session expired -- clean up
       fs.unlinkSync(sessionPath);
       // Try to clean up user data dirs
-      for (const wallet of [session.wallets.A, session.wallets.B]) {
+      for (const label of ['A', 'B'] as const) {
+        // Older sessions do not prove the harness owns their profiles.
+        if (session.ownedProfiles?.[label] !== true) continue;
+        const wallet = session.wallets[label];
         try {
           fs.rmSync(wallet.userDataDir, { recursive: true, force: true });
         } catch {
@@ -986,7 +1002,9 @@ export const test = base.extend<TwoWalletFixtures>({
       });
     } else {
       await closeContextQuietly(instance.context, instance.walletPage.page);
-      fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      if (instance.ownsProfile && process.env.E2E_RETAIN_PROFILE !== 'true') {
+        fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      }
     }
   },
 
@@ -1017,11 +1035,13 @@ export const test = base.extend<TwoWalletFixtures>({
         path.join(timeline.getOutputDir(), 'report.json'),
         {
           extensionId: walletA.extensionId,
-          userDataDir: walletA.userDataDir
+          userDataDir: walletA.userDataDir,
+          ownsProfile: walletA.ownsProfile
         },
         {
           extensionId: instance.extensionId,
-          userDataDir: instance.userDataDir
+          userDataDir: instance.userDataDir,
+          ownsProfile: instance.ownsProfile
         },
         midenCli.getWorkDir()
       );
@@ -1044,7 +1064,9 @@ export const test = base.extend<TwoWalletFixtures>({
       });
     } else {
       await closeContextQuietly(instance.context, instance.walletPage.page);
-      fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      if (instance.ownsProfile && process.env.E2E_RETAIN_PROFILE !== 'true') {
+        fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      }
     }
   }
 });
