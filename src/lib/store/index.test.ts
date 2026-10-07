@@ -556,11 +556,11 @@ describe('useWalletStore', () => {
       });
     });
 
-    it('exportAccountFile decodes through the imported Buffer, not the extension page stub', async () => {
-      // Every extension page loads public/globals.js first, which installs a Buffer whose from()
-      // ignores the encoding argument, and the entry points keep it (globalThis.Buffer || Buffer).
-      // Reading the bare global here returns an EMPTY array, so the user is handed a 0-byte account
-      // file with a success message. Jest runs on Node, where the real global hides that entirely.
+    it('exportAccountFile decodes through the imported Buffer, not a broken global one', async () => {
+      // A global Buffer whose from() ignores the encoding argument (public/globals.js once installed
+      // one on every extension page) returns an EMPTY array for a bare global decode, so the user is
+      // handed a 0-byte account file with a success message. Jest runs on Node, where the real global
+      // hides that entirely.
       const realBuffer = (globalThis as any).Buffer;
       (globalThis as any).Buffer = { isBuffer: () => false, from: (a: unknown) => new Uint8Array(a as number) };
       try {
