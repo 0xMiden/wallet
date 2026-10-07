@@ -190,6 +190,22 @@ describe('AssetRow', () => {
     }
   });
 
+  it('colours a move of 0.1% either way, the flat cutoff being strict', () => {
+    for (const [change, direction, color] of [
+      [0.0999, 'neutral', 'var(--color-text-tertiary)'],
+      [0.1, 'positive', 'var(--status-positive)'],
+      [-0.1, 'negative', 'var(--status-negative)']
+    ] as const) {
+      tokenPrices = { BTC: priceInfo({ percentageChange24h: change }) };
+
+      const { unmount } = render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+
+      expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-delta-direction', direction);
+      expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', color);
+      unmount();
+    }
+  });
+
   it('renders a negative 24h delta without a prefix, negative direction, and status-negative sparkline color', () => {
     tokenPrices = { BTC: priceInfo({ price: 50, percentageChange24h: -3.1 }) };
     mockUseTokenSparkline.mockReturnValue([5, 4, 3]);
