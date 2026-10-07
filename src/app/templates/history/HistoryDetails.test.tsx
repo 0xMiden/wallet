@@ -1165,6 +1165,15 @@ describe('HistoryDetails', () => {
   });
 
   describe('sent transaction rendering', () => {
+    it('names a send of the bridge faucet by the testnet label and still prices it as USDC', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
+      await renderAndLoad();
+
+      expect(screen.getByText('1000 Test Epoch USDC')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2000.00')).toBeInTheDocument();
+    });
+
     it('renders amount, token, fiat, status, date, external tx id, from/to and notes', async () => {
       setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
       await renderAndLoad();

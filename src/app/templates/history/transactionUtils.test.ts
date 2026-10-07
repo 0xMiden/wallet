@@ -122,6 +122,20 @@ describe('resolveConsumeExtraAmounts', () => {
     await expect(resolveConsumeExtraAmounts(consumeTx(undefined))).resolves.toEqual([]);
   });
 
+  it('names a claimed line of the testnet bridge faucet by its label', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', name: 'USDC', decimals: 6 });
+
+    await expect(
+      resolveConsumeExtraAmounts(
+        consumeTx([
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: MIDEN_USDC_FAUCET, amount: 5n }
+        ])
+      )
+    ).resolves.toEqual([{ faucetId: MIDEN_USDC_FAUCET, amount: 'fmt(5,6)', token: 'Test Epoch USDC' }]);
+  });
+
   it('excludes the primary faucet and formats each secondary with its own decimals', async () => {
     mockGetTokenMetadata.mockImplementation(async (faucetId: string | null) =>
       faucetId === 'faucet-b' ? ({ symbol: 'BBB', decimals: 2 } as any) : ({ symbol: 'CCC', decimals: 8 } as any)

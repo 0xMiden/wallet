@@ -57,7 +57,7 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
           typeof total.amount === 'bigint' && hasKnownScale(metadata)
             ? formatAmount(total.amount, metadata.decimals)
             : undefined,
-        token: metadata.symbol
+        token: midenTokenLabel(total.faucetId, metadata.symbol)
       };
     })
   );

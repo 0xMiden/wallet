@@ -14,6 +14,7 @@ import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { truncateAddress } from 'utils/string';
 
@@ -76,7 +77,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
   const [expanded, setExpanded] = useState(false);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
   const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
-  const amountLabel = amount === undefined ? note.metadata.symbol : `${amount} ${note.metadata.symbol}`;
+  const tokenLabel = midenTokenLabel(note.faucetId, note.metadata.symbol);
+  const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.
   const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
   const held = status === 'claiming' && item.held === true;
@@ -136,7 +138,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: P
       subtitle={`${t('from')}: ${sender}`}
       amount={{
         value: amount === undefined ? '' : `+${amount}`,
-        symbol: note.metadata.symbol,
+        symbol: tokenLabel,
         direction: 'positive'
       }}
       status="pending"

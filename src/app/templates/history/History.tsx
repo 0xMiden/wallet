@@ -27,6 +27,7 @@ import {
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
@@ -532,7 +533,7 @@ async function fetchTransactionsAsHistoryEntries(
         : swapFields
           ? swapFields.token
           : tokenMetadata
-            ? tokenMetadata.symbol
+            ? midenTokenLabel(tx.faucetId, tokenMetadata.symbol)
             : undefined,
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
@@ -615,7 +616,11 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
           tx.amount !== undefined && hasKnownScale(tokenMetadata)
           ? formatAmount(tx.amount, tokenMetadata?.decimals)
           : undefined,
-      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      token: swapFields
+        ? swapFields.token
+        : tokenMetadata
+          ? midenTokenLabel(tx.faucetId, tokenMetadata.symbol)
+          : undefined,
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,

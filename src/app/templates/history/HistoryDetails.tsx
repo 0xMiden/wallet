@@ -45,6 +45,7 @@ import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constan
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { TokenPrices } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
@@ -367,7 +368,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
               ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
               : undefined,
-          token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
+          token: earnWithdrawFields
+            ? earnWithdrawFields.token
+            : (offeredSwapToken?.symbol ??
+              (tokenMetadata ? midenTokenLabel(tx.faucetId, tokenMetadata.symbol) : undefined)),
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
           secondaryAddress: tx.secondaryAccountId,
