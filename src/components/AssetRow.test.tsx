@@ -58,16 +58,23 @@ jest.mock('components/ui', () => ({
       {children}
     </span>
   ),
-  Sparkline: ({ points, color, width, height }: any) => (
-    <span
-      data-testid="sparkline"
-      data-points={JSON.stringify(points)}
-      data-color={color}
-      data-width={width}
-      data-height={height}
-    />
-  )
+  Sparkline: ({ points, color, width, height, minRange }: any) => {
+    mockSparklinePointsRenders.push(points);
+    return (
+      <span
+        data-testid="sparkline"
+        data-points={JSON.stringify(points)}
+        data-color={color}
+        data-width={width}
+        data-height={height}
+        data-min-range={minRange}
+      />
+    );
+  }
 }));
+
+// Every `points` prop the Sparkline double was rendered with, in order: its path memo keys on that identity.
+const mockSparklinePointsRenders: number[][] = [];
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -104,6 +111,7 @@ function priceInfo(overrides: Partial<TokenPriceInfo> = {}): TokenPriceInfo {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSparklinePointsRenders.length = 0;
   // Sensible defaults; individual tests override as needed.
   tokenPrices = { BTC: priceInfo() };
   mockUseTokenSparkline.mockReturnValue([10, 20, 30]);
@@ -267,6 +275,29 @@ describe('AssetRow', () => {
     const spark = screen.getByTestId('sparkline');
     expect(spark).toHaveAttribute('data-points', JSON.stringify([1, 1]));
     expect(spark).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
+  });
+
+  it('draws a dense series as 10 bucket means, its box floored at 0.2% of their mean', () => {
+    mockUseTokenSparkline.mockReturnValue(Array.from({ length: 20 }, (_, i) => 100 + i));
+
+    render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+
+    const means = [100.5, 102.5, 104.5, 106.5, 108.5, 110.5, 112.5, 114.5, 116.5, 118.5];
+    const spark = screen.getByTestId('sparkline');
+    expect(spark).toHaveAttribute('data-points', JSON.stringify(means));
+    const meanOfMeans = means.reduce((sum, v) => sum + v, 0) / means.length;
+    expect(Number(spark.getAttribute('data-min-range'))).toBeCloseTo(meanOfMeans * 0.002, 12);
+  });
+
+  // A price tick re-renders the row with the hook's same array; a fresh one would redraw the path.
+  it('hands Sparkline the same points array when re-rendered with the same series', () => {
+    mockUseTokenSparkline.mockReturnValue(Array.from({ length: 20 }, (_, i) => 100 + i));
+
+    const { rerender } = render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+    rerender(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
+
+    expect(mockSparklinePointsRenders).toHaveLength(2);
+    expect(mockSparklinePointsRenders[1]).toBe(mockSparklinePointsRenders[0]);
   });
 
   it('uses metadata.name for the displayed name and passes the symbol to TokenLogo', () => {

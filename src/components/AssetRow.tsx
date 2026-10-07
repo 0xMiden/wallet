@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -96,7 +96,15 @@ export const AssetRow: FC<AssetRowProps> = ({
   // An empty symbol is the hook's "fetch nothing".
   const points = useTokenSparkline(sparkline && !isFixedQuote(quote) ? priceSymbol : '', '1D');
   const hasRealPoints = points.length > 1;
-  const sparkPoints = hasRealPoints ? downsample(points, SPARKLINE_BUCKETS) : FLAT_SPARKLINE_POINTS;
+  // Keyed on the hook's array so a re-render with the same series keeps Sparkline's path memo.
+  const sparkPoints = useMemo(
+    () => (hasRealPoints ? downsample(points, SPARKLINE_BUCKETS) : FLAT_SPARKLINE_POINTS),
+    [hasRealPoints, points]
+  );
+  const sparkMinRange = useMemo(
+    () => (sparkPoints.reduce((sum, v) => sum + v, 0) / sparkPoints.length) * SPARKLINE_MIN_RANGE_SHARE,
+    [sparkPoints]
+  );
   // The line takes the move's colour, grey when the move is flat, so it never argues with the pill.
   const sparkColor =
     hasRealPoints && (direction === 'positive' || direction === 'negative')
@@ -127,7 +135,7 @@ export const AssetRow: FC<AssetRowProps> = ({
             smooth
             // Breathing room before the price column, so the line never runs into the pill.
             className="mr-5"
-            minRange={(sparkPoints.reduce((sum, v) => sum + v, 0) / sparkPoints.length) * SPARKLINE_MIN_RANGE_SHARE}
+            minRange={sparkMinRange}
           />
         ) : undefined
       }
