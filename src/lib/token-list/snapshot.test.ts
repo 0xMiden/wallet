@@ -18,7 +18,7 @@ it.each(['devnet', 'mainnet', 'localnet'])('bundles nothing for %s', network => 
 });
 
 it('bundles the testnet logos for MIDEN, IMIDEN, IETH and IBTC', () => {
-  const logo = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.svg`;
+  const logo = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.png`;
   expect(parseTokenList(bundledTokenList('testnet'), 'testnet')?.logos).toEqual(
     new Map(
       [

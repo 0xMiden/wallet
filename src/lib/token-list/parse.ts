@@ -28,7 +28,7 @@ export function parseTokenList(value: unknown, network: string): TokenList | nul
     if (tokenNetwork !== network) continue;
     ids.add(faucetId);
     const own = `${LOGO_PREFIX}${faucetId}/logo.`;
-    if (logoURI === `${own}svg` || logoURI === `${own}png`) logos.set(faucetId, logoURI);
+    if (logoURI === `${own}png`) logos.set(faucetId, logoURI);
   }
   return { ids, logos };
 }

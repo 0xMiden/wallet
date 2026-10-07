@@ -478,7 +478,7 @@ it('has no list for localnet, whose faucet ids are per machine, and never fetche
 });
 
 describe('token logos', () => {
-  const logoOf = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.svg`;
+  const logoOf = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.png`;
   const withLogos = (ids: string[]) => ({
     ...doc(ids),
     tokens: doc(ids).tokens.map(token => ({ ...token, logoURI: logoOf(token.faucetId) }))

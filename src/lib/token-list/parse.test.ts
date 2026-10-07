@@ -54,29 +54,30 @@ it.each([
   expect(parseTokenList(list([token(), bad]), 'testnet')).toBeNull();
 });
 
-const logo = (faucetId: string, ext = 'svg') =>
+const logo = (faucetId: string, ext = 'png') =>
   `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${faucetId}/logo.${ext}`;
 
-it('keeps the logo of each listed token on the requested network, svg or png', () => {
+it('keeps the logo of each listed token on the requested network', () => {
   const doc = list([
     token({ logoURI: logo('mtst1aaa') }),
-    token({ faucetId: 'mtst1bbb', logoURI: logo('mtst1bbb', 'png') }),
+    token({ faucetId: 'mtst1bbb', logoURI: logo('mtst1bbb') }),
     token({ network: 'devnet', faucetId: 'mdev1ccc', logoURI: logo('mdev1ccc') })
   ]);
   expect(parseTokenList(doc, 'testnet')?.logos).toEqual(
     new Map([
       ['mtst1aaa', logo('mtst1aaa')],
-      ['mtst1bbb', logo('mtst1bbb', 'png')]
+      ['mtst1bbb', logo('mtst1bbb')]
     ])
   );
 });
 
 it.each([
-  ['another host', 'https://example.com/0xMiden/token-list/main/logos/mtst1aaa/logo.svg'],
+  ['another host', 'https://example.com/0xMiden/token-list/main/logos/mtst1aaa/logo.png'],
   ['another token', logo('mtst1bbb')],
-  ['another path', 'https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1aaa/x.svg'],
-  ['an encoded segment', 'https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1aaa%2F/logo.svg'],
+  ['another path', 'https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1aaa/x.png'],
+  ['an encoded segment', 'https://raw.githubusercontent.com/0xMiden/token-list/main/logos/mtst1aaa%2F/logo.png'],
   ['another extension', logo('mtst1aaa', 'gif')],
+  ['its own svg', logo('mtst1aaa', 'svg')],
   ['plain http', logo('mtst1aaa').replace('https:', 'http:')],
   ['a non-string', 42]
 ])('drops a logoURI on %s and keeps the token verified', (_case, logoURI) => {
