@@ -852,10 +852,9 @@ describe('the poll schedule', () => {
     }
   );
 
-  it('re-arms for the network it returns to, on that network\'s own degraded cadence', async () => {
-    mockFeatureAvailability.mockImplementation(
-      (_feature, snapshot) =>
-        (snapshot as BridgeConfigSnapshot).network === 'testnet' ? unavailable('service-down') : AVAILABLE
+  it("re-arms for the network it returns to, on that network's own degraded cadence", async () => {
+    mockFeatureAvailability.mockImplementation((_feature, snapshot) =>
+      (snapshot as BridgeConfigSnapshot).network === 'testnet' ? unavailable('service-down') : AVAILABLE
     );
     try {
       seed(1);
