@@ -40,6 +40,8 @@ let deps = defaults();
 // holds the ids as the list spells them: an encoding depends on the active network, which can change
 // while a read is pending, so the hook normalizes at compare time.
 const loaded = new Map<string, Promise<LoadedList>>();
+// Read synchronously, so a row mounted after a list loaded draws it on its first render.
+const settled = new Map<string, LoadedList>();
 // One refresh per network per realm; a popup is a fresh realm on every open, so the device cache,
 // not this set, is what keeps a reopened popup from refetching.
 const refreshing = new Set<string>();
@@ -60,6 +62,7 @@ export function _resetTokenListForTest(
     now: overrides.now ?? base.now
   };
   loaded.clear();
+  settled.clear();
   refreshing.clear();
   lastFailure.clear();
   listeners.clear();
@@ -163,6 +166,7 @@ async function load(network: string): Promise<LoadedList> {
     loaded.set(network, pending);
   }
   const list = await pending;
+  settled.set(network, list);
   // Checked on every load, not once per read: a long-lived realm must still refresh a day-old list.
   if (isDue(network, list.fetchedAt)) startRefresh(network);
   return list;
@@ -184,4 +188,16 @@ export async function loadVerifiedFaucetIds(network: string): Promise<Set<string
 export async function loadTokenLogos(network: string): Promise<Map<string, string> | null> {
   if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
   return (await load(network)).logos;
+}
+
+/** What `loadVerifiedFaucetIds` last resolved to for `network` in this realm, or `undefined` before any load settled. */
+export function peekVerifiedFaucetIds(network: string): Set<string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.ids;
+}
+
+/** What `loadTokenLogos` last resolved to for `network` in this realm, or `undefined` before any load settled. */
+export function peekTokenLogos(network: string): Map<string, string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.logos;
 }

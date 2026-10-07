@@ -1,7 +1,7 @@
 import { normalizedFaucetId } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
-import { loadTokenLogos } from './runtime';
+import { loadTokenLogos, peekTokenLogos } from './runtime';
 import { useLoadedList } from './useLoadedList';
 
 const sameLogos = (a: Map<string, string> | null, b: Map<string, string> | null): boolean =>
@@ -14,7 +14,7 @@ const sameLogos = (a: Map<string, string> | null, b: Map<string, string> | null)
  */
 export function useTokenLogoUri(faucetId?: string): string | undefined {
   const network = getEffectiveNetworkName();
-  const logos = useLoadedList(network, faucetId === undefined ? null : loadTokenLogos, sameLogos);
+  const logos = useLoadedList(network, faucetId === undefined ? null : loadTokenLogos, peekTokenLogos, sameLogos);
   if (!logos || faucetId === undefined) return undefined;
   const id = normalizedFaucetId(faucetId);
   for (const [listed, uri] of logos) if (normalizedFaucetId(listed) === id) return uri;

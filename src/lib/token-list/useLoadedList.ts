@@ -5,14 +5,17 @@ import { onTokenListUpdated } from './runtime';
 type Loaded<T> = { network: string; value: T };
 
 /**
- * What `load` gives `network`, or `undefined` before it lands and while `load` is `null` (which loads
- * nothing). Loaded again when a refresh of `network`'s list lands; a reload that `same` finds equal to
- * what was last stored stores nothing, so it renders nothing. `load` and `same` must be stable, as
- * module-level functions are.
+ * What `load` gives `network`; until this hook's own load lands (on the first render and after a
+ * network switch), what `peek` says the realm last loaded, so a list already loaded draws at once.
+ * `undefined` while neither has a value and while `load` is `null` (which loads nothing). Loaded again
+ * when a refresh of `network`'s list lands; a reload that `same` finds equal to what was last stored
+ * stores nothing, so it renders nothing. `load`, `peek` and `same` must be stable, as module-level
+ * functions are.
  */
 export function useLoadedList<T>(
   network: string,
   load: ((network: string) => Promise<T>) | null,
+  peek: (network: string) => T | undefined,
   same: (a: T, b: T) => boolean
 ): T | undefined {
   const [loaded, setLoaded] = useState<Loaded<T> | null>(null);
@@ -39,6 +42,7 @@ export function useLoadedList<T>(
     };
   }, [network, load, same]);
 
+  if (load === null) return undefined;
   // A value loaded for another network says nothing about this one.
-  return load !== null && loaded?.network === network ? loaded.value : undefined;
+  return loaded?.network === network ? loaded.value : peek(network);
 }

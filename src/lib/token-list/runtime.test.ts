@@ -3,6 +3,8 @@ import {
   loadTokenLogos,
   loadVerifiedFaucetIds,
   onTokenListUpdated,
+  peekTokenLogos,
+  peekVerifiedFaucetIds,
   TOKEN_LIST_RETRY_BACKOFF_MS,
   TOKEN_LIST_TTL_MS
 } from './runtime';
@@ -539,5 +541,48 @@ describe('token logos', () => {
     expect(listener).toHaveBeenCalledWith('testnet');
     expect(storage.data).not.toHaveProperty([ATTEMPT]);
     await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map([['new', logoOf('new')]]));
+  });
+});
+
+describe('the settled-list peeks', () => {
+  const logoOf = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.png`;
+  const withLogos = (ids: string[]) => ({
+    ...doc(ids),
+    tokens: doc(ids).tokens.map(token => ({ ...token, logoURI: logoOf(token.faucetId) }))
+  });
+
+  it('are undefined before a load and what the loaders resolved to after, per network', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: withLogos(['a']) } });
+    expect(peekVerifiedFaucetIds('testnet')).toBeUndefined();
+    expect(peekTokenLogos('testnet')).toBeUndefined();
+
+    await loadVerifiedFaucetIds('testnet');
+    expect(peekVerifiedFaucetIds('testnet')).toEqual(new Set(['a']));
+    expect(peekTokenLogos('testnet')).toEqual(new Map([['a', logoOf('a')]]));
+    expect(peekVerifiedFaucetIds('devnet')).toBeUndefined();
+  });
+
+  it('take a landed refresh on the next load', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - TOKEN_LIST_TTL_MS - 1, body: withLogos(['old']) } });
+    fetchMock.mockResolvedValue(response(withLogos(['new'])));
+    await loadTokenLogos('testnet');
+    await flush();
+    await loadTokenLogos('testnet');
+    expect(peekVerifiedFaucetIds('testnet')).toEqual(new Set(['new']));
+    expect(peekTokenLogos('testnet')).toEqual(new Map([['new', logoOf('new')]]));
+  });
+
+  it('are null for localnet, as the loaders are', () => {
+    setup();
+    expect(peekVerifiedFaucetIds('localnet')).toBeNull();
+    expect(peekTokenLogos('localnet')).toBeNull();
+  });
+
+  it('forget every settled list on _resetTokenListForTest', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: withLogos(['a']) } });
+    await loadVerifiedFaucetIds('testnet');
+    setup();
+    expect(peekVerifiedFaucetIds('testnet')).toBeUndefined();
+    expect(peekTokenLogos('testnet')).toBeUndefined();
   });
 });

@@ -4,7 +4,7 @@ import { normalizedFaucetId } from 'lib/miden/swap/tokens';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 
-import { loadVerifiedFaucetIds } from './runtime';
+import { loadVerifiedFaucetIds, peekVerifiedFaucetIds } from './runtime';
 import { useLoadedList } from './useLoadedList';
 
 export type TokenVerification = 'verified' | 'unverified' | 'unknown';
@@ -19,7 +19,7 @@ const sameIds = (a: Set<string> | null, b: Set<string> | null): boolean =>
  */
 export function useTokenVerification(faucetId: string): TokenVerification {
   const network = getEffectiveNetworkName();
-  const ids = useLoadedList(network, loadVerifiedFaucetIds, sameIds);
+  const ids = useLoadedList(network, loadVerifiedFaucetIds, peekVerifiedFaucetIds, sameIds);
   // Only re-renders on a discovery: the verdict reads the cache itself, which a storage hydrate
   // fills without an event.
   const [, setDiscoveredNativeId] = useState<string | null>(null);
