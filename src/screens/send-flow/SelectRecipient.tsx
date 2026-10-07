@@ -9,8 +9,9 @@ import { ReactComponent as SendAddressBookIcon } from 'app/icons/send-address-bo
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { Pill } from 'components/ui';
+import { ClearFieldButton, Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
+import { clearFieldValue } from 'lib/ui/clear-field';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
@@ -158,34 +159,43 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             </span>
           </div>
         )}
-        <textarea
-          ref={textareaRef}
-          data-testid="send-recipient-input"
-          rows={1}
-          placeholder={addressPlaceholder}
-          className={clsx(
-            'font-heading w-full resize-none overflow-hidden bg-transparent outline-none',
-            'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
-            // Below the tab title, never above it: 24px holds the placeholder to two lines on a
-            // 375pt phone, and a pasted address wraps to three.
-            'text-hero-name font-bold wrap-break-word placeholder:text-muted/70',
-            'caret-accent-send',
-            error ? 'text-negative-tint-ink' : 'text-ink'
+        <div className="flex items-start">
+          <textarea
+            ref={textareaRef}
+            data-testid="send-recipient-input"
+            rows={1}
+            placeholder={addressPlaceholder}
+            className={clsx(
+              'font-heading min-w-0 flex-1 resize-none overflow-hidden bg-transparent outline-none',
+              'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
+              // Below the tab title, never above it: 24px holds the placeholder to two lines on a
+              // 375pt phone, and a pasted address wraps to three.
+              'text-hero-name font-bold wrap-break-word placeholder:text-muted/70',
+              'caret-accent-send',
+              error ? 'text-negative-tint-ink' : 'text-ink'
+            )}
+            value={address}
+            onChange={onAddressChange}
+            spellCheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
+            onKeyDown={event => {
+              // Addresses are single-line: Done/Enter dismisses the keyboard
+              // instead of inserting a newline.
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
+          />
+          {address !== '' && (
+            <ClearFieldButton
+              onClear={() => clearFieldValue(textareaRef.current)}
+              // -my-2 keeps the 44px target inside the 28px line; -mr-3 puts the glyph on the margin.
+              className="-my-2 -mr-3 ml-1"
+            />
           )}
-          value={address}
-          onChange={onAddressChange}
-          spellCheck={false}
-          autoCapitalize="none"
-          autoCorrect="off"
-          onKeyDown={event => {
-            // Addresses are single-line: Done/Enter dismisses the keyboard
-            // instead of inserting a newline.
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              event.currentTarget.blur();
-            }
-          }}
-        />
+        </div>
       </div>
 
       <AnimatePresence initial={false}>

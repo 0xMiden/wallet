@@ -298,6 +298,75 @@ describe('SelectRecipient — paste', () => {
   });
 });
 
+describe('SelectRecipient: clear (#503)', () => {
+  const clearButton = () => screen.queryByRole('button', { name: 'clear' });
+
+  it('offers no clear action while the address field is empty', () => {
+    renderRecipient();
+    expect(clearButton()).toBeNull();
+  });
+
+  it('clears an entered address through the change handler typing uses, keeping focus', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: MIDEN_ADDRESS,
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+    expect(screen.getByTestId('send-recipient-input')).toHaveFocus();
+  });
+
+  it('empties the field and drops the button once its owner takes the empty address', () => {
+    const Owner = () => {
+      const [address, setAddress] = React.useState(MIDEN_ADDRESS);
+      return (
+        <SelectRecipient
+          {...baseRecipientProps()}
+          address={address}
+          onAddressChange={event => setAddress(event.target.value)}
+        />
+      );
+    };
+    render(<Owner />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(screen.getByTestId('send-recipient-input')).toHaveValue('');
+    expect(clearButton()).toBeNull();
+  });
+
+  it('offers to clear an address of only spaces, which the pills already treat as empty', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: '   ',
+      onPaste: jest.fn(),
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+    expect(screen.getByTestId('send-paste')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+  });
+
+  it('sits at the end of the address line, the field shrinking for it', () => {
+    renderRecipient({ address: MIDEN_ADDRESS });
+    const field = screen.getByTestId('send-recipient-input');
+    const clear = screen.getByRole('button', { name: 'clear' });
+    expect(clear.parentElement).toBe(field.parentElement);
+    expect(field).toHaveClass('min-w-0', 'flex-1');
+    expect(field).not.toHaveClass('w-full');
+    expect(clear).toHaveClass('-my-2', '-mr-3');
+  });
+});
+
 describe('SelectRecipient — address field growth', () => {
   // The field measures with height:auto, which cannot be interpolated, so the height it is drawn
   // at has to go back before the new one or the CSS transition is cancelled. Restoring the last
