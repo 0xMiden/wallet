@@ -1,6 +1,5 @@
 import React, { FC } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { TokenLogo } from 'components/TokenLogo';
@@ -137,35 +136,16 @@ export const AssetRow: FC<AssetRowProps> = ({
           <AnimatedNumber value={fiatValue} format={value => `$${formatFiat(value)}`} />
         ) : undefined
       }
-      // The move as a tinted pill: grey when flat, the positive or negative tint when it moved.
       delta={
         feedQuote && direction
-          ? {
-              value: (
-                <Pill
-                  size="xs"
-                  tone={direction === 'neutral' ? 'neutral' : direction}
-                  className={classNames('mt-0.5', direction === 'neutral' && 'text-muted')}
-                  data-testid="asset-row-delta"
-                >
-                  <AnimatedNumber value={feedQuote.percentageChange24h} format={formatPercent} />
-                </Pill>
-              ),
-              direction
-            }
+          ? { value: <AnimatedNumber value={feedQuote.percentageChange24h} format={formatPercent} />, direction }
           : undefined
       }
       // A soft grey tag rather than the warning tint, which read like a button.
       badge={
         verification === 'unverified' ? (
-          <Pill
-            size="xs"
-            tone="neutral"
-            // 18px with an 11px label, a step under the xs pill, so it sits as a tag on the 16px name.
-            // Nunito draws the name's capitals low in its 20px line, so the tag rises 3px to centre on
-            // them rather than on the line box.
-            className="h-[18px] -translate-y-[3px] px-1.5 font-heading text-[11px] font-bold leading-none text-muted"
-          >
+          // Nunito draws the name's capitals low in its line, so the tag rises 3px to centre on them.
+          <Pill size="tag" tone="muted" className="-translate-y-[3px]">
             {t('unverifiedToken')}
           </Pill>
         ) : undefined

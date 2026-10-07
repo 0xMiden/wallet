@@ -78,35 +78,35 @@ describe('AssetListItem', () => {
     });
   });
 
-  describe('delta rendering and color', () => {
+  describe('delta rendering', () => {
+    /** The Pill around a figure: its label slot's parent, or null when the figure is not in a pill. */
+    const pillAround = (text: string) =>
+      screen.getByText(text).closest('[data-slot="pill-label"]')?.parentElement ?? null;
+
     it('omits the delta when absent', () => {
       renderItem();
 
       expect(screen.queryByText('+2.5%')).toBeNull();
     });
 
-    it('applies the positive color for an explicit positive direction', () => {
+    it('draws the move as a tinted pill', () => {
       renderItem({ delta: { value: '+2.5%', direction: 'positive' } });
 
-      expect(screen.getByText('+2.5%').className).toContain('text-positive-tint-ink');
+      const pill = pillAround('+2.5%');
+      expect(pill).not.toBeNull();
+      expect(pill).toHaveClass('h-5', 'text-badge', 'mt-0.5', 'bg-positive-tint', 'text-positive-tint-ink');
+      // The pill carries the colour alone: no caption ink around it to argue with its tint.
+      expect(pill!.parentElement!.className).not.toMatch(/\btext-/);
     });
 
-    it('defaults to the positive color when direction is undefined', () => {
-      renderItem({ delta: { value: '+1.0%' } });
+    it.each([
+      ['negative', '-3.1%', ['bg-negative-tint', 'text-negative-tint-ink']],
+      ['neutral', '0.0%', ['bg-fill', 'text-muted']],
+      [undefined, '+1.0%', ['bg-positive-tint', 'text-positive-tint-ink']]
+    ] as const)('tints the pill by the direction: %s', (direction, value, classes) => {
+      renderItem({ delta: { value, direction } });
 
-      expect(screen.getByText('+1.0%').className).toContain('text-positive-tint-ink');
-    });
-
-    it('applies the negative color for a negative direction', () => {
-      renderItem({ delta: { value: '-3.1%', direction: 'negative' } });
-
-      expect(screen.getByText('-3.1%').className).toContain('text-negative-tint-ink');
-    });
-
-    it('applies the tertiary color for a neutral direction', () => {
-      renderItem({ delta: { value: '0.0%', direction: 'neutral' } });
-
-      expect(screen.getByText('0.0%').className).toContain('text-text-tertiary-token');
+      expect(pillAround(value)).toHaveClass(...classes);
     });
   });
 

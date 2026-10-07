@@ -53,8 +53,8 @@ jest.mock('components/ui', () => ({
       {chart}
     </div>
   ),
-  Pill: ({ size, tone, children }: any) => (
-    <span data-testid="pill" data-size={size} data-tone={tone}>
+  Pill: ({ size, tone, className, children }: any) => (
+    <span data-testid="pill" data-size={size} data-tone={tone} className={className}>
       {children}
     </span>
   ),
@@ -121,15 +121,17 @@ describe('AssetRow', () => {
     expect(mockVerify).toHaveBeenCalledWith(asset.tokenId);
   });
 
-  it('draws the Unverified mark as an xs soft grey tag', () => {
+  it('tags an unverified token at the tag size', () => {
     mockVerify.mockReturnValue('unverified');
 
     render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
 
     const pill = screen.getAllByTestId('pill').find(node => node.textContent === 'unverifiedToken')!;
     expect(pill).toBeDefined();
-    expect(pill).toHaveAttribute('data-tone', 'neutral');
-    expect(pill).toHaveAttribute('data-size', 'xs');
+    expect(pill).toHaveAttribute('data-size', 'tag');
+    expect(pill).toHaveAttribute('data-tone', 'muted');
+    // The size brings the height, padding and type; the row adds only the nudge onto the name's capitals.
+    expect(pill).toHaveAttribute('class', '-translate-y-[3px]');
   });
 
   it('renders a positive 24h delta with a "+" prefix, positive direction, and status-positive sparkline color', () => {
@@ -141,8 +143,8 @@ describe('AssetRow', () => {
     // Delta formatting: "+" prefix + two decimals + "%".
     expect(screen.getByTestId('row-delta')).toHaveTextContent('+5.26%');
     expect(item).toHaveAttribute('data-delta-direction', 'positive');
-    // The move sits in a pill on its direction's tint.
-    expect(within(screen.getByTestId('row-delta')).getByTestId('pill')).toHaveAttribute('data-tone', 'positive');
+    // The bare figure: AssetListItem draws the pill and tints it by the direction.
+    expect(within(screen.getByTestId('row-delta')).queryByTestId('pill')).toBeNull();
 
     // Real points (length > 1) => the actual points and the positive color; the beforeEach series.
     const spark = screen.getByTestId('sparkline');
@@ -174,7 +176,7 @@ describe('AssetRow', () => {
       const { unmount } = render(<AssetRow asset={makeAsset()} tokenPrices={tokenPrices} />);
 
       expect(screen.getByTestId('asset-list-item')).toHaveAttribute('data-delta-direction', 'neutral');
-      expect(within(screen.getByTestId('row-delta')).getByTestId('pill')).toHaveAttribute('data-tone', 'neutral');
+      expect(within(screen.getByTestId('row-delta')).queryByTestId('pill')).toBeNull();
       expect(screen.getByTestId('sparkline')).toHaveAttribute('data-color', 'var(--color-text-tertiary)');
       unmount();
     }
