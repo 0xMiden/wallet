@@ -3781,17 +3781,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Narzędzia",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Społeczność",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Gry",
@@ -3808,14 +3800,6 @@
   "exploreCategoriesLabel": {
     "message": "Kategorie",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Polecane",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Narzędzia pomocnicze",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Otwórz",
@@ -3844,10 +3828,6 @@
   "exploreNoResultsDescription": {
     "message": "Spróbuj innej nazwy lub wklej adres URL dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Zdobądź tokeny testnetowe do swapów",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Zminimalizuj",

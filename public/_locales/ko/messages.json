@@ -3781,17 +3781,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "도구",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "소셜",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "게임",
@@ -3808,14 +3800,6 @@
   "exploreCategoriesLabel": {
     "message": "카테고리",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "추천",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "도우미 도구",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "열기",
@@ -3844,10 +3828,6 @@
   "exploreNoResultsDescription": {
     "message": "다른 이름을 입력하거나 dApp URL을 붙여 넣으세요.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "스왑용 테스트넷 토큰 받기",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "최소화",

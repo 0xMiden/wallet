@@ -13,14 +13,6 @@ export { buildFaviconUrl, getFaviconUrl, getFallbackColor, getFallbackLetter } f
 export { rectFromDOMRect, rectsEqual, type WebViewRect } from './webview-rect';
 export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-confirmation';
 export {
-  FEATURED_DAPPS,
-  CAROUSEL_DAPPS,
-  type FeaturedDapp,
-  type FeaturedDappBadge,
-  type FeaturedDappCategory
-} from './featured-dapps';
-export { CATEGORIES, type CategoryDescriptor } from './category-data';
-export {
   EXPLORE_FILTERS,
   getExploreCatalog,
   localizeExploreCatalog,
