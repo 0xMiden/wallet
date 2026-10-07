@@ -618,7 +618,8 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 webViewController.closeModalCancel = self.closeModalCancel ?? closeModalCancel
             }
 
-            self.navigationWebViewController = UINavigationController.init(rootViewController: webViewController)
+            let navigationController = StatusBarForwardingNavigationController(rootViewController: webViewController)
+            self.navigationWebViewController = navigationController
             self.navigationWebViewController?.navigationBar.isTranslucent = false
             self.navigationWebViewController?.toolbar.isTranslucent = false
 
@@ -642,6 +643,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 // Set status bar style based on toolbar color
                 let isDark = self.isDarkColor(color)
                 webViewController.statusBarStyle = isDark ? .lightContent : .darkContent
+                navigationController.forwardsStatusBarStyle = true
+                // The bar's glass button capsules follow the bar's appearance, which otherwise follows the phone.
+                navigationController.navigationBar.overrideUserInterfaceStyle = isDark ? .dark : .light
                 webViewController.updateStatusBarStyle()
 
                 // Apply text color

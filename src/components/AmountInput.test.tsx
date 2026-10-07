@@ -15,6 +15,9 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// The clear button names itself through i18n; `t` echoes the key back.
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+
 // Convenience: the underlying react-currency-input-field renders a plain
 // <input>; we tag it with data-testid so every test can grab it directly.
 const TESTID = 'amount';
@@ -370,6 +373,92 @@ describe('AmountInput', () => {
       expect(getInput()).not.toHaveFocus();
       fireEvent.click(row);
       expect(getInput()).toHaveFocus();
+    });
+  });
+
+  describe('clear action (#503)', () => {
+    const clearButton = () => screen.queryByRole('button', { name: 'clear' });
+
+    it('offers a clear action only while there is an amount and the field is editable and loaded', () => {
+      const { rerender } = render(<AmountInput value="" data-testid={TESTID} />);
+      expect(clearButton()).toBeNull();
+
+      rerender(<AmountInput value="12.5" data-testid={TESTID} />);
+      expect(clearButton()).not.toBeNull();
+
+      rerender(<AmountInput value="12.5" disabled data-testid={TESTID} />);
+      expect(clearButton()).toBeNull();
+
+      rerender(<AmountInput value="12.5" loading data-testid={TESTID} />);
+      expect(clearButton()).toBeNull();
+    });
+
+    it("clears through the field's own value change, as deleting the amount does, and keeps focus", () => {
+      const onValueChange = jest.fn();
+      const Owner = () => {
+        const [value, setValue] = React.useState('12.5');
+        return (
+          <AmountInput
+            value={value}
+            onValueChange={(next, name, values) => {
+              onValueChange(next, name, values);
+              setValue(next ?? '');
+            }}
+            data-testid={TESTID}
+          />
+        );
+      };
+      render(<Owner />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+      expect(onValueChange).toHaveBeenLastCalledWith(undefined, undefined, { float: null, formatted: '', value: '' });
+      expect(getInput()).toHaveValue('');
+      expect(getInput()).toHaveFocus();
+      expect(clearButton()).toBeNull();
+    });
+
+    it('sits at the end of a left-aligned row, the input free to shrink for it', () => {
+      render(<AmountInput value="12.5" data-testid={TESTID} />);
+      const clear = screen.getByRole('button', { name: 'clear' });
+      expect(getInput()).toHaveClass('w-full', 'min-w-0');
+      expect(clear.parentElement).toBe(getInput().parentElement);
+      expect(clear).toHaveClass('ml-1', 'self-center');
+      expect(clear).not.toHaveClass('-mr-3');
+      expect(clear).not.toHaveClass('absolute');
+    });
+
+    it('sits inline after the amount in a centred row, centring with it as one group', () => {
+      const { rerender } = render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
+      const row = screen.getByText('$').parentElement!;
+      const clear = screen.getByRole('button', { name: 'clear' });
+      const amount = getInput().parentElement!;
+      expect(clear.parentElement).toBe(row);
+      expect(amount.nextElementSibling).toBe(clear);
+      expect(row).toHaveClass('justify-center');
+      expect(clear).toHaveClass('shrink-0', 'self-center');
+      expect(clear).not.toHaveClass('absolute');
+      // A value too long for the row scrolls inside the input instead of overflowing it.
+      expect(amount).toHaveClass('min-w-0');
+
+      rerender(<AmountInput align="center" prefix="$" value="" data-testid={TESTID} />);
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+      expect(row.querySelector('[aria-hidden="true"].h-11')).toBeNull();
+    });
+
+    it('holds the clear slot with an invisible spacer while a centred field with a value is disabled', () => {
+      const { container, rerender } = render(<AmountInput align="center" value="25" disabled data-testid={TESTID} />);
+      const amount = getInput().parentElement!;
+      const spacer = amount.nextElementSibling as HTMLElement;
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+      expect(spacer).toHaveAttribute('aria-hidden', 'true');
+      expect(spacer).toHaveClass('h-11', 'w-11', 'shrink-0');
+
+      rerender(<AmountInput align="center" value="" disabled data-testid={TESTID} />);
+      expect(container.querySelector('.h-11.w-11')).toBeNull();
+
+      rerender(<AmountInput value="25" disabled data-testid={TESTID} />);
+      expect(container.querySelector('.h-11.w-11')).toBeNull();
     });
   });
 
