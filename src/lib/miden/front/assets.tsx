@@ -24,12 +24,17 @@ import {
   TOKENS_METADATA_OVERRIDES_STORAGE_KEY
 } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { ensureTokensMetadataSchema, updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
+import {
+  ensureTokensMetadataSchema,
+  TOKENS_BASE_METADATA_STORAGE_KEY as ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
+  updateTokensBaseMetadata
+} from 'lib/miden/metadata/storage';
 import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 import { faucetMetadataOf, useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
 
-export const ALL_TOKENS_BASE_METADATA_STORAGE_KEY = 'tokens_base_metadata';
+// Defined once, beside the schema check that clears it, so every reader names the key it clears.
+export { ALL_TOKENS_BASE_METADATA_STORAGE_KEY };
 
 export type TokenBalance = {
   faucetId: string;

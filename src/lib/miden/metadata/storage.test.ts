@@ -1,3 +1,5 @@
+import type * as AssetsModule from 'lib/miden/front/assets';
+
 import type * as StorageModule from './storage';
 import type { AssetMetadata } from './types';
 
@@ -150,5 +152,30 @@ describe('ensureTokensMetadataSchema', () => {
 
     // The old record is gone. The merge read the cache after the clear.
     expect(storage.items.metadata).toEqual({ 'faucet-2': fresh });
+  });
+});
+
+describe('the cache key', () => {
+  it('is the constant front/assets exports, so the schema check clears the key its readers read', async () => {
+    // A stand-in value for this module's constant. An importer with its own literal keeps the real value.
+    const standIn = 'tokens_base_metadata_stand_in';
+    let exported: string | undefined;
+    let cleared: string | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('./storage', () => ({
+        ...jest.requireActual<typeof StorageModule>('./storage'),
+        TOKENS_BASE_METADATA_STORAGE_KEY: standIn
+      }));
+      exported = jest.requireActual<typeof AssetsModule>('lib/miden/front/assets').ALL_TOKENS_BASE_METADATA_STORAGE_KEY;
+    });
+    const storage = memoryStorage({ 'faucet-1': oldShapeRecord });
+    const { ensureTokensMetadataSchema, TOKENS_BASE_METADATA_STORAGE_KEY } = loadStorageModule();
+    await ensureTokensMetadataSchema(storage.read, async (key, value) => {
+      if (typeof value === 'object') cleared = key;
+      await storage.write(key, value);
+    });
+
+    expect(exported).toBe(standIn);
+    expect(cleared).toBe(TOKENS_BASE_METADATA_STORAGE_KEY);
   });
 });
