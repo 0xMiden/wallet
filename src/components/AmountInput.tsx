@@ -166,10 +166,14 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       {label != null && (typeof label === 'string' ? <span className={amountCaptionClassName}>{label}</span> : label)}
 
       <div
-        // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
+        // Centred, the row carries the amount's size so the prefix's 0.6em scales with it. While the
+        // clear button shows, px-11 reserves its 44px on both sides, so the amount keeps its centre
+        // and a value too long for what is left scrolls inside the input.
         className={classNames(
           'flex cursor-text mt-3',
-          centered ? classNames('relative items-start justify-center', amountTextSize(value)) : 'items-baseline'
+          centered
+            ? classNames('relative items-start justify-center', amountTextSize(value), showClear && 'px-11')
+            : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -190,7 +194,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         ) : centered ? (
           // An invisible copy of the value sizes the grid cell, so the input is exactly as wide as
           // what it holds and the prefix + number centre as one.
-          <span className="inline-grid">
+          <span className="inline-grid min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden">
             <span aria-hidden="true" className={classNames(amountClasses, 'invisible whitespace-pre [grid-area:1/1]')}>
               {value || placeholder}
             </span>

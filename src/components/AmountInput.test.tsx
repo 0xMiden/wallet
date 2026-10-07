@@ -435,6 +435,19 @@ describe('AmountInput', () => {
       expect(row).toHaveClass('relative', 'justify-center');
       expect(clear).toHaveClass('absolute', 'right-0', 'top-1/2', '-translate-y-1/2');
     });
+
+    it('reserves the clear button width on both sides of a centred amount, only while it shows', () => {
+      const { rerender } = render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
+      const row = screen.getByText('$').parentElement!;
+      expect(row).toHaveClass('px-11');
+      expect(getInput().parentElement).toHaveClass('min-w-0');
+
+      rerender(<AmountInput align="center" prefix="$" value="" data-testid={TESTID} />);
+      expect(row).not.toHaveClass('px-11');
+
+      rerender(<AmountInput prefix="$" value="25" data-testid={TESTID} />);
+      expect(screen.getByText('$').parentElement).not.toHaveClass('px-11');
+    });
   });
 
   describe('normalizeDecimalInput', () => {
