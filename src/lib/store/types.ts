@@ -5,6 +5,7 @@ import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
+import type { TokenMetadataOverride, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
 import type {
   SpendingLimitAssessment,
   SpendingLimitConfiguration,
@@ -54,7 +55,10 @@ export interface BalancesSlice {
  * Assets metadata (previously TokensMetadataProvider)
  */
 export interface AssetsSlice {
+  /** The metadata each screen shows: the faucet's values with the user's override applied. */
   assetsMetadata: Record<string, AssetMetadata>;
+  /** The display values the user set, by faucet id. Loaded from storage by `TokensMetadataProvider`. */
+  tokenMetadataOverrides: TokenMetadataOverrides;
 }
 
 /**
@@ -253,8 +257,18 @@ export interface BalanceActions {
 }
 
 export interface AssetActions {
+  /** Takes the faucet's metadata. The store applies the user's overrides before it shows it. */
   setAssetsMetadata: (metadata: Record<string, AssetMetadata>) => void;
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;
+  /**
+   * Sets the user's display values of a token, and stores them. The screens change at once.
+   * Rejects, and puts back the previous values, when the write fails. Rejects for the native token.
+   */
+  setTokenMetadataOverride: (faucetId: string, override: TokenMetadataOverride) => Promise<void>;
+  /** Removes the user's display values of a token, so the faucet's values show again. Rejects when the write fails. */
+  clearTokenMetadataOverride: (faucetId: string) => Promise<void>;
+  /** Replaces the overrides map with the stored one, and applies it again. */
+  hydrateTokenMetadataOverrides: (overrides: TokenMetadataOverrides) => void;
 }
 
 /**

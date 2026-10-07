@@ -7,6 +7,7 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
@@ -27,8 +28,10 @@ import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedC
 import { Skeleton } from 'components/ui/Skeleton';
 import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
+import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -44,6 +47,8 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
 import { truncateHash } from 'utils/string';
+
+import { EditTokenDetailsDrawer, TokenDetailsValues } from './EditTokenDetailsDrawer';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -191,12 +196,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <PriceChart symbol={priceSymbol} priceInfo={quote} />
           )}
 
-          <TokenInfo
-            key={account.publicKey}
-            tokenId={tokenId}
-            address={account.publicKey}
-            description={metadata?.description}
-          />
+          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} metadata={metadata} />
 
           <section data-testid="token-detail-activity">
             <SectionHeader size="lg" tone="muted">
@@ -334,13 +334,33 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
 type TokenInfoProps = {
   tokenId: string;
   address: string;
-  /** The description the faucet stores. The page resolves the metadata once and passes it down. */
-  description?: string;
+  /** The metadata the page shows: the faucet's, with the user's override applied. The page resolves it once. */
+  metadata?: AssetMetadata;
 };
 
-const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, description }) => {
+/** The sheet's starting values. A decimals value that is a guess is left empty, so the user must state it. */
+function tokenDetailsValues(metadata: AssetMetadata | undefined): TokenDetailsValues {
+  return {
+    name: metadata?.name ?? '',
+    symbol: metadata?.symbol ?? '',
+    decimals: metadata && hasKnownScale(metadata) ? String(metadata.decimals) : ''
+  };
+}
+
+const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const { t } = useTranslation();
   const network = useNetwork();
+  const description = metadata?.description;
+  const nativeFaucetId = useMidenFaucetId();
+  // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.
+  const canEdit =
+    nativeFaucetId !== null &&
+    normalizedFaucetId(tokenId) !== normalizedFaucetId(nativeFaucetId) &&
+    canOverrideMetadata(tokenId);
+  const hasOverride = useWalletStore(s => s.tokenMetadataOverrides[tokenId] !== undefined);
+  const edited = canEdit && hasOverride;
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSession, setEditSession] = useState(0);
   // Undefined on a build with no explorer configured for the effective network (e.g. a custom
   // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
   // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
@@ -364,9 +384,27 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, description }) => {
     void result.then(succeeded => setSaveFailed(!succeeded));
   };
 
+  const handleEdit = () => {
+    hapticLight();
+    setEditSession(session => session + 1);
+    setEditOpen(true);
+  };
+
   return (
     <section data-testid="token-detail-info">
-      <SectionHeader size="lg" tone="muted">
+      <SectionHeader
+        size="lg"
+        tone="muted"
+        action={
+          // On the page, not in the card: a neutral pill on the `fill` card would not show.
+          // It says that the name, symbol and decimals on this page are the user's, not the faucet's.
+          edited ? (
+            <Pill size="sm" tone="neutral" data-testid="token-detail-edited">
+              {t('tokenMetadataEdited')}
+            </Pill>
+          ) : undefined
+        }
+      >
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard>
@@ -414,6 +452,20 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, description }) => {
             <Icon name={IconName.ArrowRightUp} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
           </button>
         )}
+        {canEdit && (
+          // The explorer row's text action. It opens a sheet, so it says so to assistive technology.
+          <button
+            type="button"
+            onClick={handleEdit}
+            aria-haspopup="dialog"
+            aria-expanded={editOpen}
+            data-testid="token-detail-edit"
+            className="flex w-full items-center justify-between px-4 py-3 text-left text-action text-accent-tint-ink"
+          >
+            {t('editTokenDetails')}
+            <Icon name={IconName.Edit} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
+          </button>
+        )}
         {canHide && (
           // The explorer row's text action. Disabled only until the set is read (or when it cannot
           // be): a rolled-back save leaves it usable, so the user can try again.
@@ -448,6 +500,16 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, description }) => {
         <ErrorLine role="note" className="mt-2" data-testid="token-detail-hidden-unreadable">
           {t('hiddenTokensUnreadable')}
         </ErrorLine>
+      )}
+      {canEdit && (
+        <EditTokenDetailsDrawer
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          faucetId={tokenId}
+          initialValues={tokenDetailsValues(metadata)}
+          edited={edited}
+          sessionKey={editSession}
+        />
       )}
     </section>
   );

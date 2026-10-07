@@ -110,8 +110,9 @@ describe('lib/store/types', () => {
     });
 
     it('AssetsSlice holds a metadata record', () => {
-      const slice: AssetsSlice = { assetsMetadata: {} };
+      const slice: AssetsSlice = { assetsMetadata: {}, tokenMetadataOverrides: {} };
       expect(slice.assetsMetadata).toEqual({});
+      expect(slice.tokenMetadataOverrides).toEqual({});
     });
 
     it('UISlice supports the null (no selection / no confirmation) branch', () => {

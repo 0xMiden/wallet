@@ -92,6 +92,13 @@ jest.mock('../../miden/front/assets', () => ({
   setTokensBaseMetadata: jest.fn()
 }));
 
+// The stored overrides are the input under test. The apply logic is the real one.
+const mockGetTokenMetadataOverrides = jest.fn();
+jest.mock('lib/miden/metadata/overrides', () => ({
+  ...jest.requireActual('lib/miden/metadata/overrides'),
+  getTokenMetadataOverrides: () => mockGetTokenMetadataOverrides()
+}));
+
 describe('fetchBalances', () => {
   let warnSpy: jest.SpyInstance;
 
@@ -99,6 +106,7 @@ describe('fetchBalances', () => {
     mockGetAccount.mockReset();
     mockSyncState.mockReset();
     mockFetchTokenMetadata.mockReset();
+    mockGetTokenMetadataOverrides.mockReset().mockResolvedValue({});
     // Process-wide rate limit — without this a faucet that failed in one case
     // stays in backoff and silently skips the fetch in the next.
     __resetUnresolvedFaucetsForTest();
@@ -402,6 +410,77 @@ describe('fetchBalances', () => {
     expect(priceOf('MIDEN')).toEqual({ fiatPrice: 0, change24h: 0 });
 
     getBech32AddressFromAccountId.mockImplementation((id: string) => `bech32-${id}`);
+  });
+
+  describe('the user override of a token', () => {
+    const customMetadata = { name: 'Custom', symbol: 'CST', decimals: 8 };
+
+    it('scales the balance by the overridden decimals and shows the overridden symbol', async () => {
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-custom-faucet': { symbol: 'MN', decimals: 6 } });
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '150000000' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', { 'bech32-custom-faucet': customMetadata }))!;
+
+      // 150000000 base units at the overridden 6 decimals, not the faucet's 8.
+      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({
+        tokenSlug: 'MN',
+        balance: 150,
+        metadata: { name: 'Custom', symbol: 'MN', decimals: 6, scaleIsUnknown: false }
+      });
+    });
+
+    it('applies the override over a fetched record, and stores the record as the faucet gave it', async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-custom-faucet': { decimals: 2 } });
+      mockFetchTokenMetadata.mockResolvedValueOnce(customMetadata);
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '500' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', {}))!;
+
+      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({ balance: 5 });
+      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'bech32-custom-faucet': customMetadata });
+    });
+
+    it('gives a quantity to a token whose faucet could not be read, once the user states its decimals', async () => {
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-unknown-faucet': { decimals: 3 } });
+      mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'unknown-faucet', amount: () => ({ toString: () => '2000' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', {}))!;
+
+      expect(result.find(row => row.tokenId === 'bech32-unknown-faucet')).toMatchObject({
+        balance: 2,
+        metadata: { decimals: 3, scaleIsUnknown: false }
+      });
+    });
+
+    it('reads the balances without overrides when the overrides cannot be read', async () => {
+      mockGetTokenMetadataOverrides.mockRejectedValue(new Error('storage unavailable'));
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '100000000' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', { 'bech32-custom-faucet': customMetadata }))!;
+
+      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({
+        tokenSlug: 'CST',
+        balance: 1
+      });
+    });
   });
 
   it('shows unknown tokens with default metadata when fetch fails', async () => {

@@ -1,3 +1,4 @@
+import BigNumber from 'bignumber.js';
 import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
@@ -8,6 +9,16 @@ import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/no
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
+import {
+  applyMetadataOverride,
+  applyOverrideFor,
+  canOverrideMetadata,
+  TokenMetadataOverride,
+  TokenMetadataOverrides,
+  writeTokenMetadataOverride
+} from 'lib/miden/metadata/overrides';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import {
   parsePersistedSpendingLimit,
   parseSerializedSpendingLimitAssessment,
@@ -21,6 +32,7 @@ import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
+import { balancePrice } from './utils/balancePrice';
 import { fetchBalances, fetchingAddresses } from './utils/fetchBalances';
 
 // Singleton intercom client
@@ -57,6 +69,102 @@ function assertResponse(condition: boolean): asserts condition {
   }
 }
 
+/**
+ * The faucet's own metadata of each token, as last given to the store.
+ * `assetsMetadata` holds it with the user's override applied, so a cleared override needs this copy.
+ */
+const faucetAssetsMetadata = new Map<string, AssetMetadata>();
+
+/** Exported for tests: the map is module-wide and would otherwise leak between cases. */
+export function __resetFaucetAssetsMetadataForTest(): void {
+  faucetAssetsMetadata.clear();
+}
+
+function faucetMetadataFor(state: WalletStore, faucetId: string): AssetMetadata | undefined {
+  const recorded = faucetAssetsMetadata.get(faucetId);
+  if (recorded) return recorded;
+  // An entry that no override changed is the faucet's own record.
+  return state.tokenMetadataOverrides[faucetId] === undefined ? state.assetsMetadata[faucetId] : undefined;
+}
+
+/** The metadata to show. Without the faucet's metadata, an override applies to the unknown-token placeholder. */
+function shownMetadata(
+  base: AssetMetadata | undefined,
+  override: TokenMetadataOverride | undefined
+): AssetMetadata | undefined {
+  if (base) return applyMetadataOverride(base, override);
+  if (override) return applyMetadataOverride(DEFAULT_TOKEN_METADATA, override);
+  return undefined;
+}
+
+/**
+ * Applies `overrides` to the store entries and the balance rows of `faucetIds`.
+ * A row's balance was divided by `10 ** row.metadata.decimals`, so a change of decimals shifts it
+ * by the difference. Home then shows the new scale at once, with no new read.
+ */
+function withOverrides(
+  state: WalletStore,
+  overrides: TokenMetadataOverrides,
+  faucetIds: string[]
+): Pick<WalletStore, 'tokenMetadataOverrides' | 'assetsMetadata' | 'balances'> {
+  const assetsMetadata = { ...state.assetsMetadata };
+  let balances = state.balances;
+  for (const faucetId of faucetIds) {
+    if (!canOverrideMetadata(faucetId)) continue;
+    const shown = shownMetadata(faucetMetadataFor(state, faucetId), overrides[faucetId]);
+    if (shown) assetsMetadata[faucetId] = shown;
+    else delete assetsMetadata[faucetId];
+    // Without any metadata, the rows show the placeholder until the next balance read.
+    const rowMetadata = shown ?? DEFAULT_TOKEN_METADATA;
+    balances = Object.fromEntries(
+      Object.entries(balances).map(([account, rows]) => [
+        account,
+        rows.map(row =>
+          row.tokenId === faucetId
+            ? {
+                ...row,
+                metadata: rowMetadata,
+                tokenSlug: rowMetadata.symbol,
+                balance: new BigNumber(row.balance).shiftedBy(row.metadata.decimals - rowMetadata.decimals).toNumber(),
+                ...balancePrice(state.tokenPrices, faucetId, rowMetadata.symbol)
+              }
+            : row
+        )
+      ])
+    );
+  }
+  return { tokenMetadataOverrides: overrides, assetsMetadata, balances };
+}
+
+function withTokenMetadataOverride(
+  state: WalletStore,
+  faucetId: string,
+  override: TokenMetadataOverride | undefined
+): Pick<WalletStore, 'tokenMetadataOverrides' | 'assetsMetadata' | 'balances'> {
+  const overrides = { ...state.tokenMetadataOverrides };
+  if (override === undefined) delete overrides[faucetId];
+  else overrides[faucetId] = override;
+  return withOverrides(state, overrides, [faucetId]);
+}
+
+/**
+ * Shows the change at once, then stores it.
+ * When the write fails, the previous override of this faucet comes back, and the call rejects.
+ */
+async function changeTokenMetadataOverride(
+  faucetId: string,
+  override: TokenMetadataOverride | undefined
+): Promise<void> {
+  const previous = useWalletStore.getState().tokenMetadataOverrides[faucetId];
+  useWalletStore.setState(state => withTokenMetadataOverride(state, faucetId, override));
+  try {
+    await writeTokenMetadataOverride(faucetId, override);
+  } catch (error) {
+    useWalletStore.setState(state => withTokenMetadataOverride(state, faucetId, previous));
+    throw error;
+  }
+}
+
 export const useWalletStore = create<WalletStore>()(
   subscribeWithSelector((set, get) => ({
     // Initial wallet state
@@ -74,6 +182,7 @@ export const useWalletStore = create<WalletStore>()(
 
     // Initial assets state
     assetsMetadata: {},
+    tokenMetadataOverrides: {},
 
     // Initial UI state
     selectedNetworkId: null,
@@ -707,21 +816,56 @@ export const useWalletStore = create<WalletStore>()(
 
     // Asset actions
     setAssetsMetadata: metadata => {
+      // A storage change event gives `undefined` for a removed key.
+      const entries = Object.entries(metadata ?? {});
+      for (const [faucetId, value] of entries) faucetAssetsMetadata.set(faucetId, value);
       set(state => ({
-        assetsMetadata: { ...state.assetsMetadata, ...metadata }
+        assetsMetadata: {
+          ...state.assetsMetadata,
+          ...Object.fromEntries(
+            entries.map(([faucetId, value]) => [
+              faucetId,
+              applyOverrideFor(faucetId, value, state.tokenMetadataOverrides)
+            ])
+          )
+        }
       }));
     },
 
     fetchAssetMetadata: async assetId => {
       try {
         const metadata = await fetchTokenMetadata(assetId);
+        faucetAssetsMetadata.set(assetId, metadata);
         set(state => ({
-          assetsMetadata: { ...state.assetsMetadata, [assetId]: metadata }
+          assetsMetadata: {
+            ...state.assetsMetadata,
+            [assetId]: applyOverrideFor(assetId, metadata, state.tokenMetadataOverrides)
+          }
         }));
         return metadata;
       } catch {
         return null;
       }
+    },
+
+    setTokenMetadataOverride: async (faucetId, override) => {
+      if (!canOverrideMetadata(faucetId)) {
+        throw new Error('The metadata of the native token cannot be overridden');
+      }
+      await changeTokenMetadataOverride(faucetId, override);
+    },
+
+    clearTokenMetadataOverride: async faucetId => {
+      if (get().tokenMetadataOverrides[faucetId] === undefined) return;
+      await changeTokenMetadataOverride(faucetId, undefined);
+    },
+
+    hydrateTokenMetadataOverrides: overrides => {
+      set(state => {
+        // A faucet that loses its override needs its entry back, so both maps' faucets are applied again.
+        const faucetIds = new Set([...Object.keys(state.tokenMetadataOverrides), ...Object.keys(overrides)]);
+        return withOverrides(state, overrides, [...faucetIds]);
+      });
     },
 
     // Fiat currency actions

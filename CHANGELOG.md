@@ -5,6 +5,7 @@
 ### Changes
 
 - [CHANGE][all] Read the token name and description from the faucet: asset rows show the name, the token page shows the description, and the unused TZIP-21 metadata fields are dropped.
+- [FEATURE][all] Let the user edit a token's displayed name, symbol and decimals from the token page, with a reset to the faucet's values.
 
 ### Fixes
 

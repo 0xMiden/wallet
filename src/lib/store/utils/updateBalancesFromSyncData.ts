@@ -4,6 +4,7 @@ import { getFaucetIdSetting } from 'lib/miden/assets';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import { applyOverrideFor, getTokenMetadataOverrides, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { SerializedVaultAsset } from 'lib/shared/types';
@@ -29,6 +30,11 @@ export async function updateBalancesFromSyncData(
   const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
   const actualNativeId = getNativeAssetIdSync();
+  // Read from storage, not from the store: a sync can land before the provider loads them.
+  const overrides = await getTokenMetadataOverrides().catch((error): TokenMetadataOverrides => {
+    console.warn('Token metadata overrides read failed', error);
+    return {};
+  });
 
   const balances: TokenBalanceData[] = [];
   let hasMiden = false;
@@ -71,6 +77,9 @@ export async function updateBalancesFromSyncData(
     } else {
       tokenMetadata = DEFAULT_TOKEN_METADATA;
     }
+    // The user's display values apply after the faucet's record is kept to store above.
+    // A cached store entry has them already, and a second application changes nothing.
+    if (!isMiden) tokenMetadata = applyOverrideFor(asset.faucetId, tokenMetadata, overrides);
 
     const balance = new BigNumber(asset.amountBaseUnits).div(10 ** tokenMetadata.decimals);
 

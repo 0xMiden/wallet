@@ -14,6 +14,7 @@ import {
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import { applyOverrideFor, getTokenMetadataOverrides, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
@@ -266,6 +267,12 @@ export async function fetchBalances(
   );
   const cachedMetadatas =
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
+  // Read from storage, not from the store: the Ready-time read can run before the provider loads them.
+  // The cached records below replace the store's entries, so the overrides are applied again to each row.
+  const overrides = await getTokenMetadataOverrides().catch((error): TokenMetadataOverrides => {
+    console.warn('Token metadata overrides read failed', error);
+    return {};
+  });
   const midenFaucetId = await getFaucetIdSetting();
   const actualNativeId = getNativeAssetIdSync();
 
@@ -364,7 +371,7 @@ export async function fetchBalances(
         ? getNativeDisplayMetadataSync(localMetadatas[tokenId], tokenId)
         : isMiden
           ? nativeMetadata
-          : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
+          : applyOverrideFor(tokenId, localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA, overrides);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
 

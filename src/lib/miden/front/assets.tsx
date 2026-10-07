@@ -14,7 +14,15 @@ import {
   putToStorage,
   isMidenAsset
 } from 'lib/miden/front';
+import { DEFAULT_TOKEN_METADATA as UNKNOWN_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import {
+  applyMetadataOverride,
+  getTokenMetadataOverrides,
+  overrideFor,
+  parseTokenMetadataOverrides,
+  TOKENS_METADATA_OVERRIDES_STORAGE_KEY
+} from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { ensureTokensMetadataSchema, updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
 import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
@@ -95,6 +103,27 @@ const defaultAllTokensBaseMetadata: Record<string, AssetMetadata> = {};
  */
 export function TokensMetadataProvider({ children }: { children: React.ReactNode }) {
   const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
+  const hydrateTokenMetadataOverrides = useWalletStore(s => s.hydrateTokenMetadataOverrides);
+
+  // Load the user's display values into the store, and keep them in step with storage.
+  // On the extension a write from another page fires a change event. Off the extension the event
+  // fires only on a wipe, so the store action that writes an override also updates the store.
+  useEffect(() => {
+    let cancelled = false;
+    const stop = onStorageChanged<unknown>(TOKENS_METADATA_OVERRIDES_STORAGE_KEY, value =>
+      hydrateTokenMetadataOverrides(parseTokenMetadataOverrides(value))
+    );
+    getTokenMetadataOverrides().then(
+      overrides => {
+        if (!cancelled) hydrateTokenMetadataOverrides(overrides);
+      },
+      error => console.warn('Token metadata overrides read failed', error)
+    );
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [hydrateTokenMetadataOverrides]);
 
   // Sync the stored metadata to Zustand once on mount. The read comes after the shape check,
   // so records of an older shape never get into Zustand.
@@ -170,11 +199,23 @@ export async function setTokensBaseMetadata(toSet: Record<string, AssetMetadata>
   );
 }
 
-export const getTokensBaseMetadata = async (assetId: string) => {
-  const allTokensBaseMetadata: Record<string, AssetMetadata> =
-    (await fetchFromStorage(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || defaultAllTokensBaseMetadata;
-
-  return allTokensBaseMetadata[assetId];
+/**
+ * The cached metadata of a token, with the user's override applied.
+ * History rows read metadata here, not from the store, so the override is applied here too.
+ * Without a cached record, an override applies to the unknown-token placeholder.
+ */
+export const getTokensBaseMetadata = async (assetId: string): Promise<AssetMetadata | undefined> => {
+  const [allTokensBaseMetadata, overrides] = await Promise.all([
+    fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY),
+    getTokenMetadataOverrides().catch(error => {
+      console.warn('Token metadata overrides read failed', error);
+      return {};
+    })
+  ]);
+  const stored = (allTokensBaseMetadata || defaultAllTokensBaseMetadata)[assetId];
+  const override = overrideFor(overrides, assetId);
+  if (override === undefined) return stored;
+  return applyMetadataOverride(stored ?? UNKNOWN_TOKEN_METADATA, override);
 };
 
 /**

@@ -30,6 +30,13 @@ jest.mock('../../miden/front/assets', () => ({
   setTokensBaseMetadata: jest.fn(async () => {})
 }));
 
+// The stored overrides are the input under test. The apply logic is the real one.
+const mockGetTokenMetadataOverrides = jest.fn();
+jest.mock('lib/miden/metadata/overrides', () => ({
+  ...jest.requireActual('lib/miden/metadata/overrides'),
+  getTokenMetadataOverrides: () => mockGetTokenMetadataOverrides()
+}));
+
 describe('updateBalancesFromSyncData', () => {
   beforeEach(() => {
     useWalletStore.setState({
@@ -39,6 +46,47 @@ describe('updateBalancesFromSyncData', () => {
       assetsMetadata: {}
     });
     jest.clearAllMocks();
+    mockGetTokenMetadataOverrides.mockReset().mockResolvedValue({});
+  });
+
+  describe('the user override of a token', () => {
+    it('scales the balance by the overridden decimals, and stores the faucet record unchanged', async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      const faucetRecord = { name: 'CustomToken', symbol: 'CTK', decimals: 6 };
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'custom-faucet-456': { symbol: 'MINE', decimals: 2 } });
+
+      await updateBalancesFromSyncData('account-1', [
+        { faucetId: 'custom-faucet-456', amountBaseUnits: '2000000', metadata: faucetRecord }
+      ]);
+
+      const custom = useWalletStore.getState().balances['account-1']!.find(b => b.tokenId === 'custom-faucet-456');
+      // 2000000 base units at the overridden 2 decimals, not the faucet's 6.
+      expect(custom).toMatchObject({
+        tokenSlug: 'MINE',
+        balance: 20000,
+        metadata: { symbol: 'MINE', decimals: 2, scaleIsUnknown: false }
+      });
+      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'custom-faucet-456': faucetRecord });
+    });
+
+    it('gives a quantity to a token with no metadata once the user states its decimals', async () => {
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bare-faucet': { decimals: 3 } });
+
+      await updateBalancesFromSyncData('account-1', [{ faucetId: 'bare-faucet', amountBaseUnits: '2000' }]);
+
+      const bare = useWalletStore.getState().balances['account-1']!.find(b => b.tokenId === 'bare-faucet');
+      expect(bare).toMatchObject({ balance: 2, metadata: { decimals: 3, scaleIsUnknown: false } });
+    });
+
+    it('never applies an override to the native token', async () => {
+      mockNativeAssetId = MOCK_MIDEN_FAUCET_ID;
+      mockNativeMetadata = { symbol: 'MIDEN', decimals: 6 };
+      mockGetTokenMetadataOverrides.mockResolvedValue({ [MOCK_MIDEN_FAUCET_ID]: { symbol: 'FAKE', decimals: 2 } });
+
+      await updateBalancesFromSyncData('account-1', [{ faucetId: MOCK_MIDEN_FAUCET_ID, amountBaseUnits: '5000000' }]);
+
+      expect(useWalletStore.getState().balances['account-1']![0]).toMatchObject({ tokenSlug: 'MIDEN', balance: 5 });
+    });
   });
 
   afterEach(() => {

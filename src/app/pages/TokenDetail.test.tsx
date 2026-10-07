@@ -71,9 +71,44 @@ jest.mock('lib/miden/front', () => ({
 // `useWalletStore(s => s.tokenPrices)` — apply the selector to a controllable
 // state object, matching the sibling KeysSettings.test.tsx pattern.
 let mockTokenPrices: Record<string, unknown> = {};
+let mockTokenMetadataOverrides: Record<string, unknown> = {};
+const mockSetTokenMetadataOverride = jest.fn();
+const mockClearTokenMetadataOverride = jest.fn();
+type MockStoreState = {
+  tokenPrices: Record<string, unknown>;
+  tokenMetadataOverrides: Record<string, unknown>;
+  setTokenMetadataOverride: typeof mockSetTokenMetadataOverride;
+  clearTokenMetadataOverride: typeof mockClearTokenMetadataOverride;
+};
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (s: { tokenPrices: Record<string, unknown> }) => unknown) =>
-    selector({ tokenPrices: mockTokenPrices })
+  useWalletStore: (selector: (s: MockStoreState) => unknown) =>
+    selector({
+      tokenPrices: mockTokenPrices,
+      tokenMetadataOverrides: mockTokenMetadataOverrides,
+      setTokenMetadataOverride: mockSetTokenMetadataOverride,
+      clearTokenMetadataOverride: mockClearTokenMetadataOverride
+    })
+}));
+
+// The sheet's content renders only while it is open, as vaul's portal does.
+jest.mock('lib/ui/drawer', () => ({
+  Drawer: ({
+    open,
+    onOpenChange,
+    children
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    children: React.ReactNode;
+  }) => (
+    <div data-testid="drawer" data-open={String(open)}>
+      <button data-testid="drawer-dismiss" onClick={() => onOpenChange(false)} />
+      {open && children}
+    </div>
+  ),
+  DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
+  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-header">{children}</div>,
+  DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
 }));
 
 // The kline fetch is stubbed; the price lookup is the real one, reading `mockTokenPrices`.
@@ -329,6 +364,9 @@ const renderPage = (o?: Overrides, tokenId: string = TOKEN_ID) => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockTokenPrices = {};
+  mockTokenMetadataOverrides = {};
+  mockSetTokenMetadataOverride.mockReset().mockResolvedValue(undefined);
+  mockClearTokenMetadataOverride.mockReset().mockResolvedValue(undefined);
   mockNativeFaucetId = 'mtst1native';
   jest.mocked(getNativeAssetIdSync).mockReturnValue(null);
   jest.mocked(getNativeAssetMetadataSync).mockReturnValue(null);
@@ -1164,6 +1202,224 @@ describe('TokenDetail', () => {
       } finally {
         warn.mockRestore();
       }
+    });
+  });
+
+  describe('editing the token details', () => {
+    const shownMetadata = { name: 'Ether', symbol: 'ETH', decimals: 8 };
+    const renderEditable = (o: Overrides = {}) =>
+      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: shownMetadata }], ...o });
+    const action = () => screen.getByTestId('token-detail-edit');
+    const field = (name: 'name' | 'symbol' | 'decimals') => screen.getByTestId(`edit-token-${name}`);
+    const sheetOpen = () => screen.getByTestId('drawer').getAttribute('data-open');
+
+    it('offers the action in the token info card, styled like the other text actions', () => {
+      renderEditable();
+
+      expect(within(screen.getByTestId('token-detail-info')).getByTestId('token-detail-edit')).toBe(action());
+      expect(action()).toHaveTextContent('editTokenDetails');
+      expect(action()).toHaveClass('text-action', 'text-accent-tint-ink');
+      expect(action()).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(action()).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('offers no action for the native token', () => {
+      mockNativeFaucetId = TOKEN_ID;
+      renderEditable();
+
+      expect(screen.queryByTestId('token-detail-edit')).toBeNull();
+      expect(screen.queryByTestId('drawer')).toBeNull();
+    });
+
+    it('offers no action before the native token is known', () => {
+      mockNativeFaucetId = null;
+      renderEditable();
+
+      expect(screen.queryByTestId('token-detail-edit')).toBeNull();
+    });
+
+    it('opens the sheet with the values the page shows, and a light haptic', () => {
+      renderEditable();
+      expect(sheetOpen()).toBe('false');
+
+      fireEvent.click(action());
+
+      expect(mockHapticLight).toHaveBeenCalled();
+      expect(sheetOpen()).toBe('true');
+      expect(action()).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('drawer-title')).toHaveTextContent('editTokenDetailsTitle');
+      expect(field('name')).toHaveValue('Ether');
+      expect(field('symbol')).toHaveValue('ETH');
+      expect(field('decimals')).toHaveValue('8');
+      expect(screen.getByTestId('edit-token-notice')).toHaveTextContent('tokenMetadataOverrideNotice');
+    });
+
+    it('leaves the decimals empty for a token whose scale is a guess, so the user must state it', () => {
+      renderEditable({
+        balances: [
+          {
+            tokenId: TOKEN_ID,
+            balance: 1,
+            metadata: { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
+          }
+        ]
+      });
+
+      fireEvent.click(action());
+
+      expect(field('decimals')).toHaveValue('');
+    });
+
+    it('shows an error under each field that is not valid, and saves nothing', () => {
+      renderEditable();
+      fireEvent.click(action());
+
+      fireEvent.change(field('name'), { target: { value: '   ' } });
+      fireEvent.change(field('symbol'), { target: { value: 'A-SYMBOL-TOO-LONG' } });
+      fireEvent.change(field('decimals'), { target: { value: '19' } });
+      fireEvent.click(screen.getByTestId('edit-token-save'));
+
+      expect(screen.getByTestId('edit-token-name-error')).toHaveTextContent('tokenNameInvalid_32');
+      expect(screen.getByTestId('edit-token-symbol-error')).toHaveTextContent('tokenSymbolInvalid_12');
+      expect(screen.getByTestId('edit-token-decimals-error')).toHaveTextContent('tokenDecimalsInvalid_18');
+      expect(field('name')).toHaveAttribute('aria-invalid', 'true');
+      expect(mockSetTokenMetadataOverride).not.toHaveBeenCalled();
+      expect(sheetOpen()).toBe('true');
+    });
+
+    it.each(['1.5', '-1', 'abc', ''])('refuses %p as decimals', decimals => {
+      renderEditable();
+      fireEvent.click(action());
+
+      fireEvent.change(field('decimals'), { target: { value: decimals } });
+      fireEvent.click(screen.getByTestId('edit-token-save'));
+
+      expect(screen.getByTestId('edit-token-decimals-error')).toBeInTheDocument();
+      expect(screen.queryByTestId('edit-token-name-error')).toBeNull();
+      expect(mockSetTokenMetadataOverride).not.toHaveBeenCalled();
+    });
+
+    it('clears a field error when the user edits the field', () => {
+      renderEditable();
+      fireEvent.click(action());
+      fireEvent.change(field('name'), { target: { value: '' } });
+      fireEvent.click(screen.getByTestId('edit-token-save'));
+      expect(screen.getByTestId('edit-token-name-error')).toBeInTheDocument();
+
+      fireEvent.change(field('name'), { target: { value: 'E' } });
+
+      expect(screen.queryByTestId('edit-token-name-error')).toBeNull();
+    });
+
+    it('saves the trimmed values with the symbol upper-cased, then closes the sheet', async () => {
+      renderEditable();
+      fireEvent.click(action());
+
+      fireEvent.change(field('name'), { target: { value: '  My Ether  ' } });
+      fireEvent.change(field('symbol'), { target: { value: ' meth ' } });
+      fireEvent.change(field('decimals'), { target: { value: ' 18 ' } });
+      fireEvent.click(screen.getByTestId('edit-token-save'));
+
+      expect(mockSetTokenMetadataOverride).toHaveBeenCalledWith(TOKEN_ID, {
+        name: 'My Ether',
+        symbol: 'METH',
+        decimals: 18
+      });
+      await waitFor(() => expect(sheetOpen()).toBe('false'));
+    });
+
+    it('keeps the sheet open with an error when the save fails', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockSetTokenMetadataOverride.mockRejectedValue(new Error('Storage unavailable'));
+        renderEditable();
+        fireEvent.click(action());
+
+        fireEvent.click(screen.getByTestId('edit-token-save'));
+
+        expect(await screen.findByTestId('edit-token-save-error')).toHaveTextContent('tokenMetadataSaveError');
+        expect(sheetOpen()).toBe('true');
+        expect(screen.getByTestId('edit-token-save')).toBeEnabled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('does not close while the save is in flight', async () => {
+      let finishSave: () => void = () => {};
+      mockSetTokenMetadataOverride.mockImplementation(
+        () =>
+          new Promise<void>(resolve => {
+            finishSave = resolve;
+          })
+      );
+      renderEditable();
+      fireEvent.click(action());
+      fireEvent.click(screen.getByTestId('edit-token-save'));
+
+      fireEvent.click(screen.getByTestId('drawer-dismiss'));
+      expect(sheetOpen()).toBe('true');
+
+      await act(async () => {
+        finishSave();
+      });
+      expect(sheetOpen()).toBe('false');
+    });
+
+    it('starts each opening from the values on the page, not from an earlier draft', () => {
+      renderEditable();
+      fireEvent.click(action());
+      fireEvent.change(field('name'), { target: { value: 'Draft' } });
+      fireEvent.click(screen.getByTestId('drawer-dismiss'));
+
+      fireEvent.click(action());
+
+      expect(field('name')).toHaveValue('Ether');
+    });
+
+    it('offers the reset only when the token has an override', () => {
+      renderEditable();
+      fireEvent.click(action());
+
+      expect(screen.queryByTestId('edit-token-reset')).toBeNull();
+    });
+
+    it('resets to the faucet values with a medium haptic, then closes the sheet', async () => {
+      mockTokenMetadataOverrides = { [TOKEN_ID]: { symbol: 'ETH' } };
+      renderEditable();
+      fireEvent.click(action());
+
+      fireEvent.click(screen.getByTestId('edit-token-reset'));
+
+      expect(screen.getByTestId('edit-token-reset')).toHaveTextContent('resetToFaucetValues');
+      expect(mockHapticMedium).toHaveBeenCalled();
+      expect(mockClearTokenMetadataOverride).toHaveBeenCalledWith(TOKEN_ID);
+      expect(mockSetTokenMetadataOverride).not.toHaveBeenCalled();
+      await waitFor(() => expect(sheetOpen()).toBe('false'));
+    });
+
+    it('marks an edited token with a neutral pill beside the card title', () => {
+      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine' } };
+      renderEditable();
+
+      const pill = screen.getByTestId('token-detail-edited');
+      expect(pill).toHaveTextContent('tokenMetadataEdited');
+      expect(within(screen.getByTestId('token-detail-info')).getByTestId('token-detail-edited')).toBe(pill);
+    });
+
+    it('shows no Edited pill without an override', () => {
+      mockTokenMetadataOverrides = { 'mtst1another-faucet': { name: 'Mine' } };
+      renderEditable();
+
+      expect(screen.queryByTestId('token-detail-edited')).toBeNull();
+    });
+
+    it('shows no Edited pill for the native token, whose override is never applied', () => {
+      mockNativeFaucetId = TOKEN_ID;
+      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine' } };
+      renderEditable();
+
+      expect(screen.queryByTestId('token-detail-edited')).toBeNull();
     });
   });
 });

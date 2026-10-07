@@ -7,12 +7,15 @@ _g.__assetsTest = {
 
 const mockSetAssetsMetadata = jest.fn();
 const mockFetchAssetMetadata = jest.fn();
+const mockHydrateTokenMetadataOverrides = jest.fn();
 const mockWalletStoreState = {
   tokenPrices: {},
   balances: {},
   assetsMetadata: {} as Record<string, any>,
+  tokenMetadataOverrides: {},
   setAssetsMetadata: mockSetAssetsMetadata,
-  fetchAssetMetadata: mockFetchAssetMetadata
+  fetchAssetMetadata: mockFetchAssetMetadata,
+  hydrateTokenMetadataOverrides: mockHydrateTokenMetadataOverrides
 };
 
 let mockActualNativeId = 'miden-faucet-id';
@@ -79,6 +82,7 @@ import React from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 
 import { fetchTokenMetadata, onStorageChanged } from 'lib/miden/front';
+import { TOKENS_METADATA_OVERRIDES_STORAGE_KEY } from 'lib/miden/metadata/overrides';
 import type { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { useWalletStore } from 'lib/store';
 
@@ -152,6 +156,43 @@ describe('getTokensBaseMetadata', () => {
 
   it('uses the empty default when nothing is stored', async () => {
     expect(await getTokensBaseMetadata('any')).toBeUndefined();
+  });
+
+  it('applies the user override to the stored record, which stays as the faucet gave it', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = {
+      'asset-1': { decimals: 6, symbol: 'A1', name: 'Asset 1', description: 'From the faucet' }
+    };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = { 'asset-1': { symbol: 'MINE', decimals: 2 } };
+
+    expect(await getTokensBaseMetadata('asset-1')).toEqual({
+      decimals: 2,
+      symbol: 'MINE',
+      name: 'Asset 1',
+      description: 'From the faucet',
+      scaleIsUnknown: false
+    });
+    expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]['asset-1'].symbol).toBe('A1');
+  });
+
+  it('applies an override with no stored record to the unknown-token placeholder', async () => {
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'asset-x': { name: 'Mine', symbol: 'MN', decimals: 9 }
+    };
+
+    expect(await getTokensBaseMetadata('asset-x')).toEqual({
+      name: 'Mine',
+      symbol: 'MN',
+      decimals: 9,
+      scaleIsUnknown: false
+    });
+  });
+
+  it('never applies an override to the native token', async () => {
+    const native = { decimals: 6, symbol: 'MIDEN', name: 'Miden' };
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'miden-faucet-id': native };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = { 'miden-faucet-id': { decimals: 18 } };
+
+    expect(await getTokensBaseMetadata('miden-faucet-id')).toEqual(native);
   });
 });
 
@@ -339,6 +380,36 @@ describe('metadata hooks and provider', () => {
     unmount();
 
     expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('loads the stored overrides into the store on mount', async () => {
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'asset-1': { symbol: 'MINE' },
+      // Storage is not typed: a value that is not valid is dropped.
+      'asset-2': { decimals: 99 }
+    };
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    await waitFor(() => {
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith({ 'asset-1': { symbol: 'MINE' } });
+    });
+  });
+
+  it('applies an override change from another page, and an empty map when storage is wiped', () => {
+    const listeners: Record<string, (value: unknown) => void> = {};
+    mockOnStorageChanged.mockImplementation((key: string, callback: (value: unknown) => void) => {
+      listeners[key] = callback;
+      return () => {};
+    });
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!({ 'asset-3': { name: 'Mine', decimals: 4 } }));
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({ 'asset-3': { name: 'Mine', decimals: 4 } });
+
+    act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!(undefined));
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({});
   });
 
   it('returns a metadata lookup callback that handles miden and token assets', () => {
