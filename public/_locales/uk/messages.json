@@ -4212,6 +4212,10 @@
     "message": "Інформація про токен",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "Опис",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "Замінний",
     "englishSource": "Fungible"
@@ -5748,5 +5752,72 @@
   "confirmEarnDepositReason": {
     "message": "Підтвердьте свій депозит",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Редагування деталей токена",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Деталі токена",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Назва",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Символ",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Десятичні знаки",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Зберегти",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Скидання до значень «faucet»",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Відредаговано",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Введіть ім’я довжиною від 1 до $max$ символів.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Введіть символ довжиною від 1 до$max$-символів.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Введіть ціле число від 0 до $max$.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Ці значення впливають лише на те, як цей гаманець відображає токен. «faucet» зберігає свої власні значення. Суми, які ви надсилаєте, використовують десяткові знаки, встановлені тут.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Не вдалося зберегти дані токена. Спробуйте ще раз.",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }

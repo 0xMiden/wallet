@@ -4212,6 +4212,10 @@
     "message": "Информация о токене",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "Описание",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "Взаимозаменяемый",
     "englishSource": "Fungible"
@@ -5748,5 +5752,72 @@
   "confirmEarnDepositReason": {
     "message": "Подтвердите свой депозит",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Редактировать сведения о токене",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Сведения о токене",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Название",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Символ",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Десятичные дроби",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Сохранить",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Сброс к значениям по умолчанию (faucet)",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Отредактировано",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Введите имя длиной от 1 до $max$ символов.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Введите символ длиной от 1 до $max$ символов.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Введите целое число от 0 до $max$.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Эти значения влияют только на то, как этот кошелек отображает токен. «faucet» сохраняет свои собственные значения. Суммы, которые вы отправляете, используют десятичные знаки, установленные здесь.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Не удалось сохранить данные токена. Попробуйте ещё раз.",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }

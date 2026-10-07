@@ -4212,6 +4212,10 @@
     "message": "代幣資訊",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "說明",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "可互換的",
     "englishSource": "Fungible"
@@ -5748,5 +5752,72 @@
   "confirmEarnDepositReason": {
     "message": "確認您的存款",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "編輯代幣詳細資訊",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "代幣詳情",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "名稱",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "符號",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "小數",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "儲存",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "重設為 faucet 的預設值",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "已編輯",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "請輸入 1 至 $max$ 個字元的名稱。",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "請輸入 1 至 $max$ 個字元的符號。",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "請輸入 0 至 $max$ 之間的整數。",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "這些設定僅會改變此錢包顯示代幣的方式。faucet 會保留其自身的數值。您發送的金額將採用您在此處設定的小數位數。",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "無法儲存代幣詳細資訊。請重試。",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }

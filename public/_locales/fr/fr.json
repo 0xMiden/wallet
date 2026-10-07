@@ -966,6 +966,7 @@
   "invalidAmount": "Montant non valide",
   "tokenPrice": "Prix du jeton",
   "tokenInfo": "Informations sur le jeton",
+  "tokenDescription": "Description",
   "fungible": "Fongible",
   "network": "Réseau",
   "recentActivity": "Activité récente",
@@ -1303,5 +1304,18 @@
   "confirmSendReason": "Confirmez votre envoi",
   "confirmSwapReason": "Confirmez votre changement",
   "confirmDappTransactionReason": "Confirmez cette transaction",
-  "confirmEarnDepositReason": "Confirmez votre dépôt"
+  "confirmEarnDepositReason": "Confirmez votre dépôt",
+  "editTokenDetails": "Modifier les détails du jeton",
+  "editTokenDetailsTitle": "Détails du jeton",
+  "tokenNameLabel": "Nom",
+  "tokenSymbolLabel": "Symbole",
+  "tokenDecimalsLabel": "Décimales",
+  "saveTokenDetails": "Enregistrer",
+  "resetToFaucetValues": "Réinitialisation aux valeurs d’faucet",
+  "tokenMetadataEdited": "Modifié",
+  "tokenNameInvalid": "Saisissez un nom composé de 1 à$max$s de caractères.",
+  "tokenSymbolInvalid": "Saisissez un symbole composé de 1 à$max$s de caractères.",
+  "tokenDecimalsInvalid": "Saisissez un nombre entier compris entre 0 et $max$.",
+  "tokenMetadataOverrideNotice": "Ces valeurs ne modifient que la manière dont ce portefeuille affiche le jeton. L’faucete conserve ses propres valeurs. Les montants que vous envoyez utilisent les décimales que vous définissez ici.",
+  "tokenMetadataSaveError": "Impossible d’enregistrer les détails du jeton. Veuillez réessayer."
 }

@@ -966,6 +966,7 @@
   "invalidAmount": "Неправильна сума",
   "tokenPrice": "Ціна токена",
   "tokenInfo": "Інформація про токен",
+  "tokenDescription": "Опис",
   "fungible": "Замінний",
   "network": "Мережа",
   "recentActivity": "Останні дії",
@@ -1303,5 +1304,18 @@
   "confirmSendReason": "Підтвердьте відправлення",
   "confirmSwapReason": "Підтвердьте обмін",
   "confirmDappTransactionReason": "Підтвердіть цю транзакцію",
-  "confirmEarnDepositReason": "Підтвердьте свій депозит"
+  "confirmEarnDepositReason": "Підтвердьте свій депозит",
+  "editTokenDetails": "Редагування деталей токена",
+  "editTokenDetailsTitle": "Деталі токена",
+  "tokenNameLabel": "Назва",
+  "tokenSymbolLabel": "Символ",
+  "tokenDecimalsLabel": "Десятичні знаки",
+  "saveTokenDetails": "Зберегти",
+  "resetToFaucetValues": "Скидання до значень «faucet»",
+  "tokenMetadataEdited": "Відредаговано",
+  "tokenNameInvalid": "Введіть ім’я довжиною від 1 до $max$ символів.",
+  "tokenSymbolInvalid": "Введіть символ довжиною від 1 до$max$-символів.",
+  "tokenDecimalsInvalid": "Введіть ціле число від 0 до $max$.",
+  "tokenMetadataOverrideNotice": "Ці значення впливають лише на те, як цей гаманець відображає токен. «faucet» зберігає свої власні значення. Суми, які ви надсилаєте, використовують десяткові знаки, встановлені тут.",
+  "tokenMetadataSaveError": "Не вдалося зберегти дані токена. Спробуйте ще раз."
 }

@@ -4212,6 +4212,10 @@
     "message": "Información sobre el token",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "Descripción",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "Fungible",
     "englishSource": "Fungible"
@@ -5748,5 +5752,72 @@
   "confirmEarnDepositReason": {
     "message": "Confirma tu depósito",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Editar detalles del token",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Detalles del token",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Nombre",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Símbolo",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Decimales",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Guardar",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Restablecer a los valores de «faucet»",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Editado",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Introduce un nombre de entre 1 y$max$es de caracteres.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Introduce un símbolo de entre 1 y$max$es caracteres.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Introduce un número entero comprendido entre 0 y $max$.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Estos valores solo modifican la forma en que esta cartera muestra el token. El «faucet» conserva sus propios valores. Las cantidades que envíes utilizarán los decimales que configures aquí.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "No se han podido guardar los datos del token. Inténtalo de nuevo.",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }

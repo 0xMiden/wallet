@@ -4212,6 +4212,10 @@
     "message": "代币信息",
     "englishSource": "Token info"
   },
+  "tokenDescription": {
+    "message": "描述",
+    "englishSource": "Description"
+  },
   "fungible": {
     "message": "可互换的",
     "englishSource": "Fungible"
@@ -5748,5 +5752,72 @@
   "confirmEarnDepositReason": {
     "message": "确认您的存款",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "编辑代币详情",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "代币详情",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "名称",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "符号",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "小数",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "重置为faucet的默认值",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "已编辑",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "请输入1至$max$个字符的名称。",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "请输入1至$max$个字符的符号。",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "请输入0到$max$之间的整数。",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "这些设置仅影响该钱包显示代币的方式。faucet将保留其自身的数值。您发送的金额将采用您在此处设置的小数位数。",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "无法保存代币详细信息。请重试。",
+    "englishSource": "Could not save the token details. Please try again."
   }
 }
