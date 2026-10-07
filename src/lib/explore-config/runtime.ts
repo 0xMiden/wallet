@@ -6,6 +6,7 @@ import {
   bundledExploreCatalog,
   exploreConfigCacheKey,
   fetchAndStoreExploreConfig,
+  readExploreConfigFloor,
   readStoredExploreConfig,
   type StoredExploreConfig
 } from './source';
@@ -19,7 +20,12 @@ interface NetworkState {
   network: string;
   bundled: ExploreCatalog | null;
   stored: StoredExploreConfig | null;
-  /** What readers see: `stored`'s catalog unless the bundled one is newer, else the bundled one, else null. */
+  /** The highest version this network has accepted, read on hydration; 0 until then. */
+  floor: number;
+  /**
+   * What readers see: `stored`'s catalog when newer than the bundled one, else the bundled one when at or above
+   * `floor`, else null.
+   */
   catalog: ExploreCatalog | null;
   hydration: Promise<void> | null;
   refreshing: Promise<void> | null;
@@ -41,9 +47,12 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let schedulerInstalled = false;
 let rereadRegistered = false;
 
-// A stored copy older than the one this build bundles was superseded before the build shipped.
-const shown = (stored: StoredExploreConfig | null, bundled: ExploreCatalog | null): ExploreCatalog | null =>
-  stored && (!bundled || stored.catalog.version >= bundled.version) ? stored.catalog : bundled;
+// One version names one document, so at a tie the bundled copy is the same catalog with the icons the build ships. A
+// bundled copy below the floor names an app since delisted, so it is never shown.
+function shown({ stored, bundled, floor }: NetworkState): ExploreCatalog | null {
+  const allowed = bundled && bundled.version >= floor ? bundled : null;
+  return stored && (!allowed || stored.catalog.version > allowed.version) ? stored.catalog : allowed;
+}
 
 const isNewer = (candidate: StoredExploreConfig, held: StoredExploreConfig | null): boolean =>
   !held ||
@@ -58,6 +67,7 @@ function stateFor(network: string): NetworkState {
     network,
     bundled,
     stored: null,
+    floor: 0,
     catalog: bundled,
     hydration: null,
     refreshing: null,
@@ -70,7 +80,7 @@ function stateFor(network: string): NetworkState {
 }
 
 function publish(state: NetworkState): void {
-  state.catalog = shown(state.stored, state.bundled);
+  state.catalog = shown(state);
   listeners.forEach(listener => listener());
 }
 
@@ -117,7 +127,11 @@ function hydrate(state: NetworkState): Promise<void> {
   state.hydration = (async () => {
     // Attached before the read, so a copy another realm commits while it is out is heard.
     await Promise.all(state.subscriptions.map(subscription => subscription.attached));
-    const stored = await readStoredExploreConfig(state.network);
+    const [stored, floor] = await Promise.all([
+      readStoredExploreConfig(state.network),
+      readExploreConfigFloor(state.network)
+    ]);
+    state.floor = floor;
     if (stored) adopt(state, stored);
     publish(state);
   })();

@@ -164,3 +164,21 @@ describe('readStored', () => {
     warn.mockRestore();
   });
 });
+
+describe('readFloor', () => {
+  it('reads the highest version a network accepted, and 0 for one with none or a malformed entry', async () => {
+    setup({ [FLOOR]: { testnet: 3, devnet: 'x' } });
+    await expect(source.readFloor('testnet')).resolves.toBe(3);
+    await expect(source.readFloor('devnet')).resolves.toBe(0);
+    await expect(source.readFloor('localnet')).resolves.toBe(0);
+  });
+
+  it('reads storage it cannot read as no floor, and says why under its tag', async () => {
+    setup();
+    storage.get.mockRejectedValueOnce(new Error('storage unavailable'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(source.readFloor('testnet')).resolves.toBe(0);
+    expect(warn).toHaveBeenCalledWith('[toys] could not read the floor for testnet:', expect.any(Error));
+    warn.mockRestore();
+  });
+});

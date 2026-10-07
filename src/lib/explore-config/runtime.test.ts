@@ -7,7 +7,7 @@ import {
   POLL_MS,
   subscribeExploreCatalog
 } from './runtime';
-import type { ExploreCatalog } from './schema';
+import type { ExploreCatalog, ExploreCatalogItem } from './schema';
 import type { StoredExploreConfig } from './source';
 
 let mockNetwork = 'testnet';
@@ -33,12 +33,16 @@ const mockStored = new Map<string, StoredExploreConfig>();
 const mockReadStored = jest.fn(async (network: string) => mockStored.get(network) ?? null);
 const mockFetch = jest.fn<Promise<StoredExploreConfig>, [string]>();
 let mockBundledVersion: number | null = 1;
+let mockBundledItems: ExploreCatalogItem[] = [];
+// The floor storage holds per network; none reads as 0.
+const mockFloors = new Map<string, number>();
 jest.mock('./source', () => ({
   exploreConfigCacheKey: (network: string) => `explore_config_v1:${network}`,
   readStoredExploreConfig: (network: string) => mockReadStored(network),
+  readExploreConfigFloor: async (network: string) => mockFloors.get(network) ?? 0,
   fetchAndStoreExploreConfig: (network: string) => mockFetch(network),
   bundledExploreCatalog: (network: string) =>
-    mockBundledVersion === null ? null : catalog(network, mockBundledVersion)
+    mockBundledVersion === null ? null : { ...catalog(network, mockBundledVersion), items: mockBundledItems }
 }));
 
 const NOW = 1_800_000_000_000;
@@ -88,6 +92,8 @@ beforeEach(() => {
   mockAttached = undefined;
   mockStored.clear();
   mockBundledVersion = 1;
+  mockBundledItems = [];
+  mockFloors.clear();
   visibility = 'visible';
   mockReadStored.mockClear();
   mockFetch.mockReset().mockRejectedValue(new Error('unexpected fetch'));
@@ -130,6 +136,36 @@ describe('the snapshot', () => {
     mockBundledVersion = 3;
     store('testnet', 2, NOW - 60_000);
     await initExploreConfig('testnet');
+    expect(shownVersion()).toBe(3);
+  });
+
+  it('draws the bundled catalog, with the icons the build ships, over a stored copy of the same version', async () => {
+    const faucet = (icon: string): ExploreCatalogItem => ({
+      id: 'faucet',
+      name: { en: 'Faucet' },
+      tagline: { en: 'Get testnet tokens' },
+      url: 'https://faucet.example/',
+      category: 'tools',
+      icon,
+      isExchange: false
+    });
+    mockBundledItems = [faucet('bundled/faucet.png')];
+    mockStored.set('testnet', {
+      catalog: { ...catalog('testnet', 1), items: [faucet('https://icons.example/icons/faucet.png')] },
+      fetchedAt: NOW - 60_000
+    });
+    await initExploreConfig('testnet');
+    expect(getExploreCatalogSnapshot()?.items[0]?.icon).toBe('bundled/faucet.png');
+  });
+
+  it('shows no catalog while the bundled one is below the floor and nothing is stored, until a fetch lands', async () => {
+    mockFloors.set('testnet', 3);
+    failFetch();
+    await initExploreConfig('testnet');
+    await flush();
+    expect(getExploreCatalogSnapshot()).toBeNull();
+    serve(3);
+    await jest.advanceTimersByTimeAsync(60_000);
     expect(shownVersion()).toBe(3);
   });
 

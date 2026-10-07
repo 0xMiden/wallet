@@ -50,7 +50,7 @@ The floor and acceptance logic moves out of `src/lib/remote-config/source.ts` in
 
 `src/lib/explore-config/runtime.ts`, page realms only:
 
-- Per network, the snapshot starts as the last accepted stored copy at any age, else the bundled snapshot for that network, else no catalog; a bundled snapshot of a higher version than the stored copy (an app update shipped a newer one) wins until the next fetch. There is no loading state, so a fetch can never empty Explore.
+- Per network, the snapshot is the last accepted stored copy at any age when it is newer than the bundled snapshot for that network, else that bundled snapshot when it is at or above the network's floor (read on hydration), else no catalog. At the same version the bundled snapshot wins, since one version names one document and it draws the icons the build ships; a bundled snapshot of a higher version than the stored copy (an app update shipped a newer one) wins until the next fetch, and one below the floor is never shown, so a reset or an unreadable stored copy cannot bring a delisted app back. There is no loading state, so a fetch can never empty Explore.
 - `initExploreConfig(network)` is idempotent and never waits for the network: it hydrates from storage, then starts a refresh if one is due.
 - Cadence: hourly; a foreground refresh when the copy is older than 15 minutes; on failure, backoff from 60 s doubling to 15 minutes; the timer stops while the document is hidden.
 - `registerStorageReread` re-reads after a storage wipe (mobile and desktop have no change event); `onStorageChanged` adopts another realm's newer copy.

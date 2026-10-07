@@ -33,6 +33,8 @@ export interface AcceptedDocument<T> {
 export interface VersionedDocumentSource<T> {
   /** The stored document for `network`, validated again, or null when there is none or it no longer validates. */
   readStored(network: string): Promise<AcceptedDocument<T> | null>;
+  /** The highest version accepted for `network`: 0 when there is none, or when storage cannot be read. */
+  readFloor(network: string): Promise<number>;
   /**
    * Fetches, validates, enforces the floor, stores. Rejects on any failure. Nothing is stored unless the document
    * validates and is at or above the floor, and at the version of the stored document is that document; the floor is
@@ -100,6 +102,16 @@ export function versionedDocumentSource<T extends { version: number }>(
       // Only a write racing a newer acceptance could leave one below the floor; it is never served.
       const floor = readFloors(stored[spec.floorKey])[network] ?? 0;
       return document.version >= floor ? { document, fetchedAt: entry.fetchedAt } : null;
+    },
+
+    async readFloor(network) {
+      try {
+        const stored = await deps.read([spec.floorKey]);
+        return readFloors(stored[spec.floorKey])[network] ?? 0;
+      } catch (error) {
+        console.warn(`[${spec.logTag}] could not read the floor for ${network}:`, error);
+        return 0;
+      }
     },
 
     async fetchAndStore(network) {

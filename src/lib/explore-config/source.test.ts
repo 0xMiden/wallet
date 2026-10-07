@@ -6,6 +6,7 @@ import {
   exploreConfigUrl,
   fetchAndStoreExploreConfig,
   PUBLISHED_EXPLORE_BASE_URL,
+  readExploreConfigFloor,
   readStoredExploreConfig
 } from './source';
 
@@ -167,6 +168,16 @@ describe('fetchAndStoreExploreConfig', () => {
     fetchMock.mockResolvedValue(response(localDoc(1)));
     await expect(fetchAndStoreExploreConfig('testnet')).rejects.toThrow('does not validate');
     expect(fetchMock).toHaveBeenCalledWith(`${PUBLISHED}/testnet.json`, expect.anything());
+  });
+});
+
+describe('readExploreConfigFloor', () => {
+  it('reads the version a fetch accepted for that network only', async () => {
+    setup();
+    fetchMock.mockResolvedValue(response(doc(2)));
+    await fetchAndStoreExploreConfig('testnet');
+    await expect(readExploreConfigFloor('testnet')).resolves.toBe(2);
+    await expect(readExploreConfigFloor('devnet')).resolves.toBe(0);
   });
 });
 

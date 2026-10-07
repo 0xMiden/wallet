@@ -71,6 +71,11 @@ export async function readStoredExploreConfig(network: string): Promise<StoredEx
   return stored && { catalog: stored.document, fetchedAt: stored.fetchedAt };
 }
 
+/** The highest catalog version accepted for `network`, or 0 (see `VersionedDocumentSource`). */
+export function readExploreConfigFloor(network: string): Promise<number> {
+  return source.readFloor(network);
+}
+
 /** Fetches, validates, enforces the floor, stores; rejects on any failure (see `VersionedDocumentSource`). */
 export async function fetchAndStoreExploreConfig(network: string): Promise<StoredExploreConfig> {
   const { document, fetchedAt } = await source.fetchAndStore(network);
