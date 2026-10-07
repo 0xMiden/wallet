@@ -559,7 +559,7 @@ describe('TokenDetail', () => {
       ['token-detail-activity', 'recentActivity']
     ] as const) {
       const heading = within(screen.getByTestId(section)).getByRole('heading', { level: 2, name: key });
-      expect(heading).toHaveClass('text-2xl', 'font-extrabold', 'text-muted');
+      expect(heading).toHaveClass('text-hero-name', 'font-extrabold', 'text-muted');
       expect(heading).not.toHaveClass('uppercase');
       expect(heading).not.toHaveClass('text-center');
       // The English copy itself is sentence case: only the first word is capitalised.
