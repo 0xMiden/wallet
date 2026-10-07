@@ -22,16 +22,16 @@ function phonePrefersDark(dark: boolean) {
 describe('webviewToolbarColors', () => {
   afterEach(() => localStorage.clear());
 
-  it('paints the header dark with light text when the app is dark, whatever the phone prefers', () => {
+  it('paints the header dark when the app is dark, whatever the phone prefers', () => {
     phonePrefersDark(false);
     localStorage.setItem(THEME_STORAGE_KEY, 'dark');
-    expect(webviewToolbarColors()).toEqual({ toolbarColor: '#191919', toolbarTextColor: '#ffffff' });
+    expect(webviewToolbarColors()).toStrictEqual({ toolbarColor: '#191919' });
   });
 
-  it('paints the header light with dark text when the app is light, whatever the phone prefers', () => {
+  it('paints the header light when the app is light, whatever the phone prefers', () => {
     phonePrefersDark(true);
     localStorage.setItem(THEME_STORAGE_KEY, 'light');
-    expect(webviewToolbarColors()).toEqual({ toolbarColor: '#ffffff', toolbarTextColor: '#000000' });
+    expect(webviewToolbarColors()).toStrictEqual({ toolbarColor: '#ffffff' });
   });
 
   it('follows the resolved theme when the app follows the system', () => {

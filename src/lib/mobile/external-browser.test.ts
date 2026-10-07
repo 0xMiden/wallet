@@ -132,9 +132,8 @@ describe('openExternalUrl', () => {
 
       await openExternalUrl({ url: 'https://testnet.midenscan.com/tx/0xabc', title: 'Midenscan' });
 
-      expect(mockOpenWebView).toHaveBeenCalledWith(
-        expect.objectContaining({ toolbarColor: '#191919', toolbarTextColor: '#ffffff' })
-      );
+      expect(mockOpenWebView).toHaveBeenCalledWith(expect.objectContaining({ toolbarColor: '#191919' }));
+      expect(mockOpenWebView.mock.calls[0][0]).not.toHaveProperty('toolbarTextColor');
     });
 
     it('reads the theme at every open, so a theme switched since the last one applies', async () => {
@@ -144,10 +143,8 @@ describe('openExternalUrl', () => {
       await openExternalUrl({ url: 'https://testnet.midenscan.com/tx/0xdef', title: 'Midenscan' });
 
       expect(mockOpenWebView).toHaveBeenNthCalledWith(1, expect.objectContaining({ toolbarColor: '#191919' }));
-      expect(mockOpenWebView).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({ toolbarColor: '#ffffff', toolbarTextColor: '#000000' })
-      );
+      expect(mockOpenWebView).toHaveBeenNthCalledWith(2, expect.objectContaining({ toolbarColor: '#ffffff' }));
+      expect(mockOpenWebView.mock.calls[1][0]).not.toHaveProperty('toolbarTextColor');
     });
   });
 });

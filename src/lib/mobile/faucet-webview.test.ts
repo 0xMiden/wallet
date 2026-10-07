@@ -76,13 +76,14 @@ describe('openFaucetWebview: native header theme (#503)', () => {
   afterEach(() => localStorage.clear());
 
   it.each([
-    ['dark', '#191919', '#ffffff'],
-    ['light', '#ffffff', '#000000']
-  ])("colours the header for the app's %s theme", async (theme, toolbarColor, toolbarTextColor) => {
+    ['dark', '#191919'],
+    ['light', '#ffffff']
+  ])("colours the header for the app's %s theme", async (theme, toolbarColor) => {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
 
     await openFaucetWebview({ url: 'https://faucet.testnet.miden.io', title: 'Faucet' });
 
-    expect(mockOpenWebView).toHaveBeenCalledWith(expect.objectContaining({ toolbarColor, toolbarTextColor }));
+    expect(mockOpenWebView).toHaveBeenCalledWith(expect.objectContaining({ toolbarColor }));
+    expect(mockOpenWebView.mock.calls[0][0]).not.toHaveProperty('toolbarTextColor');
   });
 });
