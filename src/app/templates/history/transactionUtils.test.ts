@@ -1084,10 +1084,13 @@ describe('labelHistoryEntry', () => {
     expect(labelHistoryEntry(UNLOADED, claim)).toEqual(claim);
   });
 
-  it.each(['swap', 'earn-withdraw'] as const)('leaves a %s row on the token its own fields chose', txType => {
-    const row = bridgeEntry({ txType, faucetId: MIDEN_USDC_FAUCET, token: 'USDC', amount: '5' });
-    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, row)).toEqual(row);
-  });
+  it.each(['swap', 'earn-withdraw', 'earn-deposit'] as const)(
+    'leaves a %s row on the token its own fields chose',
+    txType => {
+      const row = bridgeEntry({ txType, faucetId: MIDEN_USDC_FAUCET, token: 'USDC', amount: '5' });
+      expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, row)).toEqual(row);
+    }
+  );
 });
 
 describe('swap settlement state', () => {

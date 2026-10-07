@@ -66,10 +66,11 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
 /**
  * The entry as shown: its token and each extra amount named by its own faucet (`midenTokenLabel`). A fetched entry keeps
  * the chain symbol, so a list labels it at render and follows the snapshot when it publishes. A swap's and an Earn
- * withdrawal's token is whichever side its own fields chose, so those rows are left as they are.
+ * row's token is whichever side its own fields chose, or the chain symbol the Earn screens use, so those rows are left
+ * as they are.
  */
 export const labelHistoryEntry = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): IHistoryEntry => {
-  if (entry.txType === 'swap' || entry.txType === 'earn-withdraw') return entry;
+  if (entry.txType === 'swap' || entry.txType === 'earn-withdraw' || entry.txType === 'earn-deposit') return entry;
   return {
     ...entry,
     token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),

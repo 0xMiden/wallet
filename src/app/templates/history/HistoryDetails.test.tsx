@@ -4002,6 +4002,17 @@ describe('HistoryDetails earn-deposit', () => {
     expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
   });
 
+  it('keeps the chain symbol on the badge for a deposit of the bridge faucet', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockEarnCollateral = { faucetId: MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+    setMockRow(earnDepositTx({ sourceFaucetId: MIDEN_USDC_FAUCET }, { faucetId: MIDEN_USDC_FAUCET }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000 USDC')).toBeInTheDocument();
+    expect(screen.queryByText('1000 Test Epoch USDC')).toBeNull();
+  });
+
   it('falls back to the raw market uid when it has no protocol segment', async () => {
     setMockRow(earnDepositTx({ marketUid: ':11155111:0xabc' }));
     await renderAndLoad();
