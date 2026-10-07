@@ -34,6 +34,8 @@ import {
 import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+import { evmTokenLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { findEvmUsdc } from 'lib/remote-config/values';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
@@ -95,6 +97,7 @@ export const ReviewTransaction: React.FC = () => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
     return match && uiTokenFromBalance(match, tokenPrices);
   }, [balanceData, tokenId, tokenPrices]);
+  const tokenLabel = token ? midenTokenLabel(token.id, token.name) : '';
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;
@@ -530,8 +533,11 @@ export const ReviewTransaction: React.FC = () => {
     route === 'agglayer'
       ? formatMoneyAmount(amount, 'typed')
       : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
+  // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
+  const youReceiveSymbol =
+    route === 'agglayer' ? (token?.name ?? '') : evmTokenLabel(findEvmUsdc()?.address, epochQuote.symbol);
   const youReceiveLabel =
-    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${epochQuote.symbol}`.trim() : epochQuote.symbol;
+    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
 
@@ -574,7 +580,7 @@ export const ReviewTransaction: React.FC = () => {
           data-testid="review-amount"
           className="mt-3"
           visual={<TokenLogo symbol={token?.name ?? ''} size="2xl" />}
-          value={`${amount} ${token?.name ?? ''}`}
+          value={`${amount} ${tokenLabel}`}
           subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
         />
 
@@ -622,7 +628,7 @@ export const ReviewTransaction: React.FC = () => {
             squeezed into the value column. */}
         {!isBridge && recallBlocks ? (
           <p className="mt-3 px-4 text-caption text-muted" data-testid="review-recall-note">
-            {t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` })}
+            {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
           </p>
         ) : null}
       </SendStepLayout>
