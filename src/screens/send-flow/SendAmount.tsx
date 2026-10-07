@@ -124,7 +124,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             className="flex min-w-0 flex-1 items-center gap-3 text-left"
           >
             {token ? (
-              <TokenLogo symbol={token.name} size="md" />
+              <TokenLogo symbol={token.name} faucetId={token.id} size="md" />
             ) : (
               <span className="h-9 w-9 shrink-0 rounded-full bg-gray-100" aria-hidden="true" />
             )}

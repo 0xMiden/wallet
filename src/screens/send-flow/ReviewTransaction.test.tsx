@@ -181,7 +181,9 @@ jest.mock('components/ui/DetailCard', () => ({
     </div>
   )
 }));
-jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span data-testid="token-logo" /> }));
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ faucetId }: { faucetId?: string }) => <span data-testid="token-logo" data-faucet-id={faucetId} />
+}));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
   Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
@@ -521,6 +523,7 @@ describe('ReviewTransaction — rendering', () => {
     // scoping to it is what proves they render together, not just somewhere on the page.
     const hero = within(screen.getByTestId('review-amount'));
     expect(hero.getByText('5 MDN')).toBeInTheDocument();
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', MIDEN_USDC_FAUCET);
     // The fiat subtitle renders under the hero value once the token's price is known.
     expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     // Recipient row value.

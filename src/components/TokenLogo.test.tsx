@@ -1,14 +1,26 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 
 import { TokenLogo } from './TokenLogo';
 
-// TokenLogo has two branches, both of which now go through the canonical
+let mockLogo: string | undefined;
+const mockUseTokenLogoUri = jest.fn((_faucetId?: string) => mockLogo);
+jest.mock('lib/token-list/useTokenLogoUri', () => ({
+  useTokenLogoUri: (faucetId?: string) => mockUseTokenLogoUri(faucetId)
+}));
+
+beforeEach(() => {
+  mockLogo = undefined;
+  mockUseTokenLogoUri.mockClear();
+});
+
+// TokenLogo has three branches, all of which go through the canonical
 // `Avatar` (components/ui/Avatar):
 //   1. Known symbol (MIDEN / ETH / USDC / BTC) → Avatar with the token's own
 //      background class and its logo as the `icon`.
-//   2. Unknown symbol → Avatar with the default token-logo image.
+//   2. Listed token (by faucetId) → Avatar with the verified list's logo.
+//   3. Anything else, or a listed logo that failed → the default token-logo image.
 //
 // The four logo imports resolve through the repo's global `\\.svg$` mock
 // (__mocks__/svgMock.js), which exports the string `'svg'` for
@@ -113,6 +125,144 @@ describe('TokenLogo', () => {
 
       expect(getImg(container)).toBeInTheDocument();
       expect(getSvg(container)).toBeNull();
+    });
+  });
+
+  describe('listed logo', () => {
+    it('draws the bundled mark for a bundled symbol and never asks for a listed logo', () => {
+      mockLogo = 'https://example.com/eth.png';
+      const { container } = render(<TokenLogo symbol="ETH" faucetId="0xfaucet" />);
+
+      expect(getSvg(container)).toBeInTheDocument();
+      expect(getImg(container)).toBeNull();
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith(undefined);
+    });
+
+    it('draws the listed logo of an unbundled symbol inside a bg-fill circle', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+
+      expect(getImg(container).src).toBe('https://example.com/xyz.png');
+      expect(getCircle(container)).toHaveClass('bg-fill');
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith('0xfaucet');
+    });
+
+    it('shows the default mark when the listed logo fails to load', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+
+      fireEvent.error(getImg(container));
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+    });
+
+    it('tries the next token logo after an earlier one failed', () => {
+      mockLogo = 'https://example.com/a.png';
+      const { container, rerender } = render(<TokenLogo symbol="XYZ" faucetId="0xa" />);
+      fireEvent.error(getImg(container));
+
+      mockLogo = 'https://example.com/b.png';
+      rerender(<TokenLogo symbol="XYZ" faucetId="0xb" />);
+
+      expect(getImg(container).src).toBe('https://example.com/b.png');
+    });
+
+    it('retries the listed logo when the window comes online again', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+      fireEvent.error(getImg(container));
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+
+      act(() => {
+        window.dispatchEvent(new Event('online'));
+      });
+
+      expect(getImg(container).src).toBe('https://example.com/xyz.png');
+    });
+
+    it('retries the listed logo when the document becomes visible again', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+      fireEvent.error(getImg(container));
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+
+      const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      visibility.mockRestore();
+
+      expect(getImg(container).src).toBe('https://example.com/xyz.png');
+    });
+
+    it('stays on the default mark while the document is hidden', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+      fireEvent.error(getImg(container));
+
+      const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      visibility.mockRestore();
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+    });
+
+    it('keeps the default mark for an unbundled symbol without a faucetId', () => {
+      const { container } = render(<TokenLogo symbol="XYZ" />);
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith(undefined);
+    });
+
+    it('still renders the badge on the listed-logo branch', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { getByTestId } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" badge={<i data-testid="badge" />} />);
+
+      expect(getByTestId('badge')).toBeInTheDocument();
+    });
+  });
+
+  describe('fallback symbol', () => {
+    const LISTED = 'https://example.com/ieth.svg';
+
+    it("draws the list's logo ahead of the fallback's mark", () => {
+      mockLogo = LISTED;
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" fallbackSymbol="ETH" />);
+
+      expect(getImg(container).src).toBe(LISTED);
+      expect(getSvg(container)).toBeNull();
+      expect(mockUseTokenLogoUri).toHaveBeenCalledWith('0xieth');
+    });
+
+    it("draws the fallback's mark, not the default, once the list's logo fails, and retries it online", () => {
+      mockLogo = LISTED;
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" fallbackSymbol="ETH" />);
+      fireEvent.error(getImg(container));
+
+      expect(getImg(container)).toBeNull();
+      expect(getCircle(container)).toHaveClass('bg-pure-black');
+
+      act(() => {
+        window.dispatchEvent(new Event('online'));
+      });
+
+      expect(getImg(container).src).toBe(LISTED);
+    });
+
+    it("draws the fallback's mark when the list gives no logo", () => {
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" fallbackSymbol="ETH" />);
+
+      expect(getImg(container)).toBeNull();
+      expect(getCircle(container)).toHaveClass('bg-pure-black');
+      expect(getSvg(container)).toBeInTheDocument();
+    });
+
+    it('draws the default mark with no fallback and no listed logo, as before', () => {
+      const { container } = render(<TokenLogo symbol="IETH" faucetId="0xieth" />);
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
     });
   });
 });

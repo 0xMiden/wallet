@@ -30,7 +30,9 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getSdkSyncedNativeAssetIdSync: jest.fn(() => null)
 }));
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo" data-symbol={symbol} />
+  TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
+    <span data-testid="token-logo" data-symbol={symbol} data-faucet-id={faucetId} />
+  )
 }));
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
@@ -136,6 +138,13 @@ beforeEach(() => {
 });
 
 describe('AssetRow', () => {
+  it("passes the row's faucet id to its logo", () => {
+    const asset = makeAsset();
+    render(<AssetRow asset={asset} tokenPrices={tokenPrices} />);
+
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', asset.tokenId);
+  });
+
   it.each(['verified', 'unknown'])('hides the Unverified mark for a %s token', verification => {
     mockVerify.mockReturnValue(verification);
 

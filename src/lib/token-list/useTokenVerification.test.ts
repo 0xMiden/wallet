@@ -1,11 +1,18 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-import { useTokenVerification } from './useTokenVerification';
+import { type TokenVerification, useTokenVerification } from './useTokenVerification';
 
 const mockLoad = jest.fn();
+// What the mocked loader last resolved to per network, as the runtime remembers it.
+const mockSettled = new Map<string, unknown>();
 let mockUpdated: ((network: string) => void) | undefined;
 jest.mock('./runtime', () => ({
-  loadVerifiedFaucetIds: (network: string) => mockLoad(network),
+  loadVerifiedFaucetIds: (network: string) => {
+    const pending = mockLoad(network);
+    void Promise.resolve(pending).then(ids => mockSettled.set(network, ids));
+    return pending;
+  },
+  peekVerifiedFaucetIds: (network: string) => mockSettled.get(network),
   onTokenListUpdated: (listener: (network: string) => void) => {
     mockUpdated = listener;
     return () => {
@@ -28,6 +35,7 @@ jest.mock('lib/miden/swap/tokens', () => ({ normalizedFaucetId: (id: string) => 
 
 beforeEach(() => {
   mockLoad.mockReset();
+  mockSettled.clear();
   mockNetwork = 'testnet';
   mockNative = 'native';
 });
@@ -148,4 +156,20 @@ it('does not let a loaded network speak for another network still loading', asyn
   mockNetwork = 'devnet';
   rerender({ id: 't' });
   expect(result.current).toBe('unknown');
+});
+
+it('gives the verdict of a list the realm already loaded on the first render of another instance', async () => {
+  mockLoad.mockResolvedValue(new Set(['listed']));
+  const { result } = renderVerification('listed');
+  await waitFor(() => expect(result.current).toBe('verified'));
+
+  const verdicts: TokenVerification[] = [];
+  renderHook(() => {
+    const verdict = useTokenVerification('listed');
+    verdicts.push(verdict);
+    return verdict;
+  });
+  expect(verdicts[0]).toBe('verified');
+  // Lets the second instance's own load land inside act.
+  await act(async () => undefined);
 });
