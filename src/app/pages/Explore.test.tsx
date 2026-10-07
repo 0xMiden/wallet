@@ -4,7 +4,7 @@ import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@te
 import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
@@ -18,6 +18,8 @@ import Explore from './Explore';
 
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
@@ -66,10 +68,12 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+let mockLegacyFeeIdentity: string | undefined;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
-  default: () => mockFaucetId
+  default: () => mockLegacyFeeIdentity ?? mockFaucetId
 }));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
   default: () => mockBaseFee
@@ -1280,6 +1284,27 @@ describe('Explore', () => {
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
+    it('fee identity: auto-consumes A while legacy B remains manual and sorts first', async () => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockAutoConsume = true;
+      mockBaseFee = 7;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [
+        { ...makeNote('actual-note', 'faucet-native'), amount: '1000000' },
+        { ...makeNote('legacy-note', 'legacy-B'), amount: '1000000' }
+      ];
+      mockAllBalances = [makeToken('faucet-native', 'USDCX'), makeToken('legacy-B', 'LEGACY')];
+      await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
+        'mtst1account',
+        expect.objectContaining({ id: 'actual-note' }),
+        expect.any(Boolean)
+      );
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
+      expect(screen.getAllByTestId('asset-row')[0]).toHaveAttribute('data-token', 'legacy-B');
+    });
+
     it('consumes matching, not-yet-claiming notes and dispatches via the SW on extension', async () => {
       mockAutoConsume = true;
       mockDelegateProof = true;
@@ -1457,4 +1482,8 @@ describe('Explore', () => {
       expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
     });
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

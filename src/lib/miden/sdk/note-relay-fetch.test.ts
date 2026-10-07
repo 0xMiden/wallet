@@ -19,13 +19,13 @@ import { normalizeNoteRelayFetch } from './note-relay-fetch.mjs';
 const sdkRoot = resolve(__dirname, '../../../../node_modules/@miden-sdk/miden-sdk');
 // `--check` proves all six inlined copies byte for byte; this one runs both fetch bindings.
 const seamBundle = 'dist/mt/workers/web-client-methods-worker.js';
-const sendUrl = 'https://transport.miden.io/miden_note_transport.MidenNoteTransport/SendNote';
+const sendUrl = 'https://transport.miden.io/miden.note_transport.v1.NoteTransportService/SendNoteWithProof';
 const duplicateMessage =
   'Failed to store note: ConstraintViolation("Unique constraint violation: UNIQUE constraint failed: notes.id")';
 
 const repoRoot = resolve(__dirname, '../../../..');
 const generator = 'scripts/generate-note-relay-patch.mjs';
-const patchFile = 'patches/@miden-sdk+miden-sdk+0.16.1.patch';
+const patchFile = 'patches/@miden-sdk+miden-sdk+0.17.1.patch';
 // A linked web-sdk build (`Web SDK PR: #N`) swaps in a `file:` source build that carries no relay patch.
 const linkedSdk = String(
   JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).dependencies['@miden-sdk/miden-sdk']
@@ -124,7 +124,7 @@ withInstalledPatch('generate-note-relay-patch --check', () => {
     ],
     [
       'carries an older relay patch',
-      '    // SendNoteResponse is empty, but tonic still requires a unary protobuf data frame.\n',
+      '    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.\n',
       '    // An older relay patch said something else here.\n'
     ]
   ])('names a remedy that works when an installed bundle %s', (_state, current, stale) => {
@@ -156,13 +156,13 @@ withInstalledPatch('generate-note-relay-patch --check', () => {
   it('still refuses a published SDK at another version', () => {
     scratchRepo('copy');
     setScratchSdkVersion('0.17.0-rc.1');
-    expect(() => runScratch('--check')).toThrow(/requires SDK 0\.16\.1, found 0\.17\.0-rc\.1/);
+    expect(() => runScratch('--check')).toThrow(/requires SDK 0\.17\.1, found 0\.17\.0-rc\.1/);
   });
 
   it('still refuses a published SDK whose patch file is missing', () => {
     scratchRepo('link');
     rmSync(join(scratch, patchFile));
-    expect(() => runScratch('--check')).toThrow(/miden-sdk\+0\.16\.1\.patch/);
+    expect(() => runScratch('--check')).toThrow(/miden-sdk\+0\.17\.1\.patch/);
   });
 
   it('runs on every build, after the yarn.lock integrity check', () => {
@@ -316,7 +316,7 @@ describe('normalizeNoteRelayFetch', () => {
   });
 
   it('acknowledges a transport endpoint behind a path prefix', async () => {
-    const prefixed = 'https://proxy.example/ntl/miden_note_transport.MidenNoteTransport/SendNote';
+    const prefixed = 'https://proxy.example/ntl/miden.note_transport.v1.NoteTransportService/SendNoteWithProof';
     const response = await normalize(headersOnly('13', duplicateMessage), prefixed, post);
     expect(response.headers.get('grpc-status')).toBe('0');
   });
@@ -411,17 +411,30 @@ describe('normalizeNoteRelayFetch', () => {
   });
 
   it.each([
-    ['another RPC', sendUrl.replace('/SendNote', '/FetchNotes'), post, 200, 'application/grpc-web+proto'],
-    ['a suffix after SendNote', `${sendUrl}/extra`, post, 200, 'application/grpc-web+proto'],
+    ['another RPC', sendUrl.replace('/SendNoteWithProof', '/FetchNotes'), post, 200, 'application/grpc-web+proto'],
+    ['a suffix after SendNoteWithProof', `${sendUrl}/extra`, post, 200, 'application/grpc-web+proto'],
     ['a longer final segment', `${sendUrl}s`, post, 200, 'application/grpc-web+proto'],
     [
       'a dotted prefix on the service',
-      'https://transport.miden.io/x.miden_note_transport.MidenNoteTransport/SendNote',
+      'https://transport.miden.io/x.miden.note_transport.v1.NoteTransportService/SendNoteWithProof',
       post,
       200,
       'application/grpc-web+proto'
     ],
-    ['an invalid URL', '/miden_note_transport.MidenNoteTransport/SendNote', post, 200, 'application/grpc-web+proto'],
+    [
+      'the SDK 0.16 SendNote path',
+      'https://transport.miden.io/miden_note_transport.MidenNoteTransport/SendNote',
+      post,
+      200,
+      'application/grpc-web+proto'
+    ],
+    [
+      'an invalid URL',
+      '/miden.note_transport.v1.NoteTransportService/SendNoteWithProof',
+      post,
+      200,
+      'application/grpc-web+proto'
+    ],
     ['a GET', sendUrl, { method: 'GET' }, 200, 'application/grpc-web+proto'],
     ['a default GET', sendUrl, undefined, 200, 'application/grpc-web+proto'],
     ['HTTP error', sendUrl, post, 503, 'application/grpc-web+proto'],
@@ -501,7 +514,11 @@ describe('normalizeNoteRelayFetch logging', () => {
   });
 
   it.each([
-    ['a FetchNotes rejection', sendUrl.replace('/SendNote', '/FetchNotes'), headersOnly('13', 'storage unavailable')],
+    [
+      'a FetchNotes rejection',
+      sendUrl.replace('/SendNoteWithProof', '/FetchNotes'),
+      headersOnly('13', 'storage unavailable')
+    ],
     ['an unavailable SendNote', sendUrl, headersOnly('14', 'transport unavailable')],
     [
       'a SendNote success',

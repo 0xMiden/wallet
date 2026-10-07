@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getNoteHoldingTransactions } from 'lib/miden/activity';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
-import { isMidenFaucet } from '../assets';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
-import { AssetMetadata, MIDEN_METADATA } from '../metadata';
+import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
 import { fetchFromStorage, putToStorage } from './storage';
@@ -102,9 +103,10 @@ async function buildMetadataMapFromCache(
   cache: Record<string, AssetMetadata> | undefined
 ): Promise<Record<string, AssetMetadata>> {
   const map: Record<string, AssetMetadata> = {};
+  const nativeId = getNativeAssetIdSync();
   for (const n of notes) {
-    if (await isMidenFaucet(n.faucetId)) {
-      map[n.faucetId] = MIDEN_METADATA;
+    if (n.faucetId === nativeId) {
+      map[n.faucetId] = getNativeDisplayMetadataSync(cache?.[n.faucetId], n.faucetId);
     } else {
       const cached = cache?.[n.faucetId];
       if (cached) map[n.faucetId] = cached;
@@ -118,9 +120,9 @@ async function findMissingFaucetIds(
   metadataByFaucetId: Record<string, AssetMetadata>
 ): Promise<string[]> {
   const missing = new Set<string>();
+  const nativeId = getNativeAssetIdSync();
   for (const n of notes) {
-    const isMiden = await isMidenFaucet(n.faucetId);
-    if (!isMiden && !metadataByFaucetId[n.faucetId]) {
+    if (n.faucetId !== nativeId && !metadataByFaucetId[n.faucetId]) {
       missing.add(n.faucetId);
     }
   }
@@ -419,9 +421,18 @@ export function __resetClaimableNotesCacheForTests(): void {
 
 // -------------------- Extension hook (reads from Zustand) --------------------
 
+/** The extension's claim map, tagged with the account generation of the read that produced it. */
+interface ClaimingRead {
+  generation: number;
+  txIdByNoteId: ReadonlyMap<string, string>;
+}
+const NO_CLAIMING: ReadonlyMap<string, string> = new Map();
+
 function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
-  const [claimingTxIds, setClaimingTxIds] = useState<ReadonlyMap<string, string>>(new Map());
+  // Applied only while its generation is current, so after an account switch the previous account's map never shows on
+  // the new account's notes, whether the new read is still pending or keeps failing.
+  const [claimingRead, setClaimingRead] = useState<ClaimingRead>({ generation: -1, txIdByNoteId: NO_CLAIMING });
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
   // Whether this VISIT has seen the service worker write a sync for this account.
   // miden_sync_data outlives the popup, so the first read is the snapshot a previous
@@ -502,28 +513,48 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   // becomes claimable again instead of staying hidden. Polled on the same 3s cadence as
   // the sync read above so both gates move together. Held claims count too: the dedup
   // refuses a second claim of their notes (#1081).
+  // `readClaiming` is async and is called from both the poll and `mutate`, so a read started before
+  // an account switch can resolve after it and install the PREVIOUS account's claim gate over the
+  // new account's notes. The effect-scoped `cancelled` flag this replaced did that job; lifting the
+  // read into a callback so `mutate` could reuse it dropped the guard with it.
+  //
+  // A GENERATION counter, not an address comparison: comparing addresses is an ABA test, and
+  // A -> B -> A is an ordinary thing for a user to do. A read issued under the FIRST A would find
+  // the address equal again and install its stale rows over the second A's.
+  const readGenerationRef = useRef(0);
+  const lastAddressRef = useRef(publicAddress);
+  if (lastAddressRef.current !== publicAddress) {
+    lastAddressRef.current = publicAddress;
+    readGenerationRef.current += 1;
+  }
+
+  // Bound at CLOSURE CREATION, not at call time. `readClaiming` closes over `publicAddress`, so a
+  // stale copy of it (a caller still holding the previous `mutate`) reads the OLD address -- and
+  // reading the generation when that call runs would compare against the already-incremented
+  // value and pass. The generation has to travel with the address it was captured beside.
+  const boundGeneration = readGenerationRef.current;
+
+  const readClaiming = useCallback(() => {
+    return getNoteHoldingTransactions(publicAddress)
+      .then(txs => {
+        if (readGenerationRef.current !== boundGeneration) {
+          console.warn('[claimable-notes] dropped a consume-row read from a previous account');
+          return;
+        }
+        setClaimingRead({ generation: boundGeneration, txIdByNoteId: claimingTxIdByNoteId(txs) });
+      })
+      .catch(() => {
+        // A failed read leaves the previous gate in place: better a stale gate for one
+        // tick than a Claim button that reappears under a live consume.
+      });
+  }, [publicAddress, boundGeneration]);
+
   useEffect(() => {
     if (!enabled) return;
-    let cancelled = false;
-
-    const readClaiming = () => {
-      getNoteHoldingTransactions(publicAddress)
-        .then(txs => {
-          if (!cancelled) setClaimingTxIds(claimingTxIdByNoteId(txs));
-        })
-        .catch(() => {
-          // A failed read leaves the previous gate in place: better a stale gate for one
-          // tick than a Claim button that reappears under a live consume.
-        });
-    };
-
-    readClaiming();
-    const claimingTimer = setInterval(readClaiming, 3_000);
-    return () => {
-      cancelled = true;
-      clearInterval(claimingTimer);
-    };
-  }, [enabled, publicAddress]);
+    void readClaiming();
+    const claimingTimer = setInterval(() => void readClaiming(), 3_000);
+    return () => clearInterval(claimingTimer);
+  }, [enabled, readClaiming]);
 
   // Map serialized notes to ConsumableNote with metadata. Annotated rather than inferred
   // so both hooks publish the SAME element type: an inferred object literal has no
@@ -531,6 +562,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   // consumer of `useClaimableNotes` — including the claim gates that must read it.
   const computedData = useMemo<ClaimableNoteWithMetadata[] | undefined>(() => {
     if (!enabled || extensionNotes === null) return undefined;
+    const claimingTxIds = claimingRead.generation === boundGeneration ? claimingRead.txIdByNoteId : NO_CLAIMING;
 
     // The same fixed order as the local list (`sortClaimableNotes`): the service worker stores notes in
     // client order, which changes between syncs, and the Activity cards animate every move.
@@ -553,14 +585,19 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           standardPayment: n.standardPayment
         }))
     );
-  }, [enabled, extensionNotes, claimingTxIds, assetsMetadata]);
+  }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata]);
 
   const mutate = useCallback(() => {
     // Trigger a SyncRequest to get fresh data
     const intercom = getIntercom();
     intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
-    return Promise.resolve(undefined);
-  }, []);
+    // ALSO re-read the consume rows. The SyncRequest round-trip refreshes the note list but never
+    // touches `claimingRead`, which only the 3s poll writes -- so without this a caller that
+    // refreshes after queueing a claim (useClaimNotes does) would see `isBeingClaimed` stay false
+    // on this platform for up to a full poll period, and offer an enabled Claim All over a live
+    // consume. Returns the read so a caller can sequence on it.
+    return readClaiming();
+  }, [readClaiming]);
 
   return {
     data: computedData,

@@ -48,8 +48,22 @@ runs:
       shell: bash
       run: |
         set -a; . playwright/e2e/local-stack/versions.env; set +a
-        echo "repo=$NODE_SRC_REPO" >> "$GITHUB_OUTPUT"
-        echo "rev=$NODE_SRC_REF"  >> "$GITHUB_OUTPUT"
+        repo="$NODE_SRC_REPO"
+        rev="$NODE_SRC_REF"
+        # A linked client commit already selected its protocol crates. Building the
+        # node from the published pin leaves the chain on the older protocol, and
+        # notes the funder creates never arrive in the SDK.
+        if [ -n "${MIDEN_LINKED_CLIENT_REV:-}" ]; then
+          if ! printf '%s' "$MIDEN_LINKED_CLIENT_REV" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error title=run-local-node::MIDEN_LINKED_CLIENT_REV='${MIDEN_LINKED_CLIENT_REV}' is not a 40-hex commit sha."
+            exit 1
+          fi
+          repo="${MIDEN_LINKED_CLIENT_URL:-$NODE_SRC_REPO}"
+          rev="$MIDEN_LINKED_CLIENT_REV"
+          echo "Node source follows linked client ${repo} @ ${rev}"
+        fi
+        echo "repo=$repo" >> "$GITHUB_OUTPUT"
+        echo "rev=$rev"  >> "$GITHUB_OUTPUT"
     - name: Drop apt repositories this repo never installs from
       uses: ./.github/actions/apt-drop-unused-repos
     - name: Install node build deps
@@ -72,7 +86,16 @@ runs:
         # clone process authenticates the clone and then those fetches fail.
         git clone -c http.extraheader="AUTHORIZATION: basic $auth" \
           --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
-        git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
+        # A published pin is on the default branch. A linked client sha is not,
+        # so fetch that commit before checkout. cat-file, not a failed checkout:
+        # a present commit can still be missing blobs, and checkout fetches those
+        # from the promisor remote. A depth-limited fetch there would truncate it.
+        rev="${{ steps.pins.outputs.rev }}"
+        dir="${{ runner.temp }}/miden-client"
+        if ! git -C "$dir" cat-file -e "${rev}^{commit}" 2>/dev/null; then
+          git -C "$dir" fetch -q --depth 1 origin "$rev"
+        fi
+        git -C "$dir" checkout -q "$rev" || git -C "$dir" checkout -q FETCH_HEAD
     # THE NODE AND THE SDK MUST SHARE ONE PROTOCOL REV.
     #
     # A guarded-multisig account built in the browser links `miden::standards::fee`
@@ -181,7 +204,10 @@ runs:
 
         # The node source start-test-node.sh would have installed from crates.io. Its own
         # --print-rev is the single place that decides it, so ask it rather than re-deriving.
+        # Since rust-sdk v0.17.0-rc.3 it prints a cache key, `<rev>-bins.<cksum>`; the
+        # suffix names the binary set, not a fetchable ref.
         node_rev=$("$clone/scripts/start-test-node.sh" --print-rev)
+        node_rev="${node_rev%-bins.*}"
         [ -n "$node_rev" ] || {
           echo "::error title=run-local-node::start-test-node.sh --print-rev printed nothing; the node source cannot be identified."
           exit 1
@@ -434,8 +460,11 @@ runs:
         mkdir -p "$install" "$build"
         cd "$NODE_DIR"
         # Same four binaries, same profile overrides, as start-test-node.sh's own install.
+        # Every binary in the script's NODE_BINS: one missing makes its cached-binaries
+        # check fail, and it would then reinstall the whole node unpatched.
         for spec in bin/node:miden-node bin/validator:miden-validator \
-                    bin/ntx-builder:miden-ntx-builder bin/remote-prover:miden-remote-prover; do
+                    bin/ntx-builder:miden-ntx-builder bin/remote-prover:miden-remote-prover \
+                    bin/funding-service:miden-funding-service bin/note-transport:miden-note-transport; do
           p="${spec%%:*}"; b="${spec##*:}"
           echo "::group::cargo install $b (from $NODE_DIR/$p)"
           CARGO_PROFILE_RELEASE_DEBUG=false CARGO_PROFILE_RELEASE_STRIP=symbols \
@@ -467,7 +496,8 @@ runs:
           want=" $nodever (registry+"
         fi
         sed -i "s|(path+file://[^)]*)|($src)|g" "$meta"
-        for b in miden-validator miden-node miden-ntx-builder miden-remote-prover; do
+        for b in miden-validator miden-node miden-ntx-builder miden-remote-prover miden-funding-service \
+                 miden-note-transport; do
           [ -x "$install/bin/$b" ] || { echo "::error title=run-local-node::$b was not installed to $install/bin"; exit 1; }
           grep -F -- "\"$b " "$meta" | grep -qF -- "$want" || {
             echo "::error title=run-local-node::$meta does not record $b the way start-test-node.sh looks it up (expected to contain '$want')."
@@ -538,8 +568,7 @@ runs:
       env:
         MIDEN_PROVER_TIMEOUT: 10m
         MIDEN_PROVER_CAPACITY: '4'
-        # Read by miden-client's test-node-genesis when it renders genesis.toml.
-        # Unset (or 0) means `verification_base_fee = 0` and a fee-free chain.
+        # The chain's verification base fee; start-test-node.sh passes it to genesis.
         # The name start-test-node.sh actually reads; MIDEN_TEST_NODE_VERIFICATION_BASE_FEE
         # is read by nothing, so the requested fee never reached genesis.
         MIDEN_VERIFICATION_BASE_FEE: ${{ inputs.verification-base-fee }}
@@ -630,14 +659,39 @@ runs:
         [ "$n" -gt 0 ] || { echo "::error::no funder wallets were exposed by the node"; exit 1; }
         echo "assembled $n funder wallet(s) + native_faucet.mac in $dir"
         echo "MIDEN_E2E_FUNDER_DIR=$dir" >> "$GITHUB_ENV"
+        # 0.17 clients need this at WASM create. Bake it into the extension build
+        # (vite define); a runtime injector cannot reach the offscreen bundle.
+        log="$clone/target/test-node/data/logs/bootstrap.log"
+        faucet=$(grep -oE 'Native faucet account id: [^[:space:]]+' "$log" | awk '{print $NF}' | head -n1)
+        [ -n "$faucet" ] || {
+          echo "::error::no 'Native faucet account id' line in $log"
+          exit 1
+        }
+        echo "native fee faucet $faucet"
+        echo "MIDEN_FEE_FAUCET_ID=$faucet" >> "$GITHUB_ENV"
 
     - name: Verify genesis fee parameters
       shell: bash
       run: |
         set -euo pipefail
         g="${{ runner.temp }}/miden-client/target/test-node/data/genesis-config/genesis.toml"
-        actual=$(grep -E '^verification_base_fee' "$g" | tr -dc '0-9')
         want='${{ inputs.verification-base-fee }}'
+        if [ -f "$g" ]; then
+          actual=$(grep -E '^verification_base_fee' "$g" | tr -dc '0-9')
+        else
+          # Since rust-sdk v0.17.0-rc.3 no genesis file records the fee: the script hands its
+          # MIDEN_VERIFICATION_BASE_FEE (set on the start step) to `miden-validator genesis` as a
+          # flag. Guard both ends of that hand-off, since a renamed variable is how the requested
+          # fee silently never reached genesis before.
+          f="${{ runner.temp }}/miden-client/scripts/start-test-node.sh"
+          for line in 'VERIFICATION_BASE_FEE="${MIDEN_VERIFICATION_BASE_FEE:-' '--verification-base-fee "$VERIFICATION_BASE_FEE"'; do
+            grep -qF -- "$line" "$f" || {
+              echo "::error::start-test-node.sh no longer contains '$line'; the requested fee may not reach genesis."
+              exit 1
+            }
+          done
+          actual=$want
+        fi
         echo "genesis verification_base_fee=$actual (requested $want)"
         if [ "$actual" != "$want" ]; then
           echo "::error::genesis has verification_base_fee=$actual but $want was requested; the chain is not charging what the suite assumes"

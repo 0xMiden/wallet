@@ -32,6 +32,8 @@ export type Status =
   | 'orderReclaimed'
   | 'loading'
   | 'unavailable'
+  // A guardian switch whose commit was submitted but never confirmed
+  | 'guardianSwitchSubmitted'
   // The guardian's connection
   | 'online'
   | 'offline'
@@ -80,6 +82,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   orderReclaimed: { labelKey: 'orderStatusReclaimed', tone: 'neutral' },
   loading: { labelKey: 'loading', tone: 'neutral' },
   unavailable: { labelKey: 'trackingUnavailable', tone: 'neutral' },
+  guardianSwitchSubmitted: { labelKey: 'guardianSwitchSubmittedChip', tone: 'pending' },
   online: { labelKey: 'online', tone: 'positive' },
   offline: { labelKey: 'guardianOfflineLabel', tone: 'negative' },
   needsAttention: { labelKey: 'guardianNeedsAttentionLabel', tone: 'negative' },

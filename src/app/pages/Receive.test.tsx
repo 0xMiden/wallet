@@ -10,6 +10,7 @@ import { PageActiveContext } from 'app/layouts/page-active';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { Receive } from './Receive';
@@ -160,14 +161,20 @@ jest.mock('lib/telemetry', () => ({
 }));
 
 const mockIsMobile = jest.fn(() => false);
+const mockIsExtension = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
-  isExtension: () => false
+  isExtension: () => mockIsExtension()
 }));
 
-jest.mock('lib/feature-flags', () => ({
-  ...jest.requireActual('lib/feature-flags'),
-  isBridgeDepositEnabled: () => true
+let mockCrossChain: FeatureAvailability = { state: 'available' };
+const mockAnyFeatureAvailability = jest.fn(
+  (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
+    features.join() === 'fastBridgeIn,bridgeIn' ? mockCrossChain : { state: 'loading' }
+);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
+    mockAnyFeatureAvailability(features, options)
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -196,6 +203,7 @@ jest.mock('utils/string', () => ({
 // checks the carousel case sets this to another page for itself.
 beforeEach(() => {
   mockPathname = '/receive';
+  mockIsExtension.mockReturnValue(false);
 });
 
 describe('Receive - Address', () => {
@@ -212,6 +220,7 @@ describe('Receive - Address', () => {
 
   beforeEach(() => {
     mockReduceMotion = false;
+    mockCrossChain = { state: 'available' };
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
@@ -343,6 +352,35 @@ describe('Receive - Address', () => {
       fireEvent.click(crossChain);
     });
     expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('greys out Cross Chain under the notice while neither bridge-in route can start', async () => {
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
+    expect(crossChain).toBeDisabled();
+    expect(crossChain).toHaveClass('disabled:opacity-50');
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
+      'bridgeFeatureUnavailableBody'
+    );
+    await act(async () => {
+      fireEvent.click(crossChain);
+    });
+    expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  // The fast poll is held only for a greyed-out Cross Chain tile, and the extension draws none.
+  it.each([
+    ['off the extension', false, true],
+    ['on the extension', true, false]
+  ])('asks for the fast-poll hold exactly where it draws Cross Chain: %s', async (_where, extension, hold) => {
+    mockIsExtension.mockReturnValue(extension);
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]') !== null).toBe(hold);
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold });
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

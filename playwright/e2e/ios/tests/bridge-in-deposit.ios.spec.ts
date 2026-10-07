@@ -1,6 +1,6 @@
 import { decodeFunctionData, parseUnits, zeroAddress } from 'viem';
 
-import { AGGLAYER_BRIDGE_NOTE_SCALE } from '../../../../src/lib/agglayer/constant';
+import { TEST_NATIVE_ETH_SCALE } from '../../../../src/lib/epoch/testing/bridge-config';
 import { expect, test } from '../fixtures/two-simulators';
 import { AnvilInstance } from '../helpers/anvil';
 import {
@@ -39,7 +39,7 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
   // The amount input caps at 6 decimals (CurrencyInput decimalsLimit=6), so the
   // smallest ETH deposit is 0.000001 → parseUnits(.,18) = 1e12 wei, which the row
   // records. The bridge delivers it scaled by its ETH faucet's registry scale
-  // (AGGLAYER_BRIDGE_NOTE_SCALE in src/lib/agglayer/constant.ts), so the solver
+  // (the testnet registry's, TEST_NATIVE_ETH_SCALE), so the solver
   // mints 1e12 / 1e10 = 100 units.
   const DEPOSIT_ETH = '0.000001';
   const FAUCET_MAX_SUPPLY = 1_000_000_000_000_000n; // 1e15, ample headroom over the 100-unit note
@@ -133,7 +133,7 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
         expect(decoded.functionName).toBe('bridgeAsset');
         const [destNetwork, destAddress, amount, tokenArg] = decoded.args;
         const expectedAmount = parseUnits(DEPOSIT_ETH, 18);
-        expect(destNetwork, 'destinationNetwork = MIDEN_CHAIN_ID').toBe(86);
+        expect(destNetwork, 'destinationNetwork = the testnet rollup id').toBe(86);
         expect(tokenArg, 'token = native ETH').toBe(zeroAddress);
         expect(amount, 'bridged amount').toBe(expectedAmount);
         expect(destAddress, 'recipient is a real 20-byte address').toMatch(/^0x[0-9a-fA-F]{40}$/);
@@ -161,12 +161,7 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
       });
 
       await steps.step('solver_delivers_note', async () => {
-        await midenCli.mint(
-          faucetHex,
-          addressA,
-          BigInt(rowAmount) / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE),
-          'public'
-        );
+        await midenCli.mint(faucetHex, addressA, BigInt(rowAmount) / 10n ** BigInt(TEST_NATIVE_ETH_SCALE), 'public');
         await midenCli.sync();
       });
 

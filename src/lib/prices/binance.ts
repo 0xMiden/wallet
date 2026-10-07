@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 import { KNOWN_SYMBOLS } from './constant';
+import { fixedQuote } from './fixed';
 import { hasUnquotedDefaultPrice } from './unquoted-default';
 
 const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
@@ -88,11 +89,13 @@ export function isListedSymbol(symbol: string | undefined): boolean {
  */
 export function pricesLoaded(prices: TokenPrices, priceSymbols: Iterable<string | undefined>): boolean {
   if (Object.keys(prices).length > 0) return true;
-  if (!hasUnquotedDefaultPrice()) return false;
+  const nominal = hasUnquotedDefaultPrice();
+  let hasFixed = false;
   for (const symbol of priceSymbols) {
-    if (isListedSymbol(symbol)) return false;
+    if (fixedQuote(symbol)) hasFixed = true;
+    else if (!nominal || isListedSymbol(symbol)) return false;
   }
-  return true;
+  return hasFixed || nominal;
 }
 
 /**
@@ -122,6 +125,8 @@ export function isNominalQuote(quote: TokenPriceInfo | undefined): boolean {
  * sparkline and chart do.
  */
 export function quotedPrice(prices: TokenPrices, symbol: string | undefined): TokenPriceInfo | undefined {
+  const fixed = fixedQuote(symbol);
+  if (fixed) return fixed;
   const quote = symbol === undefined ? undefined : prices[symbol];
   if (quote && quote.price > 0) return quote;
   return !isListedSymbol(symbol) && hasUnquotedDefaultPrice() ? TEST_NETWORK_UNQUOTED_PRICE : undefined;

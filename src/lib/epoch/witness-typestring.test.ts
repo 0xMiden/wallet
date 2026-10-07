@@ -11,7 +11,8 @@ import {
   normalizeMidenIdToHex
 } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
-import { buildEarnTaskDataParams, EARN_UNDERLYING } from './earn';
+import { buildEarnTaskDataParams } from './earn';
+import { TEST_EARN_MARKET } from './testing/bridge-config';
 import type { EVMToMidenIntentParams } from './types';
 
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
@@ -29,7 +30,8 @@ describe('Miden witness typestrings', () => {
       midenFaucetId,
       depositAmount: '1000000',
       evmRecipient,
-      midenReclaimHeight: 1234
+      midenReclaimHeight: 1234,
+      market: TEST_EARN_MARKET
     });
 
     expect(task.extraDataTypestring.endsWith(MIDEN_TO_EVM_EXTRA_TYPESTRING)).toBe(true);
@@ -44,7 +46,7 @@ describe('Miden witness typestrings', () => {
       midenReclaimHeight: 1234,
       evmRecipient,
       destinationChainId: 11155111,
-      outputTokenAddress: EARN_UNDERLYING,
+      outputTokenAddress: TEST_EARN_MARKET.underlying,
       minTokenOut: '0'
     });
 

@@ -1,8 +1,8 @@
 /* eslint-disable import/first -- the jest.mock() factory must be registered before the module under test is imported. */
 /**
- * The exit-hash helper's own decisions, over a fake SDK (#1325). The real Poseidon2 is pinned by the golden vectors
- * in exit-hash.real-sdk.test.ts; here a fake hash spells out what it was given, so a test can see which words went
- * into it and in which order.
+ * The exit-hash helper's own decisions, over a fake SDK (#1325). The real Poseidon2 composition is pinned by the
+ * golden vectors in exit-hash.real-sdk.test.ts, on the 0.16 words they hold; here a fake hash spells out what it was
+ * given, so a test can see which words went into it and in which order.
  */
 const mockRequestDeserialize = jest.fn();
 

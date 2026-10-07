@@ -4,8 +4,8 @@ import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { create } from 'zustand';
 
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import {
   preparedExecution,
   PREPARED_FAUCET,
@@ -27,6 +27,8 @@ import { HistoryDetails } from './HistoryDetails';
 import { IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
   AccountId: {
@@ -55,6 +57,7 @@ interface MetadataStore {
 const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} }));
 let mockConfiguredNativeFaucet: string | null = 'configured-native';
 let mockChainNativeFaucet: string | null = 'chain-native';
+let mockNativeChainMetadata: { symbol: string; decimals: number } | null = { symbol: 'MIDEN', decimals: 6 };
 let mockMaxNetworkFee: string | undefined;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
@@ -136,6 +139,7 @@ jest.mock('lib/miden/metadata/utils', () => ({
 
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args),
+  normalizedFaucetId: (id: string) => id,
   tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote
 }));
 
@@ -165,7 +169,9 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
 
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
-  getNativeAssetIdSync: () => mockChainNativeFaucet
+  getNativeAssetIdSync: () => mockChainNativeFaucet,
+  getNativeAssetMetadataSync: () => mockNativeChainMetadata,
+  getSdkSyncedNativeAssetIdSync: () => mockChainNativeFaucet
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -308,6 +314,12 @@ jest.mock('lib/miden-chain/constants', () => ({
   getExplorerAccountUrl: (address: string) => `https://custom-explorer.test/account/${address}`
 }));
 
+// The Earn collateral comes from the bridge config: a withdrawal's redeemed side is priced through it, and a
+// deposit's summary falls back to it.
+let mockEarnCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockEarnCollateral }));
+
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
   default: ({ entry, size }: { entry: { message?: string; transactionIcon?: string }; size?: string }) => (
@@ -431,6 +443,7 @@ const sectionByTitle = (title: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEarnCollateral = null;
   mockHistoryPosition = 1;
   // Keep IndexedDB/Dexie's scheduling primitives real so the global database
   // cleanup hook can complete; only timer-based order polling needs faking.
@@ -446,6 +459,7 @@ beforeEach(() => {
   mockWalletStore.setState({ tokenPrices: { USDC: { price: 2 } }, assetsMetadata: {} });
   mockConfiguredNativeFaucet = 'configured-native';
   mockChainNativeFaucet = 'chain-native';
+  mockNativeChainMetadata = { symbol: 'MIDEN', decimals: 6 };
   mockMaxNetworkFee = undefined;
 
   // Default: token metadata for the tx faucet; requested-faucet lookups get a
@@ -674,14 +688,16 @@ describe('HistoryDetails', () => {
       expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
     });
 
-    it('uses configured-native metadata before a conflicting store entry', async () => {
+    it('uses authoritative native USDCX scale before a conflicting store entry', async () => {
       mockConfiguredNativeFaucet = 'faucet-1';
+      mockChainNativeFaucet = 'faucet-1';
+      mockNativeChainMetadata = { symbol: 'USDCX', decimals: 8 };
       mockGetTokenMetadata.mockResolvedValue(MIDEN_METADATA);
       mockWalletStore.setState({ assetsMetadata: { 'faucet-1': resolved } });
       setMockRow({ ...baseSendTx, amount: 2_000_000n });
       await renderAndLoad();
 
-      expect(screen.getByText('2 MIDEN')).toBeInTheDocument();
+      expect(screen.getByText('0.02 USDCX')).toBeInTheDocument();
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
     });
 
@@ -929,6 +945,40 @@ describe('HistoryDetails', () => {
       expect(within(summary).getByText('OpenZeppelin')).toBeInTheDocument();
       expect(within(summary).getAllByTestId('guardian-avatar')).toHaveLength(1);
       expect(rowByLabel('txIdLabel')?.textContent).toContain('tx-1');
+    });
+
+    it('reads an unconfirmed rotation as Submitted instead of the generic pill', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        displayMessage: 'Guardian switch submitted',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newGuardianEndpoint: 'https://new.example', commitUnconfirmed: true }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByText('guardianSwitchSubmittedChip')).toBeInTheDocument();
+      expect(screen.queryByTestId('status-pill')).toBeNull();
+    });
+
+    it('keeps the generic pill for a committed rotation whose registration did not land', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        displayMessage: 'Guardian switched',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newGuardianEndpoint: 'https://new.example', registerFailed: true }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+      expect(screen.queryByText('guardianSwitchSubmittedChip')).toBeNull();
     });
 
     it('draws the guardian the rotation ran under once, and puts the new key in the details', async () => {
@@ -3579,6 +3629,7 @@ describe('HistoryDetails earn-withdraw', () => {
   beforeEach(() => {
     mockRetryEarnWithdrawReceive.mockClear();
     mockRetryEarnWithdrawReceive.mockResolvedValue(undefined);
+    mockEarnCollateral = { faucetId: MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
   });
 
   it('shows the redeemed source side while the withdrawal is still in flight', async () => {
@@ -3646,8 +3697,18 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
   });
 
+  it('prices no estimate for the redeemed side while the config names no Earn collateral', async () => {
+    mockEarnCollateral = null;
+    setMockRow(nativeWithdrawTx({ phase: 'delivering', sourceAmount: '10.50' }));
+    await renderAndLoad();
+
+    expect(screen.getByText('10.5')).toBeInTheDocument();
+    expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+  });
+
   // Once credited the hero prints the native asset, which the feed does not quote whatever its faucet calls itself.
   it('prices no estimate for a received withdrawal credited in the native asset', async () => {
+    mockNativeChainMetadata = { symbol: 'USDC', decimals: 6 };
     mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
     setMockRow(nativeWithdrawTx({ phase: 'received' }, { amount: 999n }));
     await renderAndLoad();
@@ -3667,6 +3728,7 @@ describe('HistoryDetails earn-withdraw', () => {
 
   // Without extra inputs the hero prints the row's own native amount, so no Earn side is priced as USDC.
   it('prices no estimate for a restored withdrawal with no extra inputs', async () => {
+    mockNativeChainMetadata = { symbol: 'USDC', decimals: 6 };
     mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 }); // A USDC-named faucet off the allowlist.
     setMockRow(earnWithdrawTx({}, { faucetId: 'chain-native', extraInputs: undefined, restoredFromBackup: true }));
     await renderAndLoad();
@@ -3824,6 +3886,11 @@ describe('HistoryDetails earn-withdraw', () => {
 // collateral note lands, so the pill and the poller both track the separate,
 // solver-fulfilled lending leg (`extraInputs.epochStatus`) instead.
 describe('HistoryDetails earn-deposit', () => {
+  beforeEach(() => {
+    // These deposits were made in the collateral the config names.
+    mockEarnCollateral = { faucetId: 'faucet-1', symbol: 'USDC', decimals: 6 };
+  });
+
   const earnDepositTx = (extraInputs: Record<string, unknown> = {}, overrides: Tx = {}): Tx => ({
     ...baseSendTx,
     id: 'tx-1',

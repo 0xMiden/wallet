@@ -14,7 +14,7 @@ import {
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -30,7 +30,6 @@ import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
 import { Vault } from './vault';
-import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -39,6 +38,7 @@ import { reconcileSwapOrderNotes } from '../swap/settlement';
 import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { runTrimTick } from '../transaction/trim-result-bytes';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -163,6 +163,17 @@ async function getVault() {
 }
 
 export function doSync(force = false): Promise<void> {
+  // Reclaim finished transactions' result blobs. This is the extension realm's ONLY driver for it
+  // - the `miden-sync` alarm and the popup's SyncRequest both arrive here - so removing this call
+  // stops the extension reclaiming anything at all.
+  //
+  // Ahead of every early return below, and deliberately not inside `runSync`: this is pure local
+  // Dexie maintenance with no network dependency and no WASM lock, so neither the in-flight
+  // coalescing, nor the circuit breaker, nor the #777 fuse - which can hold this realm off the
+  // node for 30 minutes at a time - has any business gating it. Self-throttled and fire-and-forget,
+  // so it can neither slow a sync nor fail one.
+  void runTrimTick();
+
   if (inFlight) {
     if (!force) return inFlight;
     if (!queuedForcedSync) {
@@ -596,7 +607,7 @@ async function runSync(force: boolean): Promise<void> {
           (await areBackgroundSettingsMirrored()) &&
           (await isAutoConsumeEnabledAsync())
         ) {
-          const nativeFaucetId = await getFaucetIdSetting();
+          const nativeFaucetId = await getNativeAssetId();
           if (nativeFaucetId) {
             // Notes already held by a consume row (live, or awaiting its verdict) are excluded BEFORE
             // the value check, because the enqueue below drops exactly those at its

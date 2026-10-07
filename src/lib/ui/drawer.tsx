@@ -112,19 +112,30 @@ function DrawerContent({
   overlayClassName,
   children,
   hideHandle = true,
+  forceMount,
   style,
   ...props
 }: DrawerContentProps) {
+  const { open } = useContext(DrawerContext);
+  // Once dismissed, the sheet and its `fixed inset-0` overlay stay mounted through the 500ms exit and
+  // would swallow the tap aimed at what they uncover, so they stop taking pointer events. It must be an
+  // inline style spread last: Radix writes inline `pointer-events: auto` on the overlay and on the
+  // content's dismissable layer, and an inline declaration outranks any class.
+  const inertWhileClosing = open ? undefined : ({ pointerEvents: 'none' } as const);
+
   return (
-    <VaulDrawer.Portal>
+    <VaulDrawer.Portal forceMount={forceMount}>
       {/* A plain scrim, one token in both themes: dimming the page is the whole job, and a frosted
           blur over it only smears whatever is underneath. */}
-      <VaulDrawer.Overlay style={sheetMotionVars} className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)} />
+      <VaulDrawer.Overlay
+        style={{ ...sheetMotionVars, ...inertWhileClosing }}
+        className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)}
+      />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
         // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
-        style={{ ...sheetMotionVars, ...style }}
+        style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the

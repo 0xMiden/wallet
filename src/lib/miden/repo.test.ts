@@ -159,23 +159,21 @@ describe('miden repo export/import', () => {
     expect(imported[0]!.resultBytes).toEqual(new Uint8Array([9, 8, 7]));
   });
 
-  // Files written before the BigInt tag existed keep importing. `amount` was a
-  // plain string and `requestBytes` an untagged number array; `resultBytes` rode
-  // the untouched rest-spread, and `JSON.stringify` renders a `Uint8Array` as an
-  // index-keyed object rather than an array.
-  it('imports a legacy dump whose amount and byte fields are untagged', async () => {
+  // `amount` is written as a plain string (readable by builds that predate the
+  // BigInt tag) and byte fields as untagged number arrays; both import by name.
+  it('imports a dump whose amount and byte fields are untagged', async () => {
     await importDb(
       JSON.stringify({
         [Table.Transactions]: [
           {
-            id: 'legacy-1',
+            id: 'untagged-1',
             type: 'send',
             status: ITransactionStatus.Completed,
             accountId: 'acc1',
             initiatedAt: 3,
             amount: '42',
             requestBytes: [1, 2, 3],
-            resultBytes: { '0': 9, '1': 8, '2': 7 },
+            resultBytes: [9, 8, 7],
             displayIcon: 'SEND'
           }
         ]
@@ -212,28 +210,17 @@ describe('miden repo export/import', () => {
       ['a value above 255', { requestBytes: [1, 999, 3] }],
       ['a negative value', { requestBytes: [1, -1, 3] }],
       ['a fractional value', { requestBytes: [1, 1.5, 3] }],
-      ['a non-number', { requestBytes: [1, 'two', 3] }],
-      ['a value above 255, index-keyed', { resultBytes: { '0': 9, '1': 300 } }]
+      ['a non-number', { requestBytes: [1, 'two', 3] }]
     ])('is rejected rather than truncated: %s', async (_label, fields) => {
       await expect(importDb(dumpWith(fields))).rejects.toThrow(/is not a byte/);
     });
 
-    // The old decoder sized the array by key COUNT and then read 0…count-1, so a
-    // gap made it read a key the file did not have: this restored as [1, 0],
-    // inventing a zero and dropping the byte at index 2 without a word.
     it.each([
-      ['a gap', { resultBytes: { '0': 1, '2': 3 } }],
-      ['an index past the end', { resultBytes: { '0': 1, '5': 3 } }],
-      ['a negative index', { resultBytes: { '0': 1, '-1': 3 } }],
-      ['a non-numeric key', { resultBytes: { '0': 1, x: 3 } }]
-    ])('is rejected rather than silently reshaped: %s', async (_label, fields) => {
-      await expect(importDb(dumpWith(fields))).rejects.toThrow(/dense byte sequence/);
-    });
-
-    // An empty Uint8Array serializes to exactly this, so it has to stay valid.
-    it('accepts an empty index-keyed object as an empty byte array', async () => {
-      await importDb(dumpWith({ resultBytes: {} }));
-      expect((await transactions.toArray())[0]!.resultBytes).toEqual(new Uint8Array([]));
+      ['an index-keyed resultBytes', { resultBytes: { '0': 9, '1': 8 } }],
+      ['an empty object', { resultBytes: {} }],
+      ['an index-keyed requestBytes', { requestBytes: { '0': 1 } }]
+    ])('is rejected rather than stored as a plain object: %s', async (_label, fields) => {
+      await expect(importDb(dumpWith(fields))).rejects.toThrow(/is not a byte array/);
     });
   });
 
@@ -596,10 +583,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 1.9', () => {
+  it('keys spending limits by account alone on schema version 2', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(1.9);
+    expect(db.verno).toBe(2);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -691,7 +678,7 @@ describe('spending limits schema', () => {
 // (the defect this test exists to catch) - the private chain never saw the mutation. Routing the
 // reopen through the real `defineSchema` (via `createSchemaFor`) means a future collapse changes
 // what THIS test replays too, so it fails instead of passing green next to a broken migration.
-describe('spending limits schema migration (1.7 -> 1.9)', () => {
+describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
   // A second, independent oracle for the two constants `seedV17` and the real chain
   // (`createSchemaFor`, via `defineSchema`) both read below. Version 1.7 has already shipped on
   // origin/main, so its shape is immutable in every existing user's IndexedDB - coupling this
@@ -773,12 +760,13 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
 
     // Reopen under the same name through the REAL chain repo.ts declares (see the describe-level
     // comment for why this must not be a hand-rolled duplicate): 1.8 drops the old compound-keyed
-    // table, 1.9 recreates it keyed by account alone.
+    // table, 1.9 recreates it keyed by account alone, and 2 adds the `type` index.
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(1.9);
+    expect(upgraded.verno).toBe(2);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
+    expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
 
     // Usable afterward, not merely empty: the new shape accepts a write keyed by account alone.
@@ -787,10 +775,9 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
       .put({ accountId: 'account-a', revision: 'rev-3', limit: '30', createdAt: 2, updatedAt: 2 });
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({ limit: '30' });
 
-    // The sibling `transactions` table (and its ten 1.7 indexes) is untouched by a migration that
-    // only names `spendingLimits` - Dexie's per-version diff carries forward every store this
-    // version doesn't mention, but that is a property of the real schema, not of this test's
-    // assumption, so it is asserted here rather than left for a reader to trust.
+    // The sibling `transactions` table keeps its row and its ten 1.7 indexes through the spending-limit
+    // steps and through v2, which redeclares it with `type` added - asserted here rather than left
+    // for a reader to trust.
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toEqual(
       expect.arrayContaining(TEN_TRANSACTIONS_V17_INDEXES)
     );
@@ -798,6 +785,47 @@ describe('spending limits schema migration (1.7 -> 1.9)', () => {
       accountId: 'account-a',
       status: ITransactionStatus.Completed
     });
+
+    upgraded.close();
+    await Dexie.delete(name);
+  });
+
+  // Every 1.16.2 install takes this step. The shipped 1.9 shape is pinned to literals for the same
+  // reason as 1.7 above: it can never change in users' IndexedDB. The 1.7 case cannot see a later
+  // step that clears `spendingLimits`, because it expects that table empty.
+  it('upgrades a populated 1.9 database to 2, keeping its spending limit and indexing type', async () => {
+    const name = `schema-migration-v19-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const seed = new Dexie(name);
+    seed.version(1.9).stores({
+      [Table.Transactions]:
+        'id,accountId,transactionId,initiatedAt,completedAt,noteId,*noteIds,noteDelivery,extraInputs.destinationAddress,extraInputs.swapOrderTxId,spendingLimitAuthorizationId',
+      [Table.SpendingLimits]: 'accountId,revision'
+    });
+    await seed.open();
+    await seed
+      .table(Table.SpendingLimits)
+      .add({ accountId: 'account-a', revision: 'rev-1', limit: '100', createdAt: 1, updatedAt: 1 });
+    const row = { status: ITransactionStatus.Completed, accountId: 'account-a', initiatedAt: 1, displayIcon: 'SEND' };
+    await seed.table(Table.Transactions).bulkAdd([
+      { ...row, id: 'tx-send', type: 'bridged-send' },
+      { ...row, id: 'tx-receive', type: 'bridged-receive' },
+      { ...row, id: 'tx-other', type: 'send' }
+    ]);
+    seed.close();
+
+    const upgraded = createSchemaFor(name);
+    await upgraded.open();
+    expect(upgraded.verno).toBe(2);
+    await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
+      revision: 'rev-1',
+      limit: '100'
+    });
+    const bridged = await upgraded
+      .table(Table.Transactions)
+      .where('type')
+      .anyOf('bridged-send', 'bridged-receive')
+      .primaryKeys();
+    expect([...bridged].sort()).toEqual(['tx-receive', 'tx-send']);
 
     upgraded.close();
     await Dexie.delete(name);

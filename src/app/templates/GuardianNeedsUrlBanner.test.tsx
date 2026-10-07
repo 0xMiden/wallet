@@ -18,7 +18,8 @@ const baseAccount = {
   name: 'Account 1',
   isPublic: true,
   type: WalletType.Guardian,
-  hdIndex: 0
+  hdIndex: 0,
+  authScheme: 'ecdsa' as const
 };
 
 describe('GuardianNeedsUrlBanner', () => {
@@ -51,6 +52,18 @@ describe('GuardianNeedsUrlBanner', () => {
     render(<GuardianNeedsUrlBanner />);
     expect(screen.getByText('guardianChangedTitle')).toBeInTheDocument();
     expect(screen.getByText('guardianChangedBody')).toBeInTheDocument();
+  });
+
+  it('runs no guardian status clock', () => {
+    // Home mounts this banner, and nothing on Home may re-render on the 15 s status tick.
+    const intervalSpy = jest.spyOn(global, 'setInterval');
+    try {
+      render(<GuardianNeedsUrlBanner />);
+      expect(screen.getByText('guardianChangedTitle')).toBeInTheDocument();
+      expect(intervalSpy.mock.calls.filter(([, delay]) => delay === 15_000)).toEqual([]);
+    } finally {
+      intervalSpy.mockRestore();
+    }
   });
 
   it('renders the submit action as the compact in-card sm button, not a full 48px CTA', () => {
@@ -109,6 +122,16 @@ describe('GuardianNeedsUrlBanner', () => {
     fireEvent.click(getSubmitButton());
 
     await waitFor(() => expect(screen.getByText('guardianUrlNoOnChainGuardian')).toBeInTheDocument());
+    expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
+  });
+
+  it('asks for one retry when the guardian changed while the URL was being checked', async () => {
+    mockApply.mockResolvedValueOnce('stale');
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('guardianUrlStaleRetry')).toBeInTheDocument());
     expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
   });
 

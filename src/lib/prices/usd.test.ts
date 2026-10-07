@@ -213,3 +213,14 @@ describe('writeUsdPriceCache', () => {
     expect(mockedWrite).toHaveBeenCalledWith('usd_price_cache', {});
   });
 });
+
+describe('fixed USDCX micro-dollar price', () => {
+  it('returns exactly one million micro-dollars without storage or market access', async () => {
+    mockedRead.mockRejectedValue(new Error('storage unavailable'));
+    mockedFetch.mockRejectedValue(new Error('feed unavailable'));
+    await expect(getPriceMicro('USDCX', 1000)).resolves.toBe(1_000_000n);
+    expect(mockedRead).not.toHaveBeenCalled();
+    expect(mockedFetch).not.toHaveBeenCalled();
+    expect(isCoveredSymbol('USDCX')).toBe(true);
+  });
+});

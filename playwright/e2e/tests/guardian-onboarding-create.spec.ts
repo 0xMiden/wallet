@@ -62,20 +62,18 @@
  *     bypass every other spec uses defaults to OffChain instead, another reason
  *     this path was uncovered.)
  *
- * WHAT "IT WORKS" MEANS HERE. Screens advancing proves nothing about the wallet
- * that came out the other end, so the tail of the spec funds it for real: the
- * CLI deploys a faucet and mints to the address the wallet reports, and we assert
- * the EXACT minted amount arrives as an unconsumed-note total. A mint creates a
- * NOTE — it is not spendable until claimed — so the truthful reading is
- * `pendingNoteTotal`, not the vault. That single assertion covers the whole
- * chain: a real on-chain account exists, the address the UI hands out is the
- * address the chain credits, and the wallet's own sync discovers it.
+ * Public networks fund through the real Fund card and prove consumption into the
+ * native vault. Localhost retains the CLI faucet and pending-note check.
  */
+import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
 import { openGuardianPickerFromMeetGuardian } from '../helpers/meet-guardian';
 import { acknowledgeNetworkNotice } from '../helpers/network-notice';
+import { fundFreshGuardianThroughUi } from '../helpers/public-faucet';
 import { dismissTelemetryConsent } from '../helpers/telemetry-consent';
+
+test.use({ injectFeeFaucet: getEnvironmentConfig().name === 'localhost' });
 
 /** The faucet the harness deploys (helpers/miden-cli.ts `createFaucet` defaults). */
 const TOKEN = 'TST';
@@ -229,6 +227,20 @@ test.describe('Onboarding — create', () => {
         data: { address, guardianEndpoint: envConfig.guardianUrl }
       });
     });
+
+    if (envConfig.name !== 'localhost') {
+      await steps.step('fund_through_real_public_faucet_and_consume', async () => {
+        const evidence = await fundFreshGuardianThroughUi(page, envConfig.name, steps.outputDir);
+        timeline.emit({
+          category: 'blockchain_state',
+          severity: 'info',
+          wallet: 'A',
+          message: 'Public faucet grant consumed into the native vault',
+          data: evidence
+        });
+      });
+      return;
+    }
 
     await steps.step('init_miden_client', async () => {
       await midenCli.init();

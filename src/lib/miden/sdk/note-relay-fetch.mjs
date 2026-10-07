@@ -1,5 +1,8 @@
 /**
- * Let Rust retire a relay outbox entry when SendNote proves the transport already has it.
+ * Let Rust retire a relay outbox entry when SendNoteWithProof (SDK 0.17) proves the transport
+ * already has it. The 0.17 transport stores a duplicate as `AlreadyPresent` and answers OK
+ * ("A retry with the same note ID keeps the first envelope", note_transport.proto), so this
+ * guards a transport that still answers a duplicate with the old error.
  * Inlined into the SDK glue by scripts/generate-note-relay-patch.mjs, including classic workers.
  */
 export async function normalizeNoteRelayFetch(request, options, pendingResponse) {
@@ -9,7 +12,7 @@ export async function normalizeNoteRelayFetch(request, options, pendingResponse)
     const url = typeof request === 'string' ? request : (request.url ?? request.href);
     if (
       method.toUpperCase() !== 'POST' ||
-      !new URL(url).pathname.endsWith('/miden_note_transport.MidenNoteTransport/SendNote') ||
+      !new URL(url).pathname.endsWith('/miden.note_transport.v1.NoteTransportService/SendNoteWithProof') ||
       response.status !== 200 ||
       !/^application\/grpc-web(?:\+proto)?(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '')
     ) {
@@ -42,7 +45,7 @@ export async function normalizeNoteRelayFetch(request, options, pendingResponse)
     }
     console.info('[noteRelay] SendNote duplicate acknowledged', { status, message });
 
-    // SendNoteResponse is empty, but tonic still requires a unary protobuf data frame.
+    // SendNoteWithProofResponse is empty, but tonic still requires a unary protobuf data frame.
     const ack = new Uint8Array(26);
     ack[5] = 128;
     ack[9] = 16;

@@ -12,7 +12,8 @@ import {
   noteSyncWatchdogEviction
 } from 'lib/miden/front/sync-fuse';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
-import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
+import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
@@ -27,6 +28,7 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
 
@@ -260,6 +262,7 @@ export async function fetchBalances(
   const cachedMetadatas =
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
   const midenFaucetId = await getFaucetIdSetting();
+  const actualNativeId = getNativeAssetIdSync();
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
@@ -270,7 +273,7 @@ export async function fetchBalances(
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
-        return assetId !== midenFaucetId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
+        return assetId !== actualNativeId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
       })
       .map(async asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
@@ -314,12 +317,13 @@ export async function fetchBalances(
     // Can only fabricate a "0 MIDEN" row once discovery has learned the
     // native asset ID. Until then return [] and let the UI render a skeleton.
     if (!midenFaucetId) return [];
+    const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId);
     return [
       {
         tokenId: midenFaucetId,
-        tokenSlug: 'MIDEN',
-        metadata: MIDEN_METADATA,
-        ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
+        tokenSlug: nativeMetadata.symbol,
+        metadata: nativeMetadata,
+        ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
         balance: 0
       }
     ];
@@ -334,6 +338,8 @@ export async function fetchBalances(
 
   // Build balance list
   let hasMiden = false;
+  const nativeMetadata = getNativeDisplayMetadataSync(localMetadatas[midenFaucetId ?? ''], midenFaucetId);
+
   for (const asset of assets) {
     const tokenId = getBech32AddressFromAccountId(asset.faucetId());
     const isMiden = tokenId === midenFaucetId;
@@ -348,7 +354,12 @@ export async function fetchBalances(
     // of a number derived from guessed decimals. This also keeps the token
     // visible while its lookup is in backoff, and matches what the sync path
     // (`updateBalancesFromSyncData`) already does for the same case.
-    const tokenMetadata = isMiden ? MIDEN_METADATA : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
+    const tokenMetadata =
+      tokenId === actualNativeId
+        ? getNativeDisplayMetadataSync(localMetadatas[tokenId], tokenId)
+        : isMiden
+          ? nativeMetadata
+          : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
 
@@ -368,9 +379,9 @@ export async function fetchBalances(
   if (!hasMiden && midenFaucetId) {
     balances.push({
       tokenId: midenFaucetId,
-      tokenSlug: 'MIDEN',
-      metadata: MIDEN_METADATA,
-      ...balancePrice(tokenPrices, midenFaucetId, MIDEN_METADATA.symbol),
+      tokenSlug: nativeMetadata.symbol,
+      metadata: nativeMetadata,
+      ...balancePrice(tokenPrices, midenFaucetId, nativeMetadata.symbol),
       balance: 0
     });
   }

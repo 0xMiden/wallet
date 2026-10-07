@@ -10,8 +10,16 @@ import { ConsumeTransaction, ITransaction, ITransactionStatus } from '../db/type
 import { ConsumableNote } from '../types';
 
 let mockNativeFaucetId: string | null = 'native-faucet';
+let mockLegacyFeeIdentity: string | undefined;
+let mockNativeIdentityError: Error | undefined;
 jest.mock('lib/miden/assets/faucet-id-setting', () => ({
-  getFaucetIdSetting: async () => mockNativeFaucetId
+  getFaucetIdSetting: async () => mockLegacyFeeIdentity ?? (mockNativeIdentityError ? null : mockNativeFaucetId)
+}));
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: async () => {
+    if (mockNativeIdentityError) throw mockNativeIdentityError;
+    return mockNativeFaucetId;
+  }
 }));
 
 jest.mock('lib/miden/front/guardian-manager', () => ({
@@ -54,10 +62,40 @@ const failedRow = async (noteIds: string[], secondsAgo: number, flagged: boolean
 
 beforeEach(async () => {
   mockNativeFaucetId = 'native-faucet';
+  mockNativeIdentityError = undefined;
   await Repo.transactions.clear();
 });
 
 describe('initiateRotationFundingClaim', () => {
+  it('fee identity: queues actual native rotation funding with a different legacy display override', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    const id = await initiateRotationFundingClaim(ACCOUNT, [note('actual-note')]);
+    expect(await consumeRows()).toEqual([
+      expect.objectContaining({ id, noteIds: ['actual-note'], rotationFunding: true })
+    ]);
+  });
+
+  it('fee identity: refuses a legacy display note before entering the rotation queue', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    await expect(initiateRotationFundingClaim(ACCOUNT, [note('legacy-note', 'legacy-B')])).rejects.toThrow(
+      'not the native asset'
+    );
+    expect(await consumeRows()).toEqual([]);
+  });
+
+  it('fee identity: ordinary discovery rejection retains the typed unknown-asset refusal before queueing', async () => {
+    mockNativeIdentityError = new Error('discovery failed');
+    await expect(initiateRotationFundingClaim(ACCOUNT, [note('a')])).rejects.toThrow('native asset is not known');
+    expect(await consumeRows()).toEqual([]);
+  });
+
+  it('fee identity: a fatal native lookup escapes with its original error before queueing', async () => {
+    const fatal = new WebAssembly.RuntimeError('native identity trap');
+    mockNativeIdentityError = fatal;
+    await expect(initiateRotationFundingClaim(ACCOUNT, [note('a')])).rejects.toBe(fatal);
+    expect(await consumeRows()).toEqual([]);
+  });
+
   it('stamps rotationFunding on the one batch row it creates', async () => {
     const id = await initiateRotationFundingClaim(ACCOUNT, [note('a'), note('b')], { verificationBaseFee: BASE_FEE });
 
@@ -183,4 +221,8 @@ describe('initiateConsumeNotesTransaction after the extraction', () => {
       'initiateConsumeNotesTransaction requires at least one note'
     );
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

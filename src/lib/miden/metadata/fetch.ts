@@ -4,7 +4,8 @@ import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
-import { DEFAULT_TOKEN_METADATA, getAssetUrl, MIDEN_METADATA } from './defaults';
+import { DEFAULT_TOKEN_METADATA, getAssetUrl } from './defaults';
+import { getNativeDisplayMetadataSync } from './native';
 import { updateTokensBaseMetadata } from './storage';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
 
@@ -34,7 +35,8 @@ export async function fetchTokenMetadata(
   assetId: string
 ): Promise<{ base: AssetMetadata; detailed: DetailedAssetMetdata }> {
   if (isMidenAsset(assetId)) {
-    return { base: MIDEN_METADATA, detailed: MIDEN_METADATA };
+    const metadata = getNativeDisplayMetadataSync();
+    return { base: metadata, detailed: metadata };
   }
 
   // Check cache before hitting RPC
@@ -44,9 +46,16 @@ export async function fetchTokenMetadata(
       return { base: cached[assetId], detailed: cached[assetId] };
     }
   } /* c8 ignore next 2 -- IndexedDB cache miss, defensive fallback */ catch {
-    // Cache miss — proceed to RPC
+    // Cache miss - proceed to RPC
   }
 
+  return fetchChainTokenMetadata(assetId);
+}
+
+/** Reads RPC metadata directly, without display branding or the general token cache. */
+export async function fetchChainTokenMetadata(
+  assetId: string
+): Promise<{ base: AssetMetadata; detailed: DetailedAssetMetdata }> {
   try {
     // Page-side: gate on SDK WASM readiness so the wasm-bindgen `Endpoint`
     // constructor doesn't fire before the SDK chunk has hydrated. Without

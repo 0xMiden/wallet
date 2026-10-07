@@ -1,4 +1,4 @@
-import { Account, MidenClient, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { Account, MidenClient, NoteArray, NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import type { AbandonStatus } from '@openzeppelin/guardian-client';
 import {
   AccountInspector,
@@ -34,7 +34,7 @@ import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PU
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
-import { accountRefToSdk } from '../sdk/helpers';
+import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
@@ -44,7 +44,11 @@ import {
   type WasmLockHold
 } from '../sdk/miden-client';
 import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
-import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import {
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  WasmClientPoisonedError,
+  isWasmClientPoisonedError
+} from '../sdk/wasm-client-poison';
 import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
@@ -173,9 +177,19 @@ export class MultisigService {
    *
    * `guardianEndpoint` is resolved per-account by the caller (see
    * `resolveGuardianEndpoint`) so accounts on different operators don't collide.
-   * `lockOptions` bound and label the load's hold (the default hold without them),
-   * and `onHeld` receives how long that hold lasted, from acquisition, even when
-   * the load throws.
+   *
+   * `lockOptions` bounds and labels the hold below, and the CADENCE callers have to
+   * pass it. This hold - not the account read that precedes it - is the one that
+   * parks on the #777 path: it contains the client BUILD, which after any eviction
+   * finds an empty singleton slot and sends a fresh genesis fetch to the node that
+   * just refused to answer, and then `load()`, a guardian round trip. Left on the
+   * default backstop it was five minutes of frozen wallet per lap, and an unlabelled
+   * eviction record could not say which flow parked. `getOrCreateMultisigService`'s
+   * `boundAtSyncCeiling` bounded only its own read and handed the longer await here
+   * unbounded, so the parameter did not buy what its docstring claimed.
+   *
+   * `onHeld` receives how long that hold lasted, from acquisition, even when the
+   * load throws.
    */
   static async init(
     account: Account,
@@ -246,7 +260,11 @@ export class MultisigService {
    * createReplaceHotKeyProposal uses an in-place swap target list.
    *
    * Caller is expected to drop the returned service immediately after use so
-   * cold key material doesn't outlive the operation. `lockOptions` go to `init`.
+   * cold key material doesn't outlive the operation.
+   *
+   * `lockOptions` bounds and labels BOTH holds this takes - the commitment read
+   * here and `init`'s below - and the cadence caller (the guardian sync's cold
+   * re-register self-heal) passes it for the reason spelled out on `init`.
    */
   static async buildColdMultisigService(
     account: Account,
@@ -257,8 +275,36 @@ export class MultisigService {
     if (!walletAccount.coldPublicKey) {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
     }
-    const { commitment } = await getSignerDetailsFromAccount(account, true);
-    const guardianEndpoint = await resolveGuardianEndpoint(walletAccount);
+    // UNDER A HOLD. `getSignerDetailsFromAccount` walks the account's storage
+    // maps, so it is a WASM call and not a field read - and every one of this
+    // method's five callers hands in an `account` read under a hold that has
+    // already RELEASED, which left this call free to run concurrently with
+    // another flow's client operation: the `recursive use of an object ...
+    // unsafe aliasing` panic the global mutex exists to prevent. Sequential with
+    // `init`'s own hold below, never nested, so the non-reentrant mutex is safe.
+    //
+    // What this does NOT recover is the handle's provenance: `account` is a
+    // borrow of whichever client the caller's earlier hold resolved, so an
+    // eviction in the gap leaves these bytes coming from a replaced client. The
+    // strictly-correct shape is the one the guardian-sync snapshots use - ONE
+    // hold spanning the account read and every read derived from it - but that
+    // requires the commitment to be read at all five call sites and threaded in.
+    // Serializing here is the part that removes the crash.
+    //
+    // Left as-is deliberately, on the strength of WHICH field is read: the COLD
+    // commitment is a permanent allowlist member, unchanged by any rotation, so a
+    // handle from a replaced client yields the same bytes a fresh read would - the
+    // guardian-sync caller names its argument `staleAccount` for exactly this
+    // reason. What a replaced client can do is DISPOSE the handle, and that
+    // surfaces as the SDK's own `isDisposed` throw, i.e. a failed attempt and a
+    // retry, not a wrong commitment written to the guardian. Should this method
+    // ever read a field that a rotation moves, that reasoning expires and the
+    // threading is required.
+    const commitment = await withWasmClientLock(
+      async () => (await getSignerDetailsFromAccount(account, true)).commitment,
+      lockOptions
+    );
+    const guardianEndpoint = resolveGuardianEndpoint(walletAccount);
     return MultisigService.init(
       account,
       `0x${walletAccount.coldPublicKey}`,
@@ -278,9 +324,8 @@ export class MultisigService {
   ) {
     // No production callers today. If a future feature wires this into a
     // non-default guardian import, thread the per-account `guardianEndpoint` in
-    // (as `MultisigService.init` does) rather than reintroducing a global-key
-    // read: the frozen global GUARDIAN_URL_STORAGE_KEY is intentionally not
-    // consulted here (#408 stage 3), so this binds to the network default.
+    // (as `MultisigService.init` does); until then this binds to the network
+    // default.
     const guardianEndpoint = getEffectiveDefaultGuardianEndpoint();
     const guardian = new GuardianHttpClient(guardianEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
@@ -389,9 +434,7 @@ export class MultisigService {
   }
 
   async signAndExecuteProposal(id: string): Promise<void> {
-    // `signProposal` is signing + guardian HTTP (no shared-client access); only
-    // `executeProposal` touches the WASM client and needs the mutex.
-    await this.multisig.signProposal(id);
+    await this.signProposal(id);
     await withWasmClientLock(() => this.multisig.executeProposal(id));
   }
 
@@ -408,13 +451,56 @@ export class MultisigService {
   }
 
   /**
+   * `createCustomProposal` for a request the wallet built itself, re-bound to the current sync
+   * height first. Returns the bytes the proposal was made from; the caller persists them, since
+   * custom execution has to rebuild from exactly those.
+   *
+   * A guarded request's auth args bind the sync height at BUILD, and the proposal's anchor is
+   * the sync height at CAPTURE. The kernel authenticates the bound block only when the two
+   * agree, so persisted bytes proposed after any sync (a 409 retry, a restart, a slow round
+   * trip) failed with "transaction summary binds block N, which the transaction does not
+   * authenticate". Rebuilding in the same lock hold as the capture closes that gap.
+   *
+   * Only for requests whose whole content is their own output notes (the wallet's sends,
+   * swaps and collateral notes): nothing else survives the rebuild, and a dApp's request is
+   * not ours to rebuild. The notes are carried over as they are, so a PSWAP keeps its order id.
+   *
+   * The request's own expiration delta does not survive either, and a tip execution would count
+   * it from the tip anyway. `approvalExpirationDelta` is the bound the proposal keeps instead,
+   * counted from the bound block this rebuild takes (#1081).
+   */
+  async createRebasedCustomProposal(
+    requestBytes: Uint8Array,
+    proposalType: string,
+    approvalExpirationDelta?: number
+  ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
+    return await withWasmClientLock(async hold => {
+      const client = (await getMidenClient()).client;
+      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the client build');
+      const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();
+      const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
+      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
+      const rebased = builder.withOwnOutputNotes(new NoteArray(notes)).build().serialize();
+      const proposal = await this.multisig.createCustomProposal(rebased, proposalType);
+      return { proposal, requestBytes: rebased };
+    });
+  }
+
+  /**
    * Sign a proposal with this service's bound signer. Used by switch_guardian's
    * cold co-sign path where cold contributes a signature without driving the
    * follow-up createTransactionProposalRequest call (hot does that).
    * Sigs accumulate on the Guardian server keyed by proposal id.
+   *
+   * The WASM hold spans the guardian round trip, so a caller with its own deadline
+   * passes `lockOptions` to bound the hold by it.
    */
-  async signProposal(id: string): Promise<void> {
-    await this.multisig.signProposal(id);
+  async signProposal(id: string, lockOptions?: Parameters<typeof withWasmClientLock>[1]): Promise<void> {
+    // Signing syncs and previews with the same shared client as account creation.
+    await withWasmClientLock(async hold => {
+      await this.multisig.signProposal(id);
+      assertWasmHoldCurrent(hold, 'guardian proposal signing');
+    }, lockOptions);
   }
 
   /**
@@ -515,19 +601,28 @@ export class MultisigService {
     }
   }
 
-  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
-    const proposal = await this.multisig.signProposal(id);
-    if (proposal.metadata.proposalType === 'custom') {
-      if (!requestBytes) {
-        throw new Error('Request Bytes are required for custom execution');
+  async signAndCreateTransactionRequest(
+    id: string,
+    requestBytes?: Uint8Array,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1]
+  ): Promise<TransactionRequest> {
+    return withWasmClientLock(async hold => {
+      const proposal = await this.multisig.signProposal(id);
+      assertWasmHoldCurrent(hold, 'guardian request: after proposal signing');
+      if (proposal.metadata.proposalType === 'custom') {
+        if (!requestBytes) {
+          throw new Error('Request Bytes are required for custom execution');
+        }
+        const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+        assertWasmHoldCurrent(hold, 'guardian request: after custom advice preparation');
+        const request = TransactionRequest.deserialize(requestBytes);
+        return request.extendAdviceMap(advice);
       }
-      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
-      const request = TransactionRequest.deserialize(requestBytes);
-      return request.extendAdviceMap(advice);
-    }
-    const request = await withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
-    if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
-    return request;
+      const request = await this.multisig.createTransactionProposalRequest(id);
+      assertWasmHoldCurrent(hold, 'guardian request: after proposal request preparation');
+      if (proposal.metadata.proposalType === 'switch_guardian') this.switchProposalId = id;
+      return request;
+    }, lockOptions);
   }
 
   /**
@@ -656,9 +751,25 @@ export class MultisigService {
               console.warn(
                 'Guardian still lagging after canonicalization window; re-registering current state as a last resort'
               );
-              await this.reRegisterCurrentStateOnGuardian(GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS);
+              await this.reRegisterCurrentStateOnGuardian(undefined, GUARDIAN_SYNC_REALIGN_LOCK_OPTIONS);
               continue;
             } catch (realignError) {
+              // AN EVICTION IS NOT "non-fatal", AND IT IS NOT ABOUT THE GUARDIAN.
+              // `reRegisterCurrentStateOnGuardian` takes a hold whose first act is a
+              // `syncState()` round trip and re-checks ownership twice, so poison is
+              // one of the shapes this catch actually receives. Swallowed here, what
+              // reached the caller was `error` - the canonicalization failure - so
+              // `syncGuardianAccounts`' poison arm read false, the pass did NOT break,
+              // and it went on to take fresh holds for the remaining accounts while
+              // the abandoned call was still inside WASM. Worse than the double
+              // borrow: the fall-through then books `noteNonEvictionSyncFailure`,
+              // which ZEROES this account's eviction count, so the lap that parked us
+              // withdrew the fuse's evidence for the park. Stage 2 is reached after
+              // ~30s of ordinary post-rotation operator lag, on a ~3s cadence.
+              //
+              // Identical to the defect the adopt arm carries a rethrow for; this is
+              // the same rule one function over.
+              if (isWasmClientPoisonedError(realignError)) throw realignError;
               console.warn('Last-resort guardian re-registration failed (non-fatal):', realignError);
             }
           }
@@ -754,26 +865,22 @@ export class MultisigService {
           webClient,
           targetThreshold,
           targetSignerCommitments,
-          // `feeFaucetId` is what makes this request payable on a fee-charging chain: the
-          // builder commits fee conversion info into the auth args, and without it
-          // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. `Multisig.updateSigners`
-          // supplies it from its own cached lookup, but this call site drives the low-level
-          // builder directly (it needs the request AND salt back to build the proposal by
-          // hand), so it has to supply it too. Passed as an AccountId: the helper parses a
-          // bare string as hex, and the wallet's native asset id is bech32.
+          // This site drives the low-level builder directly (it needs the request AND
+          // salt back to build the proposal by hand), so it names the account the
+          // multisig auth args are committed for. That account id is what selects the
+          // fee-aware builder: without it the request carries no fee conversion info
+          // and `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. The bound
+          // block defaults to the sync height, the block the summary anchor below
+          // names and a rebuild pins.
           {
-            signatureScheme: 'ecdsa',
-            midenRpcEndpoint: getEffectiveRpcUrl()
+            accountId: this.accountId,
+            signatureScheme: 'ecdsa'
           }
         );
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
-        // Since protocol 0.16 the signed summary binds the reference block
-        // commitment, so it only reproduces when re-executed at that same block.
-        // The anchor names that block; without shipping it on the proposal, a
-        // cosigner or the executor re-executes at whatever height it happens to
-        // be synced to and derives a different summary, so the collected
-        // signatures no longer verify.
-        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
+        // The anchor names the block the auth args bind. Re-execution at a later
+        // tip reproduces the summary when the request declares that bound block.
+        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request);
         // The live anchor's only job is to be serialized onto the proposal; once
         // the wire form exists, release the WASM object (it holds a partial
         // blockchain) instead of leaving it to the finalizer - the same
@@ -981,17 +1088,28 @@ export class MultisigService {
    * Pushes only when the local account is the on-chain state; otherwise it refuses
    * with `GuardianReRegisterRefusedError` and writes nothing (#1233).
    *
-   * `lockOptions` bound and label the read's hold; timer-driven callers pass the sync ceiling.
-   *
-   * `onPushStart` runs once, after the read hold has settled and immediately before the first
-   * `/configure`. A rejection raised before it wrote nothing to the guardian; one raised after it
-   * may follow a `/configure` that landed. It receives the signer set this push registers, derived
-   * from the account `verifyStateCommitment` matched against the chain in the same hold: the chain's
+   * `onBeforeRegister` fires immediately before the first `/configure` goes out, and
+   * exists so a caller that keeps an attempt budget can tell the two halves of this
+   * method apart. Everything above that point is a local WASM hold containing a
+   * `syncState()` - a network round trip, and the likeliest await in the whole method
+   * to park - so a caller that flipped its "attempted" flag before calling this
+   * charged the operator for a request that was never issued. That is the same
+   * which-side-of-the-POST distinction `attemptColdReRegisterSelfHeal` already makes
+   * for its own eviction bookkeeping; it just could not see this far in. It receives
+   * the signer set this push registers, derived from the account
+   * `verifyStateCommitment` matched against the chain in the same hold: the chain's
    * signer set.
+   *
+   * `lockOptions` bounds and labels the hold below, and the CADENCE caller has to pass
+   * it for the same reason `init` documents: the hold contains a `syncState()`, so on
+   * the #777 path it parks on a node that never answers. Reached from `runSync`'s
+   * stage-2 last resort, which the ~3 s guardian sync drives - left on the default
+   * five-minute backstop that was a frozen wallet per lap, and unlabelled the eviction
+   * record could not say which of the loop's holds it was.
    */
   async reRegisterCurrentStateOnGuardian(
-    lockOptions?: WasmClientLockOptions,
-    onPushStart?: (signerCommitments: readonly string[]) => void
+    onBeforeRegister?: (signerCommitments: readonly string[]) => void,
+    lockOptions?: WasmClientLockOptions
   ): Promise<void> {
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
@@ -1033,6 +1151,13 @@ export class MultisigService {
       // 401 this method exists to prevent.
       const freshSignerCommitments = AccountInspector.fromAccount(account).signerCommitments;
       return { updatedStateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
+      // Bounded and labelled BY THE CALLER, because both callers are on the ~3s
+      // guardian cadence: `runSync`'s stage-2 last resort and the cold
+      // re-register self-heal. This was the one hold left in the file on the
+      // 5-minute default backstop, which on a 3s loop is a hundred dead laps -
+      // and, unlabelled, its eviction record could not say which of the two
+      // flows had parked. The sibling holds here already make this argument for
+      // themselves (`guardian-adopt`, `guardian-sync`).
     }, lockOptions);
     // Guard against a truncated read: AccountInspector.fromAccount swallows
     // per-slot storage-read failures (skips the slot, no throw), so a partial
@@ -1043,7 +1168,9 @@ export class MultisigService {
     if (freshSignerCommitments.length > 0) {
       this.multisig.signerCommitments = freshSignerCommitments;
     }
-    onPushStart?.(freshSignerCommitments);
+    // The POST is now unavoidable from the caller's point of view: past this line a
+    // `/configure` may land even if the retry loop then throws or is torn down.
+    onBeforeRegister?.(freshSignerCommitments);
     await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }

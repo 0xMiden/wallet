@@ -4,6 +4,11 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import {
+  getNativeAssetIdSync,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync
+} from 'lib/miden-chain/native-asset';
 import { useTokenSparkline } from 'lib/prices';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -13,6 +18,11 @@ import AssetRowDefault, { AssetRow } from './AssetRow';
 // --- Mock the leaf UI dependencies so we can assert the exact props AssetRow
 // wires through to them, keeping the test focused on AssetRow's own logic.
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: jest.fn(() => null),
+  getNativeAssetMetadataSync: jest.fn(() => null),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => null)
+}));
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid="token-logo" data-symbol={symbol} />
 }));
@@ -359,4 +369,16 @@ describe('AssetRow', () => {
       expect(screen.getByTestId('row-amount')).toHaveTextContent('2.00 BTC');
     });
   });
+});
+
+it('shows a native fixed quote without rendering market movement or a chart', () => {
+  jest.mocked(getNativeAssetIdSync).mockReturnValue('native-stable');
+  jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue('native-stable');
+  jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+  const asset = { ...makeAsset({ symbol: 'USDCX', name: 'USDCX', balance: 2 }), tokenId: 'native-stable' };
+  render(<AssetRow asset={asset} tokenPrices={{}} />);
+  expect(screen.getByTestId('row-price')).toHaveTextContent('$2.00');
+  expect(screen.queryByTestId('row-delta')).toBeNull();
+  expect(screen.queryByTestId('sparkline')).toBeNull();
+  expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });

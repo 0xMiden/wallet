@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
@@ -72,6 +72,8 @@ const scanQRCodeMock = jest.fn();
 // extension drawer tests flip it to false.
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 // The token prices under test follow the default rule, no price without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal fee case flips it.
@@ -242,7 +244,7 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({
   default: () => mockBaseFee
 }));
 let mockNativeId: string | null = 'MIDEN-ID';
-jest.mock('app/hooks/useMidenFaucetId', () => ({
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
   __esModule: true,
   default: () => mockNativeId
 }));

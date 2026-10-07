@@ -5,6 +5,8 @@ import { createHash, randomBytes } from 'crypto';
 
 import { mintFromPublicFaucet, solvePow } from './public-faucet';
 
+const NOTE_ID = '0x' + '01'.repeat(32);
+
 function hashBelowTarget(challengeHex: string, nonce: number, target: bigint): boolean {
   const nonceBytes = Buffer.alloc(8);
   nonceBytes.writeBigUInt64BE(BigInt(nonce));
@@ -111,15 +113,94 @@ describe('mintFromPublicFaucet', () => {
     return state;
   }
 
+  it.each([
+    ['Testnet', 10_000],
+    ['Devnet', 100_000_000]
+  ])('uses the %s advertised base grant when amount is omitted', async (_network, baseAmount) => {
+    const urls = serve([
+      reply(200, { base_amount: baseAmount }),
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
+    ]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
+    expect(urls[0]).toBe(`${BASE}/get_metadata`);
+    expect(new URL(urls[1]!).searchParams.get('amount')).toBe(String(baseAmount));
+    expect(new URL(urls[2]!).searchParams.get('asset_amount')).toBe(String(baseAmount));
+  });
+
+  it.each([
+    null,
+    {},
+    { base_amount: '10000' },
+    { base_amount: 0 },
+    { base_amount: -1 },
+    { base_amount: 1.5 },
+    { base_amount: Number.MAX_SAFE_INTEGER + 1 }
+  ])('rejects malformed grant metadata %p before asking for a challenge', async metadata => {
+    const urls = serve([reply(200, metadata)]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).rejects.toThrow('base_amount must be a positive safe integer');
+    expect(urls).toEqual([`${BASE}/get_metadata`]);
+  });
+
+  it('retains one advertised amount across server and rate-limit retries', async () => {
+    const urls = serve([
+      reply(200, { base_amount: 10_000 }),
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(503, 'Unavailable'),
+      reply(429, 'Account is rate limited for 1 more seconds.'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
+    ]);
+    const waits: number[] = [];
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0, async ms => {
+        waits.push(ms);
+      })
+    ).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
+    expect(urls.filter(url => url.endsWith('/get_metadata'))).toHaveLength(1);
+    expect(urls.filter(url => url.includes('/pow?')).map(url => new URL(url).searchParams.get('amount'))).toEqual([
+      '10000',
+      '10000',
+      '10000'
+    ]);
+    expect(
+      urls.filter(url => url.includes('/get_tokens?')).map(url => new URL(url).searchParams.get('asset_amount'))
+    ).toEqual(['10000', '10000']);
+    expect(waits).toEqual([0, 2_000]);
+  });
+
+  it('retries a temporary metadata failure before selecting the grant', async () => {
+    const urls = serve([
+      reply(503, 'Unavailable'),
+      reply(200, { base_amount: 10_000 }),
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
+    ]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0)).resolves.toEqual({
+      txId: '0xtx',
+      noteId: NOTE_ID
+    });
+    expect(urls.slice(0, 2)).toEqual([`${BASE}/get_metadata`, `${BASE}/get_metadata`]);
+    expect(new URL(urls[2]!).searchParams.get('amount')).toBe('10000');
+  });
+
+  it('reports a rejected metadata request without requesting tokens', async () => {
+    const urls = serve([reply(403, 'Forbidden')]);
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).rejects.toThrow(
+      'Public faucet metadata request failed (403): Forbidden'
+    );
+    expect(urls).toEqual([`${BASE}/get_metadata`]);
+  });
+
   it('retries a 5xx grant from a fresh challenge', async () => {
     const urls = serve([
       reply(200, { challenge: 'aa', target: EASY_TARGET }),
       reply(500, 'Internal error.'),
       reply(200, { challenge: 'bb', target: EASY_TARGET }),
-      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+      reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
     ]);
 
-    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0)).resolves.toEqual({ txId: '0xtx', noteId: '0xnote' });
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0)).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
 
     expect(urls.filter(url => url.includes('/pow?'))).toHaveLength(2);
     expect(urls[3]).toContain('challenge=bb');
@@ -150,6 +231,63 @@ describe('mintFromPublicFaucet', () => {
     expect(urls).toHaveLength(6);
   });
 
+  it('waits out a 429 for as long as the faucet asks, then retries from a fresh challenge', async () => {
+    const urls = serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(429, 'Account is rate limited for 25 more seconds.'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
+    ]);
+    const waits: number[] = [];
+
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async ms => {
+        waits.push(ms);
+      })
+    ).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
+
+    expect(waits).toEqual([26_000]);
+    expect(urls[3]).toContain('challenge=bb');
+  });
+
+  it('does not count 429s against the 5xx attempts', async () => {
+    const limited = () => reply(429, 'Account is rate limited for 1 more seconds.');
+    serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      limited(),
+      reply(200, { challenge: 'cc', target: EASY_TARGET }),
+      limited(),
+      reply(200, { challenge: 'dd', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'ee', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
+    ]);
+
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async () => {})).resolves.toEqual({
+      txId: '0xtx',
+      noteId: NOTE_ID
+    });
+  });
+
+  it('gives up with the 429 once waiting would exceed its budget', async () => {
+    const responses: Response[] = [];
+    for (let i = 0; i < 8; i++) {
+      responses.push(reply(200, { challenge: `c${i}`, target: EASY_TARGET }));
+      responses.push(reply(429, 'Account is rate limited for 59 more seconds.'));
+    }
+    serve(responses);
+    const waits: number[] = [];
+
+    await expect(
+      mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async ms => {
+        waits.push(ms);
+      })
+    ).rejects.toThrow('Public faucet mint failed (429): Account is rate limited for 59 more seconds.');
+    expect(waits).toEqual([60_000, 60_000, 60_000]);
+  });
+
   describe('with a body that stalls', () => {
     beforeEach(() => {
       jest.useFakeTimers();
@@ -157,6 +295,16 @@ describe('mintFromPublicFaucet', () => {
 
     afterEach(() => {
       jest.useRealTimers();
+    });
+
+    it('bounds a stalled metadata body before requesting a challenge', async () => {
+      const urls = serve([stalledReply(200)]);
+      const grant = track(mintFromPublicFaucet(BASE, ACCOUNT));
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(grant.outcome).toBe('pending');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(grant.outcome).toMatchObject({ name: 'TimeoutError', message: 'Request timed out after 15000 ms' });
+      expect(urls).toEqual([`${BASE}/get_metadata`]);
     });
 
     it('ends the request at the 15 s bound, which runs through the body read', async () => {
@@ -175,7 +323,7 @@ describe('mintFromPublicFaucet', () => {
         reply(200, { challenge: 'aa', target: EASY_TARGET }),
         stalledReply(503),
         reply(200, { challenge: 'bb', target: EASY_TARGET }),
-        reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+        reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
       ]);
 
       const grant = track(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0));
@@ -185,9 +333,43 @@ describe('mintFromPublicFaucet', () => {
       // The bound ends the body at 15 000 ms; the retry's 0 ms delay runs as a 1 ms timer after it.
       await jest.advanceTimersByTimeAsync(100);
 
-      expect(grant.outcome).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(grant.outcome).toEqual({ txId: '0xtx', noteId: NOTE_ID });
       expect(urls).toHaveLength(4);
       expect(urls[3]).toContain('challenge=bb');
     });
   });
+});
+
+describe('public faucet receipt validation', () => {
+  const prior = global.fetch;
+  afterEach(() => {
+    global.fetch = prior;
+  });
+  it.each([null, {}, { note_id: '' }, { note_id: 'not-a-note' }])(
+    'rejects an invalid successful mint response %p',
+    async receipt => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ challenge: '00', target: Number.MAX_SAFE_INTEGER }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => receipt });
+      await expect(mintFromPublicFaucet('https://faucet.invalid', 'target', 1n)).rejects.toThrow('invalid note ID');
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    }
+  );
+});
+
+it('accepts the released faucet response containing only the queued note ID', async () => {
+  const prior = global.fetch;
+  try {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ challenge: '00', target: Number.MAX_SAFE_INTEGER }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ note_id: NOTE_ID }) });
+    await expect(mintFromPublicFaucet('https://faucet.invalid', 'target', 1n)).resolves.toEqual({
+      noteId: NOTE_ID,
+      txId: undefined
+    });
+  } finally {
+    global.fetch = prior;
+  }
 });

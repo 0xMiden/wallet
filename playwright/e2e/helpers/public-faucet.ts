@@ -20,7 +20,13 @@
  * pass silently — the faucet rejects a bad nonce — so the two can only diverge loudly.
  */
 
+import type { Page } from '@playwright/test';
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+import type { SerializedInputNoteDetail } from '../../../src/lib/shared/types';
 
 /** Public faucet API per network. Absent = no public funding source for that network. */
 const FAUCET_API_BY_NETWORK: Record<string, string | undefined> = {
@@ -28,9 +34,6 @@ const FAUCET_API_BY_NETWORK: Record<string, string | undefined> = {
   testnet: 'https://faucet-api.testnet.miden.io',
   localhost: undefined
 };
-
-/** Grant size, in base units. The devnet faucet's own `base_amount`. */
-export const PUBLIC_FAUCET_GRANT = 100_000_000n;
 
 const FETCH_TIMEOUT_MS = 15_000;
 const POW_SOLVE_DEADLINE_MS = 30_000;
@@ -111,13 +114,36 @@ export async function solvePow(
 /** Grant attempts when the faucet answers 5xx; each starts from a fresh challenge. */
 const GRANT_ATTEMPTS = 3;
 const GRANT_RETRY_DELAY_MS = 5_000;
+/**
+ * Total time a grant may spend waiting out 429s. The faucet rate-limits a SHARED cooldown, not the
+ * target account: on the first run of the devnet suites on next, four parallel jobs each had their
+ * first grant for a brand-new account refused with "Account is rate limited for 25 more seconds".
+ */
+const RATE_LIMIT_BUDGET_MS = 180_000;
+/** Wait assumed when a 429 does not say how long. */
+const RATE_LIMIT_FALLBACK_MS = 30_000;
 
 /** The faucet failed on its own side (5xx), so the same grant can succeed on a later attempt. */
 class FaucetServerError extends Error {}
 
+/** The faucet refused for now (429) and said, or implied, when to come back. */
+class FaucetRateLimitedError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number
+  ) {
+    super(message);
+  }
+}
+
 async function failedResponse(label: string, response: Response): Promise<Error> {
   // The status decides whether a retry can help; a body that fails or stalls only loses the explanation.
   const message = `${label} (${response.status}): ${await response.text().catch(() => '')}`;
+  if (response.status === 429) {
+    // "Account is rate limited for 25 more seconds." A second over, so the retry lands after it.
+    const seconds = message.match(/(\d+)\s+more\s+seconds?/i)?.[1];
+    return new FaucetRateLimitedError(message, seconds ? (Number(seconds) + 1) * 1000 : RATE_LIMIT_FALLBACK_MS);
+  }
   return response.status >= 500 ? new FaucetServerError(message) : new Error(message);
 }
 
@@ -125,7 +151,7 @@ async function requestGrant(
   baseUrl: string,
   accountId: string,
   amount: bigint
-): Promise<{ txId: string; noteId: string }> {
+): Promise<{ txId?: string; noteId: string }> {
   const { challenge, target } = await faucetFetch(
     `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`,
     async response => {
@@ -149,32 +175,151 @@ async function requestGrant(
     if (!response.ok) {
       throw await failedResponse('Public faucet mint failed', response);
     }
-    const json: { tx_id: string; note_id: string } = await response.json();
-    return { txId: json.tx_id, noteId: json.note_id };
+    const json: unknown = await response.json();
+    const noteId = json && typeof json === 'object' ? Reflect.get(json, 'note_id') : undefined;
+    if (typeof noteId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(noteId)) {
+      throw new Error('Public faucet returned an invalid note ID');
+    }
+    const txId = Reflect.get(json as object, 'tx_id');
+    return { txId: typeof txId === 'string' ? txId : undefined, noteId };
+  });
+}
+
+async function advertisedGrantAmount(baseUrl: string): Promise<bigint> {
+  return faucetFetch(`${baseUrl}/get_metadata`, async response => {
+    if (!response.ok) throw await failedResponse('Public faucet metadata request failed', response);
+    const metadata: unknown = await response.json();
+    const baseAmount = metadata && typeof metadata === 'object' ? Reflect.get(metadata, 'base_amount') : undefined;
+    if (typeof baseAmount !== 'number' || !Number.isSafeInteger(baseAmount) || baseAmount <= 0) {
+      throw new Error('Faucet metadata base_amount must be a positive safe integer');
+    }
+    return BigInt(baseAmount);
   });
 }
 
 /**
  * Requests `amount` base units of the native asset for `accountId` (bech32).
+ * When omitted, resolves the faucet's advertised base grant once and retains it across retries.
  * Resolves once the faucet has SUBMITTED the note; the caller still has to wait for it
  * to commit and then consume it.
  *
  * A 5xx is the faucet's own failure (testnet answered `500 Internal error` and `502 Bad Gateway`
  * during incidents), so the grant is retried from a new challenge, which also avoids replaying one
- * that may have expired. A 4xx answers this request and fails at once.
+ * that may have expired. A 429 is waited out for as long as the faucet asks, within
+ * `RATE_LIMIT_BUDGET_MS`, and does not count against the 5xx attempts. Any other 4xx answers this
+ * request and fails at once.
  */
 export async function mintFromPublicFaucet(
   baseUrl: string,
   accountId: string,
-  amount: bigint = PUBLIC_FAUCET_GRANT,
-  retryDelayMs: number = GRANT_RETRY_DELAY_MS
-): Promise<{ txId: string; noteId: string }> {
-  for (let attempt = 1; ; attempt++) {
+  amount?: bigint,
+  retryDelayMs: number = GRANT_RETRY_DELAY_MS,
+  sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
+): Promise<{ txId?: string; noteId: string }> {
+  let resolvedAmount = amount;
+  let serverFailures = 0;
+  let rateLimitedMs = 0;
+  for (;;) {
     try {
-      return await requestGrant(baseUrl, accountId, amount);
+      resolvedAmount ??= await advertisedGrantAmount(baseUrl);
+      return await requestGrant(baseUrl, accountId, resolvedAmount);
     } catch (error) {
-      if (!(error instanceof FaucetServerError) || attempt >= GRANT_ATTEMPTS) throw error;
-      await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt));
+      if (error instanceof FaucetRateLimitedError && rateLimitedMs + error.retryAfterMs <= RATE_LIMIT_BUDGET_MS) {
+        rateLimitedMs += error.retryAfterMs;
+        await sleep(error.retryAfterMs);
+        continue;
+      }
+      if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) throw error;
+      await sleep(retryDelayMs * serverFailures);
     }
+  }
+}
+
+export async function fundFreshGuardianThroughUi(page: Page, network: string, outputDir: string) {
+  const { vaultBalanceByFaucetId, walletDiscoveredNativeFaucetId } = await import('./balance-truth');
+  const { readTransactionRows, TxStatus } = await import('./history');
+  if (!publicFaucetApiUrl(network)) throw new Error(`No public faucet for ${network}`);
+  if (process.env.CI && (process.env.E2E_RETRY_EXISTING_FAUCET || process.env.E2E_WALLET_A_PROFILE)) {
+    throw new Error('CI public funding must use a fresh profile without replay');
+  }
+  await page.setViewportSize({ width: 1280, height: 960 });
+  fs.mkdirSync(outputDir, { recursive: true });
+  const screenshot = async (name: string) => {
+    const filename = path.join(outputDir, `${name}.png`);
+    await page.screenshot({ path: filename, scale: 'css' });
+    if (process.platform === 'darwin') execFileSync('sips', ['-Z', '1800', filename], { stdio: 'ignore' });
+  };
+  const evidence = async () => {
+    const transactions = await readTransactionRows(page);
+    const nativeFaucetId = await walletDiscoveredNativeFaucetId(page);
+    const balance = nativeFaucetId ? await vaultBalanceByFaucetId(page, nativeFaucetId) : 0n;
+    const consume = transactions.filter(row => row.type === 'consume');
+    const ids = [...new Set(consume.flatMap(row => row.noteIds ?? (row.noteId ? [row.noteId] : [])))];
+    const notes: SerializedInputNoteDetail[] = ids.length
+      ? await page.evaluate(async noteIds => {
+          const intercom = (window as any).__TEST_INTERCOM__;
+          if (!intercom) throw new Error('Missing real wallet intercom');
+          const result = await intercom.request({ type: 'GET_INPUT_NOTE_DETAILS_REQUEST', noteIds });
+          if (result.type !== 'GET_INPUT_NOTE_DETAILS_RESPONSE') throw new Error('Unexpected input note response');
+          return result.notes;
+        }, ids)
+      : [];
+    const snapshot = { network, nativeFaucetId, nativeVaultBaseUnits: balance.toString(), notes, transactions };
+    fs.writeFileSync(path.join(outputDir, 'public-faucet-evidence.json'), JSON.stringify(snapshot, null, 2));
+    return snapshot;
+  };
+  if ((await readTransactionRows(page)).some(row => row.type === 'consume')) {
+    throw new Error('Public faucet verification requires a fresh wallet without previous consumes');
+  }
+  const pinPrompt = page.getByRole('button', { name: 'Got it', exact: true });
+  if (await pinPrompt.isVisible()) await pinPrompt.click();
+  const fund = page.getByRole('button', { name: /Fund your wallet/i });
+  await fund.waitFor({ state: 'visible', timeout: 60_000 });
+  await fund.click();
+  try {
+    // Real tab taps exercise responsiveness without reloading the pending faucet request.
+    await page.getByRole('button', { name: /^Activity(?:,|$)/ }).click({ timeout: 10_000 });
+    await page.waitForURL(/#\/history/, { timeout: 10_000 });
+    await page.getByRole('button', { name: 'Home', exact: true }).click({ timeout: 10_000 });
+    await page.waitForURL(/#\/$/, { timeout: 10_000 });
+    await screenshot('public-faucet-navigation-responsive');
+    const deadline = Date.now() + 240_000;
+    while (Date.now() < deadline) {
+      const snapshot = await evidence();
+      const consume = snapshot.transactions.filter(row => row.type === 'consume');
+      const failed = consume.find(row => row.status === TxStatus.Failed);
+      if (failed)
+        throw new Error(`Public faucet consume failed: ${failed.rawError ?? failed.error ?? JSON.stringify(failed)}`);
+      const completed = consume.filter(row => row.status === TxStatus.Completed);
+      if (completed.length > 1) throw new Error('Fresh faucet wallet unexpectedly completed multiple consumes');
+      const transaction = completed[0];
+      const noteIds = transaction?.noteIds ?? (transaction?.noteId ? [transaction.noteId] : []);
+      // SDK states 4/5 await confirmation; 6/7 carry the chain-confirmed nullifier height.
+      const received = snapshot.notes.filter(note => noteIds.includes(note.noteId) && ['6', '7'].includes(note.state));
+      const balance = BigInt(snapshot.nativeVaultBaseUnits);
+      if (transaction && received.length === noteIds.length && noteIds.length && balance > 0n) {
+        const granted = received
+          .flatMap(note => note.assets)
+          .filter(asset => asset.faucetId === snapshot.nativeFaucetId)
+          .reduce((total, asset) => total + BigInt(asset.amount), 0n);
+        const fee = BigInt(transaction.feeAmount ?? '0');
+        if (
+          !snapshot.nativeFaucetId ||
+          (fee > 0n && transaction.feeFaucetId !== snapshot.nativeFaucetId) ||
+          balance !== granted - fee
+        ) {
+          throw new Error(
+            `Native vault does not equal the consumed public grant minus its fee: ${JSON.stringify(snapshot)}`
+          );
+        }
+        await screenshot('public-faucet-consumed');
+        return snapshot;
+      }
+      await page.waitForTimeout(2_000);
+    }
+    throw new Error(`Public faucet did not consume into a positive vault: ${JSON.stringify(await evidence())}`);
+  } finally {
+    await evidence().catch(() => {});
+    if (!page.isClosed()) await screenshot('public-faucet-final-state').catch(() => {});
   }
 }

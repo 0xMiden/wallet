@@ -805,15 +805,6 @@
     "message": "我明白這把金鑰無法被旋轉或撤銷。",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "此舊錢包檔案中缺少的已匯入帳戶：$importedCount$。請分別使用各自的私密金鑰備份進行復原。",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "編輯帳號名稱",
     "englishSource": "Edit Account Name"
@@ -2111,10 +2102,6 @@
     "message": "請輸入您在匯出錢包時設定的密碼。這將解密檔案並恢復存取權限。",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "繼續匯入",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "選擇您希望如何保護您的錢包",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2732,6 +2719,18 @@
     "message": "您已成功輪換您的 Guardian！",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian 已切換",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "已提交 Guardian 更換",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "已提交",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "現有變更內容",
     "englishSource": "What changes now"
@@ -2881,16 +2880,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "加入 MIDEN 以啟用您的日常金鑰",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "加入 USDCX 以啟用您的日常金鑰",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "啟用您的日常金鑰是一項交易，且每筆交易需支付少量 MIDEN 作為網路手續費。請將 MIDEN 發送至下方此帳戶的地址。錢包會自動領取該款項並完成您的金鑰啟用程序。",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "啟用您的日常金鑰是一項交易，且每筆交易需支付少量 USDCX 作為網路手續費。請將 USDCX 發送至下方此帳戶的地址。錢包會自動領取該款項並完成您的金鑰啟用程序。",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "請至少發送 $amount$ MIDEN。",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "請至少發送 $amount$ USDCX。",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2902,28 +2901,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "等待 MIDEN 抵達……",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "等待 USDCX 抵達……",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "您收到的 MIDEN 數量不足以支付網路手續費。請再多轉帳一點。",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "您收到的 USDCX 數量不足以支付網路手續費。請再多轉帳一點。",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "已收到 MIDEN。正在申領中……",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "已收到 USDCX。正在申領中……",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "啟用您的日常金鑰……",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "您收到的 MIDEN 無法被領取。",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "您收到的 USDCX 無法被領取。",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "錢包無法確認您收到的 MIDEN 是否已被領取。請讓錢包同步一分鐘後再試一次。",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "錢包無法確認您收到的 USDCX 是否已被領取。請讓錢包同步一分鐘後再試一次。",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "請重新嘗試",
@@ -2952,6 +2951,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "此帳戶尚未設定可用於核對的鏈上 Guardian。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "在核對地址時，您的 Guardian 已發生變化。請重試。",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 無法連線",
@@ -3083,28 +3086,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "您的 MIDEN 已預留作為網路手續費。欲進行轉帳，請先取得更多 MIDEN。",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "您的 USDCX 已預留作為網路手續費。欲進行轉帳，請先取得更多 USDCX。",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "您需要 MIDEN 來支付網路手續費。請領取一些 MIDEN 以繼續操作。",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "您需要 USDCX 來支付網路手續費。請領取一些 USDCX 以繼續操作。",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "金額必須小於餘額",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "自動接受 MIDEN 轉帳",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "自動接受 USDCX 轉帳",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "自動將收到的 MIDEN 轉帳接受到您的餘額中，與點擊「接受」相同。它不會更頻繁地接受，也不會比您自己點擊「接受」產生更多手續費。",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "自動將收到的 USDCX 轉帳接受到您的餘額中，與點擊「接受」相同。它不會更頻繁地接受，也不會比您自己點擊「接受」產生更多手續費。",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "正在建立您的錢包檔案……",
@@ -3540,6 +3543,14 @@
   "unavailable": {
     "message": "不可用",
     "englishSource": "Unavailable"
+  },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "暫時無法使用",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "此外部服務目前暫停運作。請稍後再試。",
+    "englishSource": "This external service is currently down. Please try again later."
   },
   "agglayerCheckingToken": {
     "message": "檢查此代幣是否支援「慢速」路徑……",
@@ -4840,6 +4851,10 @@
     "message": "自訂 guardian 網址",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "手續費 faucet 帳戶 ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "在入职时允许“无监护人”选项",
     "englishSource": "Allow 'No guardian' option in onboarding"
@@ -5437,8 +5452,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",

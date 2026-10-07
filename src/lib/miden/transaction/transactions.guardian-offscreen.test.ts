@@ -57,6 +57,7 @@
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WalletType } from 'screens/onboarding/types';
 
 import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
@@ -73,6 +74,11 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // guardian co-signatures survives serialize; verified end-to-end at the WASM level in
 // the flag-flip guardian E2E, structurally here).
 const TR_BYTES = [0xc0, 0x51, 0x67, 0xed];
+
+// What the mock `createRebasedCustomProposal` hands back as the request the proposal was
+// made from. Distinct from every row's seeded bytes, so an assertion can tell the rebased
+// request from the one the row carried in.
+const REBASED_BYTES = [0x5e, 0xba, 0x5e];
 
 const INDEFINITE = `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, so the node may or may not have accepted it; nothing was recorded locally`;
 // The attempt's entry records its kept candidate with the proposal nonce (#1081).
@@ -209,7 +215,7 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-jest.mock('lib/settings/constants', () => ({ GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting' }));
+jest.mock('lib/settings/constants', () => ({}));
 
 const mockIsGuardianAccount = jest.fn();
 const mockGetOrCreateMultisigService = jest.fn();
@@ -261,10 +267,20 @@ const mockWithWasmClientLock = jest.fn(async (fn: (hold: object) => Promise<unkn
   }
 });
 const mockGetMidenClient = jest.fn();
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  cacheScope: () => 'fixture-rpc|testnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  recordSyncedFeeFaucetId: jest.fn(async () => true)
+}));
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
   getCurrentWasmLockHold: () => currentHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && currentHold === hold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn(),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
 }));
@@ -393,11 +409,18 @@ const makeInlineClient = (result: ReturnType<typeof makeResult>) => {
       submit: async () => ({ result, apply: jest.fn(async () => {}) })
     })
   }));
+  const client = {
+    syncChain: jest.fn(async () => {}),
+    getSyncHeight: jest.fn(async () => 100),
+    feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
+    transactions: { executeRequest }
+  };
+  bindFeeFaucetClientScope(client, 'fixture-rpc|testnet');
   return {
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => null),
     waitForTransactionCommit: jest.fn(async () => {}),
-    client: { transactions: { executeRequest } },
+    client,
     __executeRequest: executeRequest
   };
 };
@@ -408,6 +431,10 @@ const makeService = () => ({
   createSendProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
   createCustomProposal: jest.fn(async () => ({ id: 'prop', nonce: 7 })),
+  createRebasedCustomProposal: jest.fn(async () => ({
+    proposal: { id: 'prop', nonce: 7 },
+    requestBytes: new Uint8Array(REBASED_BYTES)
+  })),
   signAndCreateTransactionRequest: jest.fn(async () => ({
     serialize: () => new Uint8Array(TR_BYTES),
     authArg: () => undefined
@@ -2491,6 +2518,56 @@ describe('guardian leaf records the submit crossing', () => {
   });
 });
 
+// A request the wallet built itself is proposed re-bound to the current sync height, and the
+// rebased bytes replace the row's: signing and execution rebuild from `requestBytes`, so they
+// must be the bytes the proposal was made from. A dApp's request is not the wallet's to
+// rebuild, so `execute` proposes its bytes as they are.
+describe('guardian custom proposals: wallet-built rows propose rebased bytes, dApp execute does not', () => {
+  const walletBuiltCases = () => [
+    // A Guardian approval expiration rides with each wallet-built type that set a request delta (#1081).
+    { ...valueMovingCases().find(c => c.type === 'swap')!, proposalType: 'swap', approvalExpirationDelta: 180 },
+    { ...bridgeEarnCases()[0]!, proposalType: 'agglayer_bridged_send', approvalExpirationDelta: 180 },
+    { ...bridgeEarnCases()[1]!, proposalType: 'earn_deposit', approvalExpirationDelta: undefined }
+  ];
+
+  it.each(walletBuiltCases())(
+    '$type: proposes the persisted bytes rebased as $proposalType, then signs and persists the rebased bytes',
+    async ({ row, proposalType, approvalExpirationDelta }) => {
+      const id = `rebase-${row.type}`;
+      const { service } = arrange(id, row);
+
+      await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);
+
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledTimes(1);
+      expect(service.createRebasedCustomProposal).toHaveBeenCalledWith(
+        row.requestBytes,
+        proposalType,
+        approvalExpirationDelta
+      );
+      expect(service.createCustomProposal).not.toHaveBeenCalled();
+      expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array(REBASED_BYTES));
+      expect(Array.from(txStore.find(r => r.id === id)!.requestBytes as Uint8Array)).toEqual(REBASED_BYTES);
+    }
+  );
+
+  it('execute: proposes the dApp bytes as they are and signs those same bytes', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const { service } = arrange('rebase-execute', executeCase.row);
+
+    await generateTransaction(
+      buildTx('rebase-execute', executeCase.row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.createCustomProposal).toHaveBeenCalledWith(new Uint8Array([2, 2]));
+    expect(service.createRebasedCustomProposal).not.toHaveBeenCalled();
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array([2, 2]));
+    expect(Array.from(txStore.find(r => r.id === 'rebase-execute')!.requestBytes as Uint8Array)).toEqual([2, 2]);
+  });
+});
+
 /**
  * Run the recallable Guardian send of the crossing tests above, offscreen, with `overrides` on its row, swallow the
  * leaf's failure and return what the row stored about its attempt.
@@ -3268,7 +3345,14 @@ describe('replace-hot-key stale-state rebuild, flag ON (#904)', () => {
     const persistNewHotKey = jest.fn(async (_publicKeyHex: string, _ciphertext: string) => {});
     const rotationProvider: GuardianAccountProvider = {
       getAccounts: async () => [
-        { publicKey: 'guardian-acc', name: 'Guardian', isPublic: false, type: WalletType.Guardian, hdIndex: 0 }
+        {
+          publicKey: 'guardian-acc',
+          name: 'Guardian',
+          isPublic: false,
+          type: WalletType.Guardian,
+          hdIndex: 0,
+          authScheme: 'ecdsa'
+        }
       ],
       getPublicKeyForCommitment: async () => 'pk',
       signWord: async () => 'sig',

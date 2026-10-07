@@ -1,14 +1,18 @@
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
-import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
-import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { accountIdStringToSdk, accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import {
+  getNativeAssetIdSync,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync
+} from 'lib/miden-chain/native-asset';
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
 import { isE2eFixtureSymbol } from 'lib/prices/constant';
 import { withRequestTimeout } from 'lib/remote-json';
+
+import { bridgePriceAllowlist } from './bridge-price-allowlist';
 
 /**
  * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
@@ -87,12 +91,13 @@ export const getSwapTokens = (): SwapToken[] => {
   if (!nativeAssetId || SWAP_TOKENS.some(token => token.faucetId === nativeAssetId)) return SWAP_TOKENS;
 
   const nativeMetadata = getNativeAssetMetadataSync();
+  if (!nativeMetadata || !hasKnownScale({ ...nativeMetadata, name: nativeMetadata.symbol })) return SWAP_TOKENS;
   return [
     {
-      symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
+      symbol: nativeMetadata.symbol,
       faucetId: nativeAssetId,
-      decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
-      logoSymbol: 'MIDEN'
+      decimals: nativeMetadata.decimals,
+      logoSymbol: nativeMetadata.symbol === 'USDCX' ? 'USDC' : 'MIDEN'
     },
     ...SWAP_TOKENS
   ];
@@ -156,17 +161,24 @@ export function normalizedFaucetId(faucetId: string): string {
 
 /**
  * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it
- * under: the swap registry's priced tokens (IETH at ETH, IBTC at BTC), the Earn collateral USDC and
- * the Agglayer-bridged ETH. Identity comes from the faucet id, never from the symbol a faucet gives
- * itself, which anyone minting a token can set (#1131).
+ * under: the swap registry's priced tokens (IETH at ETH, IBTC at BTC), and the Earn collateral USDC and
+ * the Agglayer-bridged ETH the bridge config names. Identity comes from the faucet id, never from the
+ * symbol a faucet gives itself, which anyone minting a token can set (#1131).
  */
 function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
+  const nativeId = getNativeAssetIdSync();
+  const metadata = getNativeAssetMetadataSync();
+  const syncedId = !metadata || metadata.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
+  const fixedNative =
+    nativeId && syncedId && normalizedFaucetId(nativeId) === normalizedFaucetId(syncedId)
+      ? [{ faucetId: nativeId, priceSymbol: 'USDCX' }]
+      : [];
   return [
+    ...fixedNative,
     ...getSwapTokens().flatMap(token =>
       token.priceSymbol ? [{ faucetId: token.faucetId, priceSymbol: token.priceSymbol }] : []
     ),
-    { faucetId: getEarnCollateralFaucet(), priceSymbol: 'USDC' },
-    { faucetId: MIDEN_AGGLAYER_FAUCET_ID, priceSymbol: 'ETH' }
+    ...bridgePriceAllowlist()
   ];
 }
 

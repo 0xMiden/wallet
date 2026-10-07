@@ -50,6 +50,7 @@ import {
   OFFSCREEN_CALL,
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
+  OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_RELOAD_ENDPOINTS,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
@@ -74,8 +75,8 @@ import type {
   SubmitEvidenceFields,
   SwapTransaction
 } from 'lib/miden/db/types';
+import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
-import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
@@ -102,6 +103,7 @@ import {
   type LandedTransaction
 } from 'lib/miden/sdk/sdk-error-code';
 import { readSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
+import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import {
   poisonReasonOf,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -109,6 +111,8 @@ import {
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
+import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 import { ProveWorkerClient } from './prove-worker-client';
@@ -210,6 +214,22 @@ function postConnectivityEvent(category: ConnectivityCategory, active: boolean):
 }
 
 setConnectivityReporter(postConnectivityEvent);
+setNativeAssetPublisher(async (id, scope) => {
+  const response: unknown = await withRpcTimeout(
+    () =>
+      chrome.runtime.sendMessage({
+        target: SW_TARGET,
+        type: OFFSCREEN_NATIVE_ASSET_EVENT,
+        id,
+        scope
+      }),
+    'offscreen-native-asset-publication',
+    { retries: 0 }
+  );
+  if (!response || typeof response !== 'object' || !('ok' in response) || response.ok !== true) {
+    throw new Error('service worker did not persist synchronized fee identity');
+  }
+});
 
 // --- Developer endpoint overrides in THIS realm -----------------------------
 //
@@ -577,11 +597,11 @@ const DISPATCH: Record<string, DispatchFn> = {
   // is the whole point once the flag is on: the offscreen client owns the canonical
   // synced state, so these reads no longer go stale against the dormant SW client.
 
-  syncState: async (_context, client) => {
+  syncState: async (context, client) => {
     // Run the sync; every SW-side caller discards the returned `SyncSummary`,
     // so return null. Nothing to serialize here means nothing to re-hydrate on
     // the SW — serializing a result no one reads would be pure waste.
-    await client.syncState();
+    await client.syncState(() => assertWasmHoldCurrent(context.hold, 'after offscreen sync'));
     return null;
   },
 
@@ -653,7 +673,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   getSyncHeight: async (context, client, fresh: boolean) => {
     let height: number;
     if (fresh) {
-      const summary = await client.client.sync();
+      const summary = await client.syncState(() => assertWasmHoldCurrent(context.hold, 'after offscreen fresh sync'));
       // The summary is a live borrow of the client the sync ran on — reading its
       // block number after an eviction would double-borrow alongside the
       // successor, so re-check before touching it (#788). The non-fresh branch
@@ -768,12 +788,11 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
   // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
-  // (offscreen) client's store — which is what makes the relay belong here: under
-  // 0.16 `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
-  // resolves the note by id from the calling client's store and derives the
-  // recipient's forward-scan hint from its stored `expected_height` (the chain tip
-  // when the note's transaction was submitted). On the dormant SW client that
-  // lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
+  // (offscreen) client's store, which is what makes the relay belong here.
+  // `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
+  // resolves the note by id from the calling client's store and reads the
+  // inclusion proof sync stored once that client has synced past the commitment.
+  // On the dormant SW client that lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
   // `Note.serialize()` raw bytes and is re-hydrated here purely to read its id back.
   // A transport relay — no prove / sign — so a void result (nothing to
   // re-hydrate); the SW-side caller only awaits it.
@@ -785,8 +804,8 @@ const DISPATCH: Record<string, DispatchFn> = {
 
   // Re-push of an already-relayed private note, by id (see `relayPrivateNoteById`).
   // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
-  // THIS realm's store, so the id lookup and the `expected_height` hint derivation
-  // only resolve here. No note bytes to carry — the sweep has only the row.
+  // THIS realm's store, so the id lookup and the stored inclusion proof
+  // only resolve here. No note bytes to carry. The sweep has only the row.
   relayPrivateNoteById: async (_context, client, noteId: string, to: string) => {
     await client.relayPrivateNoteById(noteId, to);
     return null;
@@ -955,12 +974,9 @@ const DISPATCH: Record<string, DispatchFn> = {
   // costs a blank duration, never the transaction.
   // Args are destructured from the SHARED `GuardianPipelineArgs` tuple rather
   // than re-declared here, so this list and the SW-side packer cannot drift.
-  // Note `chainAnchorB64` is `string | null`: the slot is always on the wire and
-  // `encodeArg` maps an absent anchor to JSON `null`, never `undefined`. Every
-  // branch below selects on truthiness, which covers both — and the older tests
-  // that build a 3-arg envelope by hand.
+  // The historical anchor slot remains on the wire; execution uses the request's bound block at the tip.
   guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
-    const [accountId, trBytes, delegateTransaction, chainAnchorB64] = args;
+    const [accountId, trBytes, delegateTransaction] = args;
     // This op's own id and lock hold, threaded in by `handleCall` before any
     // await so both are provably ours (issue #775). The hold is what keeps a pause from
     // silencing the watchdog of whichever holder took the lock after an
@@ -980,38 +996,13 @@ const DISPATCH: Record<string, DispatchFn> = {
     try {
       const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
       postStageEvent(context, 'executing');
-      // #784: execute AT the proposal's anchored reference block, not this realm's
-      // current sync height. The request's co-signatures were collected over a
-      // summary that binds that block's commitment (protocol 0.16), so an
-      // unanchored execute after the chain advanced derives a different summary
-      // and the kernel rejects the transaction as unauthorized. The anchor crossed
-      // in wire form (the proposal metadata's base64 - a WASM ChainAnchor cannot
-      // cross the message boundary) and is decoded here, in the realm that
-      // executes; freed as soon as executeRequest is done with it.
-      //
-      // The decode gets its own breadcrumb because it can throw (a skewed or
-      // truncated anchor fails here, before execution), and this realm's whole
-      // diagnostic contract is that a write names the step it stopped on.
-      // The decode sits INSIDE the try purely by shape, so nothing added between
-      // it and the execute can ever leak the anchor. It closes no live hazard
-      // today: the only statement between them is `recordProveTiming`, a bare
-      // return in production builds whose one unguarded statement in E2E ones is a
-      // `console.log`. `sdk.ChainAnchor` needs no cast: the lazy namespace is typed.
-      let anchor: sdk.ChainAnchor | undefined;
-      try {
-        if (chainAnchorB64) recordProveTiming('guardianPipeline decoding chain anchor');
-        anchor = chainAnchorB64 ? sdk.ChainAnchor.deserialize(b64ToBytes(chainAnchorB64)) : undefined;
-        recordProveTiming(`guardianPipeline calling executeRequest anchored=${anchor ? 'yes' : 'no'}`);
-        executedTx = await client.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
-      } finally {
-        // Narrate a failed free to the realm's OWN channel too: the harness
-        // cannot attach a console to this document, so `console.warn` alone is
-        // invisible exactly where this realm is hardest to debug. Prefixed like
-        // every other line this op emits, so it survives the `] guardianPipeline `
-        // filter that separates the pipeline's trail from the envelope's - the one
-        // marker reporting a failure must not be the one the filter drops.
-        freeChainAnchor(anchor, message => recordProveTiming(`guardianPipeline ${message}`));
-      }
+      recordProveTiming('guardianPipeline preparing current tip');
+      await prepareGuardianTipExecution(client.client, tr, () =>
+        assertWasmHoldCurrent(hold, 'in the guardian pipeline while preparing tip execution')
+      );
+      assertWasmHoldCurrent(hold, 'in the guardian pipeline before executing at the tip');
+      recordProveTiming('guardianPipeline calling executeRequest at current tip');
+      executedTx = await client.client.transactions.executeRequest(accountId, tr);
       recordProveTiming('guardianPipeline executeRequest returned; proving');
       // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
       // brackets below cover proving, not this), so a node that accepts and never
@@ -1251,17 +1242,23 @@ const DISPATCH: Record<string, DispatchFn> = {
       try {
         // Chain-only sync (matches the SDK): confirmation needs on-chain state only,
         // and skipping NTL keeps polling alive when note transport is unavailable.
-        await polling.client.syncChain();
+        const pollingClient = polling.client;
+        await syncAndRecordFeeFaucet(
+          pollingClient,
+          () => pollingClient.syncChain(),
+          () => assertWasmHoldCurrent(context.hold, 'after offscreen confirmation sync')
+        );
       } catch (e) {
-        // Kept non-fatal, exactly as the SDK's own waitFor is — but no longer
-        // silent. A sync that fails EVERY lap makes the poll run blind: it lists
+        if (e instanceof WebAssembly.RuntimeError || e instanceof WasmClientPoisonedError) throw e;
+        // Ordinary transport failures remain non-fatal, while traps and poison
+        // propagate above. A sync that fails EVERY lap makes the poll run blind: it lists
         // transactions against state that never advances, so the only outcome
         // left is the timeout, reported as "confirmation timed out" with nothing
         // anywhere saying the chain was never read.
         console.warn(`${TAG} confirmation poll sync failed for ${transactionId}; continuing to poll:`, e);
       }
       // Re-checked after the sync: an eviction landing during that await (whose own
-      // failure is swallowed just above) would otherwise let this second WASM call
+      // ordinary failure is logged above) would otherwise let this second WASM call
       // run unmutexed, which is the whole hazard the loop-top guard exists for.
       if (getCurrentWasmLockHold() !== context.hold) {
         console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the sync)');

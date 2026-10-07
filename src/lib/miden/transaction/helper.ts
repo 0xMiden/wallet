@@ -8,6 +8,7 @@ import { reportOperation } from 'lib/telemetry/report-operation';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
+import { RESULT_BYTES_RETENTION_MS } from './trim-result-bytes';
 import { latestEntry, upsertEvidenceEntry } from './verdict-rules';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import { compareAccountIds } from '../activity/utils';
@@ -565,9 +566,13 @@ export const completeVerifiedLandedTransaction = async (
 ): Promise<void> => {
   let reconciled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Failed) return;
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value. The row
+    // declined here is an already-Completed one, i.e. exactly the row still carrying the ~237 KB
+    // `resultBytes`, and `useTransactionRow` observes this table.
+    if (tx.status !== ITransactionStatus.Failed) return false;
     applyVerifiedLanding(tx, typeof otherValues === 'function' ? otherValues(tx) : otherValues);
     reconciled = tx;
+    return undefined;
   });
 
   if (reconciled !== undefined) {
@@ -972,6 +977,10 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 
 const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
 
+const RESULT_EXPIRED_MESSAGE = `Transaction result expired: results are kept for ${
+  RESULT_BYTES_RETENTION_MS / 60_000
+} minutes after completion`;
+
 /** What a waiter hears when its row is still waiting for the node's verdict (#1081): submitted, never "failed". */
 const notYetConfirmedMessage = (row: Pick<ITransaction, 'submitEvidence'> | undefined): string => {
   const transactionId = row === undefined ? undefined : latestEntry(row)?.transactionId;
@@ -1017,20 +1026,25 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // the timeout, and dexie runs `next` inside its own promise chain — so an
           // exception here settles the wait promise as neither success NOR timeout
           // and the awaiting caller (the Epoch bridge/earn note builders) hangs
-          // forever while the activity row reads Completed. The known trigger is a
-          // row marked Completed by a post-submit failure path with no
-          // `resultBytes`; `isResultAwaitingRow` in `transaction/index.ts` now
-          // Fails those rows instead, and this is the backstop for any other route
-          // to a result-less Completed row.
+          // forever while the activity row reads Completed.
+          //
+          // A Completed row arrives here without `resultBytes` by two routes. The reaper
+          // (`trim-result-bytes.ts`) releases the blob after the retention window and stamps
+          // `resultReleasedAt`, which answers as an expiry. Otherwise the row never stored a result:
+          // post-submit paths in `transaction/index.ts` and `complete.ts` mark landed rows Completed
+          // without one, so they keep a no-result message at any age.
           try {
             if (!tx.resultBytes) {
               // A landed write (#1233) reaches here with its id recorded: the network accepted it and
               // only the local apply failed. It stays an error, since no output exists to return, but
               // says so, or a dApp reading "not sent" asks the user to sign and pay again.
               resolve({
-                errorMessage: tx.transactionId
-                  ? `Transaction ${tx.transactionId} was accepted by the network, but its result is not available`
-                  : 'Transaction completed without a transaction result'
+                errorMessage:
+                  tx.resultReleasedAt != null
+                    ? RESULT_EXPIRED_MESSAGE
+                    : tx.transactionId
+                      ? `Transaction ${tx.transactionId} was accepted by the network, but its result is not available`
+                      : 'Transaction completed without a transaction result'
               });
               return;
             }

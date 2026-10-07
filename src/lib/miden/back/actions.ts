@@ -11,7 +11,8 @@ import { PublicError } from 'lib/miden/back/defaults';
 import { undoFailedSetup } from 'lib/miden/back/failed-setup';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
-  resolveGuardianDrift
+  resolveGuardianDrift,
+  revertGuardianEndpointAfterDiscard as revertDiscardedGuardianEndpoint
 } from 'lib/miden/back/guardian-drift';
 import { maybeStartGuardianRecovery, releaseGuardianRecoveriesOnLock } from 'lib/miden/back/guardian-recovery';
 import {
@@ -27,8 +28,7 @@ import {
   accountsUpdated,
   currentAccountUpdated
 } from 'lib/miden/back/store';
-import { Vault } from 'lib/miden/back/vault';
-import { dropLegacyGuardianUrl } from 'lib/miden/reset';
+import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -240,7 +240,6 @@ export function registerNewWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
-        await dropLegacyGuardianUrlAfterSetup('registerNewWallet');
         console.log('[Actions.registerNewWallet] Completed');
       } catch (err: unknown) {
         console.error('[Actions.registerNewWallet] FAILED:', err);
@@ -250,14 +249,6 @@ export function registerNewWallet(
         syncRealmInsertKeySink();
       }
     })
-  );
-}
-
-// The wallet is already set up, so a failed drop only warns: the key then lingers as it did
-// before #1174, read only by an account that has no guardianEndpoint of its own.
-async function dropLegacyGuardianUrlAfterSetup(caller: string) {
-  await dropLegacyGuardianUrl().catch(err =>
-    console.warn(`[Actions.${caller}] could not drop the legacy guardian URL:`, err)
   );
 }
 
@@ -283,7 +274,6 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
-        await dropLegacyGuardianUrlAfterSetup('registerWalletFromHotKey');
       } finally {
         if (!published && vault) await undoFailedSetup(vault, 'Actions.registerWalletFromHotKey');
         syncRealmInsertKeySink();
@@ -293,11 +283,10 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
 }
 
 export function registerImportedWallet(
-  password?: string,
-  mnemonic?: string,
-  walletAccounts: WalletAccount[] = [],
-  formatVersion?: number,
-  importedAccounts: ImportedAccountBackup[] = []
+  password: string | undefined,
+  mnemonic: string | undefined,
+  walletAccounts: WalletAccount[],
+  importedAccounts: ImportedAccountBackup[]
 ) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
@@ -306,13 +295,7 @@ export function registerImportedWallet(
       try {
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await Vault.spawnFromMidenClient(
-          password ?? '',
-          mnemonic ?? '',
-          walletAccounts,
-          formatVersion,
-          importedAccounts
-        );
+        vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -326,7 +309,6 @@ export function registerImportedWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
-        await dropLegacyGuardianUrlAfterSetup('registerImportedWallet');
       } finally {
         if (!published && vault) await undoFailedSetup(vault, 'Actions.registerImportedWallet');
         syncRealmInsertKeySink();
@@ -363,11 +345,11 @@ export function unlock(password?: string) {
       // construction throws (#878).
       try {
         const vault = await Vault.setup(password);
-        // Resuming an interrupted removal is best-effort like the two migrations
-        // below it. It reaches the keystore, a client build and the offscreen
-        // document, and it throws seedRemovalFailed by design; letting that
-        // escape would leave the wallet permanently unopenable, because the
-        // status stays 'removing' and every retry re-runs the same failing step.
+        // Resuming an interrupted removal is best-effort. It reaches the keystore, a
+        // client build and the offscreen document, and it throws seedRemovalFailed by
+        // design; letting that escape would leave the wallet permanently unopenable,
+        // because the status stays 'removing' and every retry re-runs the same failing
+        // step.
         // Staying at 'removing' is the designed outcome - it is what the
         // seedRemovalIncomplete notice asks the user to retry.
         // It also takes the same mutual exclusion the explicit Settings removal
@@ -383,13 +365,6 @@ export function unlock(password?: string) {
             })
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
-        // Bring any pre-3-key Guardian accounts into the 3-key model in place
-        // (best-effort, never throws) so they surface the Activate Device Key
-        // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
-        await vault.migrateLegacyGuardianAccounts();
-        // Stamp wallet-derived EVM addresses on pre-existing HD accounts
-        // (best-effort, never throws) before the accounts list is read below.
-        await vault.backfillEvmAddresses();
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -402,16 +377,6 @@ export function unlock(password?: string) {
           ownMnemonic,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
-        // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
-        // predate the field, by resolving their on-chain guardian commitment to a
-        // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
-        // unlike the local-only migrations above it makes external guardian HTTP,
-        // which must never gate the unlock UI transition. Best-effort +
-        // idempotent; resolveGuardianDrift and the next unlock reconcile anything
-        // left unresolved.
-        void vault
-          .backfillGuardianEndpoints()
-          .catch(e => console.warn('[unlock] guardian-endpoint backfill failed (non-fatal):', e));
       } finally {
         syncRealmInsertKeySink();
       }
@@ -642,9 +607,9 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
 // practice: `resolveGuardianDrift` fires them on unlock, which is exactly when
 // the recovery is running.
 //
-// Queued HERE rather than inside the Vault methods, because
-// `migrateLegacyGuardianAccounts` calls two of those methods while unlock
-// already holds this queue — queueing inside them would deadlock it.
+// Queued HERE rather than inside the Vault methods, for the reason
+// `Vault.updateGuardianBinding` documents: callers that already hold this queue
+// reach those methods directly, so queueing inside them would deadlock.
 
 export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
   return withUnlocked(({ vault }) =>
@@ -657,6 +622,39 @@ export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: 
       accountsUpdated(updated);
     })
   );
+}
+
+/**
+ * Point an account back at its previous operator after the node DISCARDED the
+ * rotation that moved it. The guards live in `guardian-drift.ts` next to the
+ * other write that verifies an endpoint against the chain before binding it;
+ * this wrapper only supplies the queued vault adapter and broadcasts the result.
+ *
+ * Deliberately NOT `setGuardianEndpoint`, which is `force` - for the
+ * authoritative writers that must never lose. This is the opposite kind of
+ * write: its evidence is up to half an hour old and everything it touches may
+ * have moved since.
+ *
+ * Broadcast only on `'reverted'`, like `checkGuardianDrift`: the other two
+ * outcomes wrote nothing, and this runs off a 3 s loop.
+ */
+export function revertGuardianEndpointAfterDiscard(
+  accountPublicKey: string,
+  discardedEndpoint: string,
+  revertTo: string
+) {
+  return withUnlocked(async ({ vault }) => {
+    const outcome = await revertDiscardedGuardianEndpoint(
+      queuedDriftVaultAdapter(vault),
+      accountPublicKey,
+      discardedEndpoint,
+      revertTo
+    );
+    if (outcome === 'reverted') {
+      accountsUpdated({ accounts: await vault.fetchAccounts(), currentAccount: await vault.getCurrentAccount() });
+    }
+    return outcome;
+  });
 }
 
 export function setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
@@ -695,17 +693,6 @@ export function startGuardianRecovery(accountPublicKey: string) {
 }
 
 /**
- * Detect and, where possible, auto-resolve an out-of-band guardian switch for
- * an account. `resolveGuardianDrift` writes through the vault's guardian
- * setters directly (not through the `setGuardian*` actions above), so this
- * wrapper re-reads the current account state afterward and broadcasts it —
- * same reason `setGuardianEndpoint` broadcasts: without it the popup's
- * Zustand snapshot keeps the stale endpoint/commitment/status. Only does so
- * when `resolveGuardianDrift` reports `changed: true` — the periodic
- * guardian-sync loop calls this every 3s per guardian account, and on the
- * common no-op tick (nothing drifted) there's nothing new to broadcast.
- */
-/**
  * The drift resolvers' vault adapter, with each accounts-list write on the
  * single-writer queue. Only the individual writes are queued, not the whole
  * resolution: it makes guardian HTTP calls between them, and holding the queue
@@ -715,15 +702,30 @@ export function startGuardianRecovery(accountPublicKey: string) {
 function queuedDriftVaultAdapter(vault: Vault) {
   return {
     getAccount: async (pk: string) => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
-    setGuardianEndpoint: (pk: string, endpoint: string) =>
-      getAccountsWriteQueue().add(() => vault.setGuardianEndpoint(pk, endpoint)),
-    setGuardianOperatorCommitment: (pk: string, commitment: string) =>
-      getAccountsWriteQueue().add(() => vault.setGuardianOperatorCommitment(pk, commitment)),
+    updateGuardianBinding: (pk: string, expectedEpoch: number, patch: GuardianBindingPatch) =>
+      getAccountsWriteQueue().add(() => vault.updateGuardianBinding(pk, expectedEpoch, patch)),
     setGuardianSyncStatus: (pk: string, status: GuardianSyncStatus) =>
-      getAccountsWriteQueue().add(() => vault.setGuardianSyncStatus(pk, status))
+      getAccountsWriteQueue().add(() => vault.setGuardianSyncStatus(pk, status)),
+    setGuardianSyncStatusIf: (pk: string, status: GuardianSyncStatus, holds: (account?: WalletAccount) => boolean) =>
+      getAccountsWriteQueue().add(async () => {
+        if (!holds((await vault.fetchAccounts()).find(acc => acc.publicKey === pk))) return false;
+        await vault.setGuardianSyncStatus(pk, status);
+        return true;
+      })
   };
 }
 
+/**
+ * Detect and, where possible, auto-resolve an out-of-band guardian switch for
+ * an account. `resolveGuardianDrift` writes through the vault's guardian
+ * setters directly (not through the `setGuardian*` actions above), so this
+ * wrapper re-reads the current account state afterward and broadcasts it -
+ * same reason `setGuardianEndpoint` broadcasts: without it the popup's
+ * Zustand snapshot keeps the stale endpoint/commitment/status. Only does so
+ * when `resolveGuardianDrift` reports `changed: true` - the periodic
+ * guardian-sync loop calls this every 3s per guardian account, and on the
+ * common no-op tick (nothing drifted) there's nothing new to broadcast.
+ */
 export function checkGuardianDrift(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
     const { status, changed } = await resolveGuardianDrift(queuedDriftVaultAdapter(vault), accountPublicKey);

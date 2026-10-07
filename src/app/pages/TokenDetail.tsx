@@ -37,6 +37,7 @@ import { isMobile } from 'lib/platform';
 import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
+import { isFixedQuote } from 'lib/prices/fixed';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
@@ -225,7 +226,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
           <SectionDivider />
 
-          {quote && !isNominalQuote(quote) && priceSymbol && (
+          {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && priceSymbol && (
             <>
               <PriceChart symbol={priceSymbol} priceInfo={quote} />
               <SectionDivider />

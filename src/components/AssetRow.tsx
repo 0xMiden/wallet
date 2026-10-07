@@ -12,6 +12,7 @@ import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { quotedPrice, useTokenSparkline } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
+import { isFixedQuote } from 'lib/prices/fixed';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
 
 export interface AssetRowProps {
@@ -79,7 +80,7 @@ export const AssetRow: FC<AssetRowProps> = ({
   const quote = quotedPrice(tokenPrices, priceSymbol);
   // Only a feed quote has a 24h move. The nominal rate is a dollar figure with no market behind it,
   // so it has no direction to colour anything by, like no quote at all.
-  const feedQuote = quote && !isNominalQuote(quote) ? quote : undefined;
+  const feedQuote = quote && !isNominalQuote(quote) && !isFixedQuote(quote) ? quote : undefined;
   const direction: 'positive' | 'negative' | 'neutral' | null = feedQuote
     ? Math.abs(feedQuote.percentageChange24h) < FLAT_MOVE_PERCENT
       ? 'neutral'
@@ -94,7 +95,7 @@ export const AssetRow: FC<AssetRowProps> = ({
   const formatFiat = adaptiveFormatterFor(fiatValue);
 
   // An empty symbol is the hook's "fetch nothing".
-  const points = useTokenSparkline(sparkline ? priceSymbol : '', '1D');
+  const points = useTokenSparkline(sparkline && !isFixedQuote(quote) ? priceSymbol : '', '1D');
   const hasRealPoints = points.length > 1;
   const sparkPoints = hasRealPoints ? downsample(points, SPARKLINE_BUCKETS) : FLAT_SPARKLINE_POINTS;
   // The line takes the move's colour, grey when the move is flat, so it never argues with the pill.
@@ -117,7 +118,7 @@ export const AssetRow: FC<AssetRowProps> = ({
         )
       }
       chart={
-        sparkline ? (
+        sparkline && !isFixedQuote(quote) ? (
           <Sparkline
             points={sparkPoints}
             color={sparkColor}

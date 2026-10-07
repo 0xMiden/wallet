@@ -4,11 +4,13 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 
 import { BridgeRoute } from './types';
 import { AgglayerEligibility } from './useAgglayerEligibility';
@@ -24,6 +26,9 @@ export interface RouteStepProps {
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
   onConfirm: () => void;
+  /** Each route's feature: an unavailable or still-loading route is greyed out and takes no tap. */
+  fastAvailability: FeatureAvailability;
+  slowAvailability: FeatureAvailability;
 }
 
 interface RouteCardProps {
@@ -58,7 +63,7 @@ const RouteCard: React.FC<RouteCardProps> = ({
     disabled={disabled}
     aria-busy={loading}
     className={clsx(
-      'flex w-full items-center rounded-2xl border bg-fill px-4 py-6 transition-colors text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink',
+      'flex w-full items-center rounded-2xl border bg-fill px-4 py-6 transition-colors text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-50',
       selected ? ACCENT_CLASSES[accent].border : 'border-hairline'
     )}
   >
@@ -72,7 +77,7 @@ const RouteCard: React.FC<RouteCardProps> = ({
 
 export type RouteOptionsProps = Pick<
   RouteStepProps,
-  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
+  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice' | 'fastAvailability' | 'slowAvailability'
 > & { accent?: FlowAccent; slowStatus: AgglayerEligibility };
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
@@ -83,6 +88,8 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   fastQuoteLoading,
   notice,
   slowStatus,
+  fastAvailability,
+  slowAvailability,
   accent = 'brand'
 }) => {
   const { t } = useTranslation();
@@ -128,6 +135,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         onSelect={() => select('epoch')}
         fee={fastFee}
         eta={t('fastArrival')}
+        disabled={isFeatureBlocked(fastAvailability)}
         testId="bridge-route-fast"
         accent={accent}
       />
@@ -135,7 +143,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         emoji="🕐"
         label={t('slow')}
         selected={route === 'agglayer' && slowAllowed}
-        disabled={!slowAllowed}
+        disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
         loading={slowStatus === 'loading'}
         onSelect={() => select('agglayer')}
         fee={slowFee}
@@ -149,6 +157,10 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         </p>
       )}
       {notice && <p className="text-xs text-muted">{notice}</p>}
+      <FeatureUnavailableNotice
+        availability={fastAvailability.state === 'unavailable' ? fastAvailability : slowAvailability}
+        variant="inline"
+      />
     </div>
   );
 };
@@ -166,7 +178,9 @@ export const Route: React.FC<RouteStepProps> = ({
   fastQuoteLoading,
   notice,
   confirmDisabled,
-  onConfirm
+  onConfirm,
+  fastAvailability,
+  slowAvailability
 }) => {
   const { t } = useTranslation();
 
@@ -182,6 +196,8 @@ export const Route: React.FC<RouteStepProps> = ({
           fastQuoteLoading={fastQuoteLoading}
           notice={notice}
           slowStatus="allowed"
+          fastAvailability={fastAvailability}
+          slowAvailability={slowAvailability}
         />
       </div>
 

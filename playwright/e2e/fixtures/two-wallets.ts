@@ -64,6 +64,7 @@ import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-pa
  * installed by `installNetworkFaults`.
  */
 export interface GuardianFaultTestApi {
+  readonly ownsProfile: boolean;
   armGuardianFault(policy: GuardianFaultPolicy): void;
   /**
    * Arm one or more whole-infra faults (node/prover/transport/positions/…).
@@ -122,7 +123,12 @@ type FailureSnapshots = {
   walletB?: WalletSnapshot;
 };
 
+type ProfileDebugSession = DebugSession & {
+  ownedProfiles: { A: boolean; B: boolean };
+};
+
 type TwoWalletFixtures = {
+  injectFeeFaucet: boolean;
   walletA: GuardianAwareWalletPage;
   walletB: GuardianAwareWalletPage;
   midenCli: MidenCli;
@@ -375,9 +381,12 @@ async function launchWalletInstance(
   label: 'A' | 'B',
   extensionPath: string,
   timeline: TimelineRecorder,
-  outputDir: string
+  outputDir: string,
+  feeFaucetId?: string
 ) {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
+  const suppliedProfile = process.env[`E2E_WALLET_${label}_PROFILE`];
+  const ownsProfile = suppliedProfile === undefined;
+  const userDataDir = suppliedProfile ?? fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
 
   // `let` (not `const`): reopen()'s relaunch swaps these in place after a
   // browser crash so teardown closes the LIVE context and the fault methods
@@ -390,6 +399,26 @@ async function launchWalletInstance(
 
   const serviceWorker = await waitForExtensionServiceWorker(context);
   const extensionId = new URL(serviceWorker.url()).host;
+
+  if (feeFaucetId) {
+    const deadline = Date.now() + 30_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      ready = await serviceWorker
+        .evaluate(() => typeof (self as { __TEST_SET_FEE_FAUCET__?: unknown }).__TEST_SET_FEE_FAUCET__ === 'function')
+        .catch(() => false);
+      if (ready) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (!ready) {
+      throw new Error(`__TEST_SET_FEE_FAUCET__ was not installed on wallet ${label} within 30s`);
+    }
+    await serviceWorker.evaluate(async id => {
+      const setFee = (self as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> }).__TEST_SET_FEE_FAUCET__;
+      if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+      await setFee(id);
+    }, feeFaucetId);
+  }
 
   // Attach observability
   attachConsoleCapture(context, label, timeline);
@@ -544,8 +573,19 @@ async function launchWalletInstance(
       await page
         .locator('[data-testid="onboarding-welcome"]')
         .or(page.locator('[data-testid="explore-page"]'))
+        .or(page.locator('[data-testid="unlock-password"]'))
+        .or(page.locator('[data-testid="onboarding-help-improve-wallet"]'))
         .first()
         .waitFor({ timeout: ATTEMPT_TIMEOUT });
+
+      if (feeFaucetId) {
+        await page.evaluate(async id => {
+          const setFee = (window as { __TEST_SET_FEE_FAUCET__?: (id: string) => Promise<void> })
+            .__TEST_SET_FEE_FAUCET__;
+          if (!setFee) throw new Error('__TEST_SET_FEE_FAUCET__ is not installed');
+          await setFee(id);
+        }, feeFaucetId);
+      }
 
       timeline.emit({
         category: 'test_lifecycle',
@@ -650,6 +690,7 @@ async function launchWalletInstance(
   const walletPage: GuardianAwareWalletPage = Object.assign(
     new ChromeWalletPage(page, extensionId, userDataDir, relaunch),
     {
+      ownsProfile,
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
       guardianFaultHitTimes: () => faults.guardianFaultHitTimes(),
@@ -694,6 +735,7 @@ async function launchWalletInstance(
     },
     extensionId,
     userDataDir,
+    ownsProfile,
     get page() {
       return page;
     }
@@ -747,14 +789,15 @@ async function closeContextQuietly(context: BrowserContext, page: Page): Promise
 function writeDebugSession(
   testName: string,
   reportPath: string,
-  instanceA: { extensionId: string; userDataDir: string },
-  instanceB: { extensionId: string; userDataDir: string },
+  instanceA: { extensionId: string; userDataDir: string; ownsProfile: boolean },
+  instanceB: { extensionId: string; userDataDir: string; ownsProfile: boolean },
   midenCliWorkDir: string
 ): void {
-  const session: DebugSession = {
+  const session: ProfileDebugSession = {
     createdAt: new Date().toISOString(),
     testName,
     reportPath,
+    ownedProfiles: { A: instanceA.ownsProfile, B: instanceB.ownsProfile },
     wallets: {
       A: {
         extensionId: instanceA.extensionId,
@@ -790,12 +833,16 @@ function cleanupStaleSessions(): void {
   if (!fs.existsSync(sessionPath)) return;
 
   try {
-    const session: DebugSession = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    const session: Partial<ProfileDebugSession> = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    if (!session.expiresAt || !session.wallets) return;
     if (new Date(session.expiresAt) < new Date()) {
       // Session expired -- clean up
       fs.unlinkSync(sessionPath);
       // Try to clean up user data dirs
-      for (const wallet of [session.wallets.A, session.wallets.B]) {
+      for (const label of ['A', 'B'] as const) {
+        // Older sessions do not prove the harness owns their profiles.
+        if (session.ownedProfiles?.[label] !== true) continue;
+        const wallet = session.wallets[label];
         try {
           fs.rmSync(wallet.userDataDir, { recursive: true, force: true });
         } catch {
@@ -816,6 +863,7 @@ function cleanupStaleSessions(): void {
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 export const test = base.extend<TwoWalletFixtures>({
+  injectFeeFaucet: [true, { option: true }],
   envConfig: async ({}, use) => {
     const config = getEnvironmentConfig();
     await use(config);
@@ -912,9 +960,10 @@ export const test = base.extend<TwoWalletFixtures>({
     }
   },
 
-  walletA: async ({ timeline, steps, failureSnapshots }, use, testInfo) => {
+  walletA: async ({ timeline, steps, failureSnapshots, midenCli, injectFeeFaucet }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir);
+    const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
+    const instance = await launchWalletInstance('A', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'A', steps.outputDir);
 
@@ -953,13 +1002,16 @@ export const test = base.extend<TwoWalletFixtures>({
       });
     } else {
       await closeContextQuietly(instance.context, instance.walletPage.page);
-      fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      if (instance.ownsProfile && process.env.E2E_RETAIN_PROFILE !== 'true') {
+        fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      }
     }
   },
 
-  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots }, use, testInfo) => {
+  walletB: async ({ timeline, steps, walletA, midenCli, failureSnapshots, injectFeeFaucet }, use, testInfo) => {
     const extensionPath = getExtensionPath();
-    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir);
+    const feeFaucetId = injectFeeFaucet ? await midenCli.ensureNativeFaucetId() : undefined;
+    const instance = await launchWalletInstance('B', extensionPath, timeline, steps.outputDir, feeFaucetId);
     steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
     await installScreenCapture(instance.page, 'B', steps.outputDir);
 
@@ -983,11 +1035,13 @@ export const test = base.extend<TwoWalletFixtures>({
         path.join(timeline.getOutputDir(), 'report.json'),
         {
           extensionId: walletA.extensionId,
-          userDataDir: walletA.userDataDir
+          userDataDir: walletA.userDataDir,
+          ownsProfile: walletA.ownsProfile
         },
         {
           extensionId: instance.extensionId,
-          userDataDir: instance.userDataDir
+          userDataDir: instance.userDataDir,
+          ownsProfile: instance.ownsProfile
         },
         midenCli.getWorkDir()
       );
@@ -1010,7 +1064,9 @@ export const test = base.extend<TwoWalletFixtures>({
       });
     } else {
       await closeContextQuietly(instance.context, instance.walletPage.page);
-      fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      if (instance.ownsProfile && process.env.E2E_RETAIN_PROFILE !== 'true') {
+        fs.rmSync(instance.userDataDir, { recursive: true, force: true });
+      }
     }
   }
 });

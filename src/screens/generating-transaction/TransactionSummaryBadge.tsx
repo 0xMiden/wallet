@@ -6,11 +6,13 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
 import { ITransaction } from 'lib/miden/db/types';
-import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
-import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getSwapTokenByFaucetId, normalizedFaucetId } from 'lib/miden/swap/tokens';
+import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
@@ -213,9 +215,6 @@ export const resolveSwapAsset = (
   };
 };
 
-/** USDC fallback decimals for an earn deposit when the faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
-const EARN_USDC_DECIMALS = 6;
-
 /** One faucet of a claim, with the asset and quantity that faucet contributed. */
 export interface ConsumeAssetPart {
   /** The faucet that minted this asset — an account id, linkable on the explorer. */
@@ -260,15 +259,12 @@ export const consumeAssetBreakdown = (
         : [];
 
   return totals.map(total => {
-    const tokenMetadata = assetsMetadata?.[total.faucetId];
     // Mirrors `getTokenMetadata`, which the activity row for this same claim
     // goes through: an unresolved NON-native faucet is Unknown, not MIDEN.
     // Labelling it MIDEN would name a foreign token after the native one —
     // and a batch claim's secondary faucets are exactly the ones the wallet
     // has no metadata for, since it has never held them.
-    const fallback =
-      nativeFaucetId !== null && total.faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
-    const resolved = tokenMetadata ?? fallback;
+    const resolved = resolveDisplayMetadata(total.faucetId, assetsMetadata, nativeFaucetId);
     // No trustworthy scale means no honest way to convert this faucet's base
     // units — the unknown-token placeholder's 6 is a guess, not a fact, and
     // using it renders an 18-decimal token 10^12 too large. Name the asset and
@@ -301,6 +297,16 @@ export const earnMarketLabel = (marketUid: string): string | undefined => {
 };
 
 /**
+ * The symbol and decimals of the Earn collateral the config names, for a deposit row of that very faucet. A row of
+ * a faucet the config has moved off gets none: it is never scaled by another token's decimals.
+ */
+export const useEarnCollateralFallback = (faucetId: string | undefined): MidenUsdc | undefined => {
+  const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  if (!faucetId || !collateral) return undefined;
+  return normalizedFaucetId(faucetId) === normalizedFaucetId(collateral.faucetId) ? collateral : undefined;
+};
+
+/**
  * Implemented variants:
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
@@ -317,6 +323,9 @@ export const useTransactionSummaryBadgeContent = (
 ): TransactionSummaryBadgeContent | undefined => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
+  const earnCollateral = useEarnCollateralFallback(
+    transaction?.type === 'earn-deposit' ? transaction.faucetId : undefined
+  );
   const { t } = useTranslation();
 
   return useMemo(() => {
@@ -337,13 +346,16 @@ export const useTransactionSummaryBadgeContent = (
 
     if (transaction?.type === 'earn-deposit') {
       const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-      const decimals = tokenMetadata?.decimals ?? EARN_USDC_DECIMALS;
-      const symbol = tokenMetadata?.symbol ?? 'USDC';
-      const amount = transaction.amount !== undefined ? formatAmount(transaction.amount, decimals) : undefined;
+      const decimals = tokenMetadata?.decimals ?? earnCollateral?.decimals;
+      const symbol = tokenMetadata?.symbol ?? earnCollateral?.symbol;
+      const amount =
+        transaction.amount !== undefined && decimals !== undefined
+          ? formatAmount(transaction.amount, decimals)
+          : undefined;
       const marketUid: unknown = transaction.extraInputs?.marketUid;
       const rhs = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
 
-      if (!amount || !rhs) return undefined;
+      if (!amount || !rhs || !symbol) return undefined;
 
       return {
         lhs: `${amount} ${symbol}`,
@@ -397,5 +409,5 @@ export const useTransactionSummaryBadgeContent = (
         </>
       )
     };
-  }, [assetsMetadata, nativeFaucetId, t, transaction]);
+  }, [assetsMetadata, earnCollateral, nativeFaucetId, t, transaction]);
 };

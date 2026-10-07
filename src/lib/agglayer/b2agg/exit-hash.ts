@@ -1,11 +1,4 @@
-import {
-  FeltArray,
-  type Note,
-  type NoteAssets,
-  Poseidon2,
-  TransactionRequest,
-  type Word
-} from '@miden-sdk/miden-sdk/lazy';
+import { FeltArray, type Note, Poseidon2, TransactionRequest, type Word } from '@miden-sdk/miden-sdk/lazy';
 import { concat, keccak256, stringToBytes } from 'viem';
 
 /**
@@ -24,8 +17,13 @@ export function agglayerExitTxHashFromDetailsCommitment(detailsCommitmentHex: st
   );
 }
 
+/** What `b2aggDetailsCommitment` reads of a note's assets. `NoteAssets` is one; the golden vectors pass raw words. */
+export interface B2aggAssets {
+  fungibleAssets(): ReadonlyArray<{ vaultKey(): Word; intoWord(): Word }>;
+}
+
 /** Poseidon2(recipientDigest felts ++ Poseidon2(per asset: vaultKey felts ++ intoWord felts)) */
-export function b2aggDetailsCommitment(recipientDigest: Word, assets: NoteAssets): Word {
+export function b2aggDetailsCommitment(recipientDigest: Word, assets: B2aggAssets): Word {
   const fungible = assets.fungibleAssets();
   // `createB2AggNote` takes fungible network-faucet assets only, so a note without one is not a B2AGG note.
   if (fungible.length === 0) throw new Error('A B2AGG note carries at least one fungible asset');

@@ -16,6 +16,7 @@ import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
+import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -228,7 +229,7 @@ function buildRowProps(
   } else if (entry.txType === 'earn-deposit') {
     // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
     // cross when the lending leg settled `failed` so the row icon agrees with the red
-    // "Failed" status chip rendered below (statusTone) for that same state.
+    // "Failed" status chip (`status`, from earnDepositSettlementOf below) for that same state.
     const earnFailed = earnDepositSettlementOf(entry) === 'failed';
     iconNode = earnFailed ? (
       <FailedCrossIcon className="w-3.5 h-3.5" />
@@ -245,6 +246,14 @@ function buildRowProps(
   // subtitle, and show the requested side (what the user receives) on the right.
   const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
 
+  // A completed rotation's title derives from its verdict at render, not from
+  // the frozen `displayMessage` snapshot - the claim stays attached to the
+  // evidence rather than to whatever the row said the day it completed.
+  // An unknown outcome still reads as not confirmed, ahead of that title.
+  const guardianTitleKey =
+    entry.txType === 'switch-guardian' && !isFailed && !isCancelled && entry.guardianSwitchVerdict
+      ? rotationRowTitleKey(entry.guardianSwitchVerdict)
+      : undefined;
   const title = isUnconfirmed
     ? t('notConfirmed')
     : isCancelled
@@ -255,7 +264,9 @@ function buildRowProps(
           ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
           : entry.guardianRecovered
             ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
-            : entry.message || '';
+            : guardianTitleKey
+              ? t(guardianTitleKey)
+              : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -370,6 +381,15 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
+  } else if (
+    entry.txType === 'switch-guardian' &&
+    entry.guardianSwitchVerdict &&
+    isUnconfirmedRotation(entry.guardianSwitchVerdict)
+  ) {
+    // A submitted-unconfirmed rotation is Completed in the DB, which the
+    // default `status` above renders as a green "Confirmed" - the one claim
+    // that row cannot make.
+    status = 'guardianSwitchSubmitted';
   } else if (
     !entry.guardianRecovered &&
     entry.txType === 'earn-deposit' &&
