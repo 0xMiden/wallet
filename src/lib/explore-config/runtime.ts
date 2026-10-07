@@ -115,6 +115,8 @@ function hydrate(state: NetworkState): Promise<void> {
   registerReread();
   state.subscriptions = [onStorageChanged(exploreConfigCacheKey(state.network), () => void rehydrate(state))];
   state.hydration = (async () => {
+    // Attached before the read, so a copy another realm commits while it is out is heard.
+    await Promise.all(state.subscriptions.map(subscription => subscription.attached));
     const stored = await readStoredExploreConfig(state.network);
     if (stored) adopt(state, stored);
     publish(state);

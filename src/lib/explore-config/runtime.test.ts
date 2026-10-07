@@ -15,13 +15,15 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkNam
 
 const mockChangeHandlers = new Map<string, Set<() => void>>();
 const mockRereads: Array<() => Promise<void>> = [];
+// What the next subscription reports as its listener being attached; undefined as off the extension.
+let mockAttached: Promise<void> | undefined;
 jest.mock('lib/miden/front/storage', () => ({
   registerStorageReread: (reread: () => Promise<void>) => mockRereads.push(reread),
   onStorageChanged: (key: string, handler: () => void) => {
     const handlers = mockChangeHandlers.get(key) ?? new Set<() => void>();
     handlers.add(handler);
     mockChangeHandlers.set(key, handlers);
-    return () => handlers.delete(handler);
+    return Object.assign(() => handlers.delete(handler), { attached: mockAttached });
   }
 }));
 
@@ -83,6 +85,7 @@ beforeEach(() => {
   _resetExploreConfigRuntimeForTest();
   jest.useFakeTimers({ now: NOW });
   mockNetwork = 'testnet';
+  mockAttached = undefined;
   mockStored.clear();
   mockBundledVersion = 1;
   visibility = 'visible';
@@ -172,6 +175,22 @@ describe('initExploreConfig', () => {
     await jest.advanceTimersByTimeAsync(POLL_MS);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('reads storage only once the change listener is attached', async () => {
+    let attach!: () => void;
+    mockAttached = new Promise<void>(resolve => {
+      attach = resolve;
+    });
+    store('testnet', 2, NOW - 60_000);
+    void initExploreConfig('testnet');
+    await flush();
+    expect(mockReadStored).not.toHaveBeenCalled();
+    expect(shownVersion()).toBe(1);
+    attach();
+    await flush();
+    expect(mockReadStored).toHaveBeenCalledTimes(1);
+    expect(shownVersion()).toBe(2);
   });
 
   it('leaves a copy under 15 minutes old alone, and refreshes an older one', async () => {
