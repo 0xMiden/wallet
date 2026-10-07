@@ -17,8 +17,10 @@ import type { CLIInvocation } from '../harness/types';
 
 jest.mock('./public-faucet', () => ({
   ...jest.requireActual('./public-faucet'),
-  mintFromPublicFaucet: jest.fn().mockResolvedValue(undefined)
+  mintFromPublicFaucet: jest.fn().mockResolvedValue({ noteId: '0x' + '01'.repeat(32) })
 }));
+
+jest.mock('./public-note-commitment', () => ({ waitForPublicNoteCommitment: jest.fn().mockResolvedValue(undefined) }));
 
 const TARGET = '0xa5c2900b1895271109557de2d9ce04';
 const FAUCET = '0x3d6f968b3cd35c91';

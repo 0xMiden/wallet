@@ -362,3 +362,15 @@ Focused live browser verification is explicitly requested. Full coverage and bro
 - Coverage and broad browser suites remain in CI; the authorized same-version replacement does not wait for PR or next CI.
 
 Official registry SDK 0.17.1 is installed with its published integrity and exact native optional dependencies. Both existing onboarding tests passed again: Testnet 32.9 s and Devnet 24.7 s, no retries, actual Fund UI and chain-confirmed consumption. Clean frozen installation, six-bundle relay verification, 83 relay tests, 32 CLI/faucet tests, five CLI pin tests, typecheck and native kernel pin check pass. Exact Rust CLI source preparation also compiles successfully.
+
+## Public faucet queue timing in CI
+
+- [x] Compare the failing next E2E run with its last successful runs.
+- [x] Verify exact execution dependencies and compare grant inclusion time with the failure time.
+- [x] Track the accepted public faucet note through bounded chain commitment before fixture consumption.
+- [x] Add focused delayed-commit and timeout regressions; run lint and type checks.
+- [ ] Complete medium internal review and merge the CI fix through a PR.
+- [ ] Verify the affected public-network CI jobs and retain the verified v1.17.1 release assets.
+- [ ] Reconcile ancestry and atomically fast-forward main and next with the original PR-only policy restored.
+
+Review: both failed native grants committed after their fixture deadlines; CLI 0.17.1 consumed another grant successfully in the same run. The release packages remain sourced from the reviewed funding fix. All 50 focused tests pass, with types, scoped lint and formatting clean. Internal re-review confirmed the existing funding-source regression was repaired and found no remaining P0/P1 issues.
