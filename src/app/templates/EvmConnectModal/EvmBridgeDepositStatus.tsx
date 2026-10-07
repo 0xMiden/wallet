@@ -8,6 +8,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer';
 import { IBridgedReceiveExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -71,9 +72,11 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
     inputs.provider === 'epoch' ? 'pays' : 'typed',
     inputs.sourceSymbol
   );
-  // The Fast route moves only the configured EVM token, so its source is that token.
+  // The bridge-in picker offers only ETH and the configured USDC, so any source but ETH is that USDC, as on the Review.
   const sourceSymbol =
-    inputs.provider === 'epoch' ? evmTokenLabel(findEvmUsdc()?.address, inputs.sourceSymbol) : inputs.sourceSymbol;
+    inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL
+      ? inputs.sourceSymbol
+      : evmTokenLabel(findEvmUsdc()?.address, inputs.sourceSymbol);
   const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';

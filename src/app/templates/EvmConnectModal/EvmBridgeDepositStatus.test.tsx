@@ -356,6 +356,26 @@ describe('EvmBridgeDepositStatus', () => {
       expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 150.12 Test Epoch USDC');
     });
 
+    it('names the source of a Slow USDC deposit by the testnet label, as its Review did', () => {
+      mockRowState = {
+        row: makeRow(
+          makeInputs({
+            provider: 'agglayer',
+            sourceAmount: '12.5',
+            sourceSymbol: 'USDC',
+            outputAmount: '12.5',
+            outputSymbol: 'USDC',
+            phase: 'delivering'
+          }),
+          { faucetId: '' }
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12.5 USDC');
+    });
+
     it('keeps a Slow ETH deposit on ETH', () => {
       mockRowState = {
         row: makeRow(
