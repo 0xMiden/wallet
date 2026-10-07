@@ -210,6 +210,20 @@ describe('SwapAmounts', () => {
       });
     });
 
+    it("hands each field the token's own symbol and faucet id, and the registry logo symbol for its fallback", () => {
+      renderComponent({
+        offerToken: { symbol: 'IETH', faucetId: 'faucet-ieth', decimals: 8, logoSymbol: 'ETH' },
+        requestToken: { symbol: 'IBTC', faucetId: 'faucet-ibtc', decimals: 8, logoSymbol: 'BTC' }
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      const receive = screen.getByTestId('select-amount-youReceive');
+
+      expect(parseToken(pay)).toMatchObject({ name: 'IETH', id: 'faucet-ieth' });
+      expect(parseToken(receive)).toMatchObject({ name: 'IBTC', id: 'faucet-ibtc' });
+      expect(pay).toHaveAttribute('data-logo', 'ETH');
+      expect(receive).toHaveAttribute('data-logo', 'BTC');
+    });
+
     it('maps the request SwapToken to a UIToken with the default zero balance', () => {
       renderComponent();
       expect(parseToken(screen.getByTestId('select-amount-youReceive'))).toEqual({

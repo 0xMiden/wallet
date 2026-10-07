@@ -35,7 +35,9 @@ afterEach(() => {
   mockBridgeSnapshot = undefined;
 });
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol }: { symbol: string }) => <span>{symbol}-logo</span>
+  TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
+    <span data-faucet-id={faucetId}>{symbol}-logo</span>
+  )
 }));
 jest.mock('app/icons/logos/eth.svg', () => ({ ReactComponent: () => <svg /> }));
 jest.mock('app/icons/v2', () => ({
@@ -96,6 +98,7 @@ describe('SendAmount', () => {
     const selector = screen.getByTestId('send-token-selector');
     expect(selector).toHaveTextContent('Test Epoch USDC');
     expect(selector).toHaveTextContent('USDC-logo');
+    expect(screen.getByText('USDC-logo')).toHaveAttribute('data-faucet-id', TEST_MIDEN_USDC_FAUCET);
   });
 
   it('names the bridge faucet by its label once the bridge config publishes, with no new props', () => {

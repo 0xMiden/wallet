@@ -2,6 +2,10 @@
 
 ## 1.17.2 (TBD)
 
+### Features
+
+- [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
+
 ### Fixes
 
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.

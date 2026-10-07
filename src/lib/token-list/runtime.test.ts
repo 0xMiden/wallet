@@ -1,7 +1,10 @@
 import {
   _resetTokenListForTest,
+  loadTokenLogos,
   loadVerifiedFaucetIds,
   onTokenListUpdated,
+  peekTokenLogos,
+  peekVerifiedFaucetIds,
   TOKEN_LIST_RETRY_BACKOFF_MS,
   TOKEN_LIST_TTL_MS
 } from './runtime';
@@ -42,8 +45,9 @@ const response = (
 });
 
 const NOW = 1_800_000_000_000;
-const KEY = 'token_list_cache_v1:testnet';
+const KEY = 'token_list_cache_v2:testnet';
 const ATTEMPT = 'token_list_attempt_v1:testnet';
+const V1_KEY = 'token_list_cache_v1:testnet';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 /** Runs `body` as on iOS 15 WebKit and Safari before 16, which have no AbortSignal.timeout. */
@@ -468,9 +472,117 @@ describe('the foreground check', () => {
 });
 
 it('has no list for localnet, whose faucet ids are per machine, and never fetches or reads one', async () => {
-  setup({ 'token_list_cache_v1:localnet': { fetchedAt: NOW, body: doc(['local'], 'localnet') } });
+  setup({ 'token_list_cache_v2:localnet': { fetchedAt: NOW, body: doc(['local'], 'localnet') } });
   await expect(loadVerifiedFaucetIds('localnet')).resolves.toBeNull();
   await flush();
   expect(fetchMock).not.toHaveBeenCalled();
   expect(storage.get).not.toHaveBeenCalled();
+});
+
+describe('token logos', () => {
+  const logoOf = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.png`;
+  const withLogos = (ids: string[]) => ({
+    ...doc(ids),
+    tokens: doc(ids).tokens.map(token => ({ ...token, logoURI: logoOf(token.faucetId) }))
+  });
+  const SNAPSHOT_LOGO_IDS = [
+    'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec',
+    'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
+    'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
+    'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x'
+  ];
+
+  it('returns the logos of a cached list', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: withLogos(['a']) } });
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map([['a', logoOf('a')]]));
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the bundled snapshot logos when storage is empty', async () => {
+    setup();
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map(SNAPSHOT_LOGO_IDS.map(id => [id, logoOf(id)])));
+  });
+
+  it('has no logos for localnet', async () => {
+    setup();
+    await expect(loadTokenLogos('localnet')).resolves.toBeNull();
+    expect(storage.get).not.toHaveBeenCalled();
+  });
+
+  it('keeps a list cached under the v1 key before logos existed until a refresh lands, refreshing at once', async () => {
+    setup({ [V1_KEY]: { fetchedAt: NOW - 1_000, body: doc(['old']) } });
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(loadVerifiedFaucetIds('testnet')).resolves.toEqual(new Set(['old']));
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map());
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(storage.data[V1_KEY]).toEqual({ fetchedAt: NOW - 1_000, body: doc(['old']) });
+  });
+
+  it('replaces the v1 entry with the v2 one once a refresh lands', async () => {
+    setup({ [V1_KEY]: { fetchedAt: NOW - 1_000, body: doc(['old']) } });
+    fetchMock.mockResolvedValue(response(withLogos(['new'])));
+    await loadTokenLogos('testnet');
+    await flush();
+    expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: withLogos(['new']) });
+    expect(storage.data).not.toHaveProperty([V1_KEY]);
+  });
+
+  it('counts a refresh as landed when the v1 entry cannot be removed', async () => {
+    setup({ [V1_KEY]: { fetchedAt: NOW - 1_000, body: doc(['old']) } });
+    fetchMock.mockResolvedValue(response(withLogos(['new'])));
+    storage.remove.mockRejectedValue(new Error('storage unavailable'));
+    const listener = jest.fn();
+    onTokenListUpdated(listener);
+    await loadTokenLogos('testnet');
+    await flush();
+    expect(listener).toHaveBeenCalledWith('testnet');
+    expect(storage.data).not.toHaveProperty([ATTEMPT]);
+    await expect(loadTokenLogos('testnet')).resolves.toEqual(new Map([['new', logoOf('new')]]));
+  });
+});
+
+describe('the settled-list peeks', () => {
+  const logoOf = (id: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/logos/${id}/logo.png`;
+  const withLogos = (ids: string[]) => ({
+    ...doc(ids),
+    tokens: doc(ids).tokens.map(token => ({ ...token, logoURI: logoOf(token.faucetId) }))
+  });
+
+  it('are undefined before a load and what the loaders resolved to after, per network', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: withLogos(['a']) } });
+    expect(peekVerifiedFaucetIds('testnet')).toBeUndefined();
+    expect(peekTokenLogos('testnet')).toBeUndefined();
+
+    await loadVerifiedFaucetIds('testnet');
+    expect(peekVerifiedFaucetIds('testnet')).toEqual(new Set(['a']));
+    expect(peekTokenLogos('testnet')).toEqual(new Map([['a', logoOf('a')]]));
+    expect(peekVerifiedFaucetIds('devnet')).toBeUndefined();
+  });
+
+  it('take a landed refresh on the next load', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - TOKEN_LIST_TTL_MS - 1, body: withLogos(['old']) } });
+    fetchMock.mockResolvedValue(response(withLogos(['new'])));
+    await loadTokenLogos('testnet');
+    await flush();
+    await loadTokenLogos('testnet');
+    expect(peekVerifiedFaucetIds('testnet')).toEqual(new Set(['new']));
+    expect(peekTokenLogos('testnet')).toEqual(new Map([['new', logoOf('new')]]));
+  });
+
+  it('are null for localnet, as the loaders are', () => {
+    setup();
+    expect(peekVerifiedFaucetIds('localnet')).toBeNull();
+    expect(peekTokenLogos('localnet')).toBeNull();
+  });
+
+  it('forget every settled list on _resetTokenListForTest', async () => {
+    setup({ [KEY]: { fetchedAt: NOW - 1_000, body: withLogos(['a']) } });
+    await loadVerifiedFaucetIds('testnet');
+    setup();
+    expect(peekVerifiedFaucetIds('testnet')).toBeUndefined();
+    expect(peekTokenLogos('testnet')).toBeUndefined();
+  });
 });

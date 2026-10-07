@@ -112,8 +112,8 @@ jest.mock('components/ui/SearchInput', () => ({
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
 // surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({ symbol, faucetId, size }: { symbol: string; faucetId?: string; size?: string }) => (
+    <span data-testid="token-logo" data-symbol={symbol} data-faucet-id={faucetId} data-size={size} />
   )
 }));
 
@@ -367,6 +367,7 @@ describe('SelectTokenDrawer', () => {
     const row = screen.getByTestId('send-token-BTC');
     // No explicit size: the home asset row's 36px default.
     expect(within(row).getByTestId('token-logo')).not.toHaveAttribute('data-size');
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-faucet-id', BTC.tokenId);
     expect(within(row).getByText('Bitcoin')).toBeInTheDocument();
     expect(within(row).getByText('1.50 BTC')).toBeInTheDocument();
     expect(within(row).getByText('$3.00')).toBeInTheDocument();

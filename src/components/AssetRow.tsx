@@ -120,7 +120,7 @@ export const AssetRow: FC<AssetRowProps> = ({
 
   return (
     <AssetListItem
-      icon={<TokenLogo symbol={metadata.symbol} />}
+      icon={<TokenLogo symbol={metadata.symbol} faucetId={asset.tokenId} />}
       name={name}
       amount={
         scaleIsKnown ? <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${unit}`} /> : unit
