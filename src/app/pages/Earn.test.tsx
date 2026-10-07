@@ -271,6 +271,17 @@ describe('Earn page', () => {
     expect(mark).toHaveAttribute('data-network', first.network);
   });
 
+  it('sets each position row in the heading face', () => {
+    render(<Earn />);
+
+    positions.forEach(position => {
+      const card = screen.getByTestId(`earn-position-card-${position.id}`);
+      const row = within(card).getByTestId('earn-asset-mark').parentElement;
+      expect(row).toHaveClass('face-heading', 'flex', 'items-center');
+      expect(row).toContainElement(within(card).getByText(position.amount));
+    });
+  });
+
   it('spans a lone position across the row, and keeps several at their own width to scroll', () => {
     const { unmount } = render(<Earn />);
     expect(positions.length).toBeGreaterThan(1);

@@ -108,6 +108,7 @@ describe('PromptCard', () => {
       expect(card).toHaveClass('bg-page');
       expect(card.className).not.toMatch(/border-transparent|bg-accent-receive-tint|bg-pending-tint/);
       expect(screen.getByText('You need MIDEN.')).toHaveClass('text-muted');
+      expect(screen.getByText('You need MIDEN.')).not.toHaveClass('face-heading');
       expect(screen.getByTestId('icon-Checkmark').parentElement).toHaveClass(
         'h-9',
         'w-9',
@@ -124,7 +125,7 @@ describe('PromptCard', () => {
 
     const card = container.firstChild as HTMLElement;
     expect(card).toHaveClass('bg-accent-receive-tint', 'border-transparent');
-    expect(screen.getByText('1 waiting')).toHaveClass('text-accent-receive-ink');
+    expect(screen.getByText('1 waiting')).toHaveClass('face-heading', 'font-semibold', 'text-accent-receive-ink');
     expect(screen.getByText('1 waiting')).not.toHaveClass('text-muted');
   });
 
@@ -141,7 +142,11 @@ describe('PromptCard', () => {
 
     expect(container.firstChild as HTMLElement).toHaveClass('bg-pending-tint', 'border-transparent');
     expect(screen.getByText('Back up your wallet')).toHaveClass('font-extrabold');
-    expect(screen.getByText('Save your recovery phrase.')).toHaveClass('text-pending-tint-ink', 'font-semibold');
+    expect(screen.getByText('Save your recovery phrase.')).toHaveClass(
+      'face-heading',
+      'text-pending-tint-ink',
+      'font-semibold'
+    );
   });
 
   it('runs the card action when its content is clicked', () => {

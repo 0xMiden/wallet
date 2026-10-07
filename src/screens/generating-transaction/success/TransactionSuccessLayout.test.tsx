@@ -78,6 +78,24 @@ it('leaves the summary-to-card gap to the caller, with one margin class on the c
   expect(card.className.match(/\bmt-\d+\b/g)).toEqual(['mt-6']);
 });
 
+it('draws the outline receipt on the page with a hairline edge, in the heading face', () => {
+  const { container } = render(<ReceiptRows rows={[{ label: 'Network fee', value: '1 MDN' }]} surface="outline" />);
+
+  const card = container.firstElementChild!;
+  expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'face-heading');
+  expect(card).not.toHaveClass('bg-fill');
+});
+
+it('keeps the receipt on the fill card, in the default face, when no surface is given', () => {
+  const { container } = render(<ReceiptRows rows={[{ label: 'Network fee', value: '1 MDN' }]} />);
+
+  const card = container.firstElementChild!;
+  expect(card).toHaveClass('bg-fill');
+  expect(card).not.toHaveClass('bg-page');
+  expect(card).not.toHaveClass('border-hairline');
+  expect(card).not.toHaveClass('face-heading');
+});
+
 it('takes focus on mount so the outcome is announced', () => {
   render(<TransactionSuccessLayout {...baseProps} headerTitle="" />);
 

@@ -767,6 +767,20 @@ describe('EarnDepositReview', () => {
       expect(screen.getByText('earnDepositRoute_Aave_Ethereum')).toBeInTheDocument();
     });
 
+    it('sets the projection and the details on outline cards inside one heading-face wrapper', () => {
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      const projection = screen.getByTestId('chart-container').closest<HTMLElement>('.rounded-2xl');
+      const details = screen.getByText('earnCollateralLabel').closest<HTMLElement>('.divide-y');
+      for (const card of [projection, details]) {
+        expect(card).toHaveClass('bg-page', 'border', 'border-hairline');
+        expect(card).not.toHaveClass('bg-fill');
+      }
+      const wrapper = projection?.parentElement;
+      expect(wrapper).toHaveClass('face-heading');
+      expect(wrapper).toContainElement(details);
+    });
+
     it('renders zero rewards when the amount is zero', () => {
       renderReview('aave-usdc-ethereum-1', '?amount=0');
       expect(within(screen.getByTestId('earn-hero')).getByText('0')).toBeInTheDocument();
