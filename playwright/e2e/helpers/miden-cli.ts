@@ -1,10 +1,11 @@
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { coerce } from 'semver';
 
 import { discoverFeeFaucetId } from './fee-faucet';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
+import { waitForPublicNoteCommitment } from './public-note-commitment';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 
@@ -111,6 +112,22 @@ export function resolveCliPath(): string {
   // 1. Explicit override
   if (process.env.MIDEN_CLIENT_BIN) {
     return process.env.MIDEN_CLIENT_BIN;
+  }
+
+  const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+  if (
+    pkg.midenClientCliProtocolVersion &&
+    !process.env.MIDEN_LINKED_CLIENT_REV &&
+    !process.env.MIDEN_LINKED_PROTOCOL_REV
+  ) {
+    const output = execFileSync(process.execPath, [path.resolve('scripts/install-pinned-miden-cli.cjs'), 'install'], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+      timeout: 2_100_000,
+      maxBuffer: 16 * 1024 * 1024
+    })
+      .toString()
+      .trim();
+    return output.split('\n').pop()!;
   }
 
   // 2. Already in PATH — but only if it is the PINNED version.
@@ -509,7 +526,8 @@ export class MidenCli {
     // localnet funders on devnet, where those accounts do not exist and every transfer fails.
     const faucetApi = publicFaucetApiUrl(this.env.name);
     if (faucetApi) {
-      await mintFromPublicFaucet(faucetApi, target);
+      const receipt = await mintFromPublicFaucet(faucetApi, target);
+      await waitForPublicNoteCommitment(this.env.rpcUrl, receipt.noteId);
       return `public faucet ${faucetApi}`;
     }
 

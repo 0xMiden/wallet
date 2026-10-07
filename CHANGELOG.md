@@ -1,8 +1,16 @@
 # Changelog
 
+## 1.17.2 (TBD)
+
+### Fixes
+
+- [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
+
 ## 1.17.1 (2026-10-07)
 
 ### Fixes
+
+- [FIX][all] Guardian faucet grants consume correctly with Web SDK 0.17.1, its matching native provers, and stable Guardian 0.18.0. Fresh Guardian onboarding now exercises public funding, navigation and committed USDCX balances in both Testnet and Devnet E2E gates.
 
 - [FIX][all] Fresh native token defaults and fee, funding and auto-accept labels use USDCX with a fixed $1 unit quote. Quantity and fee calculations still wait for confirmed chain metadata.
 

@@ -41,3 +41,15 @@
   promises inline; keep unbounded nonce search in a worker with cancellation owned by its parent.
 - Windows patch application can insert CRLF into an otherwise LF SDK bundle. Normalize both the
   source helper and installed bundle before comparing the relay patch, and retain stale-content tests.
+
+- Guardian package version alone does not prove faucet compatibility. Match missing procedure digests and verify the real Fund your wallet flow through committed consumption before handing over a fix.
+
+- A requested exact Rust SDK version must use equality constraints and locked graph assertions. Never substitute a newer experimental build for the requested release proof.
+
+- Public faucet funding must be exercised through the real Fund UI in each public-network E2E gate. CLI-funded transaction tests alone do not cover faucet callbacks or automatic consumption.
+
+- Extend the existing real Guardian onboarding journey with public faucet funding rather than adding a duplicate wallet-creation scenario. Preserve local-stack funding while making public-network funding mandatory.
+
+- Playwright clears its configured output directory at startup. Use distinct nested Playwright output directories for sequential CI stages, and never launch another run that clears the shared parent containing live harness evidence.
+
+- A public faucet acceptance receipt proves queue admission, not chain commitment. Compare the note inclusion timestamp with the failure timestamp, then wait for that specific note before running fixture consumption assertions. Never remint a queued grant to hide a short delivery budget.

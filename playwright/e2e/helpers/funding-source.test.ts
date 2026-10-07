@@ -14,14 +14,18 @@ import * as path from 'path';
 
 import { MidenCli } from './miden-cli';
 import { mintFromPublicFaucet } from './public-faucet';
+import { waitForPublicNoteCommitment } from './public-note-commitment';
 import { getEnvironmentConfig } from '../config/environments';
 import type { CLIRunner } from '../harness/cli-runner';
 
 jest.mock('./public-faucet', () => ({
   ...jest.requireActual('./public-faucet'),
-  mintFromPublicFaucet: jest.fn().mockResolvedValue(undefined)
+  mintFromPublicFaucet: jest.fn().mockResolvedValue({ noteId: '0x' + '01'.repeat(32) })
 }));
 
+jest.mock('./public-note-commitment', () => ({ waitForPublicNoteCommitment: jest.fn().mockResolvedValue(undefined) }));
+
+const NOTE_ID = '0x' + '01'.repeat(32);
 const TARGET = '0xa5c2900b1895271109557de2d9ce04';
 
 /** Records every CLI command and answers the few the funding path actually issues. */
@@ -84,6 +88,7 @@ describe('MidenCli fee funding source', () => {
     fs.writeFileSync(path.join(funderDir, 'wallet_1.mac'), '');
     fs.writeFileSync(path.join(funderDir, 'wallet_2.mac'), '');
     (mintFromPublicFaucet as jest.Mock).mockClear();
+    jest.mocked(waitForPublicNoteCommitment).mockClear();
   });
 
   afterEach(() => {
@@ -99,6 +104,8 @@ describe('MidenCli fee funding source', () => {
 
     expect(mintFromPublicFaucet).toHaveBeenCalledTimes(1);
     expect(mintFromPublicFaucet).toHaveBeenCalledWith(expect.stringContaining('devnet'), TARGET);
+    expect(waitForPublicNoteCommitment).toHaveBeenCalledTimes(1);
+    expect(waitForPublicNoteCommitment).toHaveBeenCalledWith('https://rpc.devnet.miden.io', NOTE_ID);
     // The regression: spending a localnet funder on devnet.
     expect(commands.filter(c => c.includes('transfer'))).toEqual([]);
   });
@@ -109,6 +116,7 @@ describe('MidenCli fee funding source', () => {
     await cli.fundAccountForFees(TARGET);
 
     expect(mintFromPublicFaucet).not.toHaveBeenCalled();
+    expect(waitForPublicNoteCommitment).not.toHaveBeenCalled();
     const transfers = commands.filter(c => c.includes('transfer'));
     expect(transfers).toHaveLength(1);
     expect(transfers[0]).toContain(`--target ${TARGET}`);

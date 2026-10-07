@@ -4,10 +4,18 @@ import * as path from 'path';
 
 import { discoverFeeFaucetId } from './fee-faucet';
 import { MidenCli } from './miden-cli';
+import { mintFromPublicFaucet } from './public-faucet';
+import { waitForPublicNoteCommitment } from './public-note-commitment';
 import { getEnvironmentConfig } from '../config/environments';
 import type { CLIRunner } from '../harness/cli-runner';
 
 jest.mock('./fee-faucet', () => ({ discoverFeeFaucetId: jest.fn() }));
+
+jest.mock('./public-faucet', () => ({
+  ...jest.requireActual('./public-faucet'),
+  mintFromPublicFaucet: jest.fn()
+}));
+jest.mock('./public-note-commitment', () => ({ waitForPublicNoteCommitment: jest.fn() }));
 
 const discover = jest.mocked(discoverFeeFaucetId);
 const FEE_FAUCET = '0x01ee11ac5c6cd8f11cedbc5c448551';
@@ -82,5 +90,51 @@ describe('MidenCli.ensureNativeFaucetId', () => {
       else process.env.MIDEN_E2E_FUNDER_DIR = priorFunderDir;
       fs.rmSync(workDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('public fee funding commitment', () => {
+  const mint = jest.mocked(mintFromPublicFaucet);
+  const commit = jest.mocked(waitForPublicNoteCommitment);
+  const noteId = '0x' + '01'.repeat(32);
+  beforeEach(() => {
+    mint.mockReset().mockResolvedValue({ txId: 'tx', noteId });
+    commit.mockReset();
+  });
+  function publicCli() {
+    const cli = new MidenCli({
+      binaryPath: 'miden-client',
+      workDir: '',
+      env: { ...getEnvironmentConfig(), name: 'devnet', rpcUrl: 'https://rpc.devnet.miden.io', chargesFees: true },
+      cliRunner: {} as CLIRunner
+    });
+    jest.spyOn(cli, 'init').mockResolvedValue(undefined);
+    jest.spyOn(cli, 'sync').mockResolvedValue(undefined);
+    return cli;
+  }
+  it('waits for the sole grant receipt before syncing or marking the account funded', async () => {
+    const cli = publicCli();
+    let publish!: () => void;
+    commit.mockReturnValue(
+      new Promise<void>(resolve => {
+        publish = resolve;
+      })
+    );
+    const funding = cli.fundAccountForFees(FEE_FAUCET);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(commit).toHaveBeenCalledWith('https://rpc.devnet.miden.io', noteId);
+    expect(cli.sync).not.toHaveBeenCalled();
+    publish();
+    await funding;
+    await cli.fundAccountForFees(FEE_FAUCET);
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(cli.sync).toHaveBeenCalledTimes(1);
+  });
+  it('propagates a commitment timeout without requesting another grant', async () => {
+    const cli = publicCli();
+    commit.mockRejectedValue(new Error('note commitment timed out'));
+    await expect(cli.fundAccountForFees(FEE_FAUCET)).rejects.toThrow('commitment timed out');
+    expect(mint).toHaveBeenCalledTimes(1);
+    expect(cli.sync).not.toHaveBeenCalled();
   });
 });
