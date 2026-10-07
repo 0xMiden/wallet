@@ -1,4 +1,4 @@
-import React, { FC, SVGProps, useState } from 'react';
+import React, { FC, SVGProps, useEffect, useState } from 'react';
 
 import clsx from 'clsx';
 
@@ -46,13 +46,31 @@ interface TokenLogoProps {
   className?: string;
 }
 
-/** A token's mark, in one of the app's four known-logo colors or a generic default. A thin wrapper over `Avatar`. */
+/**
+ * A token's mark: one of the app's four known-logo colors, the verified list's logo for a listed
+ * token, or a generic default. A thin wrapper over `Avatar`.
+ */
 export const TokenLogo: FC<TokenLogoProps> = ({ symbol, faucetId, size = 'md', badge, className }) => {
   const tokenLogo = TOKEN_LOGOS[symbol === 'USDCX' ? 'USDC' : symbol];
   // Asked only when no bundled mark applies, so a known symbol never loads the list for its logo.
   const listedLogo = useTokenLogoUri(tokenLogo ? undefined : faucetId);
   // Remembered per URL: a TokenLogo the token pickers reuse tries the next token's logo afresh.
   const [failedLogo, setFailedLogo] = useState<string>();
+  // Home stays mounted for the app's life, so a launch offline would pin the default mark until
+  // restart; coming back online or to the foreground forgets the failure and retries.
+  useEffect(() => {
+    if (!failedLogo) return;
+    const retry = () => setFailedLogo(undefined);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') retry();
+    };
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [failedLogo]);
   const avatarSize = AVATAR_SIZES[size];
 
   if (tokenLogo) {

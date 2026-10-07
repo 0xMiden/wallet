@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 
 import { TokenLogo } from './TokenLogo';
 
@@ -15,11 +15,12 @@ beforeEach(() => {
   mockUseTokenLogoUri.mockClear();
 });
 
-// TokenLogo has two branches, both of which now go through the canonical
+// TokenLogo has three branches, all of which go through the canonical
 // `Avatar` (components/ui/Avatar):
 //   1. Known symbol (MIDEN / ETH / USDC / BTC) → Avatar with the token's own
 //      background class and its logo as the `icon`.
-//   2. Unknown symbol → Avatar with the default token-logo image.
+//   2. Listed token (by faucetId) → Avatar with the verified list's logo.
+//   3. Anything else, or a listed logo that failed → the default token-logo image.
 //
 // The four logo imports resolve through the repo's global `\\.svg$` mock
 // (__mocks__/svgMock.js), which exports the string `'svg'` for
@@ -164,6 +165,48 @@ describe('TokenLogo', () => {
       rerender(<TokenLogo symbol="XYZ" faucetId="0xb" />);
 
       expect(getImg(container).src).toBe('https://example.com/b.png');
+    });
+
+    it('retries the listed logo when the window comes online again', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+      fireEvent.error(getImg(container));
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+
+      act(() => {
+        window.dispatchEvent(new Event('online'));
+      });
+
+      expect(getImg(container).src).toBe('https://example.com/xyz.png');
+    });
+
+    it('retries the listed logo when the document becomes visible again', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+      fireEvent.error(getImg(container));
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
+
+      const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      visibility.mockRestore();
+
+      expect(getImg(container).src).toBe('https://example.com/xyz.png');
+    });
+
+    it('stays on the default mark while the document is hidden', () => {
+      mockLogo = 'https://example.com/xyz.png';
+      const { container } = render(<TokenLogo symbol="XYZ" faucetId="0xfaucet" />);
+      fireEvent.error(getImg(container));
+
+      const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      visibility.mockRestore();
+
+      expect(getImg(container).getAttribute('src')).toBe('/misc/token-logos/default.svg');
     });
 
     it('keeps the default mark for an unbundled symbol without a faucetId', () => {
