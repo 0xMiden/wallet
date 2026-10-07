@@ -130,11 +130,11 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
   retireGuardianSyncPasses: () => mockRetireGuardianSyncPasses()
 }));
 
-// The save loads the new network's bridge config in this realm; spied, since the load itself is the runtime's.
-const mockInitBridgeConfig = jest.fn();
+// The save has the bridge config follow the new network in this realm; spied, since the load itself is the runtime's.
+const mockFollowEffectiveNetwork = jest.fn();
 jest.mock('lib/remote-config/runtime', () => ({
   ...jest.requireActual<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime'),
-  initBridgeConfig: () => mockInitBridgeConfig()
+  followEffectiveNetwork: () => mockFollowEffectiveNetwork()
 }));
 
 // `reloadEndpointOverridesInSW` nudges the service worker on the extension
@@ -268,30 +268,29 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('loads the new network bridge config once the override is applied, without waiting for it', async () => {
+  it('has the bridge config follow the new network once the override is applied', async () => {
     const order: string[] = [];
     applyEndpointOverride.mockImplementationOnce(async () => {
       order.push('apply');
     });
-    mockInitBridgeConfig.mockImplementationOnce(() => {
-      order.push('init');
-      return new Promise<void>(() => undefined);
+    mockFollowEffectiveNetwork.mockImplementationOnce(() => {
+      order.push('follow');
     });
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
-    expect(mockInitBridgeConfig).toHaveBeenCalledTimes(1);
-    expect(order).toEqual(['apply', 'init']);
+    expect(mockFollowEffectiveNetwork).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['apply', 'follow']);
   });
 
-  it('loads no bridge config when the endpoint write fails', async () => {
+  it('does not follow the network when the endpoint write fails', async () => {
     applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByTestId('dev-endpoints-save'));
 
     await screen.findByRole('alert');
-    expect(mockInitBridgeConfig).not.toHaveBeenCalled();
+    expect(mockFollowEffectiveNetwork).not.toHaveBeenCalled();
   });
 
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {

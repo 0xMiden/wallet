@@ -17,7 +17,8 @@ const AVAILABLE: FeatureAvailability = { state: 'available' };
 export interface BridgeConfigSnapshotOptions {
   /**
    * Whether this reader also loads the config. Defaults to true; a reader that only names a token passes false, since
-   * every page realm loads it at boot.
+   * every page realm loads it at boot and follows every change of the effective network through
+   * `followEffectiveNetwork`.
    */
   load?: boolean;
 }
