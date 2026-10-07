@@ -3,7 +3,7 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { fetchFromStorage } from 'lib/miden/front';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import {
   isSyncFused,
@@ -15,6 +15,7 @@ import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
   getCurrentWasmLockHold,
@@ -259,6 +260,10 @@ export async function fetchBalances(
   noteSyncSuccess('balances');
   const { account, assets } = read.value;
 
+  // This read writes the cached records back below. Clear an old-shape cache first, so they do not survive the clear.
+  await ensureTokensMetadataSchema(fetchFromStorage, putToStorage).catch(error =>
+    console.warn('Token metadata cache check failed', error)
+  );
   const cachedMetadatas =
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
   const midenFaucetId = await getFaucetIdSetting();
@@ -295,11 +300,11 @@ export async function fetchBalances(
           const tokenMetadata = await withRpcTimeout(() => fetchTokenMetadata(assetId), 'balance-token-metadata', {
             retries: 0
           });
-          if (hasKnownScale(tokenMetadata.base)) {
-            fetchedMetadatas[assetId] = tokenMetadata.base;
+          if (hasKnownScale(tokenMetadata)) {
+            fetchedMetadatas[assetId] = tokenMetadata;
             unresolvedFaucets.delete(assetId);
           } else {
-            localMetadatas[assetId] = tokenMetadata.base;
+            localMetadatas[assetId] = tokenMetadata;
             recordUnresolved(assetId, now);
           }
         } catch (e) {

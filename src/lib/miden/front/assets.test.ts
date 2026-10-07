@@ -46,10 +46,6 @@ jest.mock('lib/store', () => ({
   })
 }));
 
-jest.mock('lib/swr', () => ({
-  useRetryableSWR: jest.fn(() => ({ data: null, mutate: jest.fn() }))
-}));
-
 jest.mock('lib/miden/front', () => ({
   fetchFromStorage: async (key: string) => (globalThis as any).__assetsTest.storage[key],
   putToStorage: async (key: string, value: any) => {
@@ -57,9 +53,16 @@ jest.mock('lib/miden/front', () => ({
   },
   fetchTokenMetadata: jest.fn(),
   onStorageChanged: jest.fn(() => () => {}),
-  usePassiveStorage: jest.fn(() => [{}, jest.fn()]),
   isMidenAsset: (slug: string | object) => slug === 'miden',
-  MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden', thumbnailUri: '' }
+  MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+}));
+
+// The shape check has its own tests. Here it is a mock, so each test can control it.
+const mockEnsureTokensMetadataSchema = jest.fn();
+jest.mock('lib/miden/metadata/storage', () => ({
+  ...jest.requireActual('lib/miden/metadata/storage'),
+  ensureTokensMetadataSchema: (...args: Parameters<typeof ensureTokensMetadataSchema>) =>
+    mockEnsureTokensMetadataSchema(...args)
 }));
 
 jest.mock('app/hooks/useGasToken', () => ({
@@ -75,9 +78,9 @@ import React from 'react';
 
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 
-import { fetchTokenMetadata, onStorageChanged, usePassiveStorage } from 'lib/miden/front';
+import { fetchTokenMetadata, onStorageChanged } from 'lib/miden/front';
+import type { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { useWalletStore } from 'lib/store';
-import { useRetryableSWR } from 'lib/swr';
 
 import {
   ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
@@ -88,16 +91,13 @@ import {
   useAllAssetMetadata,
   useAllTokensBaseMetadata,
   useAssetMetadata,
-  useDetailedAssetMetadata,
   useGetTokenMetadata,
   useTokensMetadata
 } from './assets';
 
 const mockUseWalletStore = useWalletStore as unknown as jest.Mock;
-const mockUseRetryableSWR = useRetryableSWR as jest.Mock;
 const mockFetchTokenMetadata = fetchTokenMetadata as jest.Mock;
 const mockOnStorageChanged = onStorageChanged as jest.Mock;
-const mockUsePassiveStorage = usePassiveStorage as jest.Mock;
 
 beforeEach(() => {
   for (const k of Object.keys(_g.__assetsTest.storage)) delete _g.__assetsTest.storage[k];
@@ -112,9 +112,8 @@ beforeEach(() => {
 
   mockWalletStoreState.assetsMetadata = {};
   mockUseWalletStore.mockImplementation((selector: any) => selector(mockWalletStoreState));
-  mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
   mockOnStorageChanged.mockReturnValue(() => {});
-  mockUsePassiveStorage.mockReturnValue([{}, jest.fn()]);
+  mockEnsureTokensMetadataSchema.mockReset().mockResolvedValue(undefined);
 });
 
 describe('setTokensBaseMetadata', () => {
@@ -171,7 +170,7 @@ describe('useAllAssetMetadata (async helper)', () => {
 
 describe('metadata hooks and provider', () => {
   const baseMetadata = { decimals: 8, symbol: 'TOK', name: 'Token' };
-  const detailedMetadata = { decimals: 8, symbol: 'TOK', name: 'Token', description: 'Detailed token' };
+  const describedMetadata = { decimals: 8, symbol: 'TOK', name: 'Token', description: 'A described token' };
 
   it('returns gas token metadata for the configured miden faucet', () => {
     const { result } = renderHook(() => useAssetMetadata('miden', 'miden-faucet-id'));
@@ -193,19 +192,18 @@ describe('metadata hooks and provider', () => {
   });
 
   it('auto-fetches and persists metadata for a missing non-miden asset', async () => {
-    mockFetchTokenMetadata.mockResolvedValue({
-      base: baseMetadata,
-      detailed: detailedMetadata
-    });
+    mockFetchTokenMetadata.mockResolvedValue(describedMetadata);
 
     renderHook(() => useAssetMetadata('token', 'asset-missing'));
 
     await waitFor(() => {
-      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-missing': baseMetadata });
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-missing': describedMetadata });
     });
 
     await waitFor(() => {
-      expect(_g.__assetsTest.storage['detailed_asset_metadata_asset-missing']).toEqual(detailedMetadata);
+      expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]).toEqual({
+        'asset-missing': describedMetadata
+      });
     });
   });
 
@@ -216,11 +214,13 @@ describe('metadata hooks and provider', () => {
       .requireMock('lib/miden-chain/native-asset')
       .getNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
     const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
-    mockFetchTokenMetadata.mockResolvedValue({ base: legacyMetadata, detailed: legacyMetadata });
+    mockFetchTokenMetadata.mockResolvedValue(legacyMetadata);
     mockSetAssetsMetadata.mockImplementation(metadata => Object.assign(mockWalletStoreState.assetsMetadata, metadata));
     const { result, rerender } = renderHook(() => useAssetMetadata('miden', 'legacy-B'));
     await waitFor(() => expect(mockFetchTokenMetadata).toHaveBeenCalledWith('legacy-B'));
-    await waitFor(() => expect(_g.__assetsTest.storage['detailed_asset_metadata_legacy-B']).toEqual(legacyMetadata));
+    await waitFor(() =>
+      expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]?.['legacy-B']).toEqual(legacyMetadata)
+    );
     rerender();
     expect(result.current).toEqual(legacyMetadata);
     expect(result.current?.scaleIsUnknown).not.toBe(true);
@@ -251,8 +251,8 @@ describe('metadata hooks and provider', () => {
     expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
   });
 
-  it('syncs initial token metadata into the wallet store', async () => {
-    mockUsePassiveStorage.mockReturnValue([{ 'asset-1': baseMetadata }, jest.fn()]);
+  it('syncs initial token metadata into the wallet store after the cache shape check', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': baseMetadata };
 
     render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
 
@@ -260,12 +260,72 @@ describe('metadata hooks and provider', () => {
     await waitFor(() => {
       expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-1': baseMetadata });
     });
+    expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not sync an old-shape cache that the shape check clears', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': { ...baseMetadata, name: 'TOK' } };
+    let finishCheck: () => void = () => {};
+    mockEnsureTokensMetadataSchema.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishCheck = () => {
+            _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = {};
+            resolve();
+          };
+        })
+    );
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+    await waitFor(() => expect(mockEnsureTokensMetadataSchema).toHaveBeenCalled());
+    await act(async () => {
+      finishCheck();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(mockSetAssetsMetadata).not.toHaveBeenCalledWith(
+      expect.objectContaining({ 'asset-1': expect.objectContaining({ name: 'TOK' }) })
+    );
+  });
+
+  it('keeps the chain metadata of the native token ahead of a stored copy', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = {
+      'asset-1': baseMetadata,
+      'miden-faucet-id': { symbol: 'OLD', name: 'Old', decimals: 8 }
+    };
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    await waitFor(() => {
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith(expect.objectContaining({ 'asset-1': baseMetadata }));
+    });
+    const nativeWrites = mockSetAssetsMetadata.mock.calls
+      .map(([metadata]) => metadata['miden-faucet-id'])
+      .filter(metadata => metadata !== undefined);
+    expect(nativeWrites[nativeWrites.length - 1]).toMatchObject({
+      symbol: 'MIDEN',
+      decimals: 6,
+      scaleIsUnknown: false
+    });
+  });
+
+  it('still syncs the stored metadata when the shape check fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': baseMetadata };
+    mockEnsureTokensMetadataSchema.mockRejectedValue(new Error('storage unavailable'));
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    await waitFor(() => {
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-1': baseMetadata });
+    });
+    warn.mockRestore();
   });
 
   it('listens for storage changes and cleans up the listener', () => {
     const cleanup = jest.fn();
     mockOnStorageChanged.mockImplementation((_key: string, callback: (value: any) => void) => {
-      callback({ 'asset-2': detailedMetadata });
+      callback({ 'asset-2': describedMetadata });
       return cleanup;
     });
 
@@ -274,7 +334,7 @@ describe('metadata hooks and provider', () => {
     );
 
     expect(mockOnStorageChanged).toHaveBeenCalledWith(ALL_TOKENS_BASE_METADATA_STORAGE_KEY, expect.any(Function));
-    expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-2': detailedMetadata });
+    expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-2': describedMetadata });
 
     unmount();
 
@@ -315,60 +375,6 @@ describe('metadata hooks and provider', () => {
     }
   );
 
-  it('keeps native chain symbol and scale ahead of stale detailed metadata', () => {
-    mockActualNativeId = 'actual-A';
-    jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
-    jest
-      .requireMock('lib/miden-chain/native-asset')
-      .getNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
-    mockWalletStoreState.assetsMetadata['actual-A'] = { symbol: 'MIDEN', name: 'Miden', decimals: 8 };
-    mockUseRetryableSWR.mockReturnValue({
-      data: { symbol: 'MIDEN', name: 'Miden', decimals: 8, description: 'Native description' },
-      mutate: jest.fn()
-    });
-    const { result } = renderHook(() => useDetailedAssetMetadata('token', 'actual-A'));
-    expect(result.current).toMatchObject({
-      symbol: 'USDCX',
-      decimals: 6,
-      description: 'Native description',
-      scaleIsUnknown: false
-    });
-  });
-
-  it('preserves detailed metadata for a foreign legacy display selection', () => {
-    mockActualNativeId = 'actual-A';
-    jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
-    mockWalletStoreState.assetsMetadata['legacy-B'] = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
-    const details = { symbol: 'DETAIL', name: 'Detailed legacy', decimals: 3, description: 'Foreign description' };
-    mockUseRetryableSWR.mockReturnValue({ data: details, mutate: jest.fn() });
-    const { result } = renderHook(() => useDetailedAssetMetadata('miden', 'legacy-B'));
-    expect(result.current).toEqual(details);
-  });
-
-  it('returns detailed metadata when available and subscribes to storage changes', () => {
-    const mutate = jest.fn();
-    mockWalletStoreState.assetsMetadata = {
-      'asset-1': baseMetadata
-    };
-    mockUseRetryableSWR.mockReturnValue({ data: detailedMetadata, mutate });
-
-    const { result } = renderHook(() => useDetailedAssetMetadata('token', 'asset-1'));
-
-    expect(result.current).toEqual(detailedMetadata);
-    expect(mockOnStorageChanged).toHaveBeenCalledWith('detailed_asset_metadata_asset-1', mutate);
-  });
-
-  it('falls back to base metadata when detailed metadata is missing', () => {
-    mockWalletStoreState.assetsMetadata = {
-      'asset-1': baseMetadata
-    };
-    mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
-
-    const { result } = renderHook(() => useDetailedAssetMetadata('token', 'asset-1'));
-
-    expect(result.current).toEqual(baseMetadata);
-  });
-
   it('returns all base metadata from the wallet store', () => {
     mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
@@ -384,18 +390,12 @@ describe('metadata hooks and provider', () => {
     mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
-    mockFetchTokenMetadata.mockResolvedValue({
-      base: nextMetadata,
-      detailed: { ...nextMetadata, description: 'Detailed next token' }
-    });
+    mockFetchTokenMetadata.mockResolvedValue(nextMetadata);
 
     const { result } = renderHook(() => useTokensMetadata());
 
     expect(result.current.allTokensBaseMetadataRef.current).toEqual({ 'asset-1': baseMetadata });
-    await expect(result.current.fetchMetadata('asset-next')).resolves.toEqual({
-      base: nextMetadata,
-      detailed: { ...nextMetadata, description: 'Detailed next token' }
-    });
+    await expect(result.current.fetchMetadata('asset-next')).resolves.toEqual(nextMetadata);
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('asset-next');
 
     await act(async () => {

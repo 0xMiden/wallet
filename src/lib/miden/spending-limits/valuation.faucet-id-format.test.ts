@@ -48,8 +48,6 @@ const TST_METADATA = {
   decimals: 6,
   symbol: 'TST',
   name: 'TST',
-  shouldPreferSymbol: true,
-  thumbnailUri: '',
   scaleIsUnknown: false
 };
 

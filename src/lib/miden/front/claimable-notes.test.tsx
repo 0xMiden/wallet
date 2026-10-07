@@ -20,7 +20,7 @@ _g.__cnTest = {
   uncompletedTxs: [] as any[],
   intercomRequest: jest.fn(),
   metadataCache: {} as Record<string, any>,
-  fetchMetadata: jest.fn(async () => ({ base: { decimals: 6, symbol: 'X', name: 'X' } })),
+  fetchMetadata: jest.fn(async () => ({ decimals: 6, symbol: 'X', name: 'X' })),
   setTokensBaseMetadata: jest.fn(async () => undefined),
   lastFetchPromise: Promise.resolve(),
   lastFetchData: undefined as any,
@@ -218,7 +218,7 @@ beforeEach(() => {
   _g.__cnTest.legacyId = 'miden-faucet';
   _g.__cnTest.nativeMetadata = { symbol: 'MIDEN', decimals: 6 };
   _g.__cnTest.metadataCache = {};
-  _g.__cnTest.fetchMetadata = jest.fn(async () => ({ base: { decimals: 6, symbol: 'X', name: 'X' } }));
+  _g.__cnTest.fetchMetadata = jest.fn(async () => ({ decimals: 6, symbol: 'X', name: 'X' }));
   _g.__cnTest.setTokensBaseMetadata = jest.fn(async () => undefined);
   _g.__cnTest.lastFetchPromise = Promise.resolve();
   _g.__cnTest.lastFetchData = undefined;
@@ -957,7 +957,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
       makeMockNote({ id: 'legacy-note', faucetId: 'legacy-B', amount: '125' })
     ];
     const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
-    _g.__cnTest.fetchMetadata.mockResolvedValue({ base: legacyMetadata });
+    _g.__cnTest.fetchMetadata.mockResolvedValue(legacyMetadata);
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([

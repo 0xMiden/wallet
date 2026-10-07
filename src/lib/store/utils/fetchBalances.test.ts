@@ -85,8 +85,7 @@ const mockFetchTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata', () => ({
   MIDEN_METADATA: { name: 'Miden', symbol: 'MIDEN', decimals: 8 },
   DEFAULT_TOKEN_METADATA: { name: 'Unknown', symbol: 'Unknown', decimals: 6 },
-  fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args),
-  getAssetUrl: jest.fn((path: string) => `/${path}`)
+  fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args)
 }));
 
 jest.mock('../../miden/front/assets', () => ({
@@ -449,20 +448,9 @@ describe('fetchBalances', () => {
 
     // Mock fetchTokenMetadata to return metadata for the new faucet
     mockFetchTokenMetadata.mockResolvedValueOnce({
-      base: {
-        decimals: 6,
-        symbol: 'NEW',
-        name: 'NEW',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      },
-      detailed: {
-        decimals: 6,
-        symbol: 'NEW',
-        name: 'NEW',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      }
+      decimals: 6,
+      symbol: 'NEW',
+      name: 'NEW'
     });
 
     await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
@@ -497,20 +485,9 @@ describe('fetchBalances', () => {
 
     // Mock fetchTokenMetadata to return metadata (simulates RPC fetch)
     mockFetchTokenMetadata.mockResolvedValueOnce({
-      base: {
-        decimals: 8,
-        symbol: 'FETCHED',
-        name: 'FETCHED',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      },
-      detailed: {
-        decimals: 8,
-        symbol: 'FETCHED',
-        name: 'FETCHED',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      }
+      decimals: 8,
+      symbol: 'FETCHED',
+      name: 'FETCHED'
     });
 
     await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
@@ -664,7 +641,7 @@ describe('fetchBalances', () => {
       getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
       const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
       const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
-      mockFetchTokenMetadata.mockResolvedValue({ base: placeholder, detailed: placeholder });
+      mockFetchTokenMetadata.mockResolvedValue(placeholder);
 
       accountWithBadFaucet();
       const result = (await fetchBalances('my-address', {}, {}))!;
@@ -756,7 +733,7 @@ describe('actual native balance with a separate legacy display selection', () =>
       })
     });
     const legacyMetadata = { symbol: 'USDCX', name: 'Legacy', decimals: 2 };
-    mockFetchTokenMetadata.mockResolvedValue({ base: legacyMetadata, detailed: legacyMetadata });
+    mockFetchTokenMetadata.mockResolvedValue(legacyMetadata);
     const setAssetsMetadata = jest.fn();
     const balances = (await fetchBalances(
       'native-legacy-cache-miss',

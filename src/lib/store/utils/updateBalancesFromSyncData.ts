@@ -57,7 +57,7 @@ export async function updateBalancesFromSyncData(
         decimals: asset.metadata.decimals,
         symbol: asset.metadata.symbol,
         name: asset.metadata.name,
-        thumbnailUri: asset.metadata.thumbnailUri,
+        description: asset.metadata.description,
         // Carried through: this record is PERSISTED by `setTokensBaseMetadata`
         // below, so dropping the marker here stores the placeholder's guessed
         // decimals as though the faucet had reported them.

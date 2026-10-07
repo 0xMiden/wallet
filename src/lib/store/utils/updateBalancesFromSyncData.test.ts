@@ -80,7 +80,7 @@ describe('updateBalancesFromSyncData', () => {
       {
         faucetId: customFaucetId,
         amountBaseUnits: '2000000',
-        metadata: { name: 'CustomToken', symbol: 'CTK', decimals: 6, thumbnailUri: '' }
+        metadata: { name: 'CustomToken', symbol: 'CTK', decimals: 6 }
       }
     ];
 
@@ -102,7 +102,7 @@ describe('updateBalancesFromSyncData', () => {
     const customFaucetId = 'cached-faucet-789';
     useWalletStore.setState({
       assetsMetadata: {
-        [customFaucetId]: { name: 'CachedToken', symbol: 'CACHE', decimals: 8, thumbnailUri: '' }
+        [customFaucetId]: { name: 'CachedToken', symbol: 'CACHE', decimals: 8 }
       }
     });
 
@@ -141,12 +141,12 @@ describe('updateBalancesFromSyncData', () => {
       {
         faucetId: TOKEN_IETH.faucetId,
         amountBaseUnits: '38000000',
-        metadata: { name: 'IETH', symbol: 'IETH', decimals: 8, thumbnailUri: '' }
+        metadata: { name: 'IETH', symbol: 'IETH', decimals: 8 }
       },
       {
         faucetId: 'custom-faucet-456',
         amountBaseUnits: '2000000',
-        metadata: { name: 'CustomToken', symbol: 'CTK', decimals: 6, thumbnailUri: '' }
+        metadata: { name: 'CustomToken', symbol: 'CTK', decimals: 6 }
       }
     ];
 

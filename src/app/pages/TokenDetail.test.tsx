@@ -52,8 +52,8 @@ jest.mock('app/env', () => ({
 const mockIsMobile = jest.fn();
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
-  // Reached through `hasKnownScale` -> `metadata/defaults` -> `getAssetUrl`,
-  // which branches on the platform to build the placeholder's logo URL.
+  // For any module this page loads that branches on the platform. Without it,
+  // a call to `isExtension` in such a module throws.
   isExtension: () => false
 }));
 
@@ -919,6 +919,37 @@ describe('TokenDetail', () => {
 
       expect(screen.queryByTestId('token-detail-explorer')).not.toBeInTheDocument();
       expect(mockOpenExternalUrl).not.toHaveBeenCalled();
+    });
+
+    it("shows the faucet's description first, stacked under its label", () => {
+      const description = 'A bridged stablecoin that the Miden faucet mints one to one against USDC.';
+      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] });
+
+      const info = screen.getByTestId('token-detail-info');
+      const row = within(info).getByTestId('token-detail-description');
+      expect(within(row).getByText('tokenDescription')).toBeInTheDocument();
+      expect(within(row).getByText(description)).toBeInTheDocument();
+      // Stacked, so the long text wraps under the label instead of being cut beside it.
+      expect(row).toHaveClass('flex-col');
+      // It describes the token, so it comes before the identifier rows.
+      expect(row.nextElementSibling).toBe(within(info).getByTestId('token-detail-contract'));
+    });
+
+    it('reads the description from the base metadata when the balances do not list the token', () => {
+      renderPage({ balances: [], metadata: { [TOKEN_ID]: { symbol: 'ETH', description: 'From the faucet.' } } });
+
+      expect(screen.getByTestId('token-detail-description')).toHaveTextContent('From the faucet.');
+    });
+
+    it.each([
+      ['undefined', undefined],
+      ['empty', '']
+    ])('shows no description row when the description is %s', (_case, description) => {
+      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] });
+
+      expect(screen.getByTestId('token-detail-contract')).toBeInTheDocument();
+      expect(screen.queryByTestId('token-detail-description')).not.toBeInTheDocument();
+      expect(screen.queryByText('tokenDescription')).not.toBeInTheDocument();
     });
   });
 

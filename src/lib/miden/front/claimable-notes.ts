@@ -647,8 +647,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
         const fetched: Record<string, AssetMetadata> = {};
         for (const id of missingFaucetIds) {
           try {
-            const { base } = await fetchMetadata(id);
-            fetched[id] = base;
+            fetched[id] = await fetchMetadata(id);
           } catch (e) {
             console.warn('Metadata fetch failed for', id, e);
           }

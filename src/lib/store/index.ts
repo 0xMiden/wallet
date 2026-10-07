@@ -714,11 +714,11 @@ export const useWalletStore = create<WalletStore>()(
 
     fetchAssetMetadata: async assetId => {
       try {
-        const { base } = await fetchTokenMetadata(assetId);
+        const metadata = await fetchTokenMetadata(assetId);
         set(state => ({
-          assetsMetadata: { ...state.assetsMetadata, [assetId]: base }
+          assetsMetadata: { ...state.assetsMetadata, [assetId]: metadata }
         }));
-        return base;
+        return metadata;
       } catch {
         return null;
       }

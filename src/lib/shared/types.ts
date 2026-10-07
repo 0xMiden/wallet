@@ -195,7 +195,7 @@ export interface SerializedVaultAsset {
     decimals: number;
     symbol: string;
     name: string;
-    thumbnailUri?: string;
+    description?: string;
     /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
     scaleIsUnknown?: boolean;
   };
@@ -250,7 +250,7 @@ export interface SerializedConsumableNote {
     decimals: number;
     symbol: string;
     name: string;
-    thumbnailUri?: string;
+    description?: string;
     /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
     scaleIsUnknown?: boolean;
   };

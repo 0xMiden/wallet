@@ -191,7 +191,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <PriceChart symbol={priceSymbol} priceInfo={quote} />
           )}
 
-          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
+          <TokenInfo
+            key={account.publicKey}
+            tokenId={tokenId}
+            address={account.publicKey}
+            description={metadata?.description}
+          />
 
           <section data-testid="token-detail-activity">
             <SectionHeader size="lg" tone="muted">
@@ -326,7 +331,14 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   );
 };
 
-const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address }) => {
+type TokenInfoProps = {
+  tokenId: string;
+  address: string;
+  /** The description the faucet stores. The page resolves the metadata once and passes it down. */
+  description?: string;
+};
+
+const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, description }) => {
   const { t } = useTranslation();
   const network = useNetwork();
   // Undefined on a build with no explorer configured for the effective network (e.g. a custom
@@ -358,6 +370,15 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
         {t('tokenInfo')}
       </SectionHeader>
       <DetailCard>
+        {/* The faucet's own words about the token. It comes first because it describes the token;
+            the rows after it are identifiers. The text can be long, so it wraps under the label.
+            A stacked row breaks inside words, which suits an address but not prose. The span breaks
+            at spaces and breaks a word only when the word is wider than the card. */}
+        {description && (
+          <DetailRow label={t('tokenDescription')} stacked data-testid="token-detail-description">
+            <span className="break-normal wrap-break-word">{description}</span>
+          </DetailRow>
+        )}
         {/* The faucet that mints this token, under the name the transaction detail page gives every
             faucet id. A bare copy glyph beside the id cut by the shared `truncateHash`, in the row's
             value style; the full id is what gets copied. */}

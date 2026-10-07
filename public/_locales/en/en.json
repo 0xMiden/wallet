@@ -966,6 +966,7 @@
   "invalidAmount": "Invalid amount",
   "tokenPrice": "Token price",
   "tokenInfo": "Token info",
+  "tokenDescription": "Description",
   "fungible": "Fungible",
   "network": "Network",
   "recentActivity": "Recent activity",

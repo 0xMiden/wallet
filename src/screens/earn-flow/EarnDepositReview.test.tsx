@@ -48,9 +48,9 @@ jest.mock('lib/woozie', () => ({
 // --- Platform / haptics.
 jest.mock('lib/platform', () => ({
   isMobile: jest.fn(() => false),
-  // The network-fee row resolves the native asset's metadata, and that chain reaches
-  // `getAssetUrl`, which calls `isExtension` at module load. A partial platform mock
-  // fails the whole suite rather than one test.
+  // The network-fee row resolves the native asset's metadata. That chain reaches
+  // `lib/miden/front/storage`, which calls `isExtension` to pick its change listener.
+  // A partial platform mock makes that call throw.
   isExtension: jest.fn(() => true)
 }));
 

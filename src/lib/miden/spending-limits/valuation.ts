@@ -97,7 +97,7 @@ export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], n
       const isNative = nativeId !== undefined && faucetId === canonicalFaucetId(nativeId);
       const base = isNative
         ? nativeMetadata && { ...nativeMetadata, name: nativeMetadata.symbol }
-        : (await fetchTokenMetadata(faucetId)).base;
+        : await fetchTokenMetadata(faucetId);
       if (!base) throw new Error('native asset metadata is unresolved');
       if (isNative && base.symbol === 'USDCX') {
         const syncedId = getSdkSyncedNativeAssetIdSync();

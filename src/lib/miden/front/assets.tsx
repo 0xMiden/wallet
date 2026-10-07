@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 
 import BigNumber from 'bignumber.js';
 import Fuse from 'fuse.js';
@@ -8,22 +8,18 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import {
   DEFAULT_TOKEN_METADATA,
   AssetMetadata,
-  DetailedAssetMetdata,
   fetchFromStorage,
   fetchTokenMetadata,
   onStorageChanged,
   putToStorage,
-  usePassiveStorage,
   isMidenAsset
 } from 'lib/miden/front';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
+import { ensureTokensMetadataSchema, updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
 import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
-import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
-import { useRetryableSWR } from 'lib/swr';
 
 export const ALL_TOKENS_BASE_METADATA_STORAGE_KEY = 'tokens_base_metadata';
 
@@ -61,10 +57,9 @@ export function useAssetMetadata(_slug: string, assetId: string) {
           try {
             const metadata = await fetchTokenMetadata(assetId);
             // Update Zustand store
-            setAssetsMetadata({ [assetId]: metadata.base });
+            setAssetsMetadata({ [assetId]: metadata });
             // Also persist to storage
-            await setTokensBaseMetadata({ [assetId]: metadata.base });
-            await setTokensDetailedMetadataStorage({ [assetId]: metadata.detailed });
+            await setTokensBaseMetadata({ [assetId]: metadata });
             return metadata;
           } catch (error) {
             autoFetchMetadataFails.add(assetId);
@@ -100,21 +95,31 @@ const defaultAllTokensBaseMetadata: Record<string, AssetMetadata> = {};
  */
 export function TokensMetadataProvider({ children }: { children: React.ReactNode }) {
   const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
-  const initialSyncDone = useRef(false);
 
-  // Load initial metadata from storage
-  const [initialAllTokensBaseMetadata] = usePassiveStorage<Record<string, AssetMetadata>>(
-    ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
-    defaultAllTokensBaseMetadata
-  );
-
-  // Sync initial storage to Zustand once on mount
+  // Sync the stored metadata to Zustand once on mount. The read comes after the shape check,
+  // so records of an older shape never get into Zustand.
   useEffect(() => {
-    if (!initialSyncDone.current && Object.keys(initialAllTokensBaseMetadata).length > 0) {
-      initialSyncDone.current = true;
-      setAssetsMetadata(initialAllTokensBaseMetadata);
-    }
-  }, [initialAllTokensBaseMetadata, setAssetsMetadata]);
+    let cancelled = false;
+    const syncStoredMetadata = async () => {
+      try {
+        await ensureTokensMetadataSchema(fetchFromStorage, putToStorage);
+      } catch (error) {
+        console.warn('Token metadata cache check failed', error);
+      }
+      const stored = await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY);
+      if (cancelled || !stored || Object.keys(stored).length === 0) return;
+      setAssetsMetadata(stored);
+      // This sync ends after the native effect below. The chain metadata of the native token
+      // must stay ahead of a stored copy, so it is set again.
+      const nativeId = getNativeAssetIdSync();
+      const nativeMetadata = getNativeDisplayMetadataSync();
+      if (nativeId && hasKnownScale(nativeMetadata)) setAssetsMetadata({ [nativeId]: nativeMetadata });
+    };
+    syncStoredMetadata().catch(error => console.warn('Token metadata sync from storage failed', error));
+    return () => {
+      cancelled = true;
+    };
+  }, [setAssetsMetadata]);
 
   // Listen for storage changes and sync to Zustand (separate effect)
   useEffect(() => {
@@ -157,11 +162,6 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
   return <>{children}</>;
 }
 
-// Helper to set detailed metadata to storage
-async function setTokensDetailedMetadataStorage(toSet: Record<string, DetailedAssetMetdata>): Promise<void> {
-  await getStorageProvider().set(mapObjectKeys(toSet, getDetailedMetadataStorageKey));
-}
-
 export async function setTokensBaseMetadata(toSet: Record<string, AssetMetadata>): Promise<void> {
   await updateTokensBaseMetadata(
     toSet,
@@ -197,27 +197,6 @@ export const useGetTokenMetadata = () => {
     [assetsMetadata, nativeId]
   );
 };
-
-export function useDetailedAssetMetadata(assetSlug: string, assetId: string) {
-  const baseMetadata = useAssetMetadata(assetSlug, assetId);
-
-  const storageKey = useMemo(() => getDetailedMetadataStorageKey(assetId), [assetId]);
-
-  const { data: detailedMetadata, mutate } = useRetryableSWR<DetailedAssetMetdata>(
-    ['detailed-metadata', storageKey],
-    fetchFromStorage as (key: string) => Promise<DetailedAssetMetdata>,
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false
-    }
-  );
-
-  useEffect(() => onStorageChanged(storageKey, mutate), [storageKey, mutate]);
-
-  if (assetId === getNativeAssetIdSync() && baseMetadata) return { ...detailedMetadata, ...baseMetadata };
-
-  return detailedMetadata ?? baseMetadata;
-}
 
 /**
  * useAllTokensBaseMetadata - Returns all cached token metadata
@@ -283,17 +262,4 @@ export function searchAssets(
   );
 
   return fuse.search(searchValue).map(({ item: { slug, id } }) => ({ slug, id }));
-}
-
-function getDetailedMetadataStorageKey(assetId: string) {
-  return `detailed_asset_metadata_${assetId}`;
-}
-
-function mapObjectKeys<T extends Record<string, any>>(obj: T, predicate: (key: string) => string): T {
-  const newObj: Record<string, any> = {};
-  for (const key of Object.keys(obj)) {
-    newObj[predicate(key)] = obj[key];
-  }
-
-  return newObj as T;
 }

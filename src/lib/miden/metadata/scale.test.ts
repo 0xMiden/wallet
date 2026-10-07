@@ -30,9 +30,7 @@ describe('hasKnownScale', () => {
   // and nothing rewrites that record. Recognising the shape is what carries the
   // fix to the users who have already seen the wrong number.
   it('refuses a cached placeholder written before the marker existed', () => {
-    expect(hasKnownScale({ decimals: 6, symbol: 'Unknown', name: 'Unknown', thumbnailUri: '/default.svg' })).toBe(
-      false
-    );
+    expect(hasKnownScale({ decimals: 6, symbol: 'Unknown', name: 'Unknown' })).toBe(false);
   });
 
   // Every hop that rebuilds metadata field by field — the service worker's sync

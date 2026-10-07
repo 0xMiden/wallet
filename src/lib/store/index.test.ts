@@ -831,9 +831,7 @@ describe('useWalletStore', () => {
   describe('Asset actions', () => {
     it('fetchAssetMetadata fetches and stores metadata', async () => {
       const { fetchTokenMetadata } = jest.requireMock('lib/miden/metadata');
-      fetchTokenMetadata.mockResolvedValueOnce({
-        base: { name: 'New Token', symbol: 'NEW', decimals: 6 }
-      });
+      fetchTokenMetadata.mockResolvedValueOnce({ name: 'New Token', symbol: 'NEW', decimals: 6 });
 
       const { fetchAssetMetadata } = useWalletStore.getState();
       const result = await fetchAssetMetadata('asset-id');
@@ -1364,9 +1362,9 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().assetsMetadata['asset-1']).toBeDefined();
     });
 
-    it('fetchAssetMetadata persists base metadata when fetch succeeds', async () => {
+    it('fetchAssetMetadata persists metadata when fetch succeeds', async () => {
       const fetchTokenMetadata = require('lib/miden/metadata').fetchTokenMetadata;
-      fetchTokenMetadata.mockResolvedValueOnce({ base: { decimals: 8, symbol: 'X' } });
+      fetchTokenMetadata.mockResolvedValueOnce({ decimals: 8, symbol: 'X' });
       const result = await useWalletStore.getState().fetchAssetMetadata('asset-x');
       expect(result).toEqual({ decimals: 8, symbol: 'X' });
       expect(useWalletStore.getState().assetsMetadata['asset-x']).toEqual({ decimals: 8, symbol: 'X' });
