@@ -427,26 +427,23 @@ describe('AmountInput', () => {
       expect(clear).not.toHaveClass('absolute');
     });
 
-    it('floats at the end of a centred row, so the amount keeps its centre', () => {
-      render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
-      const row = screen.getByText('$').parentElement!;
-      const clear = screen.getByRole('button', { name: 'clear' });
-      expect(clear.parentElement).toBe(row);
-      expect(row).toHaveClass('relative', 'justify-center');
-      expect(clear).toHaveClass('absolute', 'right-0', 'top-1/2', '-translate-y-1/2');
-    });
-
-    it('reserves the clear button width on both sides of a centred amount, only while it shows', () => {
+    it('sits inline after the amount in a centred row, centring with it as one group', () => {
       const { rerender } = render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
       const row = screen.getByText('$').parentElement!;
-      expect(row).toHaveClass('px-11');
-      expect(getInput().parentElement).toHaveClass('min-w-0');
+      const clear = screen.getByRole('button', { name: 'clear' });
+      const amount = getInput().parentElement!;
+      expect(clear.parentElement).toBe(row);
+      expect(amount.nextElementSibling).toBe(clear);
+      expect(row).toHaveClass('justify-center');
+      expect(row).not.toHaveClass('px-11');
+      expect(clear).toHaveClass('shrink-0', 'self-center');
+      expect(clear).not.toHaveClass('absolute');
+      // A value too long for the row scrolls inside the input instead of overflowing it.
+      expect(amount).toHaveClass('min-w-0');
 
       rerender(<AmountInput align="center" prefix="$" value="" data-testid={TESTID} />);
+      expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
       expect(row).not.toHaveClass('px-11');
-
-      rerender(<AmountInput prefix="$" value="25" data-testid={TESTID} />);
-      expect(screen.getByText('$').parentElement).not.toHaveClass('px-11');
     });
   });
 

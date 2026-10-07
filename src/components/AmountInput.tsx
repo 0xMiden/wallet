@@ -166,14 +166,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       {label != null && (typeof label === 'string' ? <span className={amountCaptionClassName}>{label}</span> : label)}
 
       <div
-        // Centred, the row carries the amount's size so the prefix's 0.6em scales with it. While the
-        // clear button shows, px-11 reserves its 44px on both sides, so the amount keeps its centre
-        // and a value too long for what is left scrolls inside the input.
+        // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
           'flex cursor-text mt-3',
-          centered
-            ? classNames('relative items-start justify-center', amountTextSize(value), showClear && 'px-11')
-            : 'items-baseline'
+          centered ? classNames('items-start justify-center', amountTextSize(value)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -206,8 +202,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         {showClear && (
           <ClearFieldButton
             onClear={() => clearFieldValue(inputRef.current)}
-            // Centred, the button floats at the row's end so the amount keeps its centre.
-            className={centered ? 'absolute right-0 top-1/2 -translate-y-1/2' : '-mr-3 ml-1 self-center'}
+            // Centred, the button is the group's last item: one 44px slot, so a long amount scrolls
+            // inside the (min-w-0) input rather than running under it.
+            className={centered ? 'self-center' : '-mr-3 ml-1 self-center'}
           />
         )}
       </div>
