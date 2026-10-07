@@ -22,9 +22,9 @@ const getInput = () => screen.getByTestId(TESTID) as HTMLInputElement;
 
 describe('AmountInput', () => {
   describe('amountTextSize scaling (via input className)', () => {
-    it('uses text-6xl for a short value (< 7 chars)', () => {
+    it('uses text-[4rem] for a short value (< 7 chars)', () => {
       render(<AmountInput value="123" data-testid={TESTID} />);
-      expect(getInput()).toHaveClass('text-6xl');
+      expect(getInput()).toHaveClass('text-[4rem]');
     });
 
     it('uses text-5xl for a value of 7-9 chars', () => {
@@ -40,17 +40,19 @@ describe('AmountInput', () => {
     it('uses text-3xl for a value of 13+ chars', () => {
       render(<AmountInput value="1234567890123" data-testid={TESTID} />);
       expect(getInput()).toHaveClass('text-3xl');
+      // No fixed 4rem beside the step: Tailwind emits the arbitrary size after text-3xl, so it would win.
+      expect(getInput()).not.toHaveClass('text-[4rem]');
     });
 
-    it('falls back to length 4 (text-6xl) when value is undefined', () => {
+    it('falls back to length 4 (text-[4rem]) when value is undefined', () => {
       render(<AmountInput data-testid={TESTID} />);
-      expect(getInput()).toHaveClass('text-6xl');
+      expect(getInput()).toHaveClass('text-[4rem]');
     });
 
-    it('falls back to length 4 (text-6xl) when value is an empty string', () => {
+    it('falls back to length 4 (text-[4rem]) when value is an empty string', () => {
       // Empty string has length 0, so the `|| 4` fallback branch is exercised.
       render(<AmountInput value="" data-testid={TESTID} />);
-      expect(getInput()).toHaveClass('text-6xl');
+      expect(getInput()).toHaveClass('text-[4rem]');
     });
   });
 
@@ -224,6 +226,23 @@ describe('AmountInput', () => {
       expect(prefix.parentElement).toHaveClass('justify-center');
       // The invisible sizing copy holds the value, so the input is exactly as wide as it.
       expect(input.parentElement?.querySelector('[aria-hidden="true"].invisible')).toHaveTextContent('25');
+    });
+
+    it('steps a centred row and a left prefix down with a long value, with no fixed 4rem', () => {
+      const { unmount } = render(<AmountInput align="center" prefix="$" value="1234567890123" data-testid={TESTID} />);
+      const row = screen.getByText('$').parentElement!;
+      expect(row).toHaveClass('text-3xl');
+      expect(row).not.toHaveClass('text-[4rem]');
+      unmount();
+
+      render(<AmountInput prefix="$" value="1234567890123" data-testid={TESTID} />);
+      expect(screen.getByText('$')).toHaveClass('text-3xl');
+    });
+
+    it('keeps a short centred row at 4rem, set once', () => {
+      render(<AmountInput align="center" prefix="$" value="25" data-testid={TESTID} />);
+      const row = screen.getByText('$').parentElement!;
+      expect(row.className.split(/\s+/).filter(name => name === 'text-[4rem]')).toHaveLength(1);
     });
 
     it('sizes a centred empty field to its placeholder', () => {

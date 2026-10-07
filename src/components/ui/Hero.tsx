@@ -28,6 +28,8 @@ export type HeroProps = HeroContentProps & {
   nameAs?: 'h1' | 'h2';
   /** Extra attributes for the `name` heading, e.g. `tabIndex={-1}` alongside `nameRef`. */
   nameProps?: Omit<React.HTMLAttributes<HTMLHeadingElement>, 'className' | 'children'>;
+  /** Overrides on the value's type style, e.g. a lighter weight than the hero's black. */
+  valueClassName?: string;
 };
 
 /**
@@ -45,11 +47,14 @@ export const Hero: React.FC<HeroProps> = ({
   nameRef,
   nameProps,
   nameSize = 'md',
-  nameAs: NameTag = 'h2'
+  nameAs: NameTag = 'h2',
+  valueClassName
 }) => (
   <div data-testid={dataTestId} className={cn('flex w-full flex-col items-center', className)}>
     {visual}
-    {value !== undefined && <div className="mt-4 text-center text-hero-value text-ink">{value}</div>}
+    {value !== undefined && (
+      <div className={cn('mt-4 text-center text-hero-value text-ink', valueClassName)}>{value}</div>
+    )}
     {name !== undefined && (
       <NameTag
         ref={nameRef}

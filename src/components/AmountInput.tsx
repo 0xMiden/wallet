@@ -9,15 +9,25 @@ import { Skeleton } from 'components/ui/Skeleton';
 
 /**
  * Scale the amount text down as the entered value grows, to avoid overflow
- * on narrow mobile screens. Tuned so a short value renders ~text-6xl and a
- * long one (16 chars max) settles at text-3xl.
+ * on narrow mobile screens: a short value renders at 4rem and a long one
+ * (16 chars max) settles at text-3xl. The only size an amount takes: a fixed
+ * size beside it would win, since Tailwind emits an arbitrary size after text-3xl.
  */
-function amountTextSize(value?: string): string {
+export function amountTextSize(value?: string): string {
   const len = value?.length || 4;
   if (len >= 13) return 'text-3xl';
   if (len >= 10) return 'text-4xl';
   if (len >= 7) return 'text-5xl';
-  return 'text-6xl';
+  return 'text-[4rem]';
+}
+
+/**
+ * The entry's caption and its figure type at the value's length step. A review that restates the
+ * amount it took over (the earn deposit's) sets them from here, so it cannot drift from this step.
+ */
+export const amountCaptionClassName = 'font-heading text-2xl font-bold text-gray leading-none';
+export function amountFigureClassName(value?: string): string {
+  return classNames('font-heading font-bold leading-none', amountTextSize(value));
 }
 
 /** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
@@ -114,11 +124,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
-  const amountClasses = classNames(
-    'font-heading font-bold leading-none text-[4rem]',
-    centered ? 'text-center' : 'text-left',
-    amountTextSize(value)
-  );
+  const amountClasses = classNames(amountFigureClassName(value), centered ? 'text-center' : 'text-left');
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
   const input = (layoutClassName: string) => (
@@ -153,18 +159,13 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
   return (
     <div className={classNames('flex flex-col', className)}>
-      {label != null &&
-        (typeof label === 'string' ? (
-          <span className="font-heading text-2xl font-bold text-gray leading-none">{label}</span>
-        ) : (
-          label
-        ))}
+      {label != null && (typeof label === 'string' ? <span className={amountCaptionClassName}>{label}</span> : label)}
 
       <div
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
           'flex cursor-text mt-3',
-          centered ? classNames('items-start justify-center text-[4rem]', amountTextSize(value)) : 'items-baseline'
+          centered ? classNames('items-start justify-center', amountTextSize(value)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -198,7 +199,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
       {error ? (
         <div className="flex items-center gap-2 pt-2">
-          <Icon name={IconName.InformationFill} size="xs" className="text-red-500" />
+          <Icon name={IconName.InformationFill} size="xs" fill="currentColor" className="shrink-0 text-red-500" />
           <span className="text-red-500 text-sm">{error}</span>
         </div>
       ) : helper ? (

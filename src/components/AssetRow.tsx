@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, useMemo } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -27,6 +27,28 @@ const FLAT_SPARKLINE_POINTS = [1, 1];
 
 /** The 24h move, signed. The sign follows the figure shown, so it is right on every frame. */
 const formatPercent = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
+
+/** A 24h move smaller than this either way reads as flat: grey, not green or red. A stablecoin's
+ *  ±0.02% is noise, and colouring it made a steady token look like it was falling. */
+const FLAT_MOVE_PERCENT = 0.1;
+
+/** How many points the row's sparkline is drawn from. The 1D feed is far denser than a 64px line
+ *  can show; averaging it into buckets keeps its shape and drops the tick-level jitter. */
+const SPARKLINE_BUCKETS = 10;
+
+/** The line's box always spans at least this share of the price (0.2%), so a token that barely
+ *  moved draws a gentle wave through the middle instead of a swing stretched to the full height.
+ *  Anything that moves more than that (any non-stable token on most days) fills the box as before. */
+const SPARKLINE_MIN_RANGE_SHARE = 0.002;
+
+const downsample = (values: number[], buckets: number): number[] => {
+  if (values.length <= buckets) return values;
+  const size = values.length / buckets;
+  return Array.from({ length: buckets }, (_, b) => {
+    const slice = values.slice(Math.floor(b * size), Math.floor((b + 1) * size));
+    return slice.reduce((sum, v) => sum + v, 0) / slice.length;
+  });
+};
 
 /**
  * Wallet-aware row used in Explore + SelectToken — wraps AssetListItem with
@@ -58,10 +80,12 @@ export const AssetRow: FC<AssetRowProps> = ({
   // Only a feed quote has a 24h move. The nominal rate is a dollar figure with no market behind it,
   // so it has no direction to colour anything by, like no quote at all.
   const feedQuote = quote && !isNominalQuote(quote) && !isFixedQuote(quote) ? quote : undefined;
-  const direction: 'positive' | 'negative' | null = feedQuote
-    ? feedQuote.percentageChange24h >= 0
-      ? 'positive'
-      : 'negative'
+  const direction: 'positive' | 'negative' | 'neutral' | null = feedQuote
+    ? Math.abs(feedQuote.percentageChange24h) < FLAT_MOVE_PERCENT
+      ? 'neutral'
+      : feedQuote.percentageChange24h >= 0
+        ? 'positive'
+        : 'negative'
     : null;
   // Each figure's precision is pinned to the value it is heading for, so a quantity does not
   // change how many decimals it shows on the way there (`adaptiveFormatterFor`).
@@ -72,13 +96,22 @@ export const AssetRow: FC<AssetRowProps> = ({
   // An empty symbol is the hook's "fetch nothing".
   const points = useTokenSparkline(sparkline && !isFixedQuote(quote) ? priceSymbol : '', '1D');
   const hasRealPoints = points.length > 1;
-  const sparkPoints = hasRealPoints ? points : FLAT_SPARKLINE_POINTS;
+  // Keyed on the hook's array so a re-render with the same series keeps Sparkline's path memo.
+  const sparkPoints = useMemo(
+    () => (hasRealPoints ? downsample(points, SPARKLINE_BUCKETS) : FLAT_SPARKLINE_POINTS),
+    [hasRealPoints, points]
+  );
+  const sparkMinRange = useMemo(
+    () => (sparkPoints.reduce((sum, v) => sum + v, 0) / sparkPoints.length) * SPARKLINE_MIN_RANGE_SHARE,
+    [sparkPoints]
+  );
+  // The line takes the move's colour, grey when the move is flat, so it never argues with the pill.
   const sparkColor =
-    hasRealPoints && direction !== null
+    hasRealPoints && (direction === 'positive' || direction === 'negative')
       ? direction === 'positive'
         ? 'var(--status-positive)'
         : 'var(--status-negative)'
-      : 'var(--text-tertiary)';
+      : 'var(--color-text-tertiary)';
 
   return (
     <AssetListItem
@@ -93,7 +126,17 @@ export const AssetRow: FC<AssetRowProps> = ({
       }
       chart={
         sparkline && !isFixedQuote(quote) ? (
-          <Sparkline points={sparkPoints} color={sparkColor} width={120} height={32} />
+          <Sparkline
+            points={sparkPoints}
+            color={sparkColor}
+            width={64}
+            height={28}
+            strokeWidth={1.8}
+            smooth
+            // Breathing room before the price column, so the line never runs into the pill.
+            className="mr-5"
+            minRange={sparkMinRange}
+          />
         ) : undefined
       }
       price={
@@ -106,9 +149,11 @@ export const AssetRow: FC<AssetRowProps> = ({
           ? { value: <AnimatedNumber value={feedQuote.percentageChange24h} format={formatPercent} />, direction }
           : undefined
       }
+      // A soft grey tag rather than the warning tint, which read like a button.
       badge={
         verification === 'unverified' ? (
-          <Pill size="xs" tone="warning">
+          // Nunito draws the name's capitals low in its line, so the tag rises 3px to centre on them.
+          <Pill size="tag" tone="muted" className="-translate-y-[3px]">
             {t('unverifiedToken')}
           </Pill>
         ) : undefined
