@@ -88,9 +88,65 @@ const ICON_BUBBLE_TONE: Record<PromptIconTone, string> = {
   warning: 'bg-pending-tint-ink text-page'
 };
 
+interface PromptCardVariantStyle {
+  /**
+   * Set on Card itself, not the child: the Slot only joins the two class lists, so the outline's
+   * `bg-page` would win over a tint set on the child.
+   */
+  card: string | undefined;
+  bubbleTone: PromptIconTone;
+  bubbleSize: 36 | 44;
+  glyph: string | undefined;
+  title: string | undefined;
+  body: string;
+  dismiss: string;
+  chevron: string;
+}
+
+const DEFAULT_VARIANT_STYLE: PromptCardVariantStyle = {
+  card: undefined,
+  bubbleTone: 'accent',
+  bubbleSize: 36,
+  glyph: undefined,
+  title: undefined,
+  body: 'text-muted',
+  dismiss: 'text-text-tertiary-token',
+  chevron: 'dark:stroke-pure-white'
+};
+
+/** Every look a variant chooses, keyed by every variant so a new one cannot borrow another's. */
+export const PROMPT_CARD_VARIANT_STYLE: Record<PromptCardVariant, PromptCardVariantStyle> = {
+  default: DEFAULT_VARIANT_STYLE,
+  // No look of its own: the default card.
+  critical: DEFAULT_VARIANT_STYLE,
+  receive: {
+    card: 'border-transparent bg-accent-receive-tint',
+    bubbleTone: 'receive',
+    bubbleSize: 44,
+    // A 14px glyph in the 44px bubble, as small inside it as the 36px one's.
+    glyph: '!h-3.5 !w-3.5',
+    title: 'font-extrabold',
+    // In Nunito semibold: `face-heading` points the caption's own face there.
+    body: 'face-heading font-semibold text-accent-receive-ink',
+    dismiss: 'text-text-tertiary-token',
+    // The chevron's stroke is set on its path, so the colour has to reach the path.
+    chevron: '[&_path]:stroke-accent-receive-ink'
+  },
+  warning: {
+    card: 'border-transparent bg-pending-tint',
+    bubbleTone: 'warning',
+    bubbleSize: 44,
+    glyph: '!h-[18px] !w-[18px]',
+    title: 'font-extrabold',
+    body: 'face-heading font-semibold text-pending-tint-ink',
+    dismiss: 'text-pending-tint-ink',
+    chevron: 'dark:stroke-pure-white'
+  }
+};
+
 interface PromptIconBubbleProps {
   tone: PromptIconTone;
-  /** 24px for a status mark in the corner, 36px for the icon beside a title, 44px on a `receive` card. */
+  /** 24px for a status mark in the corner, 36px for the icon beside a title, 44px on a `receive` or `warning` card. */
   size: 24 | 36 | 44;
   role?: 'status';
   'aria-label'?: string;
@@ -148,6 +204,7 @@ export const PromptCard: FC<PromptCardProps> = ({
   actionTestId
 }) => {
   const { t } = useTranslation();
+  const look = PROMPT_CARD_VARIANT_STYLE[variant];
 
   const containerRef = useRef<HTMLDivElement>(null);
   // Whether the container itself (not a child) holds focus. It stays focusable while it
@@ -247,20 +304,7 @@ export const PromptCard: FC<PromptCardProps> = ({
   return (
     // `outline`, like Activity's rows: a single actionable card that has to separate itself where it
     // sits on the page, not a grey block on the home page.
-    <Card
-      asChild
-      surface="outline"
-      padding="none"
-      // On Card itself, not the child: the Slot only joins the two class lists, so the outline's
-      // `bg-page` would win over a tint set on the child.
-      className={
-        variant === 'receive'
-          ? 'border-transparent bg-accent-receive-tint'
-          : variant === 'warning'
-            ? 'border-transparent bg-pending-tint'
-            : undefined
-      }
-    >
+    <Card asChild surface="outline" padding="none" className={look.card}>
       <div
         ref={containerRef}
         data-testid={testId}
@@ -287,19 +331,11 @@ export const PromptCard: FC<PromptCardProps> = ({
       >
         {!hero && icon && (
           <PromptIconBubble
-            tone={variant === 'receive' ? 'receive' : variant === 'warning' ? 'warning' : 'accent'}
-            size={variant === 'receive' || variant === 'warning' ? 44 : 36}
+            tone={look.bubbleTone}
+            size={look.bubbleSize}
             className={status === 'loading' ? 'animate-pulse' : undefined}
           >
-            {/* The 44px Receive bubble carries a 14px glyph, as small inside it as the 36px one's. */}
-            <Icon
-              name={icon}
-              size="sm"
-              fill="currentColor"
-              className={
-                variant === 'receive' ? '!h-3.5 !w-3.5' : variant === 'warning' ? '!h-[18px] !w-[18px]' : undefined
-              }
-            />
+            <Icon name={icon} size="sm" fill="currentColor" className={look.glyph} />
           </PromptIconBubble>
         )}
         {/* The hero replaces the title, body and CTA outright, so this is the only
@@ -354,31 +390,10 @@ export const PromptCard: FC<PromptCardProps> = ({
           </motion.div>
         ) : (
           <Lockup className="flex flex-col gap-0.5 min-w-0 flex-1 text-left text-ink">
-            <div
-              className={classNames(
-                'text-row-title truncate',
-                (variant === 'receive' || variant === 'warning') && 'font-extrabold'
-              )}
-            >
-              {title}
-            </div>
+            <div className={classNames('text-row-title truncate', look.title)}>{title}</div>
             {(body || bodyValue) && (
               <div className="flex min-w-0 items-baseline gap-1.5">
-                {body && (
-                  <span
-                    className={classNames(
-                      'line-clamp-2 min-w-0 text-caption',
-                      // The receive line in Nunito semibold: `face-heading` points the caption's own face there.
-                      variant === 'receive'
-                        ? 'face-heading font-semibold text-accent-receive-ink'
-                        : variant === 'warning'
-                          ? 'face-heading font-semibold text-pending-tint-ink'
-                          : 'text-muted'
-                    )}
-                  >
-                    {body}
-                  </span>
-                )}
+                {body && <span className={classNames('line-clamp-2 min-w-0 text-caption', look.body)}>{body}</span>}
                 {bodyValue && <span className="shrink-0 text-value text-ink">{bodyValue}</span>}
               </div>
             )}
@@ -393,10 +408,7 @@ export const PromptCard: FC<PromptCardProps> = ({
               type="button"
               onClick={handleDismiss}
               aria-label={t('promptCardDismiss')}
-              className={classNames(
-                'flex h-5 w-5 items-center justify-center',
-                variant === 'warning' ? 'text-pending-tint-ink' : 'text-text-tertiary-token'
-              )}
+              className={classNames('flex h-5 w-5 items-center justify-center', look.dismiss)}
             >
               <Icon name={IconName.Close} className="w-3.5 h-3.5" fill="currentColor" />
             </button>
@@ -410,12 +422,7 @@ export const PromptCard: FC<PromptCardProps> = ({
             <>
               {StatusIndicator}
               {ActionButton}
-              <Icon
-                name={IconName.ChevronRight}
-                size="xs"
-                // The chevron's stroke is set on its path, so the colour has to reach the path.
-                className={variant === 'receive' ? '[&_path]:stroke-accent-receive-ink' : 'dark:stroke-pure-white'}
-              />
+              <Icon name={IconName.ChevronRight} size="xs" className={look.chevron} />
             </>
           )
         )}
