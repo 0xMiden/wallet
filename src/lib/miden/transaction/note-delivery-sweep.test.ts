@@ -1314,6 +1314,58 @@ describe('the delivery schedule', () => {
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xlost']);
   });
 
+  /** Light the 'note-delivery' fuse and let its window lapse, so the next push is the one probe it grants. */
+  const lapseFuse = () => {
+    let monotonic = 1_000;
+    jest.spyOn(performance, 'now').mockImplementation(() => monotonic);
+    for (let eviction = 0; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    monotonic += FUSED_SYNC_PROBE_INTERVAL_MS + 1_000;
+  };
+
+  // The window a failed granted push re-arms binds the rest of its own pass, not only the next one.
+  it('pushes no other row in the pass once the push the lapsed fuse granted fails', async () => {
+    lapseFuse();
+    rows.push(due('lost', NOW - 2000), due('next', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(new Error('No output note found for the given id'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(rows[1]).toMatchObject({ relayAttempts: 1, nextRelayAt: NOW - 1 });
+  });
+
+  it("stops a row between its notes once the fuse re-arms, keeping the first note's outcome", async () => {
+    lapseFuse();
+    rows.push(
+      due('pair', NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xlost', '0xkept'],
+        relayRecipientId: 'mtst1recipient',
+        noteDelivery: 'undelivered'
+      })
+    );
+    mockRelayById.mockRejectedValueOnce(new Error('No output note found for the given id'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xlost']);
+    // retryDelayFor(2): the row's push was made, so it serves the step after it.
+    expect(rows[0]).toMatchObject({ relayAttempts: 2, relayDeadNoteIds: ['0xlost'], nextRelayAt: NOW + 15 * MINUTE });
+    expect(rows[0]!.relayOutageDeferred).toBeUndefined();
+  });
+
+  it('lets the next row push in the same pass once the push the lapsed fuse granted succeeds', async () => {
+    lapseFuse();
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfirst', '0xsecond']);
+    expect(isSyncFused('note-delivery')).toBe(false);
+  });
+
   // No probe ran: the client refused before any transport call.
   it('books nothing for a push the disabled transport refused', async () => {
     for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {

@@ -256,6 +256,22 @@ const noteDue = (pass: PassState, at: number) => {
   pass.nextDueAt = Math.min(pass.nextDueAt, at);
 };
 
+/** The 'fused' stop as the 'note-delivery' fuse reads now: no push until its window ends. */
+const fusedStopOf = (): Pick<PassState, 'pushesStopped' | 'fusedUntil'> => {
+  const fusedForMs = Math.max(0, (syncFuseUntilMs('note-delivery') ?? 0) - monotonicNowMs());
+  return { pushesStopped: 'fused', fusedUntil: nowSeconds() + Math.ceil(fusedForMs / 1000) };
+};
+
+/**
+ * Whether pushes are stopped as 'fused', read from the live fuse before every push rather
+ * than once per pass: a push the lapsed window granted re-arms it when it fails, and that
+ * window binds the rest of this pass as it does the next one.
+ */
+const fusedNow = (pass: PassState): boolean => {
+  if (pass.pushesStopped === undefined && isSyncFused('note-delivery')) Object.assign(pass, fusedStopOf());
+  return pass.pushesStopped === 'fused';
+};
+
 type RowOutcome = 'done' | 'awaiting-catch-up' | 'interrupted';
 
 const scheduleReceipt = async (row: ITransaction, pass: PassState) => {
@@ -341,7 +357,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     await scheduleReceipt(row, pass);
     return 'done';
   }
-  if (pass.pushesStopped === 'fused') {
+  if (fusedNow(pass)) {
     // Pushes have parked the realm's lock until evicted, so the fuse holds them to one
     // probe per window. Nothing is spent and the row stays due; the next pass that may
     // push is the one after the window.
@@ -363,6 +379,9 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   // a partial list written for that row would read as the rest unacknowledged.
   const ackedSoFar = () => [...targets.acked, ...acked.filter(noteId => !targets.acked.includes(noteId))];
   for (const [index, noteId] of noteIds.entries()) {
+    // A push earlier in the row may have re-armed the fuse. The row then ends here as if its
+    // loop had, keeping what its earlier notes got and serving the step after a push.
+    if (index > 0 && fusedNow(pass)) break;
     const known = acked.length + dead.length;
     try {
       await midenClientProxy.relayPrivateNoteById(noteId, targets.recipient!);
@@ -506,9 +525,7 @@ const runGuardedPass = async (): Promise<void> => {
 /** Why this pass may not push at all, if it may not. */
 const passStopOf = (): Pick<PassState, 'pushesStopped' | 'fusedUntil'> => {
   if (!isNoteTransportConfigured()) return { pushesStopped: 'notConfigured' };
-  if (!isSyncFused('note-delivery')) return {};
-  const fusedForMs = Math.max(0, (syncFuseUntilMs('note-delivery') ?? 0) - monotonicNowMs());
-  return { pushesStopped: 'fused', fusedUntil: nowSeconds() + Math.ceil(fusedForMs / 1000) };
+  return isSyncFused('note-delivery') ? fusedStopOf() : {};
 };
 
 /**
