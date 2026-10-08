@@ -657,31 +657,19 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → relayPrivateNoteById is dispatched as CRITICAL on the relay deadline, carrying only ids', async () => {
-    // The sweep's re-push. Same realm requirement and same stakes as the original
-    // relay — the note lives in the offscreen store and the transaction has already
-    // landed — so it must not be a cheap read that a coincident deadline can tear
-    // down. It differs only in having no live Note: the row is all the sweep has.
+  it('flag ON → relayPrivateNoteById re-pushes on the SW client under withWasmClientLock, as sendPrivateNote relays', async () => {
+    // The sweep's re-push runs where the original relay runs. Offscreen fetch to a
+    // localnet transport is CORS-blocked, and the SW client resolves the output note
+    // the offscreen client applied.
     const { midenClientProxy } = await loadProxy(true);
-    const { isCriticalOpInFlight } = await import('./offscreen-prover');
-    let criticalDuringRelay: boolean | undefined;
-    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
-      criticalDuringRelay = isCriticalOpInFlight();
-      return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 3 };
-    });
 
-    const p = midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
-    await flush();
-    fireReady();
-    await p;
+    const result = await midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
 
-    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
-    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
-    expect(env.method).toBe('relayPrivateNoteById');
-    expect(env.deadline_ms).toBe(45_000);
-    expect(criticalDuringRelay).toBe(true);
-    expect(env.argsB64[0]).toBe('s:"0xnote"');
-    expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+    expect(result).toBeUndefined();
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('flag ON → isOutputNoteConsumed is a plain read and decodes the boolean', async () => {

@@ -171,10 +171,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // note over: the proof does not exist yet. One wait covers every note,
     // because they share the transaction id.
     //
-    // Relays route through `midenClientProxy` (issue #260, slice 7b): under the flag
-    // the write ran offscreen, so each note is an APPLIED OUTPUT note of the
-    // OFFSCREEN client's store, and `sendPrivateOutput` resolves it by id out of
-    // that store, so the relay runs there, not on the dormant SW client.
+    // The wait routes through `midenClientProxy` (issue #260, slice 7b), so under the
+    // flag it runs on the offscreen client that applied the transaction. The relays
+    // run on the SW client (see `midenClientProxy.sendPrivateNote`), whose store
+    // holds the output notes the offscreen client applied.
     try {
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -1101,10 +1101,9 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
     try {
       // The proof rc.5's transport verifies exists only after this commit wait
-      // syncs past the block. Both the wait and the relay route through
-      // `midenClientProxy` (issue #260, slice 7b) so they run on the client that
-      // created the note: the offscreen client when the flag is on, whose store
-      // holds the output note `sendPrivateOutput` reads.
+      // syncs past the block. The wait routes through `midenClientProxy` (issue
+      // #260, slice 7b) and runs on the client that applied the transaction; the
+      // relay runs on the SW client, whose store holds that output note too.
       await setTransactionStage(tx.id, 'confirming');
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
