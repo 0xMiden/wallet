@@ -3,16 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppKitProvider } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 import { useDebounce } from 'use-debounce';
-import {
-  decodeFunctionResult,
-  encodeFunctionData,
-  EIP1193Provider,
-  formatUnits,
-  isAddress,
-  isHex,
-  parseUnits,
-  toHex
-} from 'viem';
+import { decodeFunctionResult, encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
 import { useWriteContract } from 'wagmi';
 
 import { ReportDeposit } from 'app/hooks/useFundTelemetry';
@@ -34,7 +25,7 @@ import { type EvmUsdc, getAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from
 import { WalletAccount } from 'lib/shared/types';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
-import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { readSepoliaErc20Allowance, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
@@ -83,18 +74,7 @@ const ERC20_BALANCE_OF_ABI = [
   }
 ] as const;
 
-const ERC20_ALLOWANCE_ABI = [
-  {
-    type: 'function',
-    name: 'allowance',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'owner', type: 'address' },
-      { name: 'spender', type: 'address' }
-    ],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
+const ALLOWANCE_READ_FAILED = 'Could not check the USDC allowance the bridge has on Sepolia.';
 
 type SlowBridgeStatus = 'idle' | 'signing' | 'submitted' | 'failed';
 
@@ -175,19 +155,6 @@ async function readMockUsdcBalance(evmAddress: string, contract: `0x${string}`):
       data: result as `0x${string}`
     }) as bigint;
   }
-}
-
-/** The amount of `token` that `spender` can move for `owner`, read on Sepolia through the configured RPC. */
-async function readErc20Allowance(owner: string, token: `0x${string}`, spender: `0x${string}`): Promise<bigint> {
-  if (!isAddress(owner, { strict: false })) throw new Error('The connected EVM wallet address is not valid.');
-  const data = encodeFunctionData({
-    abi: ERC20_ALLOWANCE_ABI,
-    functionName: 'allowance',
-    args: [owner, spender]
-  });
-  const result = await rpcRequest('eth_call', [{ to: token, data }, 'latest']);
-  if (!isHex(result)) throw new Error('The allowance read returned no data.');
-  return decodeFunctionResult({ abi: ERC20_ALLOWANCE_ABI, functionName: 'allowance', data: result });
 }
 
 async function readEthBalance(evmAddress: string): Promise<bigint> {
@@ -506,8 +473,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const value = isNative ? amountInBaseUnits : 0n;
         // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
         // and `approve` would replace a larger allowance with this amount.
+        // A failed or timed-out read fails the deposit before any wallet prompt: the approve's own
+        // receipt wait would use the same RPC.
         const needsApproval =
-          !isNative && (await readErc20Allowance(evmAddress, tokenAddress, contractAddress)) < amountInBaseUnits;
+          !isNative &&
+          (await readSepoliaErc20Allowance(tokenAddress, evmAddress as `0x${string}`, contractAddress).catch(
+            (cause: unknown) => {
+              throw new Error(ALLOWANCE_READ_FAILED, { cause });
+            }
+          )) < amountInBaseUnits;
 
         let hash: `0x${string}`;
         if (nativeReownAvailable) {

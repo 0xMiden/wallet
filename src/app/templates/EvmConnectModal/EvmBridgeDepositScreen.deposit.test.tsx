@@ -13,7 +13,7 @@ import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'li
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { NativeReown } from 'lib/walletconnect/native';
-import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { readSepoliaErc20Allowance, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -193,7 +193,8 @@ jest.mock('lib/walletconnect/native', () => ({
 }));
 
 jest.mock('lib/walletconnect/receipt', () => ({
-  waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined)
+  waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined),
+  readSepoliaErc20Allowance: jest.fn()
 }));
 
 jest.mock('lib/walletconnect/config', () => ({
@@ -1213,29 +1214,14 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
   const EVM_WALLET = '0x00000000000000000000000000000000000000e1';
   const USDC = '0x00000000000000000000000000000000000000c0';
   const L1_BRIDGE = '0x00000000000000000000000000000000000000b2';
-  /** The `allowance(address,address)` selector. */
-  const ALLOWANCE_SELECTOR = '0xdd62ed3e';
   /** The typed 10.6512 at the 18 decimals the suite gives the configured USDC. */
   const DEPOSIT = 10_651_200_000_000_000_000n;
 
-  interface RpcCall {
-    method: string;
-    params: [{ to?: string; data?: string }, string];
-  }
-  const rpc = jest.fn();
-  /** The answer of the Sepolia RPC to the allowance read; a null answer is an RPC error. Other reads get `0x0`. */
+  /** The allowance the Sepolia read answers with; a null answer is a failed read. */
   const answerAllowance = (allowance: bigint | null) =>
-    rpc.mockImplementation(async (_url: string, init: { body: string }) => {
-      const call: RpcCall = JSON.parse(init.body);
-      const isAllowanceRead = call.params[0].data?.startsWith(ALLOWANCE_SELECTOR) ?? false;
-      if (!isAllowanceRead) return { json: async () => ({ result: '0x0' }) };
-      if (allowance === null) return { json: async () => ({ error: { message: 'rpc down' } }) };
-      return { json: async () => ({ result: `0x${allowance.toString(16).padStart(64, '0')}` }) };
-    });
-  const allowanceReads = (): [string, RpcCall][] =>
-    rpc.mock.calls
-      .map(([url, init]: [string, { body: string }]): [string, RpcCall] => [url, JSON.parse(init.body)])
-      .filter(([, call]) => call.params[0].data?.startsWith(ALLOWANCE_SELECTOR));
+    allowance === null
+      ? jest.mocked(readSepoliaErc20Allowance).mockRejectedValue(new Error('rpc down'))
+      : jest.mocked(readSepoliaErc20Allowance).mockResolvedValue(allowance);
 
   const confirmSlowUsdcDeposit = async () => {
     render(depositScreen(undefined, EVM_WALLET));
@@ -1252,7 +1238,6 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     mockMutateAsync.mockResolvedValue('0xhash');
     jest.mocked(NativeReown.sendTransaction).mockResolvedValue({ hash: '0xhash' });
-    global.fetch = rpc;
   });
 
   afterEach(() => {
@@ -1265,23 +1250,8 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
 
     await confirmSlowUsdcDeposit();
 
-    const reads = allowanceReads();
-    // One read, of the owner word then the spender word.
-    expect(reads).toEqual([
-      [
-        'https://rpc.test',
-        expect.objectContaining({
-          method: 'eth_call',
-          params: [
-            {
-              to: USDC,
-              data: `${ALLOWANCE_SELECTOR}${EVM_WALLET.slice(2).padStart(64, '0')}${L1_BRIDGE.slice(2).padStart(64, '0')}`
-            },
-            'latest'
-          ]
-        })
-      ]
-    ]);
+    expect(readSepoliaErc20Allowance).toHaveBeenCalledTimes(1);
+    expect(readSepoliaErc20Allowance).toHaveBeenCalledWith(USDC, EVM_WALLET, L1_BRIDGE);
   });
 
   it.each([
@@ -1363,7 +1333,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
 
-    expect(allowanceReads()).toHaveLength(0);
+    expect(readSepoliaErc20Allowance).not.toHaveBeenCalled();
     expect(mockMutateAsync).toHaveBeenCalledTimes(1);
     expect(mockMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'bridgeAsset' }));
   });
@@ -1374,7 +1344,10 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     await confirmSlowUsdcDeposit();
 
     expect(mockMutateAsync).not.toHaveBeenCalled();
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'rpc down' });
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+      error: 'Could not check the USDC allowance the bridge has on Sepolia.'
+    });
   });
 });
 
