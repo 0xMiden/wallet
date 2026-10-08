@@ -313,6 +313,7 @@ describe('MidenClientInterface', () => {
     const CREATE_OPTION_KEYS = [
       'feeFaucetId',
       'keystore',
+      'noteTransportMaxRetries',
       'noteTransportUrl',
       'observer',
       'proverUrl',
@@ -321,7 +322,7 @@ describe('MidenClientInterface', () => {
       'useWorker'
     ];
 
-    async function createAndCaptureOptions() {
+    async function createAndCaptureOptions(noteTransportUrl?: string) {
       const createMock = jest.fn(async (_options: Record<string, unknown>) => buildFakeMidenClient());
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         MidenClient: { create: createMock, createMock: jest.fn() },
@@ -331,7 +332,7 @@ describe('MidenClientInterface', () => {
         getEffectiveNetworkName: () => 'localnet',
         getEffectiveRpcUrl: () => 'rpc-local',
         getEffectiveProverUrl: () => undefined,
-        getEffectiveNoteTransportUrl: () => undefined,
+        getEffectiveNoteTransportUrl: () => noteTransportUrl,
         getEffectiveFeeFaucetId: () => '0xfee'
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -351,6 +352,18 @@ describe('MidenClientInterface', () => {
 
     it('passes exactly the options it means to, so no observation flag can be added unnoticed', async () => {
       expect(Object.keys(await createAndCaptureOptions()).sort()).toEqual(CREATE_OPTION_KEYS);
+    });
+
+    it('relays through its transport with no in-call retries, leaving every retry to the delivery sweep', async () => {
+      const options = await createAndCaptureOptions('https://transport.test');
+      expect(options.noteTransportUrl).toBe('https://transport.test');
+      expect(options.noteTransportMaxRetries).toBe(0);
+    });
+
+    it('passes the same zero without a transport, where the client makes no send at all', async () => {
+      const options = await createAndCaptureOptions();
+      expect(options.noteTransportUrl).toBeUndefined();
+      expect(options.noteTransportMaxRetries).toBe(0);
     });
 
     /**

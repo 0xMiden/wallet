@@ -153,6 +153,16 @@ const RECOVERY_GAP_LIMIT = 3;
  */
 const USE_OFFSCREEN_PROVING = process.env.MIDEN_USE_OFFSCREEN_PROVING === 'true';
 
+/**
+ * In-call retries of a private note send, for every client the wallet builds: none. The SDK
+ * retries inside the client's serialized call, and a `retry-after` from the transport replaces
+ * its backoff with no upper bound, so any retry leaves the WASM lock hold around a send
+ * unbounded. At 0 a send is one attempt, bounded by the 10 s gRPC timeout, and the delivery
+ * sweep (`transaction/note-delivery-sweep.ts`) owns every retry. A client without a transport
+ * never sends, so it takes the same value.
+ */
+export const NOTE_TRANSPORT_MAX_RETRIES = 0;
+
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
   /**
@@ -543,6 +553,7 @@ export class MidenClientInterface {
     const midenClient = await MidenClient.create({
       rpcUrl: getEffectiveRpcUrl(),
       noteTransportUrl: getEffectiveNoteTransportUrl(),
+      noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
       seed: options.seed,
       keystore: hasKeystore
         ? {
