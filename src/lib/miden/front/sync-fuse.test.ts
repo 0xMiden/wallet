@@ -13,12 +13,15 @@ import {
   isSyncFused,
   noteAbandonedSyncProbe,
   noteNonEvictionSyncFailure,
+  noteProbeFailure,
   noteSyncParked,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
   retireSyncFuse,
   syncFuseUntilMs
 } from './sync-fuse';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // `monotonicNowMs` prefers `performance.now`, so that is the clock to drive.
 let fakeNow = 0;
@@ -361,6 +364,48 @@ describe('sync fuse (#777)', () => {
       }
 
       expect(isSyncFused('idle-sync')).toBe(true);
+    });
+  });
+
+  // The one split every probe books a failed hold through, so two probes cannot read the
+  // same failure differently.
+  describe('noteProbeFailure', () => {
+    it('counts a watchdog eviction toward the fuse', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        noteProbeFailure('note-delivery', new WasmClientPoisonedError('watchdog'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it.each([
+      ['a realm-error poison', () => new WasmClientPoisonedError('realm-error')],
+      ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')]
+    ])('books %s as an abandoned probe, leaving the eviction count standing', (_kind, makeError) => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteProbeFailure('note-delivery', makeError());
+      expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+      noteSyncWatchdogEviction('note-delivery');
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('lights the fuse once enough probes were abandoned', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
+        noteProbeFailure('note-delivery', new WasmClientPoisonedError('realm-error'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('books any other failure as one that reached the node, withdrawing the evidence', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteProbeFailure('note-delivery', new Error('rpc blip'));
+      noteSyncWatchdogEviction('note-delivery');
+
+      expect(isSyncFused('note-delivery')).toBe(false);
     });
   });
 

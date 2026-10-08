@@ -1,10 +1,4 @@
-import {
-  isSyncFused,
-  noteNonEvictionSyncFailure,
-  noteSyncSuccess,
-  noteSyncWatchdogEviction,
-  syncFuseUntilMs
-} from 'lib/miden/front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess, syncFuseUntilMs } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
@@ -20,7 +14,6 @@ import { RETRY_WINDOW_SECONDS } from './note-delivery-window';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { INoteDeliveryState, ITransaction } from '../db/types';
 import { errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
-import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -362,8 +355,8 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
         priorState: row.noteDelivery,
         error
       });
-      if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction('note-delivery');
-      else noteNonEvictionSyncFailure('note-delivery');
+      // A disabled transport refused locally, so no probe ran and there is nothing to book.
+      if (failure !== 'notConfigured') noteProbeFailure('note-delivery', error);
       if (failure === 'interrupted') {
         // The push may still be parked in the abandoned hold, so it spends nothing and
         // records nothing, but the row moves to its next step: left due, the next lap

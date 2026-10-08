@@ -6,6 +6,9 @@ import {
 } from 'lib/miden/sync-backoff';
 import { canonicalGuardianEndpoint } from 'lib/settings/helpers';
 
+import { isOperationAbortedError } from '../back/offscreen-codec';
+import { isSyncWatchdogEviction, isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+
 /**
  * The automatic WASM probes this realm runs on a timer, each identified by the same
  * string it passes as its hold `label` so a fuse entry and an eviction record name the
@@ -326,6 +329,34 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
       `${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min so the rest can run (#800)`
   );
   entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+}
+
+/**
+ * Book one failed probe against `key`, splitting on the only question the fuse asks. Every
+ * probe that books its failures through here reads the same failure the same way.
+ *
+ * TWO DIFFERENT PREDICATES for two different decisions, and collapsing them into one
+ * is the mistake this helper exists to make impossible. A caller's BREAK wants any
+ * poison at all, because what makes continuing unsafe is that the mutex is already a
+ * successor's - equally true of a trap. The FUSE wants watchdog evictions only: its
+ * claim is "the node took our request and never answered, so replacing the client
+ * cannot reach it", and a `realm-error` trap's client is replaced in milliseconds, so
+ * it proves nothing about a parked node. Booked on the wide predicate, four traps
+ * silenced a healthy operator for half an hour.
+ *
+ * THREE OUTCOMES, NOT TWO. A poison that is not a watchdog eviction, or an offscreen
+ * kill, abandoned the probe without learning anything about the node, so it must not
+ * zero the eviction evidence the way a returned failure does - see
+ * `noteAbandonedSyncProbe` for why that left the loop-terminating breaks unbounded.
+ * Any other failure must be REPORTED, not skipped: while unlit it withdraws the evidence
+ * (so a producer that only ever adds would fuse permanently on the first four evictions
+ * of its life), and while lit it re-arms the deadline (so "one probe per 30 min until
+ * one SUCCEEDS" holds).
+ */
+export function noteProbeFailure(key: SyncFuseKey, error: unknown): void {
+  if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
+  else if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) noteAbandonedSyncProbe(key);
+  else noteNonEvictionSyncFailure(key);
 }
 
 export function noteSyncSuccess(key: SyncFuseKey): void {

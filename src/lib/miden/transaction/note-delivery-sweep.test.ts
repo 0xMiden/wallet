@@ -11,7 +11,7 @@ import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { MAX_CONSECUTIVE_ABANDONED_PROBES, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
@@ -1197,6 +1197,52 @@ describe('the delivery schedule', () => {
     expect(mockRelayById).toHaveBeenCalledWith('0xb', 'mtst1recipient');
     expect(mockRelayById).not.toHaveBeenCalledWith('0xa', 'mtst1recipient');
     expect(rows[0]).toMatchObject({ relayAttempts: 1, nextRelayAt: NOW + 5 * MINUTE });
+  });
+
+  // A trap abandons the push without learning anything about the transport.
+  it('books a realm-error push as an abandoned probe, so it never erases eviction evidence', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(new WasmClientPoisonedError('realm-error', new Error('trap')));
+
+    await sweepNoteDeliveries();
+    noteSyncWatchdogEviction('note-delivery');
+
+    expect(isSyncFused('note-delivery')).toBe(true);
+  });
+
+  it('lights the note-delivery fuse once enough pushes were abandoned', async () => {
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValue(new WasmClientPoisonedError('realm-error', new Error('trap')));
+
+    for (let pass = 0; pass < MAX_CONSECUTIVE_ABANDONED_PROBES; pass++) {
+      await sweepNoteDeliveries();
+      clock = rows[0]!.nextRelayAt!;
+    }
+
+    expect(mockRelayById).toHaveBeenCalledTimes(MAX_CONSECUTIVE_ABANDONED_PROBES);
+    expect(isSyncFused('note-delivery')).toBe(true);
+  });
+
+  // No probe ran: the client refused before any transport call.
+  it('books nothing for a push the disabled transport refused', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(
+      new Error(
+        'failed sending private output note: note transport error: note transport is disabled; ' +
+          'enable it in the client configuration to send or receive notes via P2P'
+      )
+    );
+
+    await sweepNoteDeliveries();
+    noteSyncWatchdogEviction('note-delivery');
+
+    expect(isSyncFused('note-delivery')).toBe(true);
   });
 
   it('pushes nothing while the note-delivery fuse is lit, and still reads the receipt', async () => {
