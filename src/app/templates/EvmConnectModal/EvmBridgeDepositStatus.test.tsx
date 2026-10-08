@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
@@ -142,27 +142,6 @@ jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () 
   )
 }));
 
-jest.mock('app/layouts/page-active', () => ({
-  usePageActive: () => true
-}));
-
-// The attestation poll is captured rather than run: the test drives `poll` and
-// `onArrival` by hand, so no timers are involved.
-type TrackerOptions = { active: boolean; intervalMs?: number; poll: () => Promise<boolean>; onArrival?: () => void };
-let trackerOptions: TrackerOptions | undefined;
-jest.mock('lib/agglayer/use-bridge-tracker', () => ({
-  useBridgeTracker: (options: TrackerOptions) => {
-    trackerOptions = options;
-  }
-}));
-
-const fetchXReserveAttestations = jest.fn();
-jest.mock('lib/usdcx/attestation', () => ({
-  fetchXReserveAttestations: (...args: unknown[]) => fetchXReserveAttestations(...args),
-  findAttestationForDomain: (list: { remoteDomain: number }[], domain: number) =>
-    list.find(entry => entry.remoteDomain === domain)
-}));
-
 const makeRow = (extraInputs: IBridgedReceiveExtraInputs, overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'bridge-1',
   type: 'bridged-receive',
@@ -247,7 +226,6 @@ describe('EvmBridgeDepositStatus', () => {
     // The same slate as the processing body: one bridge, one colour, either side of submission.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
     expect(screen.getByTestId('success-footer')).toHaveTextContent('bridgeDepositDeliveryDescription');
-    expect(trackerOptions?.active).toBe(false);
   });
 
   describe('USDCx (Circle xReserve) route', () => {
@@ -261,11 +239,6 @@ describe('EvmBridgeDepositStatus', () => {
         evmTxHash: DEPOSIT_HASH,
         ...overrides
       });
-
-    beforeEach(() => {
-      trackerOptions = undefined;
-      fetchXReserveAttestations.mockResolvedValue([]);
-    });
 
     it('labels the route USDCx', () => {
       mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
@@ -285,51 +258,29 @@ describe('EvmBridgeDepositStatus', () => {
       });
     });
 
-    it('polls Circle for the attestation of the deposit hash while delivering', async () => {
+    // The app-root watcher writes the phase; the screen reads the row and polls nothing.
+    it('waits for the attestation while the row is delivering', () => {
       mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-      expect(trackerOptions?.active).toBe(true);
-      expect(trackerOptions?.intervalMs).toBe(12_000);
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('delivering');
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
-
-      await expect(trackerOptions?.poll()).resolves.toBe(false);
-      expect(fetchXReserveAttestations).toHaveBeenCalledWith(DEPOSIT_HASH);
     });
 
-    it('reports the attestation once Circle signs for the configured domain', async () => {
-      const { USDCX_REMOTE_DOMAIN } = jest.requireActual('lib/usdcx/constant');
-      fetchXReserveAttestations.mockResolvedValue([{ remoteDomain: USDCX_REMOTE_DOMAIN }]);
-      mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
+    it('reads Confirmed once the attestation moved the row to ready', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ phase: 'ready' })), loaded: true };
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-      await expect(trackerOptions?.poll()).resolves.toBe(true);
-      act(() => trackerOptions?.onArrival?.());
-
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('confirmed');
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAttested');
-      expect(trackerOptions?.active).toBe(false);
     });
 
-    it('ignores an attestation for another domain', async () => {
-      fetchXReserveAttestations.mockResolvedValue([{ remoteDomain: 10001 }]);
-      mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
+    it('reads Completed once the minted note is received', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ phase: 'received' })), loaded: true };
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-      await expect(trackerOptions?.poll()).resolves.toBe(false);
-    });
-
-    it('does not poll before the Sepolia receipt', () => {
-      mockRowState = { row: makeRow(usdcxInputs({ phase: 'submitting' })), loaded: true };
-      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
-
-      expect(trackerOptions?.active).toBe(false);
-    });
-
-    it('does not poll a row with no valid deposit hash', () => {
-      mockRowState = { row: makeRow(usdcxInputs({ evmTxHash: 'not-a-hash' })), loaded: true };
-      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
-
-      expect(trackerOptions?.active).toBe(false);
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('completed');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxReceived');
     });
   });
 

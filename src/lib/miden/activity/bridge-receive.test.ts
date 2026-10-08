@@ -11,6 +11,7 @@ const registerBridgeIn = jest.fn();
 const fetchDeposits = jest.fn();
 const resolveNoteId = jest.fn();
 const getIntentStatus = jest.fn();
+const isAttested = jest.fn();
 
 // Only the type index is read: a pass that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
@@ -23,6 +24,9 @@ jest.mock('lib/miden/repo', () => ({
       })
     }))
   }
+}));
+jest.mock('lib/usdcx/attestation', () => ({
+  isUsdcxDepositAttested: (...args: unknown[]) => isAttested(...args)
 }));
 jest.mock('lib/walletconnect/receipt', () => ({
   waitForSepoliaReceipt: (...args: unknown[]) => waitForReceipt(...args)
@@ -58,6 +62,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   waitForReceipt.mockResolvedValue(undefined);
   updatePhase.mockResolvedValue(undefined);
+  isAttested.mockResolvedValue(false);
   registerBridgeIn.mockResolvedValue(undefined);
   fetchDeposits.mockResolvedValue([]);
   resolveNoteId.mockResolvedValue(undefined);
@@ -726,25 +731,48 @@ describe('deposit submissions', () => {
   });
 });
 
-// A USDCx (Circle xReserve) row is driven to `delivering` by the deposit screen
-// and nothing on Miden matches its mint yet, so the reconciler must leave it
-// alone: in particular it must NOT fall into the Epoch branch, which would poll
-// the Epoch SDK with no intent nonce on every tick.
+// A USDCx (Circle xReserve) row is driven to `delivering` by the deposit screen.
+// The reconciler asks Circle for the deposit's attestation and nothing else: in
+// particular it must NOT fall into the Epoch branch, which would poll the Epoch
+// SDK with no intent nonce on every tick.
 describe('reconcileBridgedReceives with a USDCx row', () => {
-  it('leaves a delivering USDCx row untouched', async () => {
-    rows.push({
-      id: 'usdcx-row',
-      type: 'bridged-receive',
-      accountId: 'miden-account',
-      initiatedAt: Math.floor(Date.now() / 1000),
-      extraInputs: { provider: 'usdcx', phase: 'delivering', evmTxHash: `0x${'5'.repeat(64)}` }
-    });
+  const DEPOSIT_HASH = `0x${'5'.repeat(64)}`;
+  const usdcxRow = (extraInputs: Record<string, unknown> = {}) => ({
+    id: 'usdcx-row',
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    extraInputs: { provider: 'usdcx', phase: 'delivering', evmTxHash: DEPOSIT_HASH, ...extraInputs }
+  });
+
+  it('leaves a delivering USDCx row untouched while Circle has not attested it', async () => {
+    rows.push(usdcxRow());
 
     await reconcileBridgedReceives();
 
+    expect(isAttested).toHaveBeenCalledWith(DEPOSIT_HASH);
     expect(getIntentStatus).not.toHaveBeenCalled();
     expect(fetchDeposits).not.toHaveBeenCalled();
     expect(waitForReceipt).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('moves an attested USDCx row to ready', async () => {
+    isAttested.mockResolvedValue(true);
+    rows.push(usdcxRow());
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-row', 'ready');
+  });
+
+  it('leaves the row for the next pass when the attestation request fails', async () => {
+    isAttested.mockRejectedValue(new Error('HTTP 503'));
+    rows.push(usdcxRow());
+
+    await expect(reconcileBridgedReceives()).resolves.toBeUndefined();
+
     expect(updatePhase).not.toHaveBeenCalled();
   });
 

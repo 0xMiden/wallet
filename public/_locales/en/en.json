@@ -1080,6 +1080,7 @@
   "usdcxAwaitingAttestation": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
   "viewOnBlockExplorer": "View on block explorer",
   "usdcxAttested": "Circle attested the deposit. USDCx will be minted on Miden shortly.",
+  "usdcxReceived": "USDCx was minted on Miden and your wallet received it.",
   "bridgeRowTitle": "Bridge $from$ → $to$",
   "bridgeRowVia": "Via $provider$ → $network$",
   "bridgeInProgress": "In progress",

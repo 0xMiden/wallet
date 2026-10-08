@@ -13,6 +13,8 @@ export type Status =
   | 'pending'
   | 'inProgress'
   | 'confirmed'
+  // A USDCx deposit whose minted note the wallet received
+  | 'completed'
   | 'burnPending'
   | 'burnConsuming'
   | 'burnConfirmed'
@@ -70,6 +72,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   pending: { labelKey: 'pending', tone: 'pending' },
   inProgress: { labelKey: 'inProgress', tone: 'pending' },
   confirmed: { labelKey: 'confirmed', tone: 'positive' },
+  completed: { labelKey: 'completed', tone: 'positive' },
   burnPending: { labelKey: 'usdcxBurnPending', tone: 'pending' },
   burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
   burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },

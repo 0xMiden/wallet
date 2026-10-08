@@ -32,6 +32,7 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   formatMoneyAmount,
   isBridgeInEntry,
@@ -149,7 +150,7 @@ function buildRowProps(
             preformatted: true
           }
         : undefined,
-      status: entry.bridgeProvider === 'usdcx' ? bridgeBadgeStatusOf(entry) : d.status
+      status: isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : d.status
     };
   }
 

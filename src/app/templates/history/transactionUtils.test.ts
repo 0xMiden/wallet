@@ -17,6 +17,7 @@ import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  bridgeBadgeStatusOf,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
@@ -658,6 +659,33 @@ describe('creditedAmount', () => {
     expect(creditedAmount(100n, undefined)).toBeUndefined();
     expect(creditedAmount(undefined, { symbol: 'USDC', name: 'USDC', decimals: 6 })).toBeUndefined();
     expect(mockFormatAmount).not.toHaveBeenCalled();
+  });
+});
+
+describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
+  const deposit = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'usdcx', ...overrides });
+
+  it('reads Pending until Circle attests, Confirmed once it does and Completed once the note is received', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'delivering' }))).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'ready' }))).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'received' }))).toBe('completed');
+  });
+
+  it('reads Completed on the consume of the minted note', () => {
+    expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
+  });
+
+  it('reads Failed for a failed deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
+  });
+
+  it('keeps Confirmed for a received deposit of another route', () => {
+    expect(
+      bridgeBadgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
+      )
+    ).toBe('confirmed');
   });
 });
 

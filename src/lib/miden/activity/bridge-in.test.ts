@@ -9,6 +9,7 @@ import {
   resolveBridgeInNoteId,
   suppressedLinkedConsumeIds,
   takeAgglayerBridgeInInfo,
+  takeUsdcxBridgeInInfo,
   applyBridgeInInfoForNotes,
   setAgglayerSenderForE2E
 } from './bridge-in';
@@ -55,12 +56,23 @@ jest.mock('lib/remote-config/values', () => ({
 }));
 // As the SDK parses ids: one text per account whichever form names it, and not the text the registry names the faucet
 // in, so only a match that converts both sides finds the sender.
-const mockAccountText: Record<string, string> = { 'agg-sender': 'agg-account', '0xagg': 'agg-account' };
+const mockAccountText: Record<string, string> = {
+  'agg-sender': 'agg-account',
+  '0xagg': 'agg-account',
+  'usdcx-faucet-bech32': 'usdcx-faucet-account',
+  '0xusdcx': 'usdcx-faucet-account'
+};
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: (ref: string) => {
     if (ref === 'unreadable-sender') throw new Error('not an account id');
     return { toString: () => mockAccountText[ref] ?? `${ref}-account` };
-  }
+  },
+  sameWalletAccountId: (a: string, b: string) => (mockAccountText[a] ?? a) === (mockAccountText[b] ?? b)
+}));
+// USDCx is the chain's native asset: the wallet discovers the faucet id, here in hex.
+const mockGetNativeAssetId = jest.fn(async () => '0xusdcx');
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: () => mockGetNativeAssetId()
 }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -531,6 +543,84 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'fresh' });
+  });
+});
+
+describe('takeUsdcxBridgeInInfo', () => {
+  let nowSpy: jest.SpyInstance<number, []>;
+  beforeEach(() => {
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+  });
+  afterEach(() => nowSpy.mockRestore());
+
+  const DEPOSIT_HASH = `0x${'5'.repeat(64)}`;
+  const tracker = (overrides: Record<string, unknown> = {}, extraInputs: Record<string, unknown> = {}) => ({
+    id: 'row',
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    amount: 5_000_000n,
+    initiatedAt: 1,
+    ...overrides,
+    extraInputs: {
+      provider: 'usdcx',
+      phase: 'ready',
+      sourceAmount: '5',
+      sourceSymbol: 'USDC',
+      evmTxHash: DEPOSIT_HASH,
+      ...extraInputs
+    }
+  });
+  // The mint: the USDCx faucet sends a note of its own asset. The consume reads both ids in bech32.
+  const mint = { accountId: 'miden-account', senderAccountId: 'usdcx-faucet-bech32', faucetId: 'usdcx-faucet-bech32' };
+
+  it('matches the faucet, the account and the amount and selects the oldest broadcast deposit', async () => {
+    mockTransactions.push(
+      tracker({ id: 'newer', accountId: 'miden-account_tag', initiatedAt: 2 }),
+      tracker({ id: 'older' }, { phase: 'delivering' })
+    );
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toEqual({
+      provider: 'usdcx',
+      sourceAmount: '5',
+      sourceSymbol: 'USDC',
+      evmTxHash: DEPOSIT_HASH,
+      bridgeReceiveTxId: 'older'
+    });
+  });
+
+  it('leaves an ordinary faucet request alone when no deposit of that amount is open', async () => {
+    mockTransactions.push(tracker());
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 100_000_000n })).resolves.toBeUndefined();
+  });
+
+  it('never waits for the native asset id when no USDCx deposit is open', async () => {
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toBeUndefined();
+
+    expect(mockGetNativeAssetId).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['another sender', { senderAccountId: 'some-wallet' }],
+    ['another asset', { faucetId: 'other-faucet' }],
+    ['another account', { accountId: 'other-account' }]
+  ])('does not match a note from %s', async (_label, overrides) => {
+    mockTransactions.push(tracker());
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, ...overrides, amount: 5_000_000n })).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ['was never broadcast', tracker({}, { evmTxHash: undefined, phase: 'submitting' })],
+    ['already received its note', tracker({}, { phase: 'received' })],
+    ['failed', tracker({}, { phase: 'failed' })],
+    ['was restored from a backup', tracker({ restoredFromBackup: true })],
+    ['is past the delivery window', tracker({ initiatedAt: -8 * 24 * 60 * 60 })],
+    ['is for another route', tracker({}, { provider: 'agglayer' })]
+  ])('does not match a deposit that %s', async (_label, row) => {
+    mockTransactions.push(row);
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toBeUndefined();
   });
 });
 

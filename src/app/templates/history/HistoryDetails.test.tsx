@@ -26,7 +26,6 @@ import {
 } from 'lib/miden/transaction/constants';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
-import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -91,11 +90,6 @@ const setMockSettlementNotes = (notes: {
 // Data / logic dependency mocks.
 // ---------------------------------------------------------------------------
 const mockRetryEarnWithdrawReceive = jest.fn().mockResolvedValue(undefined);
-const mockFetchAttestations = jest.fn().mockResolvedValue([]);
-jest.mock('lib/usdcx/attestation', () => ({
-  ...jest.requireActual('lib/usdcx/attestation'),
-  fetchXReserveAttestations: (...args: unknown[]) => mockFetchAttestations(...args)
-}));
 const mockGetTokenMetadata = jest.fn();
 const mockGetSwapTokenByFaucetId = jest.fn();
 const mockGoBack = jest.fn();
@@ -3471,26 +3465,38 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('10.66')).toBeInTheDocument();
     });
 
-    it('confirms a USDCx deposit on attestation while its Miden note remains pending', async () => {
-      const hash = `0x${'c'.repeat(64)}`;
-      mockFetchAttestations.mockResolvedValueOnce([
-        { payload: '0xab', messageHash: '0xcd', attestation: '0xef', remoteDomain: USDCX_REMOTE_DOMAIN }
-      ]);
+    // The app-root watcher writes `ready` on Circle's attestation; the page reads the row and polls nothing.
+    it('confirms an attested USDCx deposit while its Miden note remains pending', async () => {
       setMockRow({
         ...bridgedReceiveTx,
         extraInputs: {
           provider: 'usdcx',
           sourceAmount: '10',
           sourceSymbol: 'USDC',
-          phase: 'delivering',
-          evmTxHash: hash
+          phase: 'ready',
+          evmTxHash: `0x${'c'.repeat(64)}`
         }
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(mockFetchAttestations).toHaveBeenCalledWith(hash);
       expect(screen.getByTestId('history-status-pill')).toHaveTextContent('confirmed');
       expect(rowByLabel('noteId')?.textContent).toContain('pending');
+    });
+
+    it('completes a USDCx deposit once its minted note is received', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          provider: 'usdcx',
+          sourceAmount: '10',
+          sourceSymbol: 'USDC',
+          phase: 'received',
+          evmTxHash: `0x${'c'.repeat(64)}`
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('completed');
     });
 
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {

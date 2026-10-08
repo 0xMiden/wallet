@@ -286,15 +286,22 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   return entry.bridgeEpochStatus ?? 'pending';
 };
 
-/** A faucet-confirmed burn must never be labeled as a confirmed destination payout. */
+/** A USDCx row in either direction: a deposit through xReserve, or a burn. Its badge is `bridgeBadgeStatusOf`. */
+export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' | 'bridgeInProvider'>): boolean =>
+  entry.bridgeProvider === 'usdcx' || entry.bridgeInProvider === 'usdcx';
+
+/**
+ * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
+ * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
+ * as a confirmed destination payout.
+ */
 export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
-  if (
-    entry.bridgeProvider !== 'usdcx' ||
-    entry.txType !== 'bridged-send' ||
-    entry.status === ITransactionStatus.Failed
-  ) {
-    return bridgeStatusOf(entry);
+  if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
+  if (entry.bridgeInProvider === 'usdcx') {
+    const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
+    return received ? 'completed' : bridgeStatusOf(entry);
   }
+  if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
   switch (entry.usdcxBurn?.phase) {
     case 'confirmed':
       return 'burnConfirmed';

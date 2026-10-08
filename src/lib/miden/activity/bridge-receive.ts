@@ -3,6 +3,7 @@ import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { isUsdcxDepositAttested } from 'lib/usdcx/attestation';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { BRIDGE_RECEIVE_MAX_AGE_MS, registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
@@ -109,6 +110,20 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
   }
 }
 
+/**
+ * Circle's attestation proves the deposit, so the row becomes `ready`: Activity shows it as
+ * Confirmed and the timeout no longer fails it. A row that has its hash but lost its screen
+ * before the source-chain receipt settles the same way. The consume of the minted note then
+ * moves the row to `received` (`takeUsdcxBridgeInInfo`).
+ */
+async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+  try {
+    if (await isUsdcxDepositAttested(inputs.evmTxHash)) await updateBridgedReceivePhase(row.id, 'ready');
+  } catch (error) {
+    console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
+  }
+}
+
 async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans: boolean): Promise<void> {
   const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
   if (inputs === undefined) return;
@@ -134,9 +149,7 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
       await reconcileAgglayerRow(row, inputs);
       return;
     case 'usdcx':
-      // The screen moves a USDCx row to `delivering` on the source-chain receipt and
-      // nothing on Miden matches the mint yet, so there is nothing to poll. The
-      // timeout above still closes the row.
+      await reconcileUsdcxRow(row, inputs);
       return;
     case 'epoch':
     default:

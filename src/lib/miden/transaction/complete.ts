@@ -40,7 +40,12 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
+import {
+  applyBridgeInInfoForNotes,
+  applyBridgeInToConsumeRow,
+  takeAgglayerBridgeInInfo,
+  takeUsdcxBridgeInInfo
+} from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -294,11 +299,11 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
     // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
     if (!applied && inputNotes.length === 1) {
-      const info = await takeAgglayerBridgeInInfo({
-        accountId: dbTransaction?.accountId ?? '',
-        senderAccountId: sender,
-        amount
-      });
+      const accountId = dbTransaction?.accountId ?? '';
+      // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
+      const info =
+        (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
+        (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount }));
       if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
     }
   } catch (err) {

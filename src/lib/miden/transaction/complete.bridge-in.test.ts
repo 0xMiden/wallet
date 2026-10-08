@@ -6,12 +6,13 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import { completeConsumeTransaction } from './complete';
-import { takeAgglayerBridgeInInfo } from '../activity/bridge-in';
+import { takeAgglayerBridgeInInfo, takeUsdcxBridgeInInfo } from '../activity/bridge-in';
 
 jest.mock('../activity/bridge-in', () => ({
   applyBridgeInInfoForNotes: async () => false,
   applyBridgeInToConsumeRow: jest.fn(),
-  takeAgglayerBridgeInInfo: jest.fn(async () => undefined)
+  takeAgglayerBridgeInInfo: jest.fn(async () => undefined),
+  takeUsdcxBridgeInInfo: jest.fn(async () => undefined)
 }));
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
@@ -67,6 +68,17 @@ it("pairs a single-delivery consume by that note's sender and amount", async () 
   expect(takeAgglayerBridgeInInfo).toHaveBeenCalledWith({
     accountId: 'account',
     senderAccountId: DELIVERY_SENDER,
+    amount: 2n
+  });
+});
+
+it('offers a single-note consume no AggLayer tracker took to the USDCx trackers', async () => {
+  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 2n)]));
+
+  expect(takeUsdcxBridgeInInfo).toHaveBeenCalledWith({
+    accountId: 'account',
+    senderAccountId: DELIVERY_SENDER,
+    faucetId: 'eth-faucet',
     amount: 2n
   });
 });

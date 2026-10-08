@@ -1,5 +1,10 @@
-import { fetchXReserveAttestations, findAttestationForDomain, XReserveAttestation } from './attestation';
-import { XRESERVE_ATTESTATION_API } from './constant';
+import {
+  fetchXReserveAttestations,
+  findAttestationForDomain,
+  isUsdcxDepositAttested,
+  XReserveAttestation
+} from './attestation';
+import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API } from './constant';
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
@@ -70,6 +75,20 @@ describe('fetchXReserveAttestations', () => {
     fetchMock.mockResolvedValue(okResponse({ attestations: [malformed, entry()] }));
 
     await expect(fetchXReserveAttestations(TX_HASH)).resolves.toEqual([entry()]);
+  });
+
+  it('reports a deposit attested only once Circle signed it for the Miden domain', async () => {
+    fetchMock.mockResolvedValue(okResponse({ attestations: [entry({ remoteDomain: 10001 })] }));
+    await expect(isUsdcxDepositAttested(TX_HASH)).resolves.toBe(false);
+
+    fetchMock.mockResolvedValue(okResponse({ attestations: [entry({ remoteDomain: USDCX_REMOTE_DOMAIN })] }));
+    await expect(isUsdcxDepositAttested(TX_HASH)).resolves.toBe(true);
+  });
+
+  it.each([undefined, 'not-a-hash'])('makes no request for %s, which is not a transaction hash', async txHash => {
+    await expect(isUsdcxDepositAttested(txHash)).resolves.toBe(false);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns an empty list when the body has no attestations array', async () => {

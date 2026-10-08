@@ -1,6 +1,6 @@
-import { Hash, Hex, isHex } from 'viem';
+import { Hash, Hex, isHash, isHex } from 'viem';
 
-import { XRESERVE_ATTESTATION_API } from './constant';
+import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API } from './constant';
 
 // Circle's API can accept the socket and then stay silent. Bound every request
 // so a poll tick fails and retries instead of hanging the status screen.
@@ -72,6 +72,16 @@ export async function fetchXReserveAttestations(
   const list = body && typeof body === 'object' ? Reflect.get(body, 'attestations') : undefined;
   if (!Array.isArray(list)) return [];
   return list.map(parseAttestation).filter((entry): entry is XReserveAttestation => entry !== undefined);
+}
+
+/**
+ * Whether Circle attested the deposit `txHash` for Miden. A value that is not a
+ * transaction hash is never attested, and no request is made for it.
+ */
+export async function isUsdcxDepositAttested(txHash: string | undefined): Promise<boolean> {
+  if (txHash === undefined || !isHash(txHash)) return false;
+  const attestations = await fetchXReserveAttestations(txHash);
+  return findAttestationForDomain(attestations, USDCX_REMOTE_DOMAIN) !== undefined;
 }
 
 /** The attestation for one remote domain, if Circle signed it. */

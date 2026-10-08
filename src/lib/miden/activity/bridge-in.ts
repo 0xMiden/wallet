@@ -2,7 +2,8 @@ import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
-import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
 import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
 
@@ -257,6 +258,54 @@ export async function takeAgglayerBridgeInInfo(args: {
   const inputs = match.extraInputs as IBridgedReceiveExtraInputs;
   return {
     provider: 'agglayer',
+    sourceAmount: inputs.sourceAmount,
+    sourceSymbol: inputs.sourceSymbol,
+    evmTxHash: inputs.evmTxHash,
+    bridgeReceiveTxId: match.id
+  };
+}
+
+/**
+ * Match a note the USDCx faucet minted to the oldest compatible xReserve tracking row.
+ * The faucet is the chain's native asset and also sends ordinary faucet requests, so the
+ * sender alone proves nothing. The row must be a broadcast deposit (it has its EVM hash)
+ * of the same account and the same amount, which xReserve mints 1:1. The rows are read
+ * first, so a consume with no open USDCx deposit never waits for the native asset id.
+ */
+export async function takeUsdcxBridgeInInfo(args: {
+  accountId: string;
+  senderAccountId: string;
+  faucetId: string;
+  amount: bigint;
+}): Promise<IBridgeInInfo | undefined> {
+  const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
+  const matches = await Repo.transactions
+    .filter(tx => {
+      if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
+      // A restored tracker must not adopt a genuine incoming note, as for an AggLayer delivery.
+      if (tx.restoredFromBackup) return false;
+      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+      return (
+        inputs?.provider === 'usdcx' &&
+        inputs.evmTxHash !== undefined &&
+        inputs.phase !== 'received' &&
+        inputs.phase !== 'failed' &&
+        tx.initiatedAt >= cutoffSec &&
+        tx.amount === args.amount
+      );
+    })
+    .toArray();
+  matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
+  const match = matches[0];
+  if (!match) return undefined;
+
+  const usdcxFaucetId = await getNativeAssetId();
+  if (!sameWalletAccountId(args.senderAccountId, usdcxFaucetId) || !sameWalletAccountId(args.faucetId, usdcxFaucetId)) {
+    return undefined;
+  }
+  const inputs: IBridgedReceiveExtraInputs = match.extraInputs;
+  return {
+    provider: 'usdcx',
     sourceAmount: inputs.sourceAmount,
     sourceSymbol: inputs.sourceSymbol,
     evmTxHash: inputs.evmTxHash,

@@ -1,17 +1,14 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 import { useTranslation } from 'react-i18next';
-import { Hash, isHash } from 'viem';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { usePageActive } from 'app/layouts/page-active';
 import { creditedAmount, formatMoneyAmount, TRANSACTION_COLORS } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer';
-import { useBridgeTracker } from 'lib/agglayer/use-bridge-tracker';
 import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -21,9 +18,6 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
-import { fetchXReserveAttestations, findAttestationForDomain } from 'lib/usdcx/attestation';
-import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
-import { ATTESTATION_POLL_MS } from 'lib/usdcx/use-attestation';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
@@ -62,13 +56,31 @@ const outputLabel = (
 };
 
 /**
- * The deposit hash to poll Circle's attestation API for. Only a USDCx row that
- * is past its source-chain receipt has one; the other routes have no attestation.
+ * The status word and the footer of a submitted deposit. A USDCx row follows Circle: the
+ * app-root watcher moves it to `ready` on the attestation (Confirmed), and the consume of
+ * the minted note moves it to `received` (Completed).
  */
-function attestationHashOf(inputs: IBridgedReceiveExtraInputs | undefined): Hash | undefined {
-  if (inputs === undefined || inputs.provider !== 'usdcx' || inputs.phase !== 'delivering') return undefined;
-  const hash = inputs.evmTxHash;
-  return hash !== undefined && isHash(hash) ? hash : undefined;
+function submittedCopyOf(
+  inputs: IBridgedReceiveExtraInputs,
+  t: (key: string) => string
+): { statusValue: string; footerDescription: string } {
+  const usdcx = inputs.provider === 'usdcx';
+  switch (inputs.phase) {
+    case 'received':
+      return usdcx
+        ? { statusValue: t('completed'), footerDescription: t('usdcxReceived') }
+        : { statusValue: t('received'), footerDescription: t('bridgeDepositDeliveryDescription') };
+    case 'ready':
+      return {
+        statusValue: t('confirmed'),
+        footerDescription: usdcx ? t('usdcxAttested') : t('bridgeDepositDeliveryDescription')
+      };
+    default:
+      return {
+        statusValue: t('delivering'),
+        footerDescription: usdcx ? t('usdcxAwaitingAttestation') : t('bridgeDepositDeliveryDescription')
+      };
+  }
 }
 
 function routeLabelOf(provider: IBridgeProvider, t: (key: string) => string): string {
@@ -89,25 +101,9 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   const { row, loaded } = useTransactionRow(txId);
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
-  const pageActive = usePageActive();
-  const [attested, setAttested] = useState(false);
   const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
-  const attestationHash = attestationHashOf(inputs);
-
-  // Display only: nothing on the row changes when Circle signs, because no
-  // Miden note is matched for this route yet. The poll stops on the first hit.
-  useBridgeTracker({
-    active: pageActive && attestationHash !== undefined && !attested,
-    intervalMs: ATTESTATION_POLL_MS,
-    poll: async () => {
-      if (attestationHash === undefined) return false;
-      const attestations = await fetchXReserveAttestations(attestationHash);
-      return findAttestationForDomain(attestations, USDCX_REMOTE_DOMAIN) !== undefined;
-    },
-    onArrival: () => setAttested(true)
-  });
 
   if (!loaded || !row || inputs === undefined)
     return (
@@ -140,20 +136,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
               title: sourceChain.name
             })
         : undefined;
-    const statusValue = (() => {
-      switch (inputs.phase) {
-        case 'received':
-          return t('received');
-        case 'ready':
-          return t('confirmed');
-        default:
-          return t('delivering');
-      }
-    })();
-    const footerDescription = (() => {
-      if (inputs.provider !== 'usdcx') return t('bridgeDepositDeliveryDescription');
-      return attested ? t('usdcxAttested') : t('usdcxAwaitingAttestation');
-    })();
+    const { statusValue, footerDescription } = submittedCopyOf(inputs, t);
     return (
       <TransactionSuccessLayout
         headerTitle={t('success')}

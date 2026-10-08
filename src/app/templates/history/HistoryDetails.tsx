@@ -8,7 +8,6 @@ import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
-import { usePageActive } from 'app/layouts/page-active';
 import PageLayout from 'app/layouts/PageLayout';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
 import { Button, ButtonVariant } from 'components/Button';
@@ -52,7 +51,6 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { useUsdcxAttestation } from 'lib/usdcx/use-attestation';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
 import {
@@ -76,7 +74,6 @@ import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
-  bridgeStatusOf,
   bridgeBadgeStatusOf,
   earnWithdrawAmountFields,
   earnWithdrawShowsSource,
@@ -284,12 +281,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
-  const pageActive = usePageActive();
-  const usdcxInputs = row?.type === 'bridged-receive' ? row.extraInputs : undefined;
-  const usdcxAttested = useUsdcxAttestation(
-    usdcxInputs?.provider === 'usdcx' ? usdcxInputs.evmTxHash : undefined,
-    pageActive && usdcxInputs?.phase === 'delivering' && row?.status !== ITransactionStatus.Failed
-  );
   const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
   // Labelled at render, so the page follows a config publish without deriving the row again.
   const entry = useMemo(
@@ -756,17 +747,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 {isBridge ? (
                   // Not-confirmed wins over the route's own lifecycle (#1250 F-024): the row's
                   // outcome is unknown, not the confirmed failure `bridgeStatusOf` would report.
-                  // A USDCx deposit Circle attested reads confirmed; a USDCx burn reads its own phase.
+                  // A USDCx deposit and a USDCx burn read their own phases (`bridgeBadgeStatusOf`).
                   <StatusBadge
                     size="md"
                     live
-                    status={
-                      entry.isUnconfirmed
-                        ? 'unconfirmed'
-                        : usdcxAttested && entry.txId === row?.id && bridgeStatusOf(entry) === 'pending'
-                          ? 'confirmed'
-                          : bridgeBadgeStatusOf(entry)
-                    }
+                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeBadgeStatusOf(entry)}
                     data-testid="history-status-pill"
                   />
                 ) : isEarnWithdraw && earnWithdraw ? (
