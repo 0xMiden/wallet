@@ -7,6 +7,7 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
@@ -25,10 +26,13 @@ import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
+import { UnverifiedTokenSheet } from 'components/UnverifiedTokenSheet';
 import { adaptiveFormatterFor, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
+import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { priceSymbolFor } from 'lib/miden/swap/tokens';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -37,6 +41,8 @@ import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
+import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useTokenVerification } from 'lib/token-list/useTokenVerification';
@@ -44,6 +50,8 @@ import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
 import { truncateHash } from 'utils/string';
+
+import { EditTokenDetailsDrawer, TokenDetailsValues } from './EditTokenDetailsDrawer';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -76,6 +84,11 @@ type TokenDetailProps = {
   tokenId: string;
 };
 
+/** A hairline between two of the page's sections, with the body's 20px either side. */
+const SectionDivider: FC = () => (
+  <div aria-hidden="true" className="h-px shrink-0 bg-hairline" data-testid="token-detail-section-divider" />
+);
+
 const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
@@ -84,10 +97,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const allTokensMetadata = useAllTokensBaseMetadata();
   const { data: balances } = useAllBalances(account.publicKey, allTokensMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const token = balances?.find(b => b.tokenId === tokenId);
   const metadata = token?.metadata || allTokensMetadata[tokenId];
   const symbol = metadata?.symbol || t('unknown');
+  const title = midenTokenLabel(bridgeConfig, tokenId, symbol);
   // No figure until the balances have been read: the page shows the placeholder, not a made-up
   // 0.00. Once read, a token with no entry holds nothing.
   const balance = balances ? (token?.balance ?? 0) : null;
@@ -106,6 +121,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const formatBalance = adaptiveFormatterFor(balance ?? 0);
   const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
   const verification = useTokenVerification(tokenId);
+  const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
 
   const handleBack = () => goBack();
 
@@ -118,13 +134,36 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-page')}>
-      <PageHeader className="px-4" title={symbol} onBack={handleBack} />
+      <PageHeader className="px-4" title={title} onBack={handleBack} />
 
       <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollParentRef}>
         <div className="flex flex-col gap-5 px-4 pb-4">
           <Hero
             data-testid="token-detail-hero"
-            visual={<TokenLogo symbol={symbol} size="2xl" />}
+            valueClassName="font-extrabold"
+            visual={
+              <TokenLogo
+                symbol={symbol}
+                faucetId={tokenId}
+                size="2xl"
+                // An unverified token carries the warning on its own mark, where the eye already is.
+                badge={
+                  verification === 'unverified' ? (
+                    <span
+                      className="flex size-7 items-center justify-center rounded-full bg-page"
+                      data-testid="token-detail-unverified-badge"
+                    >
+                      <Icon
+                        name={IconName.WarningFill}
+                        size="sm"
+                        fill="currentColor"
+                        className="text-pending-tint-ink"
+                      />
+                    </span>
+                  ) : undefined
+                }
+              />
+            }
             value={
               <AnimatedNumber
                 value={scaleIsKnown ? balance : null}
@@ -148,15 +187,23 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           />
 
           {verification === 'unverified' && (
-            // A token's name and logo are whatever its creator chose; only the list vouches for it.
-            <div className="flex flex-col items-center gap-2" data-testid="token-detail-unverified">
-              <Pill size="sm" tone="warning">
-                {t('unverifiedToken')}
+            // A token's name and logo are whatever its creator chose; only the list vouches for it. One
+            // outline pill names it, and opens the sheet that says why.
+            // 8px closer to the hero than the body's gap, so the pill reads as part of the figure above.
+            <div className="-mt-2 flex justify-center" data-testid="token-detail-unverified">
+              <Pill
+                size="md"
+                tone="warning"
+                onClick={() => setUnverifiedSheetOpen(true)}
+                aria-haspopup="dialog"
+                aria-expanded={unverifiedSheetOpen}
+                icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+                trailingIcon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+                data-testid="token-detail-unverified-pill"
+              >
+                {t('unverifiedTokenTitle')}
               </Pill>
-              {/* Centred like the pill and the Hero above it; the pill already carries the warning. */}
-              <Notice tone="warning" variant="inline" className="justify-center text-center">
-                {t('unverifiedTokenDescription')}
-              </Notice>
+              <UnverifiedTokenSheet open={unverifiedSheetOpen} onOpenChange={setUnverifiedSheetOpen} />
             </div>
           )}
 
@@ -187,20 +234,29 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           </div>
 
           {/* The nominal rate is a dollar figure with no market behind it: no price, move or line to chart. */}
+          <SectionDivider />
+
           {quote && !isNominalQuote(quote) && !isFixedQuote(quote) && priceSymbol && (
-            <PriceChart symbol={priceSymbol} priceInfo={quote} />
+            <>
+              <PriceChart symbol={priceSymbol} priceInfo={quote} />
+              <SectionDivider />
+            </>
           )}
 
-          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} />
+          <TokenInfo key={account.publicKey} tokenId={tokenId} address={account.publicKey} metadata={metadata} />
+
+          <SectionDivider />
 
           <section data-testid="token-detail-activity">
-            <SectionHeader size="lg" tone="muted">
+            <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
               {t('recentActivity')}
             </SectionHeader>
             <History
               address={account.publicKey}
               tokenId={tokenId}
               fullHistory={true}
+              // The section's heading names the list; each day is a quiet caption under it.
+              dateStyle="caption"
               scrollParentRef={scrollParentRef}
             />
           </section>
@@ -256,7 +312,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   // card, and a neutral `Pill` on a `fill` card would not show at all.
   return (
     <section data-testid="token-detail-price">
-      <SectionHeader size="lg" tone="muted">
+      <SectionHeader size="2xl" tone="muted" className="px-0 pb-3">
         {t('tokenPrice')}
       </SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
@@ -326,9 +382,43 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
   );
 };
 
-const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address }) => {
+type TokenInfoProps = {
+  tokenId: string;
+  address: string;
+  /** The metadata the page shows: the faucet's, with the user's override applied. The page resolves it once. */
+  metadata?: AssetMetadata;
+};
+
+/** The decimals are the user's to set while the faucet's scale is unknown: no known scale, or one the user stated. */
+function decimalsAreUsers(metadata: AssetMetadata | undefined): boolean {
+  return !hasKnownScale(metadata) || metadata?.scaleFromOverride === true;
+}
+
+/** The sheet's starting values. Decimals that are a guess are left empty, so the user must state them. */
+function tokenDetailsValues(metadata: AssetMetadata | undefined): TokenDetailsValues {
+  return {
+    name: metadata?.name ?? '',
+    symbol: metadata?.symbol ?? '',
+    decimals: metadata?.scaleFromOverride ? String(metadata.decimals) : ''
+  };
+}
+
+const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const { t } = useTranslation();
   const network = useNetwork();
+  // Testnet iETH is a test asset, not ETH: the wallet says so itself instead of trusting its faucet's words.
+  const info = testnetTokenInfo(tokenId);
+  const description = info ? t(info.descriptionKey) : metadata?.description;
+  const nativeFaucetId = useMidenFaucetId();
+  // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.
+  const canEdit =
+    nativeFaucetId !== null &&
+    normalizedFaucetId(tokenId) !== normalizedFaucetId(nativeFaucetId) &&
+    canOverrideMetadata(tokenId);
+  const hasOverride = useWalletStore(s => s.tokenMetadataOverrides[tokenId] !== undefined);
+  const edited = canEdit && hasOverride;
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSession, setEditSession] = useState(0);
   // Undefined on a build with no explorer configured for the effective network (e.g. a custom
   // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
   // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
@@ -352,12 +442,41 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
     void result.then(succeeded => setSaveFailed(!succeeded));
   };
 
+  const handleEdit = () => {
+    hapticLight();
+    setEditSession(session => session + 1);
+    setEditOpen(true);
+  };
+
   return (
     <section data-testid="token-detail-info">
-      <SectionHeader size="lg" tone="muted">
+      <SectionHeader
+        size="2xl"
+        tone="muted"
+        className="px-0 pb-3"
+        action={
+          // On the page, not in the card: a neutral pill on the `fill` card would not show.
+          // It says that the name, symbol and decimals on this page are the user's, not the faucet's.
+          edited ? (
+            <Pill size="sm" tone="neutral" data-testid="token-detail-edited">
+              {t('tokenMetadataEdited')}
+            </Pill>
+          ) : undefined
+        }
+      >
         {t('tokenInfo')}
       </SectionHeader>
-      <DetailCard>
+      <DetailCard surface="outline">
+        {/* What the token is: the faucet's own words, or the wallet's for testnet iETH. It comes first
+            because it describes the token; the rows after it are identifiers. The text can be long,
+            so it wraps under the label.
+            A stacked row breaks inside words, which suits an address but not prose. The span breaks
+            at spaces and breaks a word only when the word is wider than the card. */}
+        {description && (
+          <DetailRow label={t('tokenDescription')} stacked data-testid="token-detail-description">
+            <span className="break-normal wrap-break-word">{description}</span>
+          </DetailRow>
+        )}
         {/* The faucet that mints this token, under the name the transaction detail page gives every
             faucet id. A bare copy glyph beside the id cut by the shared `truncateHash`, in the row's
             value style; the full id is what gets copied. */}
@@ -374,7 +493,8 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
           />
         </DetailRow>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
-        <DetailRow label={t('network')}>
+        {/* Centred on the chip, which is taller than the label's line. */}
+        <DetailRow label={t('network')} className="items-center">
           <NetworkChip kind="miden" label={network.name} />
         </DetailRow>
         {explorerUrl && (
@@ -391,6 +511,20 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
           >
             {t('viewOnMidenscan')}
             <Icon name={IconName.ArrowRightUp} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
+          </button>
+        )}
+        {canEdit && (
+          // The explorer row's text action. It opens a sheet, so it says so to assistive technology.
+          <button
+            type="button"
+            onClick={handleEdit}
+            aria-haspopup="dialog"
+            aria-expanded={editOpen}
+            data-testid="token-detail-edit"
+            className="flex w-full items-center justify-between px-4 py-3 text-left text-action text-accent-tint-ink"
+          >
+            {t('editTokenDetails')}
+            <Icon name={IconName.Edit} fill="currentColor" aria-hidden className="h-4 w-4 shrink-0" />
           </button>
         )}
         {canHide && (
@@ -427,6 +561,17 @@ const TokenInfo: FC<{ tokenId: string; address: string }> = ({ tokenId, address 
         <ErrorLine role="note" className="mt-2" data-testid="token-detail-hidden-unreadable">
           {t('hiddenTokensUnreadable')}
         </ErrorLine>
+      )}
+      {canEdit && (
+        <EditTokenDetailsDrawer
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          faucetId={tokenId}
+          initialValues={tokenDetailsValues(metadata)}
+          decimalsEditable={decimalsAreUsers(metadata)}
+          edited={edited}
+          sessionKey={editSession}
+        />
       )}
     </section>
   );

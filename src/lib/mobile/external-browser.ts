@@ -1,6 +1,7 @@
 import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
+import { webviewToolbarColors } from 'lib/mobile/webview-theme';
 import { isMobile } from 'lib/platform';
 
 const EXPLORER_INSTANCE_ID = 'explorer-webview';
@@ -44,6 +45,7 @@ export async function openExternalUrl({
     title,
     toolbarType: ToolBarType.NAVIGATION,
     showReloadButton: true,
-    isPresentAfterPageLoad: false
+    isPresentAfterPageLoad: false,
+    ...webviewToolbarColors()
   });
 }

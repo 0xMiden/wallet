@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { IconName } from 'app/icons/v2';
 import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
@@ -85,7 +86,9 @@ jest.mock('components/ui', () => ({
     onAction,
     actionDisabled,
     status,
-    onDismiss
+    onDismiss,
+    variant,
+    icon
   }: {
     title: string;
     body?: string;
@@ -97,11 +100,15 @@ jest.mock('components/ui', () => ({
     actionDisabled?: boolean;
     status?: string;
     onDismiss?: () => void;
+    variant?: string;
+    icon?: string;
   }) => (
     <section
       data-testid="prompt-card"
       data-title={title}
       data-status={status}
+      data-variant={variant}
+      data-icon={icon}
       data-hero={hero?.label}
       data-hero-sub={hero?.subLabel}
       // The real PromptCard renders no action button at all without onClick, but
@@ -3579,6 +3586,31 @@ describe('HomePrompts', () => {
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history?filter=pending&view=list');
   });
 
+  // Money waiting to be accepted takes the Receive tint and glyph, apart from the notices; the seed
+  // reminder keeps its warning tint under a shield.
+  it('draws pending notes as a receive card and seed verification under a shield', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={fundedBalance}
+        balancesLoading={false}
+        claimableNotes={quotedNotes}
+        fundingNotes={quotedNotes}
+        tokenPrices={tokenPrices}
+      />
+    );
+
+    const [pendingNotes, verifySeedPhrase] = screen.getAllByTestId('prompt-card');
+    expect(pendingNotes).toHaveAttribute('data-title', 'pendingNotesPromptTitle');
+    expect(pendingNotes).toHaveAttribute('data-variant', 'receive');
+    expect(pendingNotes).toHaveAttribute('data-icon', IconName.Receive);
+    expect(verifySeedPhrase).toHaveAttribute('data-title', 'verifySeedPhrasePromptTitle');
+    expect(verifySeedPhrase).toHaveAttribute('data-variant', 'warning');
+    expect(verifySeedPhrase).toHaveAttribute('data-icon', IconName.ShieldCheck);
+  });
+
   it('shows the pending-notes card without a total when any waiting note has no price', () => {
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
@@ -3615,7 +3647,7 @@ describe('HomePrompts', () => {
     );
 
     expect(screen.getByTestId('prompt-card-value')).not.toHaveTextContent('$4.50');
-    expect(screen.getByText('pendingNotesPromptBody:1')).toBeInTheDocument();
+    expect(screen.getByText('pendingNotesPromptBodyReview:1')).toBeInTheDocument();
 
     // Restore puts it back, and the banner agrees again.
     mockHiddenNotes.ids = new Set();
@@ -3630,7 +3662,7 @@ describe('HomePrompts', () => {
       />
     );
     expect(screen.getByTestId('prompt-card-value')).toHaveTextContent('$4.50');
-    expect(screen.getByText('pendingNotesPromptBody:2')).toBeInTheDocument();
+    expect(screen.getByText('pendingNotesPromptBodyReview:2')).toBeInTheDocument();
   });
 
   it('shows nothing at all when every pending transfer has been declined', () => {

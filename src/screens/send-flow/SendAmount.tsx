@@ -14,6 +14,8 @@ import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { truncateAddress } from 'utils/string';
 
 import { approxFiatAmount, balanceFormatterFor, formatBalance } from './amount-format';
@@ -60,6 +62,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const transition = useMotion({ duration: durations.normal, ease: easings.easeOutCubic });
 
   // A decimals guess converts the typed amount into the wrong base units, so
@@ -121,13 +124,13 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             className="flex min-w-0 flex-1 items-center gap-3 text-left"
           >
             {token ? (
-              <TokenLogo symbol={token.name} size="md" />
+              <TokenLogo symbol={token.name} faucetId={token.id} size="md" />
             ) : (
               <span className="h-9 w-9 shrink-0 rounded-full bg-gray-100" aria-hidden="true" />
             )}
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="flex items-center gap-1 font-heading text-lg leading-tight font-bold text-ink">
-                {token ? token.name : t('selectAToken')}
+                {token ? midenTokenLabel(bridgeConfig, token.id, token.name) : t('selectAToken')}
                 <Icon name={IconName.ChevronDown} size="xs" className="text-accent-send" fill="currentColor" />
               </span>
               {token && (

@@ -1988,9 +1988,9 @@
     "message": "Você tem transferências para aceitar",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ aguardando",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ aguardando · toque para revisar",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3869,17 +3869,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Ferramentas",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Social",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Jogos",
@@ -3896,14 +3888,6 @@
   "exploreCategoriesLabel": {
     "message": "Categorias",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Destaque",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Ferramentas",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Abrir",
@@ -3932,10 +3916,6 @@
   "exploreNoResultsDescription": {
     "message": "Tente outro nome ou cole o URL de um dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Obtenha tokens de testnet para swaps",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Minimizar",
@@ -4299,6 +4279,10 @@
   "tokenInfo": {
     "message": "Informações sobre o token",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "Descrição",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "Fungível",
@@ -4794,6 +4778,10 @@
   "unverifiedTokenDescription": {
     "message": "Este token não consta na lista de tokens verificados da Miden. Qualquer pessoa pode criar um token com qualquer nome; portanto, verifique o ID no faucet antes de confiar nele.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "Token não verificado",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "Não foi possível verificar por meio de simulação. Os valores abaixo são os declarados pelo site.",
@@ -5856,5 +5844,93 @@
   "confirmEarnDepositReason": {
     "message": "Confirme seu depósito",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Editar detalhes do token",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Detalhes do token",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Nome",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Símbolo",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Decimais",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Salvar",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Redefinir para os valores de “faucet”",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Editado",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Digite um nome com 1 a$max$es.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Digite um símbolo de 1 a$max$es.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Digite um número inteiro de 0 a $max$.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Esses valores alteram apenas a forma como esta carteira exibe o token. O faucet mantém seus próprios valores. Os valores que você envia utilizam as casas decimais definidas aqui.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Não foi possível salvar os detalhes do token. Tente novamente.",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH é um token de teste usado para trocas na Miden Testnet. Não é ETH e não estará disponível na carteira de produção.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "A troca é executada por meio de um contrato inteligente na Miden Testnet.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Onde a troca é executada",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "Sobre o $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

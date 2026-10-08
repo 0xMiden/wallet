@@ -14,11 +14,20 @@ import {
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };
 
+export interface BridgeConfigSnapshotOptions {
+  /**
+   * Whether this reader also loads the config. Defaults to true; a reader that only names a token passes false, since
+   * every page realm loads it at boot and follows every change of the effective network through
+   * `followEffectiveNetwork`.
+   */
+  load?: boolean;
+}
+
 /** This realm's bridge config snapshot, re-rendering on every change the runtime publishes. */
-export function useBridgeConfigSnapshot(): BridgeConfigSnapshot {
+export function useBridgeConfigSnapshot({ load = true }: BridgeConfigSnapshotOptions = {}): BridgeConfigSnapshot {
   const snapshot = useSyncExternalStore(subscribeBridgeConfig, getBridgeConfigSnapshot);
   // Keyed on the network, so a Developer Settings switch loads that network's copy at once. Never rejects.
-  useEffect(() => void initBridgeConfig(), [snapshot.network]);
+  useEffect(() => (load ? void initBridgeConfig() : undefined), [load, snapshot.network]);
   return snapshot;
 }
 

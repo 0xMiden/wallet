@@ -5,24 +5,37 @@ import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input
 
 import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { ClearFieldButton } from 'components/ui/ClearFieldButton';
 import { Skeleton } from 'components/ui/Skeleton';
+import { clearFieldValue } from 'lib/ui/clear-field';
 
 /**
  * Scale the amount text down as the entered value grows, to avoid overflow
- * on narrow mobile screens. Tuned so a short value renders ~text-6xl and a
- * long one (16 chars max) settles at text-3xl.
+ * on narrow mobile screens: a short value renders at 4rem and a long one
+ * (16 chars max) settles at text-3xl. The only size an amount takes: a fixed
+ * size beside it would win, since Tailwind emits an arbitrary size after text-3xl.
  */
-function amountTextSize(value?: string): string {
+export function amountTextSize(value?: string): string {
   const len = value?.length || 4;
   if (len >= 13) return 'text-3xl';
   if (len >= 10) return 'text-4xl';
   if (len >= 7) return 'text-5xl';
-  return 'text-6xl';
+  return 'text-[4rem]';
+}
+
+/**
+ * The entry's caption and its figure type at the value's length step. A review that restates the
+ * amount it took over (the earn deposit's) sets them from here, so it cannot drift from this step.
+ */
+export const amountCaptionClassName = 'font-heading text-2xl font-bold text-gray leading-none';
+export function amountFigureClassName(value?: string): string {
+  return classNames('font-heading font-bold leading-none', amountTextSize(value));
 }
 
 /** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
 const CENTERED_INPUT_LAYOUT = '[grid-area:1/1] w-0 min-w-full caret-accent-primary';
-const INLINE_INPUT_LAYOUT = 'w-full';
+// `min-w-0`: an input's automatic flex minimum is its intrinsic width, which would push the clear button out.
+const INLINE_INPUT_LAYOUT = 'w-full min-w-0';
 
 /**
  * Accept a comma as the decimal separator (comma-decimal locales/keyboards — es,
@@ -114,11 +127,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
-  const amountClasses = classNames(
-    'font-heading font-bold leading-none text-[4rem]',
-    centered ? 'text-center' : 'text-left',
-    amountTextSize(value)
-  );
+  const showClear = Boolean(value) && !disabled && !loading;
+  const amountClasses = classNames(amountFigureClassName(value), centered ? 'text-center' : 'text-left');
   const stateClasses =
     invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
   const input = (layoutClassName: string) => (
@@ -153,18 +163,13 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
   return (
     <div className={classNames('flex flex-col', className)}>
-      {label != null &&
-        (typeof label === 'string' ? (
-          <span className="font-heading text-2xl font-bold text-gray leading-none">{label}</span>
-        ) : (
-          label
-        ))}
+      {label != null && (typeof label === 'string' ? <span className={amountCaptionClassName}>{label}</span> : label)}
 
       <div
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
           'flex cursor-text mt-3',
-          centered ? classNames('items-start justify-center text-[4rem]', amountTextSize(value)) : 'items-baseline'
+          centered ? classNames('items-start justify-center', amountTextSize(value)) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -185,7 +190,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         ) : centered ? (
           // An invisible copy of the value sizes the grid cell, so the input is exactly as wide as
           // what it holds and the prefix + number centre as one.
-          <span className="inline-grid">
+          <span className="inline-grid min-w-0 grid-cols-[minmax(0,1fr)] overflow-hidden">
             <span aria-hidden="true" className={classNames(amountClasses, 'invisible whitespace-pre [grid-area:1/1]')}>
               {value || placeholder}
             </span>
@@ -194,11 +199,22 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         ) : (
           input(INLINE_INPUT_LAYOUT)
         )}
+        {showClear ? (
+          <ClearFieldButton
+            onClear={() => clearFieldValue(inputRef.current)}
+            // Centred, the button is the group's last item: one 44px slot, so a long amount scrolls
+            // inside the (min-w-0) input rather than running under it.
+            className={centered ? 'self-center' : 'ml-1 self-center'}
+          />
+        ) : centered && value && !loading ? (
+          // Holds the button's slot while the field is disabled, so the centred amount does not move.
+          <span aria-hidden="true" className="pointer-events-none h-11 w-11 shrink-0 self-center" />
+        ) : null}
       </div>
 
       {error ? (
         <div className="flex items-center gap-2 pt-2">
-          <Icon name={IconName.InformationFill} size="xs" className="text-red-500" />
+          <Icon name={IconName.InformationFill} size="xs" fill="currentColor" className="shrink-0 text-red-500" />
           <span className="text-red-500 text-sm">{error}</span>
         </div>
       ) : helper ? (

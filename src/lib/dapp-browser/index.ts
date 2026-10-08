@@ -13,27 +13,17 @@ export { buildFaviconUrl, getFaviconUrl, getFallbackColor, getFallbackLetter } f
 export { rectFromDOMRect, rectsEqual, type WebViewRect } from './webview-rect';
 export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-confirmation';
 export {
-  FEATURED_DAPPS,
-  CAROUSEL_DAPPS,
-  type FeaturedDapp,
-  type FeaturedDappBadge,
-  type FeaturedDappCategory
-} from './featured-dapps';
-export { CATEGORIES, type CategoryDescriptor } from './category-data';
-export {
-  // `EXPLORE_CATALOG` itself is deliberately NOT re-exported: `getExploreCatalog` is the platform
-  // gate, and a caller reaching past it would show items the gate exists to drop.
   EXPLORE_FILTERS,
   getExploreCatalog,
+  localizeExploreCatalog,
   resolveExploreSections,
   searchExploreCatalog,
-  type ExploreCatalog,
-  type ExploreCategory,
   type ExploreFilter,
   type ExploreFilterDescriptor,
   type ExploreItem,
   type ExploreSection,
   type ExploreSectionKind,
+  type ExploreView,
   type ResolvedExploreSection
 } from './explore-catalog';
 export { getRecentDapps, recordRecentDapp, forgetRecentDapp, type RecentDapp } from './recent-dapps';

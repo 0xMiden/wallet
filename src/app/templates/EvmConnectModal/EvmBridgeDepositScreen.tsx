@@ -57,7 +57,7 @@ import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
-import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
+import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
@@ -277,6 +277,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const evmUsdcAddress = selectedEvmUsdc?.address;
   const evmUsdcChainId = selectedEvmUsdc?.chainId;
   const usdcSymbol = selectedEvmUsdc?.symbol ?? '';
+  // The one name the drawer, the amount step and the Review give the token. The USDC here is Circle's own on
+  // Arc Testnet, which bridges only through xReserve, so it keeps its symbol and never takes the Epoch label.
+  const tokenSymbol = sourceSymbolFor(token);
+  const tokenLabel = tokenSymbol;
+  // The route stays chosen when the user steps back, so the amount step names the arriving token as the Review does.
+  const arrivingName = arrivingTokenName(route, tokenSymbol, tokenLabel);
   const usdcDecimals = selectedEvmUsdc?.decimals ?? 0;
   const evmUsdc = useMemo<EvmUsdc | null>(
     () =>
@@ -928,8 +934,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositReview
               amount={reviewAmount}
-              symbol={sourceSymbolFor(token)}
-              outputSymbol={outputSymbolFor(token, route)}
+              symbol={tokenSymbol}
+              label={tokenLabel}
               fiat={token === 'USDC' ? Number(reviewAmount) : undefined}
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
@@ -967,7 +973,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             <EvmBridgeDepositForm
               token={setupToken}
               network={route === 'usdcx' ? USDCX_BRIDGE_NETWORK : DEFAULT_BRIDGE_NETWORK}
-              outputSymbol={route === 'usdcx' ? USDCX_SYMBOL : undefined}
+              tokenLabel={tokenLabel}
+              arrivingName={arrivingName}
               amount={amount}
               isValidAmount={setupReady}
               error={error ?? selectedBalance.error ?? undefined}
@@ -1010,7 +1017,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setupToken,
       selectedBalance.error,
       setupReady,
-      slowAvailability
+      slowAvailability,
+      tokenSymbol,
+      tokenLabel,
+      arrivingName
     ]
   );
 
@@ -1038,6 +1048,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         selected={token}
         ethBalance={ethBalance.formatted}
         usdcBalance={usdcBalance.formatted}
+        usdcLabel={CIRCLE_USDC_SYMBOL}
         ethLoading={ethBalance.loading}
         usdcLoading={usdcBalance.loading}
         onSelect={handleTokenSelect}

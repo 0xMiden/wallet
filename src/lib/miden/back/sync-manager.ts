@@ -546,18 +546,18 @@ async function runSync(force: boolean): Promise<void> {
 
       const metadataCache: Record<
         string,
-        { decimals: number; symbol: string; name: string; thumbnailUri?: string; scaleIsUnknown?: boolean }
+        { decimals: number; symbol: string; name: string; description?: string; scaleIsUnknown?: boolean }
       > = {};
       await Promise.all(
         [...allFaucetIds].map(async faucetId => {
           try {
-            const { base } = await fetchTokenMetadata(faucetId);
+            const metadata = await fetchTokenMetadata(faucetId);
             metadataCache[faucetId] = {
-              decimals: base.decimals,
-              symbol: base.symbol,
-              name: base.name,
-              thumbnailUri: base.thumbnailUri,
-              scaleIsUnknown: base.scaleIsUnknown
+              decimals: metadata.decimals,
+              symbol: metadata.symbol,
+              name: metadata.name,
+              description: metadata.description,
+              scaleIsUnknown: metadata.scaleIsUnknown
             };
           } catch {}
         })

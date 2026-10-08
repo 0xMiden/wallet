@@ -94,6 +94,9 @@ export type { TabRootHeaderProps, TabRootFilter } from './TabRootHeader';
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
 
+export { ClearFieldButton } from './ClearFieldButton';
+export type { ClearFieldButtonProps } from './ClearFieldButton';
+
 export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
 

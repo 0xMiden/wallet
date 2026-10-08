@@ -9,15 +9,16 @@ import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { IBridgeProvider } from 'lib/miden/db/types';
+import { USDCX_SYMBOL } from 'lib/usdcx/constant';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
 
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
   amount: string;
-  /** Token symbol shown in the hero / rows (e.g. USDC or ETH). */
+  /** Token symbol: keys the logo, and names the token unless `label` is given (e.g. USDC or ETH). */
   symbol: string;
-  /** Symbol the recipient gets on Miden when it differs from `symbol` (USDCx for a USDC deposit). */
-  outputSymbol?: string;
+  /** The token's name in the hero and rows, such as the testnet label (`evmUsdcLabel`). */
+  label?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
   /** Selected bridge route — drives the route label + arrival ETA. */
@@ -41,6 +42,23 @@ export interface EvmBridgeDepositReviewProps {
 }
 
 /**
+ * What a deposit arrives on Miden as: only the Epoch route mints the bridge's Miden faucet the label names, so the Slow
+ * route delivers the plain symbol and Circle xReserve mints USDCx. The amount step and the Review both name the
+ * arriving token through it.
+ */
+export function arrivingTokenName(route: IBridgeProvider, symbol: string, label: string): string {
+  switch (route) {
+    case 'agglayer':
+      return symbol;
+    case 'usdcx':
+      return USDCX_SYMBOL;
+    case 'epoch':
+    default:
+      return label;
+  }
+}
+
+/**
  * Review step for the Receive-from-EVM bridge deposit, shown after the route is
  * chosen. Reuses the shared `ReviewLayout` shell (same shell as the Send review)
  * with a `Hero` amount and `DetailCard` rows, and defers the actual submit to
@@ -50,7 +68,7 @@ export interface EvmBridgeDepositReviewProps {
 export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   amount,
   symbol,
-  outputSymbol,
+  label,
   fiat,
   route,
   outputAmount,
@@ -76,8 +94,9 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
         return { routeLabel: t('fast'), arrivalLabel: t('fastArrival') };
     }
   })();
-  const receivedSymbol = outputSymbol ?? symbol;
-  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receivedSymbol}`.trim() : receivedSymbol;
+  const name = label ?? symbol;
+  const receiveName = arrivingTokenName(route, symbol, name);
+  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receiveName}`.trim() : receiveName;
 
   return (
     <ReviewLayout
@@ -89,7 +108,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
           <Hero
             className="mt-2"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
-            value={`${amount} ${symbol}`}
+            value={`${amount} ${name}`}
             subtitle={fiat !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiat) }) : undefined}
           />
         </div>
@@ -108,7 +127,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       secondary={{ label: t('back'), onPress: onBack, disabled: isSubmitting }}
     >
       <DetailCard>
-        <DetailRow label={t('amount')}>{`${amount} ${symbol}`}</DetailRow>
+        <DetailRow label={t('amount')}>{`${amount} ${name}`}</DetailRow>
 
         <DetailRow label={t('from')}>
           <span className="inline-flex items-center gap-2">

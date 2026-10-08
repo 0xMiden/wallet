@@ -5,7 +5,11 @@ import { create } from 'zustand';
 
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
 import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import {
   preparedExecution,
   PREPARED_FAUCET,
@@ -20,6 +24,7 @@ import {
   USER_CANCELLED_TRANSACTION_REASON,
   isUserCancelledTransaction
 } from 'lib/miden/transaction/constants';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
 
@@ -146,6 +151,7 @@ jest.mock('lib/miden/metadata/utils', () => ({
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args),
   normalizedFaucetId: (id: string) => id,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
   tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote
 }));
 
@@ -321,10 +327,34 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 // The Earn collateral comes from the bridge config: a withdrawal's redeemed side is priced through it, and a
-// deposit's summary falls back to it.
+// deposit's summary falls back to it. The snapshot hook follows the runtime mock below, which the labels read.
 let mockEarnCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
-jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockEarnCollateral }));
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const runtime = jest.requireMock<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime');
+  return {
+    useBridgeConfigSnapshot: () => useSyncExternalStore(runtime.subscribeBridgeConfig, runtime.getBridgeConfigSnapshot)
+  };
+});
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values'),
+  selectMidenUsdc: () => mockEarnCollateral
+}));
+// This realm's bridge config, which the token labels read: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+// The wallet's own token labels are testnet-only; pin the network rather than lean on the build default.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 jest.mock('./TransactionIcon', () => ({
   __esModule: true,
@@ -732,6 +762,22 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.5REG-OFFER1.25REG-WANT');
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+    });
+
+    it('names the registry iETH requested token "Test iETH" in the swap hero (#477)', async () => {
+      const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
+      mockGetSwapTokenByFaucetId.mockImplementation((id: string) =>
+        id === TOKEN_IETH.faucetId ? { symbol: 'IETH', decimals: 8 } : { symbol: 'MIDEN', decimals: 6 }
+      );
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: 500_000n,
+        extraInputs: { orderId: '42', requestedFaucetId: TOKEN_IETH.faucetId, requestedAmount: 100_000_000n }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.5MIDEN1Test iETH');
     });
 
     it('does not reread known in-memory metadata on a later transaction emission', async () => {
@@ -1154,6 +1200,28 @@ describe('HistoryDetails', () => {
   });
 
   describe('sent transaction rendering', () => {
+    it('names a send of the bridge faucet by the testnet label and still prices it as USDC', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
+      await renderAndLoad();
+
+      expect(screen.getByText('1000 Test Epoch USDC')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$2000.00')).toBeInTheDocument();
+    });
+
+    it('renames a send of the bridge faucet by the testnet label once the bridge config publishes', async () => {
+      setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
+      await renderAndLoad();
+      expect(screen.getByText('1000 MID')).toBeInTheDocument();
+
+      act(() => {
+        mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+        publishMockBridgeSnapshot();
+      });
+
+      expect(screen.getByText('1000 Test Epoch USDC')).toBeInTheDocument();
+    });
+
     it('renders amount, token, fiat, status, date, external tx id, from/to and notes', async () => {
       setMockRow({ ...baseSendTx, faucetId: MIDEN_USDC_FAUCET });
       await renderAndLoad();
@@ -3191,6 +3259,16 @@ describe('HistoryDetails', () => {
       expect(arrow).toHaveClass('text-text-muted');
     });
 
+    it('names both sides of an Epoch bridge-in hero by the testnet label', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      setMockRow({ ...bridgedReceiveTx, faucetId: MIDEN_USDC_FAUCET });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      const names = screen.getAllByText('Test Epoch USDC').filter(el => el.classList.contains('text-text-muted'));
+      expect(names).toHaveLength(2);
+      expect(names[0]?.parentElement).toBe(names[1]?.parentElement);
+    });
+
     it('renders an in-flight inbound bridge with EVM source, route and pending note', async () => {
       setMockRow(bridgedReceiveTx);
       await renderAndLoad({ transactionId: 'bridge-in' });
@@ -3972,6 +4050,17 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
     expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+  });
+
+  it('keeps the chain symbol on the badge for a deposit of the bridge faucet', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockEarnCollateral = { faucetId: MIDEN_USDC_FAUCET, symbol: 'USDC', decimals: 6 };
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+    setMockRow(earnDepositTx({ sourceFaucetId: MIDEN_USDC_FAUCET }, { faucetId: MIDEN_USDC_FAUCET }));
+    await renderAndLoad();
+
+    expect(screen.getByText('1000 USDC')).toBeInTheDocument();
+    expect(screen.queryByText('1000 Test Epoch USDC')).toBeNull();
   });
 
   it('falls back to the raw market uid when it has no protocol segment', async () => {

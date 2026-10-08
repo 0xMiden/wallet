@@ -17,6 +17,8 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
 import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -49,6 +51,11 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /**
+   * `caption`: each day is a small grey caption ("Monday, October 5") rather than the bold date and
+   * coloured weekday, for a list that already sits under its own section heading (Token Detail).
+   */
+  dateStyle?: 'header' | 'caption';
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   /** A read the list needs failed: with no rows to show, say so instead of "no activity". */
@@ -83,6 +90,13 @@ function groupEntriesByDate(entries: TimelineEntry[]): Map<number, TimelineEntry
   return groups;
 }
 
+/** A day as a small grey caption: weekday and date, the year only when it is not this year. */
+const DateCaption: React.FC<{ dateMs: number }> = ({ dateMs }) => {
+  const d = new Date(dateMs);
+  const pattern = d.getFullYear() === new Date().getFullYear() ? 'EEEE, MMMM d' : 'EEEE, MMMM d, yyyy';
+  return <span className="text-caption-heading text-muted">{format(d, pattern)}</span>;
+};
+
 const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const d = new Date(dateMs);
   const longDate = format(d, 'MMMM d, yyyy');
@@ -99,6 +113,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 // colored square background, amount string with sign, and status pill (dot +
 // label). Faucet requests get their own dark-blue glyph regardless of icon.
 function buildRowProps(
+  bridgeConfig: BridgeConfigSnapshot,
   entry: IHistoryEntry,
   t: (k: string, opts?: Record<string, unknown>) => string,
   tokenId?: string
@@ -116,7 +131,7 @@ function buildRowProps(
     (entry.txType === 'bridged-send' || isBridgeInEntry(entry))
   ) {
     const bridgeIn = entry.txType !== 'bridged-send';
-    const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+    const d = bridgeIn ? bridgeInRowDisplay(bridgeConfig, entry) : bridgeRowDisplay(bridgeConfig, entry);
     const failed = d.status === 'failed';
     return {
       icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
@@ -124,11 +139,11 @@ function buildRowProps(
       title:
         entry.bridgeProvider === 'usdcx'
           ? t('usdcxBurnTitle')
-          : t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
+          : t('bridgeRowTitle', { from: d.inLabel, to: d.outLabel }),
       subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
       amount: d.outAmount
         ? {
-            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
+            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outLabel}`,
             direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
             // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
             preformatted: true
@@ -470,6 +485,7 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
+    dateStyle = 'header',
     pendingItems,
     renderPendingItem,
     loadError,
@@ -482,6 +498,7 @@ const HistoryView = memo<HistoryViewProps>(
     const layoutTransition = useSettleLayoutTransition();
     const shownAgain = useTabShownAgain();
     const readState = useActivityReadState();
+    const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
       const pending: TimelineEntry[] = pendingItems.map(item => ({
@@ -589,10 +606,27 @@ const HistoryView = memo<HistoryViewProps>(
             layout="position"
             transition={layoutTransition}
             key={dateMs}
-            className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
+            // A caption sits 8px over its rows and days sit 20px apart; a header takes 12px and 24px.
+            // A caption list sits under a section heading that already leaves 12px, so its first day
+            // starts flush; a header list has only the Activity tab's filters above it.
+            className={classNames(
+              'flex flex-col',
+              dateStyle === 'caption' ? 'gap-2 py-2.5' : 'gap-3 py-3',
+              index === 0 && (dateStyle === 'caption' ? 'pt-0' : 'pt-4')
+            )}
           >
             {dateMs === -1 ? (
-              <span className="font-heading font-extrabold text-ink text-base">{t('activityDateUnavailable')}</span>
+              <span
+                className={
+                  dateStyle === 'caption'
+                    ? 'text-caption-heading text-muted'
+                    : 'font-heading font-extrabold text-ink text-base'
+                }
+              >
+                {t('activityDateUnavailable')}
+              </span>
+            ) : dateStyle === 'caption' ? (
+              <DateCaption dateMs={dateMs} />
             ) : (
               <DateSeparator dateMs={dateMs} />
             )}
@@ -622,7 +656,7 @@ const HistoryView = memo<HistoryViewProps>(
                     </motion.div>
                   );
                 }
-                const props = buildRowProps(entry, t, tokenId);
+                const props = buildRowProps(bridgeConfig, entry, t, tokenId);
                 const unread = isHistoryEntryUnread(readState, entry);
                 return (
                   <Card

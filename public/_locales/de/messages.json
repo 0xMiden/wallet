@@ -1988,9 +1988,9 @@
     "message": "Sie haben Überweisungen zum Annehmen",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ wartend",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ wartend · zum Prüfen tippen",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3869,17 +3869,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Werkzeuge",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Soziales",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Spiele",
@@ -3896,14 +3888,6 @@
   "exploreCategoriesLabel": {
     "message": "Kategorien",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Empfohlen",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Hilfsprogramme",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Öffnen",
@@ -3932,10 +3916,6 @@
   "exploreNoResultsDescription": {
     "message": "Versuche einen anderen Namen oder füge die URL einer dApp ein.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Testnet-Token für Swaps erhalten",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Minimieren",
@@ -4299,6 +4279,10 @@
   "tokenInfo": {
     "message": "Informationen zum Token",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "Beschreibung",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "Fungibel",
@@ -4794,6 +4778,10 @@
   "unverifiedTokenDescription": {
     "message": "Dieses Token ist nicht in der Liste der verifizierten Token von Miden enthalten. Jeder kann ein Token mit einem beliebigen Namen erstellen; überprüfen Sie daher die ID unter faucet, bevor Sie dem Token vertrauen.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "Nicht verifiziertes Token",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "Konnte nicht durch Simulation überprüft werden. Die unten aufgeführten Mengen entsprechen den Angaben der Website.",
@@ -5856,5 +5844,93 @@
   "confirmEarnDepositReason": {
     "message": "Bestätigen Sie Ihre Einzahlung",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Token-Details bearbeiten",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Details zum Token",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Name",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Symbol",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Dezimalstellen",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Speichern",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Auf die Standardwerte vfaucet zurücksetzen",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Bearbeitet",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Geben Sie einen Namen mit 1 bis $max$ Zeichen ein.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Geben Sie ein Symbol mit 1 bis $max$ Zeichen ein.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Geben Sie eine ganze Zahl zwischen 0 und $max$ ein.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Diese Werte beeinflussen lediglich die Darstellung des Tokens in dieser Wallet. Die „faucet“ behält ihre eigenen Werte bei. Bei den von Ihnen gesendeten Beträgen werden die hier festgelegten Dezimalstellen verwendet.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Die Token-Details konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH ist ein Test-Token, das für Swaps im Miden-Testnetz verwendet wird. Es handelt sich nicht um ETH und wird in der Produktions-Wallet nicht verfügbar sein.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "Der Austausch erfolgt über einen Smart Contract im Miden-Testnetz.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Wo der Austausch stattfindet",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "Über „$token$“",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

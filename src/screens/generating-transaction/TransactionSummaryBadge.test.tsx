@@ -5,7 +5,14 @@ import { join } from 'path';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
+import { TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import {
   ArrowFill,
@@ -14,8 +21,10 @@ import {
   useTransactionSummaryBadgeContent
 } from './TransactionSummaryBadge';
 
+// One `t` across renders, as react-i18next gives, so a memo keyed on it recomputes only when its other inputs move.
+const mockT = (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key;
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key })
+  useTranslation: () => ({ t: mockT })
 }));
 
 jest.mock('lib/miden/metadata', () => ({
@@ -54,16 +63,46 @@ jest.mock('lib/shared/format', () => ({
   formatAmount: (amount: bigint, decimals?: number) => mockFormatAmount(amount, decimals)
 }));
 
-const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
+const mockState = {
+  assetsMetadata: {} as
+    | Record<string, { symbol?: string; name?: string; decimals?: number; scaleIsUnknown?: boolean }>
+    | undefined
+};
 
 jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
 
-// The Earn collateral the deposit fallback reads comes from the bridge config.
+// The Earn collateral the deposit fallback reads comes from the bridge config. The snapshot hook follows the runtime
+// mock below, which the labels read.
 let mockCollateral: { faucetId: string; symbol: string; decimals: number } | null = null;
-jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => ({}) }));
-jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
+jest.mock('lib/remote-config/use-feature-availability', () => {
+  const { useSyncExternalStore } = jest.requireActual<typeof import('react')>('react');
+  const runtime = jest.requireMock<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime');
+  return {
+    useBridgeConfigSnapshot: () => useSyncExternalStore(runtime.subscribeBridgeConfig, runtime.getBridgeConfigSnapshot)
+  };
+});
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values'),
+  selectMidenUsdc: () => mockCollateral
+}));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+// The wallet's own token labels are testnet-only; pin the network rather than lean on the build default.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 const baseTransaction = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ({
@@ -436,6 +475,78 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  it('names a claim and a send of the testnet bridge faucet by its label', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+
+    const claim = await renderProbe(baseTransaction({ type: 'consume', amount: 7n, faucetId: TEST_MIDEN_USDC_FAUCET }));
+    expect(claim.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 Test Epoch USDC');
+    act(() => claim.root.unmount());
+
+    const send = await renderProbe(
+      baseTransaction({ amount: 5n, faucetId: TEST_MIDEN_USDC_FAUCET, secondaryAccountId: 'mtst1aprecipient_addr1234' })
+    );
+    expect(send.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 Test Epoch USDC');
+    act(() => send.root.unmount());
+  });
+
+  it('renames a send of the bridge faucet by its label once the bridge config publishes', async () => {
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ amount: 5n, faucetId: TEST_MIDEN_USDC_FAUCET, secondaryAccountId: 'mtst1aprecipient_addr1234' })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 USDC');
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5 Test Epoch USDC');
+    act(() => root.unmount());
+  });
+
+  it('names the registry iETH side of a swap "Test iETH" on either side (#477)', async () => {
+    const requested = await renderProbe(
+      baseTransaction({
+        type: 'swap',
+        amount: 5n,
+        faucetId: TOKEN_IMIDEN.faucetId,
+        extraInputs: { requestedFaucetId: TOKEN_IETH.faucetId, requestedAmount: 3n }
+      })
+    );
+    expect(requested.container.textContent).toContain('Test iETH');
+    expect(requested.container.querySelector('[data-testid="lhs"]')?.textContent).not.toContain('Test iETH');
+    act(() => requested.root.unmount());
+
+    const offered = await renderProbe(
+      baseTransaction({
+        type: 'swap',
+        amount: 5n,
+        faucetId: TOKEN_IETH.faucetId,
+        extraInputs: { requestedFaucetId: TOKEN_IMIDEN.faucetId, requestedAmount: 3n }
+      })
+    );
+    expect(offered.container.querySelector('[data-testid="lhs"]')?.textContent).toContain('Test iETH');
+    act(() => offered.root.unmount());
+  });
+
+  it('keeps an Earn deposit of the bridge faucet on its symbol, as the Earn screens around it do', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: TEST_MIDEN_USDC_FAUCET,
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
+    act(() => root.unmount());
+  });
+
   it('withholds quantity while the native identity is still unresolved', async () => {
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 42n, secondaryAccountId: 'mtst1aprecipient_addr1234' })
@@ -515,6 +626,45 @@ describe('useTransactionSummaryBadgeContent', () => {
     );
     expect(mockFormatAmount).toHaveBeenCalledWith(750n, 2);
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 tUSDC');
+    act(() => root.unmount());
+  });
+
+  // The unknown-token placeholder is not this faucet's scale. As the deposit receipt does, the
+  // collateral the config names stands in, and without it the token and market are named alone.
+  const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
+
+  it("scales a deposit whose metadata is the placeholder by the configured collateral's decimals", async () => {
+    mockFormatAmount.mockClear();
+    mockCollateral = { faucetId: 'mtst1collateral', symbol: 'tUSDC', decimals: 2 };
+    mockState.assetsMetadata = { mtst1collateral: placeholder };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: 'mtst1collateral',
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(mockFormatAmount).toHaveBeenCalledWith(750n, 2);
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(750n, 6);
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 tUSDC');
+    act(() => root.unmount());
+  });
+
+  it('names the token and the market, and no amount, for a placeholder deposit the config does not name', async () => {
+    mockFormatAmount.mockClear();
+    mockState.assetsMetadata = { mtst1other: placeholder };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        faucetId: 'mtst1other',
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('Unknown');
+    expect(container.textContent).toContain('DUMMY-LENDING');
+    expect(mockFormatAmount).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 

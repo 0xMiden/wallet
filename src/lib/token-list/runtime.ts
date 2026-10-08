@@ -12,7 +12,10 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const MAX_BYTES = 256 * 1_024;
 
 const tokenListUrl = (network: string) => `https://raw.githubusercontent.com/0xMiden/token-list/main/${network}.json`;
-const cacheKey = (network: string) => `token_list_cache_v1:${network}`;
+const cacheKey = (network: string) => `token_list_cache_v2:${network}`;
+// Cached before logos were read, so it may lack logos the list has since gained: it stands in with no
+// age, which makes a refresh due at once, until a v2 entry lands.
+const legacyCacheKey = (network: string) => `token_list_cache_v1:${network}`;
 const attemptKey = (network: string) => `token_list_attempt_v1:${network}`;
 
 interface Dependencies {
@@ -23,6 +26,7 @@ interface Dependencies {
 
 interface LoadedList {
   ids: Set<string> | null;
+  logos: Map<string, string> | null;
   fetchedAt: number | null;
 }
 
@@ -36,6 +40,8 @@ let deps = defaults();
 // holds the ids as the list spells them: an encoding depends on the active network, which can change
 // while a read is pending, so the hook normalizes at compare time.
 const loaded = new Map<string, Promise<LoadedList>>();
+// Read synchronously, so a row mounted after a list loaded draws it on its first render.
+const settled = new Map<string, LoadedList>();
 // One refresh per network per realm; a popup is a fresh realm on every open, so the device cache,
 // not this set, is what keeps a reopened popup from refetching.
 const refreshing = new Set<string>();
@@ -56,6 +62,7 @@ export function _resetTokenListForTest(
     now: overrides.now ?? base.now
   };
   loaded.clear();
+  settled.clear();
   refreshing.clear();
   lastFailure.clear();
   listeners.clear();
@@ -73,7 +80,7 @@ export function onTokenListUpdated(listener: (network: string) => void): () => v
 async function readList(network: string): Promise<LoadedList> {
   let stored: Record<string, unknown> = {};
   try {
-    stored = await deps.storage().get([cacheKey(network), attemptKey(network)]);
+    stored = await deps.storage().get([cacheKey(network), legacyCacheKey(network), attemptKey(network)]);
   } catch {
     // Unreadable storage reads as empty, so the snapshot stands in.
   }
@@ -81,9 +88,13 @@ async function readList(network: string): Promise<LoadedList> {
   if (typeof failedAt === 'number') lastFailure.set(network, failedAt);
   const cached = readTimestampedEntry(stored[cacheKey(network)]);
   const fromCache = cached ? parseTokenList(cached.body, network) : null;
-  // Only a list that parsed has an age; an unreadable entry leaves the snapshot standing in and is due at once.
-  if (cached && fromCache) return { ids: fromCache, fetchedAt: cached.fetchedAt };
-  return { ids: parseTokenList(bundledTokenList(network), network), fetchedAt: null };
+  // Only a list that parsed has an age; an unreadable entry leaves an older list standing in and is due at once.
+  if (cached && fromCache) return { ...fromCache, fetchedAt: cached.fetchedAt };
+  const legacy = readTimestampedEntry(stored[legacyCacheKey(network)]);
+  const fromLegacy = legacy ? parseTokenList(legacy.body, network) : null;
+  if (fromLegacy) return { ...fromLegacy, fetchedAt: null };
+  const bundled = parseTokenList(bundledTokenList(network), network);
+  return { ids: bundled?.ids ?? null, logos: bundled?.logos ?? null, fetchedAt: null };
 }
 
 /** Fetches the list and stores it once it validates; rejects when it is not whole, not valid or not stored. */
@@ -95,6 +106,11 @@ async function fetchAndStore(network: string): Promise<void> {
   // Validated before storing: every realm trusts this entry for a day.
   if (parseTokenList(body, network) === null) throw new Error('the token list does not parse');
   await deps.storage().set({ [cacheKey(network)]: { fetchedAt: deps.now(), body } });
+  try {
+    await deps.storage().remove([legacyCacheKey(network)]);
+  } catch {
+    // Left behind, it is never read: readList reaches it only when no v2 entry parses.
+  }
 }
 
 async function refresh(network: string): Promise<void> {
@@ -139,15 +155,7 @@ function checkOnForeground(): void {
   loaded.forEach((_list, network) => void loadVerifiedFaucetIds(network));
 }
 
-/**
- * The verified faucet ids for `network`: the cached list at any age, else the bundled snapshot,
- * else `null` (no list known for this network, so nothing is marked). A cache that is missing or
- * older than a day starts one background refresh, on this load or on a return to the foreground,
- * unless one failed within the hour; subscribers hear when it lands. Localnet never has a list.
- */
-export async function loadVerifiedFaucetIds(network: string): Promise<Set<string> | null> {
-  // Localnet faucet ids are minted per machine, so no published list can name them.
-  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+async function load(network: string): Promise<LoadedList> {
   if (!foregroundCheckInstalled && typeof document !== 'undefined') {
     foregroundCheckInstalled = true;
     document.addEventListener('visibilitychange', checkOnForeground);
@@ -157,8 +165,39 @@ export async function loadVerifiedFaucetIds(network: string): Promise<Set<string
     pending = readList(network);
     loaded.set(network, pending);
   }
-  const { ids, fetchedAt } = await pending;
+  const list = await pending;
+  settled.set(network, list);
   // Checked on every load, not once per read: a long-lived realm must still refresh a day-old list.
-  if (isDue(network, fetchedAt)) startRefresh(network);
-  return ids;
+  if (isDue(network, list.fetchedAt)) startRefresh(network);
+  return list;
+}
+
+/**
+ * The verified faucet ids for `network`: the cached list at any age, else the bundled snapshot,
+ * else `null` (no list known for this network, so nothing is marked). A cache that is missing or
+ * older than a day starts one background refresh, on this load or on a return to the foreground,
+ * unless one failed within the hour; subscribers hear when it lands. Localnet never has a list.
+ */
+export async function loadVerifiedFaucetIds(network: string): Promise<Set<string> | null> {
+  // Localnet faucet ids are minted per machine, so no published list can name them.
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return (await load(network)).ids;
+}
+
+/** The logos the verified list gives its tokens on `network`, read, cached and refreshed with the ids. */
+export async function loadTokenLogos(network: string): Promise<Map<string, string> | null> {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return (await load(network)).logos;
+}
+
+/** What `loadVerifiedFaucetIds` last resolved to for `network` in this realm, or `undefined` before any load settled. */
+export function peekVerifiedFaucetIds(network: string): Set<string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.ids;
+}
+
+/** What `loadTokenLogos` last resolved to for `network` in this realm, or `undefined` before any load settled. */
+export function peekTokenLogos(network: string): Map<string, string> | null | undefined {
+  if (network === MIDEN_NETWORK_NAME.LOCALNET) return null;
+  return settled.get(network)?.logos;
 }

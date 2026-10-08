@@ -1988,9 +1988,9 @@
     "message": "您有待接受的转账",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ 笔等待中",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ 笔等待中 · 点按查看",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3869,17 +3869,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "工具",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "社交",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "游戏",
@@ -3896,14 +3888,6 @@
   "exploreCategoriesLabel": {
     "message": "类别",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "精选",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "辅助工具",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "打开",
@@ -3932,10 +3916,6 @@
   "exploreNoResultsDescription": {
     "message": "试试其他名称，或粘贴 dApp 的 URL。",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "获取用于兑换的测试网代币",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "最小化",
@@ -4299,6 +4279,10 @@
   "tokenInfo": {
     "message": "代币信息",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "描述",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "可互换的",
@@ -4794,6 +4778,10 @@
   "unverifiedTokenDescription": {
     "message": "该代币未列入 Miden 的已验证代币列表。任何人都可以创建任意名称的代币，因此在信任它之前，请先核对其 faucet 标识符。",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "未验证的代币",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "无法通过模拟进行验证。以下数值均按该网站声明的数值列出。",
@@ -5856,5 +5844,93 @@
   "confirmEarnDepositReason": {
     "message": "确认您的存款",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "编辑代币详情",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "代币详情",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "名称",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "符号",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "小数",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "重置为faucet的默认值",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "已编辑",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "请输入1至$max$个字符的名称。",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "请输入1至$max$个字符的符号。",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "请输入0到$max$之间的整数。",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "这些设置仅影响该钱包显示代币的方式。faucet将保留其自身的数值。您发送的金额将采用您在此处设置的小数位数。",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "无法保存代币详细信息。请重试。",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH 是用于 Miden 测试网上的代币交换的测试代币。它并非 ETH，且不会在正式版钱包中提供。",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "该更换操作通过 Miden 测试网上的智能合约执行。",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "交换操作的执行位置",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "关于 $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

@@ -48,6 +48,10 @@ export const guardianPubkeyRoute = /\/pubkey(?:\?.*)?$/;
 // What the stubbed operators serve: it must have a Guardian key's shape, or the picker shows them offline.
 export const guardianPubkeyStubCommitment = `0x${'5b'.repeat(32)}`;
 
+// The Explore catalog's published repo. Capture refuses it, so the launcher draws the catalog the build bundles,
+// bundled icons included: the same rows on every run, whatever the repo holds that day.
+export const exploreCatalogRoute = /^https:\/\/raw\.githubusercontent\.com\/0xMiden\/wallet-explore\//;
+
 const runtimes = {
   appStore: {
     platformFlag: 'ios',
@@ -123,7 +127,7 @@ export const capturePlan: CapturePlanEntry[] = [
     sceneId: 'ios-dapp-browser',
     fixtureState: 'deterministic-fixture-dapp-browser',
     outputPath: 'store-listing/raw/app-store/ios-dapp-browser.png',
-    ready: { testId: 'dapp-hero-search', hiddenTestIds: [] }
+    ready: { testId: 'dapp-grid-card', hiddenTestIds: [] }
   }),
   entry('appStore', {
     sceneId: 'ios-protection',
@@ -136,7 +140,7 @@ export const capturePlan: CapturePlanEntry[] = [
     sceneId: 'android-dapp-browser',
     fixtureState: 'deterministic-fixture-dapp-browser',
     outputPath: 'store-listing/raw/play-store/android-dapp-browser.png',
-    ready: { testId: 'dapp-hero-search', hiddenTestIds: [] }
+    ready: { testId: 'dapp-grid-card', hiddenTestIds: [] }
   }),
   entry('playStore', {
     sceneId: 'android-local-proving',

@@ -5,12 +5,19 @@ import { flushSync } from 'react-dom';
 import { SWRConfig } from 'swr';
 
 import { PageActiveContext } from 'app/layouts/page-active';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 // The real strings, not mocked (this module is not replaced by any `jest.mock` in this file) -
 // used to plant a bridge-in consume and a rotation shortfall the builder's `isUnconfirmedFailure`
 // call reads (#1250).
 import { TRANSACTION_INTERRUPTED_ERROR, TRANSACTION_VAULT_SHORTFALL_ERROR } from 'lib/miden/transaction/constants';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 // Imported AFTER the mocks are registered.
+
 import History from './History';
 import { HistoryEntryType } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -139,8 +146,21 @@ jest.mock('./transactionUtils', () => ({
   // Pure derivation the swap-chip assertions below depend on, so run the real
   // one rather than restating its rules in a stub.
   swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf,
+  // The real naming, so a label assertion runs the rule the list renders with.
+  labelHistoryEntry: jest.requireActual('./transactionUtils').labelHistoryEntry,
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 // Thin HistoryView stub: capture props (for `loadMore`) and surface each entry
 // key so tests can assert filtering/sorting/slicing outcomes.
@@ -671,6 +691,73 @@ describe('History', () => {
   // token a trillion times too large, so the row names the asset and prints no
   // number. It must still be NAMED — dropping the symbol too would leave a row
   // that says nothing about what moved.
+  it.each(['completed', 'pending'])('names a %s row of the testnet bridge faucet by its label', async kind => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+    const row = {
+      id: 'USDC',
+      status: kind === 'completed' ? STATUS.Completed : STATUS.Queued,
+      displayMessage: 'Received',
+      displayIcon: 'RECEIVE',
+      faucetId: TEST_MIDEN_USDC_FAUCET,
+      type: 'consume',
+      amount: 5000000n,
+      completedAt: 4000
+    };
+    if (kind === 'completed') {
+      mockGetCompletedTransactions.mockImplementation(async (_a: string, offset?: number) =>
+        offset === undefined ? [row] : []
+      );
+      mockGetUncompletedTransactions.mockResolvedValue([]);
+    } else {
+      mockGetCompletedTransactions.mockImplementation(async () => []);
+      mockGetUncompletedTransactions.mockResolvedValue([row]);
+    }
+
+    await renderHistory();
+
+    const key = kind === 'completed' ? 'completed-USDC' : 'pending-USDC';
+    await waitFor(() => expect(entryKeys()).toContain(key));
+    expect(mockHistoryViewProps.entries.find((e: any) => e.key === key).token).toBe('Test Epoch USDC');
+  });
+
+  it('names a first-page row and a paged row by the testnet label once the bridge config publishes', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'USDC', decimals: 6 });
+    const usdcRow = (id: string, completedAt: number) => ({
+      id,
+      status: STATUS.Completed,
+      displayMessage: 'Received',
+      displayIcon: 'RECEIVE',
+      faucetId: TEST_MIDEN_USDC_FAUCET,
+      type: 'consume',
+      amount: 5000000n,
+      completedAt
+    });
+    mockGetCompletedTransactions.mockImplementation(async (_a: string, offset?: number) =>
+      offset === undefined ? [usdcRow('FIRST', 4000)] : [usdcRow('PAGED', 10)]
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    const { rerender } = await renderHistory();
+    await waitFor(() => expect(entryKeys()).toContain('completed-FIRST'));
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(1);
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-PAGED'));
+    const tokenOf = (key: string) => mockHistoryViewProps.entries.find((e: any) => e.key === key).token;
+    expect([tokenOf('completed-FIRST'), tokenOf('completed-PAGED')]).toEqual(['USDC', 'USDC']);
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect([tokenOf('completed-FIRST'), tokenOf('completed-PAGED')]).toEqual(['Test Epoch USDC', 'Test Epoch USDC']);
+    await act(async () => {
+      rerender(<History address="0xme" searchQuery="test epoch" />);
+    });
+    expect(entryKeys()).toEqual(['completed-FIRST', 'completed-PAGED']);
+  });
+
   it.each([
     ['completed', 'mockGetCompletedTransactions'],
     ['pending', 'mockGetUncompletedTransactions']

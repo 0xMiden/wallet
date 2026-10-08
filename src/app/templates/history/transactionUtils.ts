@@ -17,6 +17,8 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 
@@ -61,6 +63,33 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
       };
     })
   );
+};
+
+/**
+ * The entry as shown: its token and each extra amount named by its own faucet (`midenTokenLabel`). A fetched entry keeps
+ * the chain symbol, so a list labels it at render and follows the snapshot when it publishes. A swap row names each side
+ * by that side's faucet; an Earn row keeps the chain symbol the Earn screens use.
+ */
+export const labelHistoryEntry = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): IHistoryEntry => {
+  if (entry.txType === 'swap') {
+    return {
+      ...entry,
+      token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),
+      requestedToken:
+        entry.requestedToken === undefined
+          ? undefined
+          : midenTokenLabel(snapshot, entry.requestedFaucetId, entry.requestedToken)
+    };
+  }
+  if (entry.txType === 'earn-withdraw' || entry.txType === 'earn-deposit') return entry;
+  return {
+    ...entry,
+    token: entry.token === undefined ? undefined : midenTokenLabel(snapshot, entry.faucetId, entry.token),
+    extraAmounts: entry.extraAmounts?.map(extra => ({
+      ...extra,
+      token: midenTokenLabel(snapshot, extra.faucetId, extra.token)
+    }))
+  };
 };
 
 /** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
@@ -281,6 +310,9 @@ export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
+  /** The name each side is shown under (`midenTokenLabel`, `evmUsdcLabel`); the symbols above format the amounts. */
+  inLabel: string;
+  outLabel: string;
   /**
    * What the destination side receives, ready to show. Bridge-out: the stored quote rounded down,
    * or the typed send amount for a row without a quote (Slow). Bridge-in: the typed "you receive"
@@ -297,12 +329,14 @@ export interface BridgeRowDisplay {
  * (`HistoryItem`) and the full Activity row (`HistoryView` → `ActivityRow`) render
  * identically: "Bridge IN → OUT", "Via <provider> → <network>", output amount, status.
  */
-export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
   if (entry.bridgeProvider === 'usdcx') {
     return {
       inSymbol,
       outSymbol: inSymbol,
+      inLabel: inSymbol,
+      outLabel: inSymbol,
       outAmount: entry.amount?.toString(),
       providerLabel: 'Circle xReserve',
       network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
@@ -314,7 +348,18 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
   const providerLabel =
     entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
+  // The Epoch route moves only the configured EVM token, so an Epoch row's EVM side is that token.
+  const outLabel = entry.bridgeProvider === 'epoch' ? evmUsdcLabel(snapshot, outSymbol) : outSymbol;
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel: midenTokenLabel(snapshot, entry.faucetId, inSymbol),
+    outLabel,
+    outAmount,
+    providerLabel,
+    network: 'Sepolia',
+    status: bridgeStatusOf(entry)
+  };
 };
 
 /**
@@ -348,7 +393,7 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
  * row is only tagged once the consume is on-chain-final, so status is always
  * confirmed.
  */
-export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
   const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
   // Once received (a consume row always is) the row's own amount is what was credited. In flight
@@ -361,7 +406,19 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
       : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
   const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
-  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Miden', status: bridgeStatusOf(entry) };
+  // ETH and Circle's USDC (the xReserve route) keep their symbol; any other source is the configured Epoch USDC.
+  const keepsSourceSymbol = entry.bridgeInProvider === 'usdcx' || inSymbol === 'ETH';
+  const inLabel = keepsSourceSymbol ? inSymbol : evmUsdcLabel(snapshot, inSymbol);
+  return {
+    inSymbol,
+    outSymbol,
+    inLabel,
+    outLabel: midenTokenLabel(snapshot, entry.faucetId, outSymbol),
+    outAmount,
+    providerLabel,
+    network: 'Miden',
+    status: bridgeStatusOf(entry)
+  };
 };
 
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */

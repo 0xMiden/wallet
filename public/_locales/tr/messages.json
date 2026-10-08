@@ -1988,9 +1988,9 @@
     "message": "Kabul edilecek transferleriniz var",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ bekliyor",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ bekliyor · incelemek için dokunun",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3869,17 +3869,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Araçlar",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Sosyal",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Oyunlar",
@@ -3896,14 +3888,6 @@
   "exploreCategoriesLabel": {
     "message": "Kategoriler",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Öne çıkan",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Yardımcı araçlar",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Aç",
@@ -3932,10 +3916,6 @@
   "exploreNoResultsDescription": {
     "message": "Başka bir ad deneyin veya bir dApp’in URL’sini yapıştırın.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Takas için testnet token’ı alın",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Küçült",
@@ -4299,6 +4279,10 @@
   "tokenInfo": {
     "message": "Token bilgileri",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "Açıklama",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "Değiştirilebilir",
@@ -4794,6 +4778,10 @@
   "unverifiedTokenDescription": {
     "message": "Bu token, Miden’in doğrulanmış token listesinde yer almıyor. Herkes istediği isimle bir token oluşturabilir, bu yüzden güvenmeden önce faucet adresindeki kimliğini kontrol edin.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "Doğrulanmamış token",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "Simülasyon yoluyla doğrulanamadı. Aşağıdaki tutarlar, site tarafından beyan edilen tutarlardır.",
@@ -5856,5 +5844,93 @@
   "confirmEarnDepositReason": {
     "message": "Para yatırma işleminizi onaylayın",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Token ayrıntılarını düzenle",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Token ayrıntıları",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Ad",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Sembol",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Ondalık sayılar",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Kaydet",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucet'ın değerlerine sıfırla",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Düzenlendi",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1 ila $max$ karakterden oluşan bir ad girin.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1 ila $max$ karakterden oluşan bir sembol girin.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0 ile $max$ arasında bir tam sayı girin.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Bu değerler yalnızca bu cüzdanın token'ı gösterme şeklini değiştirir. faucet kendi değerlerini korur. Gönderdiğiniz tutarlar, burada ayarladığınız ondalık basamakları kullanır.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Token ayrıntılarını kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH, Miden Testnet'te takas işlemleri için kullanılan bir test tokenidir. ETH değildir ve üretim cüzdanında mevcut olmayacaktır.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "Takas, Miden Testnet üzerindeki bir akıllı sözleşme aracılığıyla gerçekleştirilir.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Değişimin gerçekleştiği yer",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "$token$ hakkında",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

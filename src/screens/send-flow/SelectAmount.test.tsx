@@ -41,8 +41,24 @@ jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn
 // --- Child components: stub out presentational internals, but keep the passed
 //     nodes (tokenSelector / label / helper) so SelectAmount's own JSX renders.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({
+    symbol,
+    faucetId,
+    fallbackSymbol,
+    size
+  }: {
+    symbol: string;
+    faucetId?: string;
+    fallbackSymbol?: string;
+    size?: string;
+  }) => (
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-fallback-symbol={fallbackSymbol}
+      data-size={size}
+    />
   )
 }));
 
@@ -166,6 +182,7 @@ describe('SelectAmount', () => {
       // Token logo defaults its symbol to token.name.
       const logo = screen.getByTestId('token-logo');
       expect(logo).toHaveAttribute('data-symbol', 'USDC');
+      expect(logo).toHaveAttribute('data-faucet-id', 't1');
       expect(logo).toHaveAttribute('data-size', 'sm');
 
       // Token name chip + chevron icon.
@@ -319,6 +336,21 @@ describe('SelectAmount', () => {
       expect(container.firstChild).toHaveClass('px-6');
     });
 
+    // The earn deposit step's header sits on the 16px page margin: the field takes it on every
+    // platform, and starts where the earn pages' first line does.
+    it.each([true, false])('takes the page margin and the earn start with pageInset (mobile: %s)', mobile => {
+      jest.mocked(isMobile).mockReturnValue(mobile);
+      const { container } = renderComponent({ pageInset: true });
+
+      const page = container.firstElementChild;
+      expect(page).toHaveClass('px-4');
+      expect(page).not.toHaveClass('px-6');
+      expect(page).not.toHaveClass('px-8');
+      const body = page?.firstElementChild;
+      expect(body).toHaveClass('pt-7');
+      expect(body).not.toHaveClass('pt-10');
+    });
+
     // #1109: the CTA's bottom padding is the shared cushion, never a literal of its own, so it follows the tab bar
     // (and drops to 1rem on the slide pages that host this step) instead of pinning a fixed 6rem.
     it('pins its CTA on the shared cushion', () => {
@@ -377,6 +409,12 @@ describe('SelectAmount', () => {
       expect(screen.getByTestId('amount-input')).toHaveAttribute('data-show-divider', 'true');
     });
 
+    // The same typed amount and token as above, with the rule turned off (the earn deposit step, the swap).
+    it.each([false, true])('draws no divider with showAmountDivider false (embedded: %s)', embedded => {
+      renderComponent({ embedded, showAmountDivider: false });
+      expect(screen.getByTestId('amount-input')).toHaveAttribute('data-show-divider', 'false');
+    });
+
     it('fires haptic feedback and onSelectToken when tapped', () => {
       const onSelectToken = jest.fn();
       renderComponent({ onSelectToken });
@@ -387,7 +425,9 @@ describe('SelectAmount', () => {
 
     it('honors the logoSymbol override for the token logo', () => {
       renderComponent({ logoSymbol: 'PSWAP' });
-      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'PSWAP');
+      const logo = screen.getByTestId('token-logo');
+      expect(logo).toHaveAttribute('data-symbol', 'USDC');
+      expect(logo).toHaveAttribute('data-fallback-symbol', 'PSWAP');
     });
 
     it('renders "select a token" text and no logo when no token is selected (page variant)', () => {
@@ -506,6 +546,7 @@ describe('SelectAmount', () => {
       const selector = screen.getByTestId('ai-token-selector');
       expect(selector).toHaveTextContent('USDC');
       expect(selector).toHaveTextContent('Sepolia');
+      expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', 't1');
       // Arrival hint: "{network} · arrives as {symbol}".
       expect(selector).toHaveTextContent('receiveOnArrivesAs');
     });
@@ -540,6 +581,17 @@ describe('SelectAmount', () => {
 
       expect(() => fireEvent.click(networkRow())).not.toThrow();
     });
+
+    it.each([true, false])(
+      'names the token by its label in the selector and the Available line, logo on its symbol (bridge: %s)',
+      isBridge => {
+        renderComponent({ isBridge, network: sepolia, tokenLabel: 'Test Epoch USDC' });
+
+        expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('Test Epoch USDC');
+        expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 Test Epoch USDC');
+        expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'USDC');
+      }
+    );
 
     it('shows the "$" placeholder while no token is chosen', () => {
       renderComponent({ isBridge: true, token: undefined, network: sepolia });

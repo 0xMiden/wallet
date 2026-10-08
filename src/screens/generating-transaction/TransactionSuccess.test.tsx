@@ -3,7 +3,9 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { TransactionSuccess } from './TransactionSuccess';
 
@@ -82,6 +84,17 @@ jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
 
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
 const baseTransaction = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ({
     id: 'tx-1',
@@ -127,6 +140,25 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).not.toContain('Transaction ID');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
 
+    act(() => root.unmount());
+  });
+
+  it('names a send of the testnet bridge faucet by its label on the receipt', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          amount: 12345n,
+          faucetId: TEST_MIDEN_USDC_FAUCET,
+          secondaryAccountId: 'mtst1aprecipient_addr1234'
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('12345 Test Epoch USDC');
+    expect(container.textContent).not.toContain('12345 USDC');
     act(() => root.unmount());
   });
 

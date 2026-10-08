@@ -1,9 +1,10 @@
 import React, { FC, ChangeEvent, KeyboardEvent, useRef } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+
+import { ClearFieldButton } from './ClearFieldButton';
 
 export interface SearchInputProps {
   value: string;
@@ -34,7 +35,6 @@ export const SearchInput: FC<SearchInputProps> = ({
   size = 'md',
   'data-testid': dataTestId
 }) => {
-  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -91,21 +91,11 @@ export const SearchInput: FC<SearchInputProps> = ({
           size === 'sm' ? 'pl-9' : 'pl-11',
           // Room for the clear button only while it shows.
           value ? 'pr-11' : 'pr-4',
-          // #503 — the placeholder reads as a hint, `muted` against the typed `ink`.
-          'placeholder:text-muted'
+          // #503: the placeholder reads as a hint, `muted` against the typed `ink`, and gives way to the caret.
+          'placeholder:text-muted focus:placeholder:text-transparent'
         )}
       />
-      {/* #503 — clear (X) affordance to erase the input, shown only when non-empty. */}
-      {value && (
-        <button
-          type="button"
-          aria-label={t('clear')}
-          onClick={handleClear}
-          className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center"
-        >
-          <Icon name={IconName.CloseCircleFill} size="sm" className="text-muted" fill="currentColor" />
-        </button>
-      )}
+      {value && <ClearFieldButton onClear={handleClear} className="absolute right-0 top-1/2 -translate-y-1/2" />}
     </div>
   );
 };

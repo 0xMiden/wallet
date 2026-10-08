@@ -1988,9 +1988,9 @@
     "message": "承認待ちの送金があります",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ 件待機中",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ 件待機中 · タップして確認",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3869,17 +3869,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "ツール",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "ソーシャル",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "ゲーム",
@@ -3896,14 +3888,6 @@
   "exploreCategoriesLabel": {
     "message": "カテゴリ",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "おすすめ",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "ヘルパーツール",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "開く",
@@ -3932,10 +3916,6 @@
   "exploreNoResultsDescription": {
     "message": "別の名前を試すか、dAppのURLを貼り付けてください。",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "スワップ用のテストネットトークンを入手",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "最小化",
@@ -4299,6 +4279,10 @@
   "tokenInfo": {
     "message": "トークン情報",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "説明",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "代替可能",
@@ -4794,6 +4778,10 @@
   "unverifiedTokenDescription": {
     "message": "このトークンは、Midenの検証済みトークンリストには含まれていません。誰でも任意の名前でトークンを作成できるため、信頼する前にfaucetのIDを確認してください。",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "未確認のトークン",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "シミュレーションによる検証はできませんでした。以下の数値は、当該サイトが公表しているものです。",
@@ -5856,5 +5844,93 @@
   "confirmEarnDepositReason": {
     "message": "入金を確認してください",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "トークンの詳細を編集する",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "トークンの詳細",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "名前",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "記号",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "小数点",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucetの値にリセット",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "編集済み",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1文字から$max$文字の名称を入力してください。",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1～$max$文字の記号を入力してください。",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0から$max$までの整数を入力してください。",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "これらの設定値は、このウォレットがトークンを表示する方法のみを変更します。faucetは独自の設定値を保持します。送信する金額には、ここで設定した小数点以下の桁数が使用されます。",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "トークンの詳細を保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETHは、Midenテストネットでのスワップに使用されるテスト用トークンです。これはETHではなく、本番環境のウォレットでは利用できません。",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "この交換は、Midenテストネット上のスマートコントラクトを通じて実行されます。",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "スワップが実行される場所",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "$token$について",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

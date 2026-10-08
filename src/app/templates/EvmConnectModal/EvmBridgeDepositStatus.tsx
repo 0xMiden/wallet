@@ -10,12 +10,16 @@ import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer';
 import { useBridgeTracker } from 'lib/agglayer/use-bridge-tracker';
 import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { fetchXReserveAttestations, findAttestationForDomain } from 'lib/usdcx/attestation';
 import { USDCX_REMOTE_DOMAIN } from 'lib/usdcx/constant';
@@ -37,6 +41,7 @@ interface EvmBridgeDepositStatusProps {
  * number; its record is the placeholder's, so the row's own output symbol names the asset.
  */
 const outputLabel = (
+  bridgeConfig: BridgeConfigSnapshot,
   row: ITransaction,
   inputs: IBridgedReceiveExtraInputs,
   assetsMetadata: Record<string, AssetMetadata>,
@@ -44,12 +49,16 @@ const outputLabel = (
 ): string => {
   if (inputs.phase === 'received') {
     const metadata = resolveDisplayMetadata(row.faucetId, assetsMetadata, nativeFaucetId);
-    const symbol = hasKnownScale(metadata) ? metadata.symbol : (inputs.outputSymbol ?? metadata.symbol);
+    const symbol = midenTokenLabel(
+      bridgeConfig,
+      row.faucetId,
+      hasKnownScale(metadata) ? metadata.symbol : (inputs.outputSymbol ?? metadata.symbol)
+    );
     const amount = creditedAmount(row.amount, metadata);
     return amount === undefined ? symbol : `${amount} ${symbol}`;
   }
   if (!inputs.outputAmount) return 'Miden';
-  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${inputs.outputSymbol ?? ''}`.trim();
+  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${midenTokenLabel(bridgeConfig, row.faucetId, inputs.outputSymbol ?? '')}`.trim();
 };
 
 /**
@@ -82,6 +91,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   const nativeFaucetId = useMidenFaucetId();
   const pageActive = usePageActive();
   const [attested, setAttested] = useState(false);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
   const attestationHash = attestationHashOf(inputs);
@@ -112,7 +122,10 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
     inputs.provider === 'epoch' ? 'pays' : 'typed',
     inputs.sourceSymbol
   );
-  const sourceLabel = `${sourceAmount} ${inputs.sourceSymbol}`;
+  // ETH and Circle's USDC (the xReserve route) keep their symbol; any other source is the configured Epoch USDC.
+  const keepsSourceSymbol = inputs.provider === 'usdcx' || inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
+  const sourceSymbol = keepsSourceSymbol ? inputs.sourceSymbol : evmUsdcLabel(bridgeConfig, inputs.sourceSymbol);
+  const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   const routeLabel = routeLabelOf(inputs.provider, t);
@@ -159,7 +172,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             on a screen about money arriving. */}
         <TransactionSummaryBadge
           lhs={sourceLabel}
-          rhs={outputLabel(row, inputs, assetsMetadata, nativeFaucetId)}
+          rhs={outputLabel(bridgeConfig, row, inputs, assetsMetadata, nativeFaucetId)}
           fillForArrow={TRANSACTION_COLORS.bridge}
           className="mt-4"
         />
