@@ -411,6 +411,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           isUnconfirmed: isOutcomeUnconfirmed(tx),
           notConfirmedHint: notConfirmedHintKey(tx),
           noteDelivery: tx.noteDelivery,
+          relayRetriesStopped: tx.relayRetriesStopped,
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
           bridgeDestinationNetwork: bridge?.destinationNetwork,
@@ -994,6 +995,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               'pending' means the wallet recorded the debt and never recorded an
               outcome - the process died mid-relay - which is no more reassuring than
               an outright failure.
+
+              The hint follows the delivery sweep: while it is still pushing, the
+              warning can clear on its own; once it has stopped for this row
+              (`relayRetriesStopped`), only the transaction ID can recover the transfer.
             */}
             {(entry.noteDelivery === 'undelivered' || entry.noteDelivery === 'pending') && (
               <div className="mt-6">
@@ -1018,7 +1023,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                           : t('noteDeliveryPendingBody')}
                       </p>
                       <p className="text-xs font-medium text-text-muted wrap-break-word select-text">
-                        {t('noteDeliveryRecoveryHint')}
+                        {entry.relayRetriesStopped
+                          ? t('noteDeliveryRetriesStoppedHint')
+                          : t('noteDeliveryRecoveryHint')}
                       </p>
                     </div>
                   </DetailSection>

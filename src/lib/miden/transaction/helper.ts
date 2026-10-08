@@ -463,12 +463,10 @@ const withIds = (held: string[] | undefined, added: string[]): string[] => [
  * Record the delivery state of this row's private output note, plus the evidence
  * needed to reason about it after the fact.
  *
- * The point is ordering. The SDK's retry outbox is written from inside the Rust
- * relay and only after it resolves the transport API, so any failure upstream of
- * that write leaves nothing queued anywhere — and the wallet, having written
- * nothing of its own until the terminal status, could not tell an interrupted
- * relay from a delivered one. Stamping `'pending'` with the landed transaction id
- * and note id BEFORE the attempt is what makes those two distinguishable.
+ * The point is ordering. The SDK keeps no record of a relay it could not make, so
+ * stamping `'pending'` with the landed transaction id and note id BEFORE the attempt
+ * is what tells an interrupted relay apart from a delivered one, and what the
+ * delivery sweep (`note-delivery-sweep.ts`) retries from.
  *
  * Deliberately NOT guarded on terminal status, unlike {@link setTransactionStage}.
  * That guard is right for a stage, which is display state describing the attempt

@@ -499,10 +499,9 @@ describe('transactions utilities', () => {
 
     it('refuses a PRIVATE send when no note transport is configured, before anything is queued', async () => {
       // Mainnet has no entry in MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS, so the client
-      // is built with no transport — and `relay_private_note` resolves the transport
-      // API before it writes its retry outbox, so such a send would land on chain,
-      // reach nobody, and leave no retry record. Refusing here is what keeps the
-      // assets in the account: nothing has been queued, proved or submitted yet.
+      // is built with no transport, every relay fails and no retry can do better:
+      // such a send would land on chain and reach nobody. Refusing here is what keeps
+      // the assets in the account: nothing has been queued, proved or submitted yet.
       (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured = false;
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 

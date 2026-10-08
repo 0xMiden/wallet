@@ -155,8 +155,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
   if (notesToRelay.length > 0) {
     // Record the debt before incurring it, for the same reason the send path does:
-    // the SDK's outbox is written from inside the relay, so nothing upstream of that
-    // point leaves any durable trace that a note is owed.
+    // the SDK keeps no record of a relay it could not make, so this row is the only
+    // durable trace that a note is owed, and what the delivery sweep retries from.
     try {
       await recordNoteDelivery(transaction.id, 'pending', relayEvidence());
     } catch (error) {
@@ -1084,13 +1084,11 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // Record that a relay is OWED before attempting it, together with the landed
     // transaction id and the note it produced.
     //
-    // The ordering is the whole point. The SDK's retry outbox is written INSIDE the
-    // Rust relay and only after it resolves the transport API, so every failure
-    // upstream of that write queues nothing — and the wallet used to write nothing
-    // of its own either until the terminal "Sent". Between submit and that write
-    // there was no durable statement anywhere that a note was owed to anyone, so an
-    // interrupted relay was indistinguishable from a delivered one. Now the worst
-    // case is a row left at `pending`, which is at least a question someone can ask.
+    // The ordering is the whole point. The SDK keeps no record of a relay it could
+    // not make, so without this stamp nothing between submit and the terminal write
+    // would say a note is owed to anyone, and an interrupted relay would read like a
+    // delivered one. The worst case is a row left at `pending`, which the delivery
+    // sweep (`note-delivery-sweep.ts`) picks up and retries.
     try {
       await recordNoteDelivery(tx.id, 'pending', { transactionId: executedTx.id().toHex(), outputNoteIds });
     } catch (error) {
@@ -1114,19 +1112,13 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
       noteDelivery = 'relayed';
     } catch (error) {
-      // This used to log "SDK outbox will retry on next sync" and fall through to a
-      // clean "Sent". That premise does not hold for the failures that arrive here.
-      // Rust writes the outbox entry inside the relay, after resolving the transport
-      // API, so everything upstream of that point queues nothing while throwing
-      // exactly like a mid-transport timeout that DID queue: transport not
-      // configured, a realm torn down before the op ran, and — new under 0.16 —
-      // `sendPrivateOutput` failing to resolve the note by id in this client's store
-      // (`No output note found for the given id`), which is the whole relay refusing
-      // before it starts.
-      //
-      // The two are indistinguishable from here, so record the pessimistic one.
-      // Over-reporting a note that arrives anyway costs a stale warning;
-      // under-reporting costs the funds.
+      // The SDK does not re-send a private note whose relay failed, whatever the
+      // failure: a transport that is down or not configured, a realm torn down before
+      // the op ran, or `sendPrivateOutput` not finding the note in this client's store
+      // (`No output note found for the given id`). So the row says undelivered, and
+      // the delivery sweep (`note-delivery-sweep.ts`) retries from it. Over-reporting
+      // a note that arrives anyway costs a stale warning; under-reporting costs the
+      // funds.
       console.error('Private-note relay failed; note may be undelivered', {
         txId: tx.id,
         noteId,

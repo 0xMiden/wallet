@@ -836,7 +836,27 @@ describe('HistoryDetails', () => {
       // Recovery guidance accompanies the warning - a warning with no action is
       // just a dead end for the one user who most needs a next step.
       expect(screen.getByText('noteDeliveryRecoveryHint')).toBeInTheDocument();
+      expect(screen.queryByText('noteDeliveryRetriesStoppedHint')).not.toBeInTheDocument();
     });
+
+    // Once the sweep has stopped pushing, promising automatic retries would be untrue, so the
+    // card says what the user can still do.
+    it.each(['undelivered', 'pending'] as const)(
+      'drops the retry promise from a %s row whose automatic delivery has stopped',
+      async noteDelivery => {
+        setMockRow({
+          ...baseSendTx,
+          status: STATUS_COMPLETED,
+          noteDelivery,
+          relayRetriesStopped: true
+        });
+
+        await renderAndLoad();
+
+        expect(screen.getByText('noteDeliveryRetriesStoppedHint')).toBeInTheDocument();
+        expect(screen.queryByText('noteDeliveryRecoveryHint')).not.toBeInTheDocument();
+      }
+    );
 
     it('warns on a row still recording a PENDING delivery', async () => {
       // 'pending' means the wallet recorded that a relay was owed and never

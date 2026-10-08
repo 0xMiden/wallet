@@ -97,12 +97,11 @@ export function getEffectiveNoteTransportUrl(): string | undefined {
  * `MIDEN_NETWORK_NAME.MAINNET`) this resolves to `undefined` and the SDK client is
  * built with no transport at all.
  *
- * The consequence is total and silent. `Client::relay_private_note` resolves the
- * transport API on its FIRST line — before it writes its durable retry outbox — so
- * with transport unconfigured it returns `NoteTransportError::Disabled` having
- * queued nothing. Every private send would land on chain, hand its note to nobody,
- * and leave no retry record anywhere. Callers use this to refuse the send up front
- * rather than discover that after the assets have moved.
+ * The consequence is total and silent. With transport unconfigured every relay
+ * fails with `NoteTransportError::Disabled`, and no retry can do better: every
+ * private send would land on chain and hand its note to nobody. Callers use this to
+ * refuse the send up front rather than discover that after the assets have moved,
+ * and the delivery sweep to skip pushes it cannot make.
  */
 export function isNoteTransportConfigured(): boolean {
   return !!getEffectiveNoteTransportUrl();
