@@ -2230,38 +2230,6 @@
     "message": "Sélectionnez l'une des options ci-dessous",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "Créez votre compte",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Votre compte est privé sur Miden. Vérifiez chaque point une fois pour comprendre comment il est protégé.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "Votre compte se trouve sur cet appareil",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "L'état privé du compte reste sur votre appareil. Le réseau ne voit jamais qu’un engagement cryptographique.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "Une phrase de récupération ne suffit pas",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "Votre phrase de récupération restaure vos clés, et non l’état de votre compte. Si vous perdez l’appareil, cet état est perdu.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Un «Guardian» peut vous protéger",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Un « Guardian » stocke l’état de votre compte et vous aide à le récupérer. Considérez-le comme un serveur qui effectue une sauvegarde de vos données, mais qui ne peut en aucun cas accéder à vos fonds.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "Je vérifie quel opérateur répond le plus vite…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2277,14 +2245,6 @@
   "learnMoreAboutGuardian": {
     "message": "En savoir plus sur l’Guardian",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "Pas de tuteur",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Avancé — récupération à l’aide de votre phrase de récupération uniquement. Pas de cosignataire guardian.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "Exploité par :",
@@ -2314,22 +2274,110 @@
     "message": "Qu’est-ce qu’un «Guardian» ?",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "Votre Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Découvrez votre « Guardian »",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "Changer",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "Un « Guardian » sauvegarde les données privées de votre compte et cosigne vos transactions.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ sauvegarde votre compte. Il ne peut jamais déplacer vos fonds, et vous pouvez en changer à tout moment.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "Récupération sur un nouveau téléphone",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Votre phrase de récupération permet de restaurer vos clés et, grâce à la sauvegarde de votre « Guardian », votre compte. Conservez cette phrase en lieu sûr.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Vos fonds restent les vôtres",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Votre « Guardian » cosigne avec vous. Il ne peut en aucun cas transférer des fonds de son propre chef.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Changer à tout moment",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Vous pouvez changer de « Guardian » quand vous le souhaitez. Votre compte reste le même.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "En savoir plus sur les « Guardians »",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "Continuer avec $name$",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Changer de fournisseur",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "En savoir plus",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "Région :",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Le plus rapide",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Choisissez un fournisseur",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "Ils sauvegardent tous votre compte de la même manière.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "Vous pouvez effectuer ce changement à tout moment dans les Paramètres.",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin, une société spécialisée dans la sécurité des contrats intelligents, réputée pour ses audits.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway, un fournisseur d’infrastructure blockchain qui exploite des nœuds et des réseaux.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass, une société d’ingénierie qui développe des systèmes à connaissance nulle.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset, une société de conservation d’actifs numériques basée en Corée du Sud.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Sécurité et audits des contrats intelligents",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Fournisseur d’infrastructure Blockchain",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Ingénierie des systèmes à connaissance nulle",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Dépositaire d’actifs numériques",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "Un « Guardian » est un service indépendant qui <b>cosigne chaque transaction</b> depuis votre portefeuille, ajoutant ainsi un filet de sécurité sans que vous ayez à renoncer à la gestion autonome de vos actifs.",
@@ -4985,15 +5033,6 @@
     "message": "Transfert accepté",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "Ce retrait ne peut pas être réessayé en toute sécurité. Vérifiez son statut avant de lancer un autre retrait.",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5812,5 +5851,30 @@
   "tokenMetadataSaveError": {
     "message": "Impossible d’enregistrer les détails du jeton. Veuillez réessayer.",
     "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH est un jeton de test utilisé pour les échanges sur le Testnet Miden. Il ne s’agit pas d’ETH et il ne sera pas disponible dans le portefeuille de production.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "L'échange s'effectue via un contrat intelligent sur le Testnet de Miden.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Lieu d’exécution du swap",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "À propos d’$token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }

@@ -181,7 +181,8 @@ jest.mock('lib/miden-chain/block-timestamps', () => ({
 // The cache is scoped by endpoint; a test switches endpoints through this value.
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => (globalThis as any).__cnTest.rpcUrl,
-  getEffectiveNetworkName: () => 'testnet'
+  getEffectiveNetworkName: () => 'testnet',
+  getTestNetworkNameKey: () => 'testnet'
 }));
 
 jest.mock('./assets', () => ({

@@ -8,6 +8,7 @@ _g.__assetsTest = {
 const mockSetAssetsMetadata = jest.fn();
 const mockFetchAssetMetadata = jest.fn();
 const mockHydrateTokenMetadataOverrides = jest.fn();
+const mockOverridesListeners = new Set<() => void>();
 const mockWalletStoreState = {
   tokenPrices: {},
   balances: {},
@@ -43,6 +44,14 @@ jest.mock('lib/platform/storage-adapter', () => ({
 
 jest.mock('lib/store', () => ({
   useWalletStore: Object.assign(jest.fn(), {
+    getState: () => mockWalletStoreState,
+    // As subscribeWithSelector on the overrides: the listener hears each hydrate.
+    subscribe: (_select: unknown, listener: () => void) => {
+      mockOverridesListeners.add(listener);
+      return () => {
+        mockOverridesListeners.delete(listener);
+      };
+    },
     setState: jest.fn((update: (state: typeof mockWalletStoreState) => Partial<typeof mockWalletStoreState>) =>
       Object.assign(mockWalletStoreState, update(mockWalletStoreState))
     )
@@ -73,6 +82,14 @@ jest.mock('lib/miden/metadata/storage', () => ({
     mockEnsureTokensMetadataSchema(...args)
 }));
 
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case publishes.
+let mockBridgeSnapshot: import('lib/remote-config/runtime').BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+
 jest.mock('app/hooks/useGasToken', () => ({
   useGasToken: () => ({ metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' } })
 }));
@@ -86,6 +103,11 @@ import React from 'react';
 
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, fetchTokenMetadata, onStorageChanged, putToStorage } from 'lib/miden/front';
 import { TOKENS_METADATA_OVERRIDES_STORAGE_KEY } from 'lib/miden/metadata/overrides';
 import type { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
@@ -124,6 +146,12 @@ beforeEach(() => {
   mockUseWalletStore.mockImplementation((selector: any) => selector(mockWalletStoreState));
   mockOnStorageChanged.mockReturnValue(() => {});
   mockEnsureTokensMetadataSchema.mockReset().mockResolvedValue(undefined);
+  mockBridgeSnapshot = undefined;
+  // As the store's action: the overrides it is given become the ones it holds.
+  mockHydrateTokenMetadataOverrides.mockImplementation((overrides: Record<string, unknown>) => {
+    mockWalletStoreState.tokenMetadataOverrides = overrides;
+    mockOverridesListeners.forEach(listener => listener());
+  });
 });
 
 describe('setTokensBaseMetadata', () => {
@@ -492,6 +520,93 @@ describe('metadata hooks and provider', () => {
 
     act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!(undefined));
     expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({});
+  });
+
+  it('applies the overrides again when the bridge config changes which overridden faucet the wallet names (#477)', async () => {
+    const overrides = {
+      [TEST_MIDEN_USDC_FAUCET]: { name: 'Mine', symbol: 'MINE' },
+      'asset-1': { name: 'One', symbol: 'ONE' }
+    };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = overrides;
+    const { unmount } = render(
+      React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child'))
+    );
+    await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(overrides));
+    mockHydrateTokenMetadataOverrides.mockClear();
+
+    // Still loading: no overridden faucet changes status.
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).not.toHaveBeenCalled();
+
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(overrides);
+
+    // A poll that only moves lastFetch leaves the store alone.
+    const assetsMetadata = mockWalletStoreState.assetsMetadata;
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, lastFetch: { at: 1, ok: true } };
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+    expect(mockWalletStoreState.assetsMetadata).toBe(assetsMetadata);
+
+    // Unmounted, the provider hears no publish, even one that changes a faucet's status, and no store change.
+    unmount();
+    expect(mockOverridesListeners.size).toBe(0);
+    mockBridgeSnapshot = undefined;
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the re-apply compares against the overrides the store holds (#477)', () => {
+    const usdcOverride = { [TEST_MIDEN_USDC_FAUCET]: { name: 'Mine', symbol: 'MINE' } };
+    const renderProvider = () =>
+      render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    // The config names the faucet from the start, while the store holds no override yet.
+    beforeEach(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    });
+
+    it('applies again once when a publish stops naming a faucet whose override the mount read loaded', async () => {
+      _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = usdcOverride;
+      renderProvider();
+      await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride));
+      mockHydrateTokenMetadataOverrides.mockClear();
+
+      mockBridgeSnapshot = undefined;
+      act(() => publishMockBridgeSnapshot());
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride);
+    });
+
+    it('applies again once when a publish stops naming a faucet whose override a storage change loaded', async () => {
+      const listeners: Record<string, (value: unknown) => void> = {};
+      mockOnStorageChanged.mockImplementation((key: string, callback: (value: unknown) => void) => {
+        listeners[key] = callback;
+        return () => {};
+      });
+      renderProvider();
+      await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith({}));
+      act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!(usdcOverride));
+      mockHydrateTokenMetadataOverrides.mockClear();
+
+      mockBridgeSnapshot = undefined;
+      act(() => publishMockBridgeSnapshot());
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride);
+    });
+
+    it('applies nothing again on a poll that only moves lastFetch once the overrides have loaded', async () => {
+      _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = usdcOverride;
+      renderProvider();
+      await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride));
+      mockHydrateTokenMetadataOverrides.mockClear();
+
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, lastFetch: { at: 1, ok: true } };
+      act(() => publishMockBridgeSnapshot());
+      expect(mockHydrateTokenMetadataOverrides).not.toHaveBeenCalled();
+    });
   });
 
   it('returns a metadata lookup callback that handles miden and token assets', () => {

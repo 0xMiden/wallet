@@ -12,6 +12,7 @@ import path from 'path';
 // These guards pin the accuracy fix so it can't silently regress to overpromising.
 
 const LOCALES_DIR = path.join(__dirname, '../../../public/_locales');
+const SCREENS_DIR = path.join(__dirname, '../../screens/onboarding/common');
 const EN_DIR = path.join(LOCALES_DIR, 'en');
 
 type Entry = { message: string };
@@ -931,10 +932,14 @@ describe('Meet your Guardian copy survives machine translation', () => {
   // word ("d$operators$s"), and a protected term can land glued to its neighbour ("infraestruturblockchaine").
   // Only CURRENT translations are checked: an entry whose englishSource no longer matches is stale, is
   // dropped from the rendered bundle and is re-translated by CI, so it cannot reach a user.
-  const NEW_KEYS = Object.keys(enJson).filter(key => /^(meetGuardian|setUpYourAccount)/.test(key));
+  const NEW_KEYS = Object.keys(enJson).filter(key =>
+    /^(guardianIntro|meetGuardian|guardianAbout|guardianKind|guardianProviderSheet|guardianFastest$)/.test(key)
+  );
   const UNSPACED_LOCALES = ['ja', 'ko', 'zh_CN', 'zh_TW'];
-  // A plural ("Guardians", "blockchains") is a word, not a glue.
-  const GLUED = /\p{L}(?:blockchain|Guardian|\$\w+\$)|(?:blockchain|Guardian)(?!s\b)\p{L}|\$\w+\$\p{L}/iu;
+  // A plural or a case ending ("Guardians", Polish "Guardiana", "Guardianem") is part of the word, not a glue:
+  // after a protected term only a run longer than an ending is a glued neighbour.
+  const GLUED =
+    /\p{L}(?:blockchain|Guardian|\$\w+\$)|(?:blockchain|Guardian)(?!\p{L}{1,3}(?!\p{L}))\p{L}|\$\w+\$\p{L}/iu;
 
   const current = (locale: string, key: string): string | undefined => {
     const entry = readMessages(locale)[key] as (Entry & { englishSource?: string }) | undefined;
@@ -942,8 +947,42 @@ describe('Meet your Guardian copy survives machine translation', () => {
   };
 
   it('covers the new keys, so the sweep below has a subject', () => {
-    // Two keys the step still reads: the summary, with its `$name$` placeholder, and the Change action.
-    expect(NEW_KEYS).toEqual(expect.arrayContaining(['meetGuardianSummary', 'meetGuardianChange']));
+    // One key from each screen: the intro, the operator step (with its `$name$` placeholder) and its sheets.
+    expect(NEW_KEYS).toEqual(
+      expect.arrayContaining([
+        'guardianIntroRecoverBody',
+        'guardianIntroMoreAbout',
+        'meetGuardianContinueWith',
+        'meetGuardianChangeProvider',
+        'meetGuardianRegion',
+        'meetGuardianLearnMore',
+        'guardianAboutGateway',
+        'guardianKindGateway',
+        'guardianProviderSheetTitle'
+      ])
+    );
+  });
+
+  // A swept key nothing reads checks copy no user sees: every one is a literal in the screens that render it.
+  it('sweeps only keys the guardian screens read', () => {
+    const screens = [
+      'GuardianIntro.tsx',
+      'MeetGuardian.tsx',
+      'GuardianProviderSheet.tsx',
+      'GuardianProviderDetailsSheet.tsx'
+    ]
+      .map(file => fs.readFileSync(path.join(SCREENS_DIR, file), 'utf8'))
+      .join('\n');
+    expect(NEW_KEYS.filter(key => !screens.includes(`'${key}'`))).toEqual([]);
+  });
+
+  it('catches a glued term or placeholder and leaves an inflected one alone', () => {
+    for (const glued of ['infraestruturblockchaine', 'd$operators$s', 'der Guardianhilft', 'mitGuardian']) {
+      expect({ glued, caught: GLUED.test(glued) }).toEqual({ glued, caught: true });
+    }
+    for (const word of ['two Guardians', 'swojego „Guardiana”', 'z Guardianem', 'the $name$ Guardian']) {
+      expect({ word, caught: GLUED.test(word) }).toEqual({ word, caught: false });
+    }
   });
 
   it('keeps en/messages.json on the same English as en.json for every new key', () => {
