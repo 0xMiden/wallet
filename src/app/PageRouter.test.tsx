@@ -324,6 +324,29 @@ describe('app/PageRouter — mainnet countdown banner', () => {
     renderAt(pathname, ctx);
     expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
   });
+
+  it('is absent while onboarding is finishing, and present once it is released', () => {
+    const mark = markOnboardingFinishing();
+    try {
+      renderAt('/', ready);
+      expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+    } finally {
+      act(() => mark.release());
+    }
+    expect(screen.getByTestId('mainnet-countdown-banner')).toBeInTheDocument();
+  });
+
+  it.each([
+    '/help-improve-wallet',
+    '/finish-side-panel',
+    '/forgot-password',
+    '/forgot-password-info',
+    '/reset-required',
+    '/reset-wallet'
+  ])('is absent at %s even with the wallet ready', pathname => {
+    renderAt(pathname, ready);
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {

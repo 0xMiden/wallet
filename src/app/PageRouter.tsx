@@ -15,6 +15,7 @@ import Settings from 'app/pages/Settings';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
+import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
@@ -493,6 +494,9 @@ const PageRouter: FC = () => {
     page.type === FullScreenPage &&
     (page.props.entrance ?? defaultPageEntrance()) === 'slide';
   const walletOpen = ctx.ready && !ctx.locked && ctx.hydrated;
+  // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
+  // onboarding to finish) and stays off the onboarding and recovery routes.
+  const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
   const layered = !walletOpen ? (
     page
   ) : (
@@ -507,7 +511,7 @@ const PageRouter: FC = () => {
   // (NetworkModeBanner), not here.
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col">
-      {walletOpen && <MainnetCountdownBanner />}
+      {showCountdown && <MainnetCountdownBanner />}
       <div className="relative min-h-0 flex-1">{layered}</div>
     </div>
   );
