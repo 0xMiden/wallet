@@ -5820,5 +5820,9 @@
         "content": "$1"
       }
     }
+  },
+  "externalPageLoadFailed": {
+    "message": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }

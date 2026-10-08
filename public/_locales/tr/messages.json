@@ -5820,5 +5820,9 @@
         "content": "$1"
       }
     }
+  },
+  "externalPageLoadFailed": {
+    "message": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }
