@@ -13,6 +13,8 @@ services:
       - '127.0.0.1:8787:8787'
     volumes:
       - backend-data:/data
+      # A change of config.json applies after `docker compose restart backend`, with no image build.
+      - ./config.json:/app/config.json:ro
     restart: unless-stopped
     init: true
     stop_grace_period: 40s

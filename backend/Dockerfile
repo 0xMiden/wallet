@@ -2,7 +2,7 @@ FROM node:22.23.2-bookworm-slim AS development
 WORKDIR /app
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile --non-interactive
-COPY tsconfig*.json ./
+COPY tsconfig*.json config.json ./
 COPY src ./src
 RUN mkdir /data && chown node:node /data /app
 USER node
@@ -20,7 +20,7 @@ FROM node:22.23.2-bookworm-slim AS runtime
 ENV NODE_ENV=production PORT=8787 DB_PATH=/data/onramp.sqlite
 WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
-COPY package.json ./
+COPY package.json config.json ./
 COPY --from=build /app/dist ./dist
 RUN mkdir /data && chown node:node /data
 USER node

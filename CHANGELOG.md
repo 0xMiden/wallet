@@ -5,6 +5,7 @@
 ### Changes
 
 - [CHANGE][backend] Move the per-IP rate limits from the server to an nginx reverse proxy (`backend/nginx.conf`) that also terminates TLS, installed with `make generate-nginx-conf DOMAIN=<domain>`. The server has no rate limit of its own.
+- [CHANGE][backend] Read the Agglayer bridge address, the Miden network ID and the exit-root flag from `backend/config.json`, so a change needs a container restart and no image build.
 
 ## 1.16.3 (TBD)
 

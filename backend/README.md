@@ -31,6 +31,23 @@ Copy `.env.example` to `.env` and set the values. The server checks the values a
 | `TRANSAK_PUSHER_CLUSTER` | no | `ap2` |
 | `TRANSAK_POLL_INTERVAL_MS` | no | `60000` (minimum `10000`) |
 
+### `config.json`
+
+Values that are not secret and not specific to one host are in `config.json`, not in `.env`. The server reads the
+file at start and stops if a value is not valid.
+
+| Key | Value |
+| --- | --- |
+| `agglayer-testnet.bridgeAddress` | The Agglayer bridge contract on Sepolia |
+| `agglayer-testnet.midenNetworkId` | The Agglayer network ID of Miden testnet (not an EVM chain ID) |
+| `agglayer-testnet.forceUpdateGlobalExitRoot` | The `forceUpdateGlobalExitRoot` argument of `bridgeAsset` |
+
+Compose mounts the file into the container, so a change applies after `docker compose restart backend`, with no
+image build. The wallet has the same values in its code (`src/lib/onramp/buy-batch.ts`) and signs the batch that it
+builds. Thus a change of these values also needs a new wallet build with the same values; until then the server
+rejects each signature. The shape of the bridge call (the function, the order of the arguments, the destination
+address format) is code on both sides.
+
 Token addresses and decimals are fixed in `src/tokens.ts`, by chain ID. Ethereum mainnet uses USDC
 with 6 decimals. The current Sepolia backend uses the Transak staging token (TRNSK) with 18 decimals.
 The order API reads these values from the map; orders do not store them.
@@ -338,8 +355,9 @@ The server writes one JSON line per event to stdout: `{ ts, level, event, orderI
 - **Message twin.** `buildChallengeMessage` in `src/transak/challenge.ts` has a byte-identical copy in the wallet
   (`src/lib/onramp/transak-message.ts`). The wallet rebuilds the text and refuses to sign a different text.
   Change both at the same time.
-- **Batch twin.** `src/chain-testnet/calibur.ts` and `src/chain-testnet/agglayer.ts` have a twin in the wallet
-  (`src/lib/onramp/buy-batch.ts`). Both tests assert the same golden digest. Change both at the same time.
+- **Batch twin.** `src/chain-testnet/calibur.ts`, `src/chain-testnet/agglayer.ts` and the Agglayer values of
+  `config.json` have a twin in the wallet (`src/lib/onramp/buy-batch.ts`). Both tests assert the same golden
+  digest. Change both at the same time.
 - **No calldata from the client.** The relay batch is always rebuilt from the stored order: the token, the amount, the
   Miden account and the address. The wallet sends only signatures and the values that it signed, and the server
   compares each value with its own value.

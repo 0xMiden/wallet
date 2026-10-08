@@ -202,6 +202,13 @@ docker compose stop backend
 docker compose up -d --no-build
 ```
 
+To change only the Agglayer values, edit `config.json` and restart the container. No image build is necessary.
+The wallet must have the same values in its build (see `config.json` in `README.md`).
+
+```bash
+docker compose restart backend
+```
+
 If `nginx.conf` changed, install it again and reload nginx:
 
 ```bash

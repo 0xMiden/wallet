@@ -3,6 +3,7 @@
 !yarn.lock
 !tsconfig.json
 !tsconfig.build.json
+!config.json
 !src/
 !src/**
 src/**/*.test.ts
