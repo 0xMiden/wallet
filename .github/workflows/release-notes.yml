@@ -92,3 +92,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ steps.tag.outputs.tag }}" --notes-file release-notes.md
+
+  # A bundled first-run snapshot (token list, Explore catalogs) that differs from the file its repository publishes
+  # shows red on the release. Its own job, so drift never holds up the notes. The checkout is the tag's commit on a
+  # release event and the default branch on a manual backfill.
+  published-snapshots:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare the bundled snapshots with the published files
+        run: node scripts/check-published-snapshots.mjs

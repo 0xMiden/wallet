@@ -5,6 +5,7 @@ import { isGuardianKeyCommitment } from 'lib/miden/guardian/key-commitment';
 
 import {
   capturePlan,
+  exploreCatalogRoute,
   installCaptureShim,
   installHardwareSecurityShim,
   guardianPubkeyRoute,
@@ -74,6 +75,20 @@ describe('store listing capture plan', () => {
 
   it('stubs the operators with a key the Guardian picker accepts', () => {
     expect(isGuardianKeyCommitment(guardianPubkeyStubCommitment)).toBe(true);
+  });
+
+  it('pins the dApp browser scenes to the bundled catalog and waits for its rows', () => {
+    const scenes = capturePlan.filter(entry => entry.sceneId.endsWith('-dapp-browser'));
+    expect(scenes.map(entry => [entry.sceneId, entry.ready.testId])).toEqual([
+      ['ios-dapp-browser', 'dapp-grid-card'],
+      ['android-dapp-browser', 'dapp-grid-card']
+    ]);
+    const published = 'https://raw.githubusercontent.com/0xMiden/wallet-explore/main';
+    expect(exploreCatalogRoute.test(`${published}/testnet.json`)).toBe(true);
+    expect(exploreCatalogRoute.test(`${published}/icons/faucet.png`)).toBe(true);
+    expect(exploreCatalogRoute.test('https://raw.githubusercontent.com/0xMiden/token-list/main/testnet.json')).toBe(
+      false
+    );
   });
 
   it('waits for the final wallet balance state before dependent captures', () => {

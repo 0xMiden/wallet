@@ -73,7 +73,7 @@ import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 import { onStorageCleared } from 'lib/storage-cleared';
 
-import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
+import { clearClientStorage, clearStorage, PRESERVED_STORAGE_KEYS, resetStorageDestructive } from './reset';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -599,5 +599,33 @@ describe('the bridge config version floor', () => {
     await clearClientStorage();
 
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_bridge_config_floor_v1']);
+  });
+});
+
+describe('the Explore catalog version floor', () => {
+  it('is one of the keys every wipe keeps', () => {
+    expect(PRESERVED_STORAGE_KEYS).toContain('explore_config_floor_v1');
+  });
+
+  it('survives the wallet-setup wipe while the stored catalog goes', async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      explore_config_floor_v1: { testnet: 2 },
+      'explore_config_v1:testnet': { fetchedAt: 1, body: {} },
+      vault_key: 'v'
+    });
+
+    await clearStorage();
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['explore_config_v1:testnet', 'vault_key']]]);
+  });
+
+  it('survives the recovery page wipe in its desktop form', async () => {
+    localStorage.setItem('miden_wallet_explore_config_floor_v1', '{"testnet":2}');
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+
+    await clearClientStorage();
+
+    expect(Object.keys(localStorage)).toEqual(['miden_wallet_explore_config_floor_v1']);
   });
 });

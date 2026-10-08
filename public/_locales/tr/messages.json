@@ -3781,17 +3781,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Araçlar",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Sosyal",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Oyunlar",
@@ -3808,14 +3800,6 @@
   "exploreCategoriesLabel": {
     "message": "Kategoriler",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Öne çıkan",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Yardımcı araçlar",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Aç",
@@ -3844,10 +3828,6 @@
   "exploreNoResultsDescription": {
     "message": "Başka bir ad deneyin veya bir dApp’in URL’sini yapıştırın.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Takas için testnet token’ı alın",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Küçült",

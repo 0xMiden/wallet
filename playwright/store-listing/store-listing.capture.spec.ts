@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   capturePlan,
+  exploreCatalogRoute,
   installCaptureShim,
   installHardwareSecurityShim,
   guardianPubkeyRoute,
@@ -120,6 +121,7 @@ async function newMobileContext(
       body: JSON.stringify({ commitment: guardianPubkeyStubCommitment })
     })
   );
+  await context.route(exploreCatalogRoute, route => route.abort());
   return context;
 }
 

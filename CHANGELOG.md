@@ -5,6 +5,7 @@
 ### Features
 
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
+- [FEATURE][all] Explore's apps and sections come from the `0xMiden/wallet-explore` repository, so a merged change reaches every wallet within about an hour with no release, and each network shows its own catalog: devnet now lists the devnet faucet (#1361).
 
 ### Fixes
 
