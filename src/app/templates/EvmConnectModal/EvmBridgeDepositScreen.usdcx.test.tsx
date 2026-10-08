@@ -3,7 +3,6 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
-import { USDCX_FAUCET_ID_BECH32 } from 'lib/usdcx/constant';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
@@ -64,6 +63,13 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: () => ({ toString: () => '0xb64e1827414584510723cad8e145a4' })
 }));
 
+// USDCx is the chain's native asset, so the tracking row carries the discovered faucet id.
+const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
+  getNativeAssetId: async () => 'mtst1usdcxnative'
+}));
+
 jest.mock('lib/usdcx/deposit', () => ({
   runUsdcxDeposit: jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`),
   isUsdcxDomainNotRegisteredError: () => false
@@ -119,24 +125,31 @@ jest.mock('./EvmBridgeDepositForm', () => ({
   )
 }));
 
-jest.mock('./EvmBridgeDepositReview', () => ({
-  EvmBridgeDepositReview: ({
-    onConfirm,
-    symbol,
-    outputSymbol
-  }: {
-    onConfirm: () => void;
-    symbol: string;
-    outputSymbol?: string;
-  }) => (
-    <div>
-      <span data-testid="review-symbols">{`${symbol}->${outputSymbol ?? ''}`}</span>
-      <button data-testid="confirm-deposit" onClick={onConfirm}>
-        confirm
-      </button>
-    </div>
-  )
-}));
+jest.mock('./EvmBridgeDepositReview', () => {
+  // The real naming helper: the screen and the Review both name the arriving token through it.
+  const actual = jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview');
+  return {
+    ...actual,
+    EvmBridgeDepositReview: ({
+      onConfirm,
+      symbol,
+      label,
+      route
+    }: {
+      onConfirm: () => void;
+      symbol: string;
+      label?: string;
+      route: Parameters<typeof actual.arrivingTokenName>[0];
+    }) => (
+      <div>
+        <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
+        <button data-testid="confirm-deposit" onClick={onConfirm}>
+          confirm
+        </button>
+      </div>
+    )
+  };
+});
 
 jest.mock('./EvmBridgeDepositStatus', () => ({
   EvmBridgeDepositStatus: () => <div data-testid="deposit-status" />

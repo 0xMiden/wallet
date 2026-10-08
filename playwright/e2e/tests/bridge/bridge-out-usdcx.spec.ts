@@ -2,8 +2,6 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { USDCX_FAUCET_ID_BECH32 } from '../../../../src/lib/usdcx/constant';
-
 import { expect, test } from '../../fixtures/two-wallets';
 import { waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
 import { readBridgedSendRows } from '../../helpers/bridge';
@@ -11,6 +9,9 @@ import { mintFromPublicFaucet, publicFaucetApiUrl } from '../../helpers/public-f
 
 const run = promisify(execFile);
 const helperRepo = process.env.USDCX_TESTNET_REPO;
+// The wallet reads the USDCx faucet id from the chain's native asset. The chain oracle below runs
+// in Node and cannot, so the run names the same faucet here.
+const usdcxFaucetId = (process.env.USDCX_FAUCET_ACCOUNT_ID ?? '').trim();
 
 async function chainEvidence(
   rpcUrl: string,
@@ -22,7 +23,7 @@ async function chainEvidence(
     [
       join(__dirname, '../../helpers/usdcx-chain-evidence.mjs'),
       rpcUrl,
-      USDCX_FAUCET_ID_BECH32,
+      usdcxFaucetId,
       ...(noteId && sender ? [noteId, sender] : [])
     ],
     { timeout: 30_000 }
@@ -32,8 +33,8 @@ async function chainEvidence(
 
 test.describe('USDCx burn against the deployed testnet faucet', () => {
   test.skip(
-    !helperRepo || (process.env.E2E_NETWORK ?? 'testnet') !== 'testnet',
-    'requires USDCX_TESTNET_REPO with a funded, deployed test faucet'
+    !helperRepo || !usdcxFaucetId || (process.env.E2E_NETWORK ?? 'testnet') !== 'testnet',
+    'requires USDCX_TESTNET_REPO with a funded, deployed test faucet, and USDCX_FAUCET_ACCOUNT_ID'
   );
   test.setTimeout(600_000);
 
@@ -102,7 +103,8 @@ test.describe('USDCx burn against the deployed testnet faucet', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]?.transactionId).toMatch(/^0x[0-9a-f]+$/);
       expect(rows[0]?.outputNoteIds).toEqual([rows[0]?.extraInputs?.usdcxBurn?.noteId]);
-      expect(rows[0]?.extraInputs?.usdcxBurn?.destinationDomain).toBe(0);
+      // Arc's Circle domain: USDCX_WITHDRAWAL_DESTINATION in src/lib/usdcx/constant.ts.
+      expect(rows[0]?.extraInputs?.usdcxBurn?.destinationDomain).toBe(26);
       const after = await chainEvidence(envConfig.rpcUrl, rows[0]?.extraInputs?.usdcxBurn?.noteId, address);
       expect(BigInt(before.supply) - BigInt(after.supply)).toBe(1_000_000n);
       await test.info().attach('burn-chain-evidence', {

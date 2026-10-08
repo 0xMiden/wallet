@@ -20,7 +20,6 @@ import { isExtension } from 'lib/platform';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
-import { USDCX_FAUCET_ID_BECH32 } from 'lib/usdcx/constant';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
@@ -250,6 +249,13 @@ jest.mock('lib/miden/types', () => ({
 
 jest.mock('lib/miden/sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a === b
+}));
+
+// USDCx is the chain's native asset, so the faucet the review accepts is the discovered one.
+const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
+  getNativeAssetIdSync: () => 'mtst1usdcxnative'
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
