@@ -74,7 +74,7 @@ function useFitText(active: boolean, maxPx: number, network: string, language: s
 }
 
 /**
- * The test network's name above Home's balance card, as one full-width pill: the brand dot, the
+ * The test network's name on a screen that commits value (`NetworkModeBanner`), as one full-width pill: the brand dot, the
  * network's name, and why it matters ("Tokens have no real value"), with the info glyph at the far
  * end. English reads at the pill's own size and every other locale a size smaller, so the sentence
  * fits rather than being cut off. Tapping it opens the test-network explanation sheet. Its accessible

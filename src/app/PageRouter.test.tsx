@@ -126,6 +126,9 @@ jest.mock('app/layouts/TabLayout', () => ({
 jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
+jest.mock('components/MainnetCountdownBanner', () => ({
+  MainnetCountdownBanner: () => <div data-testid="mainnet-countdown-banner" />
+}));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
@@ -283,7 +286,7 @@ beforeEach(() => {
 });
 
 describe('app/PageRouter — no network banner', () => {
-  // The wallet names its test network in a pill above Home's balance card (NetworkModePill); only the
+  // The wallet names its test network on the screens that commit value (NetworkModeBanner); only the
   // dApp confirm window keeps the full-width banner.
   it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
@@ -294,6 +297,32 @@ describe('app/PageRouter — no network banner', () => {
   it('renders no banner above pre-ready screens either', () => {
     renderAt('/reset-required');
     expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
+  });
+});
+
+describe('app/PageRouter — mainnet countdown banner', () => {
+  // The banner sits above the whole layer stack of the open wallet (so above Home's action bar), on
+  // tab pages and pushed pages alike, and never over Unlock, loading or onboarding.
+  it('sits above a routed tab page', () => {
+    renderAt('/', ready);
+    const banner = screen.getByTestId('mainnet-countdown-banner');
+    expect(
+      banner.compareDocumentPosition(screen.getByTestId('explore')) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('stays above a pushed page', () => {
+    renderAt('/settings/general', ready);
+    expect(screen.getByTestId('mainnet-countdown-banner')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['locked', '/', { ready: true, locked: true, hydrated: true }],
+    ['not yet hydrated', '/', { ready: true, hydrated: false }],
+    ['pre-ready', '/reset-required', {}]
+  ])('renders nothing while the wallet is %s', (_label, pathname, ctx) => {
+    renderAt(pathname, ctx);
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
   });
 });
 

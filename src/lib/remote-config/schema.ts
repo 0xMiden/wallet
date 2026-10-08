@@ -15,6 +15,12 @@ export type EarnProtocol = (typeof SUPPORTED_EARN_PROTOCOLS)[number];
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;
 
+/** The switch and moment behind the mainnet countdown banner. `launchAt` is epoch milliseconds, UTC. */
+export interface MainnetCountdownConfig {
+  enabled: boolean;
+  launchAt?: number;
+}
+
 export interface BridgeConfig {
   network: string;
   version: number;
@@ -29,10 +35,14 @@ export interface BridgeConfig {
     earnProtocol?: EarnProtocol;
   };
   features: Record<BridgeSwitch, boolean>;
+  /** Always set by the parser; optional in the type so a stand-in config built by a test needs none. */
+  mainnetCountdown?: MainnetCountdownConfig;
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
+// An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
+const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
@@ -92,10 +102,16 @@ function earnProtocol(value: unknown): EarnProtocol | undefined {
   return SUPPORTED_EARN_PROTOCOLS.find(protocol => protocol === value);
 }
 
-function featureSwitch(features: Record<string, unknown>, name: BridgeSwitch): boolean {
+function featureSwitch(features: Record<string, unknown>, name: string): boolean {
   const value = features[name];
   if (value === undefined) return false;
   return typeof value === 'boolean' ? value : invalid();
+}
+
+function utcTimestamp(value: unknown): number {
+  if (typeof value !== 'string' || !UTC_TIMESTAMP.test(value)) return invalid();
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? invalid() : parsed;
 }
 
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
@@ -107,6 +123,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const agglayer = section(body.agglayer);
   const epoch = section(body.epoch);
   const features = section(body.features);
+  const countdown = section(body.mainnetCountdown);
   const chain = read(evm, 'chainId', chainId);
   const l1Bridge = read(agglayer, 'l1Bridge', evmAddress);
   const midenBridge = read(agglayer, 'midenBridge', midenAccountId);
@@ -116,6 +133,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const midenUsdcFaucet = read(epoch, 'midenUsdcFaucet', midenAccountId);
   const evmUsdc = read(epoch, 'evmUsdc', evmAddress);
   const protocol = read(epoch, 'earnProtocol', earnProtocol);
+  const launchAt = read(countdown, 'launchAt', utcTimestamp);
   return {
     network,
     version,
@@ -137,6 +155,10 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       fastBridge: featureSwitch(features, 'fastBridge'),
       bridgeIn: featureSwitch(features, 'bridgeIn'),
       bridgeOut: featureSwitch(features, 'bridgeOut')
+    },
+    mainnetCountdown: {
+      enabled: featureSwitch(countdown, 'enabled'),
+      ...(launchAt === undefined ? {} : { launchAt })
     }
   };
 }
