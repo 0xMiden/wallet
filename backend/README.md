@@ -42,6 +42,16 @@ file at start and stops if a value is not valid.
 | `agglayer-testnet.midenNetworkId` | The Agglayer network ID of Miden testnet (not an EVM chain ID) |
 | `agglayer-testnet.forceUpdateGlobalExitRoot` | The `forceUpdateGlobalExitRoot` argument of `bridgeAsset` |
 
+To replace one value, use `make config-change <section> <key> <new-value>`:
+
+```bash
+make config-change agglayer-testnet midenNetworkId 87
+```
+
+The command changes only a key that exists, and the new value must have the type of the old value. It writes an
+address in lower case. It does not restart the backend. The command reads the file by its layout, not with a JSON
+parser, so keep each value on its own line.
+
 Compose mounts the file into the container, so a change applies after `docker compose restart backend`, with no
 image build. The wallet has the same values in its code (`src/lib/onramp/buy-batch.ts`) and signs the batch that it
 builds. Thus a change of these values also needs a new wallet build with the same values; until then the server

@@ -1,4 +1,15 @@
-.PHONY: generate-nginx-conf set-trusted-proxies setup-certbot
+.PHONY: generate-nginx-conf set-trusted-proxies setup-certbot config-change
+
+# Replace one value in config.json. The command does not restart the backend.
+# Usage: make config-change <section> <key> <new-value>
+# Example: make config-change agglayer-testnet midenNetworkId 87
+# make reads the words after the target as more targets. These lines make them arguments, only for this target.
+ifeq (config-change,$(firstword $(MAKECMDGOALS)))
+CONFIG_CHANGE_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+$(eval $(CONFIG_CHANGE_ARGS):;@:)
+endif
+config-change:
+	@bash scripts/config-change.sh $(CONFIG_CHANGE_ARGS)
 
 # Ubuntu: install certbot, get the certificate, install the nginx configuration and set up the renewal.
 # Usage: sudo make setup-certbot DOMAIN=backend.example.com EMAIL=admin@example.com
