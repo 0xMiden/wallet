@@ -1012,11 +1012,11 @@ const Welcome: FC = () => {
       case '#meet-guardian':
       case '#choose-guardian':
         // '#choose-guardian' is the retired full-page picker's: an old link to it lands where the sheet that
-        // replaced it opens. All three need this create flow's in-memory seed. A reload loses it, an import
-        // must not turn into a create, and a history jump can land here before any protection step generated
-        // it (a create starts with no credentials, see resetFlowState). The seed is read through a ref because
-        // only this case needs it, while password and onboardingType feed several, so a seed change does not
-        // re-run every case.
+        // replaced it opens. All three need this create flow's in-memory seed. A reload loses it, an import must
+        // not turn into a create, and a history jump can land here before any protection step generated it (a
+        // create starts with no credentials, see resetFlowState). The seed is read through a ref because only
+        // this case needs it, while password and onboardingType feed several, so a seed change does not re-run
+        // every case.
         if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
         else if (hash === '#guardian-intro') setStep(OnboardingStep.GuardianIntro);
         else setStep(OnboardingStep.MeetGuardian);
