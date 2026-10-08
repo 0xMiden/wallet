@@ -1312,5 +1312,9 @@
   "tokenSymbolInvalid": "Wprowadź symbol składający się z 1 do$max$ów znaków.",
   "tokenDecimalsInvalid": "Wprowadź liczbę całkowitą z zakresu od 0 do $max$.",
   "tokenMetadataOverrideNotice": "Te wartości zmieniają jedynie sposób, w jaki ten portfel wyświetla token. Sieć faucet zachowuje swoje własne wartości. Kwoty, które wysyłasz, wykorzystują ustalone tutaj miejsca po przecinku.",
-  "tokenMetadataSaveError": "Nie udało się zapisać szczegółów tokenu. Spróbuj ponownie."
+  "tokenMetadataSaveError": "Nie udało się zapisać szczegółów tokenu. Spróbuj ponownie.",
+  "testIethDescription": "iETH to token testowy używany do wymiany w sieci testowej Miden Testnet. Nie jest to ETH i nie będzie dostępny w portfelu produkcyjnym.",
+  "testIethExecution": "Wymiana odbywa się za pośrednictwem inteligentnego kontraktu w sieci testowej Miden Testnet.",
+  "swapExecutionTitle": "Gdzie odbywa się wymiana",
+  "tokenInfoLabel": "O $token$"
 }

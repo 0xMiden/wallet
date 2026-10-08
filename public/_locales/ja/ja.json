@@ -1312,5 +1312,9 @@
   "tokenSymbolInvalid": "1～$max$文字の記号を入力してください。",
   "tokenDecimalsInvalid": "0から$max$までの整数を入力してください。",
   "tokenMetadataOverrideNotice": "これらの設定値は、このウォレットがトークンを表示する方法のみを変更します。faucetは独自の設定値を保持します。送信する金額には、ここで設定した小数点以下の桁数が使用されます。",
-  "tokenMetadataSaveError": "トークンの詳細を保存できませんでした。もう一度お試しください。"
+  "tokenMetadataSaveError": "トークンの詳細を保存できませんでした。もう一度お試しください。",
+  "testIethDescription": "iETHは、Midenテストネットでのスワップに使用されるテスト用トークンです。これはETHではなく、本番環境のウォレットでは利用できません。",
+  "testIethExecution": "この交換は、Midenテストネット上のスマートコントラクトを通じて実行されます。",
+  "swapExecutionTitle": "スワップが実行される場所",
+  "tokenInfoLabel": "$token$について"
 }
