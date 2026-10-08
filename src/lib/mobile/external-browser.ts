@@ -49,7 +49,11 @@ export async function openExternalUrl({
     }
     failed = true;
     errorListener.remove();
-    await InAppBrowser.close({ id });
+    try {
+      await InAppBrowser.close({ id });
+    } catch (error) {
+      console.warn('[openExternalUrl] Could not close a page that failed to load:', error);
+    }
     externalPageFailed();
   });
 
@@ -59,19 +63,28 @@ export async function openExternalUrl({
       return;
     }
     markReturningFromWebview();
-    closeListener.remove();
-    errorListener.remove();
-    loadListener.remove();
+    removeListeners();
     await resetViewportAfterWebview();
   });
 
-  await InAppBrowser.openWebView({
-    id,
-    url,
-    title,
-    toolbarType: ToolBarType.NAVIGATION,
-    showReloadButton: true,
-    isPresentAfterPageLoad: false,
-    ...webviewToolbarColors()
-  });
+  const removeListeners = () => {
+    closeListener.remove();
+    errorListener.remove();
+    loadListener.remove();
+  };
+
+  try {
+    await InAppBrowser.openWebView({
+      id,
+      url,
+      title,
+      toolbarType: ToolBarType.NAVIGATION,
+      showReloadButton: true,
+      isPresentAfterPageLoad: false,
+      ...webviewToolbarColors()
+    });
+  } catch (error) {
+    removeListeners();
+    throw error;
+  }
 }

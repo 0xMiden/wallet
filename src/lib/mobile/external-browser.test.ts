@@ -205,6 +205,21 @@ describe('openExternalUrl', () => {
       expect(announced).toHaveBeenCalledTimes(1);
     });
 
+    it('still announces once when the close is rejected, and nothing rejects out of the listener', async () => {
+      const listeners = captureListeners();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const closeError = new Error('no such webview');
+      mockClose.mockRejectedValueOnce(closeError);
+
+      await openExternalUrl({ url: 'https://example.com', title: 'Example' });
+
+      await expect(listeners.fire('pageLoadError', { id: 'explorer-webview' })).resolves.toBeUndefined();
+
+      expect(announced).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), closeError);
+      warn.mockRestore();
+    });
+
     it('ignores a load error from another instance', async () => {
       const listeners = captureListeners();
 
@@ -216,6 +231,19 @@ describe('openExternalUrl', () => {
       expect(listeners.removed('pageLoadError')).not.toHaveBeenCalled();
       expect(announced).not.toHaveBeenCalled();
     });
+  });
+
+  it('removes every listener it registered and rethrows when the overlay cannot open', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const listeners = captureListeners();
+    const openError = new Error('cannot open');
+    mockOpenWebView.mockRejectedValueOnce(openError);
+
+    await expect(openExternalUrl({ url: 'https://example.com', title: 'Example' })).rejects.toBe(openError);
+
+    expect(listeners.removed('closeEvent')).toHaveBeenCalled();
+    expect(listeners.removed('pageLoadError')).toHaveBeenCalled();
+    expect(listeners.removed('browserPageLoaded')).toHaveBeenCalled();
   });
 
   describe('native header theme (#503)', () => {
