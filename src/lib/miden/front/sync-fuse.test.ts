@@ -12,6 +12,7 @@ import {
   clearSyncFuseForEndpointChange,
   isSyncFused,
   noteAbandonedSyncProbe,
+  noteLocalProbeFailure,
   noteNonEvictionSyncFailure,
   noteProbeFailure,
   noteSyncParked,
@@ -406,6 +407,38 @@ describe('sync fuse (#777)', () => {
       noteSyncWatchdogEviction('note-delivery');
 
       expect(isSyncFused('note-delivery')).toBe(false);
+    });
+  });
+
+  // A failure that never left this realm says nothing about the node either way.
+  describe('noteLocalProbeFailure', () => {
+    it('re-arms a lit window', () => {
+      evictUntilLit('note-delivery');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS - 5_000;
+
+      noteLocalProbeFailure('note-delivery');
+
+      expect(syncFuseUntilMs('note-delivery')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    it('re-arms a lapsed window, so the probe it granted does not reopen the cadence', () => {
+      evictUntilLit('note-delivery');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS + 5_000;
+      expect(isSyncFused('note-delivery')).toBe(false);
+
+      noteLocalProbeFailure('note-delivery');
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('leaves an unlit entry exactly as it stands', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteLocalProbeFailure('note-delivery');
+      expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+      noteSyncWatchdogEviction('note-delivery');
+      expect(isSyncFused('note-delivery')).toBe(true);
     });
   });
 

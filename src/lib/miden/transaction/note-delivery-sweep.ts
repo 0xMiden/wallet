@@ -1,4 +1,10 @@
-import { isSyncFused, noteProbeFailure, noteSyncSuccess, syncFuseUntilMs } from 'lib/miden/front/sync-fuse';
+import {
+  isSyncFused,
+  noteLocalProbeFailure,
+  noteProbeFailure,
+  noteSyncSuccess,
+  syncFuseUntilMs
+} from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
@@ -13,8 +19,10 @@ import {
 } from './helper';
 import { RETRY_WINDOW_SECONDS } from './note-delivery-window';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import { INoteDeliveryState, ITransaction } from '../db/types';
-import { errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
+import { causeChain, errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -108,8 +116,36 @@ export const classifyRelayFailure = (error: unknown): RelayFailureClass => {
   if (has('note transport is disabled')) return 'notConfigured';
   if (has('No output note found for the given id') || has('output note has no details to relay')) return 'storeLoss';
   if (has('output note has no inclusion proof')) return 'noteLocal';
-  const code = parts.map(part => /\bStatus \{ code: (\w+)/.exec(part)?.[1]).find(Boolean);
+  const code = statusCodeOf(parts);
   return code && NOTE_LOCAL_CODES.includes(code) ? 'noteLocal' : 'outage';
+};
+
+/** The gRPC code a failed send reports (tonic's `Status { code: <Code>, ... }`), if any. */
+function statusCodeOf(parts: string[]): string | undefined {
+  return parts.map(part => /\bStatus \{ code: (\w+)/.exec(part)?.[1]).find(Boolean);
+}
+
+/** The innermost killed-pipeline error down `error`'s cause chain, or `error` when there is none. */
+const innermostKill = (error: unknown): unknown => {
+  let kill = error;
+  for (const link of causeChain(error)) {
+    if (isWasmClientPoisonedError(link) || isOperationAbortedError(link)) kill = link;
+  }
+  return kill;
+};
+
+/**
+ * Book a failed push to the 'note-delivery' fuse by the sweep's own reading of it. An
+ * interruption books the kill it found down the cause chain, so a wrapped eviction still
+ * counts as one; an outage, or a transport that rejected the request, is a probe the node
+ * answered; and a failure that never left this realm (a store loss, the local refusal of a
+ * note with no proof yet, a disabled transport) only re-arms a fuse already lit.
+ */
+const bookPushFailure = (failure: RelayFailureClass, error: unknown): void => {
+  if (failure === 'interrupted') noteProbeFailure('note-delivery', innermostKill(error));
+  else if (failure === 'outage' || (failure === 'noteLocal' && statusCodeOf(errorMessageParts(error))))
+    noteProbeFailure('note-delivery', error);
+  else noteLocalProbeFailure('note-delivery');
 };
 
 /**
@@ -361,8 +397,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
         priorState: row.noteDelivery,
         error
       });
-      // A disabled transport refused locally, so no probe ran and there is nothing to book.
-      if (failure !== 'notConfigured') noteProbeFailure('note-delivery', error);
+      bookPushFailure(failure, error);
       if (failure === 'interrupted') {
         // Recorded before any write, so a write that fails still ends the pass (the row's
         // isolation reads this flag).

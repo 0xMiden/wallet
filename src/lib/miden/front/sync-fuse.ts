@@ -352,11 +352,28 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
  * (so a producer that only ever adds would fuse permanently on the first four evictions
  * of its life), and while lit it re-arms the deadline (so "one probe per 30 min until
  * one SUCCEEDS" holds).
+ *
+ * Reads `error` itself, not its cause chain. A caller that classifies through the chain
+ * hands over the innermost killed-pipeline error it found there; a failure that never left
+ * the realm goes to {@link noteLocalProbeFailure} instead.
  */
 export function noteProbeFailure(key: SyncFuseKey, error: unknown): void {
   if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
   else if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) noteAbandonedSyncProbe(key);
   else noteNonEvictionSyncFailure(key);
+}
+
+/**
+ * This probe failed without leaving the realm (a note this client's store lacks, a refusal
+ * made before any request, a transport the client has disabled): the node neither answered
+ * nor parked us, so the evidence is neither added to nor withdrawn. A window that is lit, or
+ * lapsed with this as the probe it granted, is re-armed all the same: "one probe per window
+ * until one SUCCEEDS" holds, and this one did not succeed.
+ */
+export function noteLocalProbeFailure(key: SyncFuseKey): void {
+  const entry = ledger.get(key);
+  if (!entry || entry.fusedUntilMs === null) return;
+  entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
 }
 
 export function noteSyncSuccess(key: SyncFuseKey): void {

@@ -16,7 +16,11 @@ import {
 } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { MAX_CONSECUTIVE_ABANDONED_PROBES, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import {
+  FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_ABANDONED_PROBES,
+  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
+} from 'lib/miden/sync-backoff';
 
 import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
@@ -1251,6 +1255,68 @@ describe('the delivery schedule', () => {
 
     expect(mockRelayById).toHaveBeenCalledTimes(MAX_CONSECUTIVE_ABANDONED_PROBES);
     expect(isSyncFused('note-delivery')).toBe(true);
+  });
+
+  // The sweep books what it classified: an eviction it found down the cause chain is an eviction.
+  it('books a wrapped eviction as an eviction', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(
+      new Error('relay failed', { cause: new WasmClientPoisonedError('watchdog', new Error('push parked')) })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(isSyncFused('note-delivery')).toBe(true);
+  });
+
+  // A note missing from this client's store never reached the transport.
+  it('books a store loss as neither evidence nor its withdrawal', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(new Error('No output note found for the given id'));
+
+    await sweepNoteDeliveries();
+    noteSyncWatchdogEviction('note-delivery');
+
+    expect(isSyncFused('note-delivery')).toBe(true);
+  });
+
+  // The transport answered, so the push did not park: a run of evictions is broken.
+  it('books a transport rejection of the request as an answer from the node', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(sendFailure('InvalidArgument'));
+
+    await sweepNoteDeliveries();
+    noteSyncWatchdogEviction('note-delivery');
+
+    expect(isSyncFused('note-delivery')).toBe(false);
+  });
+
+  it('re-arms a lapsed fuse when the push it granted fails locally, so the next pass pushes nothing', async () => {
+    let monotonic = 1_000;
+    jest.spyOn(performance, 'now').mockImplementation(() => monotonic);
+    for (let eviction = 0; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    monotonic += FUSED_SYNC_PROBE_INTERVAL_MS + 1_000;
+    rows.push(due('lost', NOW - 2000), due('later', NOW - 1000, { nextRelayAt: NOW + 600 }));
+    mockRelayById.mockRejectedValueOnce(new Error('No output note found for the given id'));
+
+    await sweepNoteDeliveries();
+    expect(isSyncFused('note-delivery')).toBe(true);
+
+    clock = NOW + 600;
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xlost']);
   });
 
   // No probe ran: the client refused before any transport call.
