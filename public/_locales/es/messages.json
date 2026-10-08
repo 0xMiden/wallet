@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "Introduce una dirección válida de Sepolia para esta retirada.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "Introduce una dirección válida de Arc Testnet para esta retirada.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "Las retiradas de USDCx solo están disponibles para el faucet configurado en la red de pruebas de Miden.",
@@ -157,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Tu monedero se abrirá para autorizar el importe exacto y firmar en Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Tu monedero se abrirá para aprobar el importe exacto y firmar en la red de origen.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Recibes",
@@ -173,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Tu monedero te pedirá que apruebes «$tokenSymbol$» y que firmes el depósito en Sepolia. Los fondos llegarán a Miden tras la confirmación.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Tu monedero te pedirá que apruebes un «$tokenSymbol$» y que firmes el depósito en la red de origen. Los fondos llegan a Miden tras la confirmación.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4608,8 +4608,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Acepta la solicitud en tu monedero y mantén esta pantalla abierta mientras Sepolia la confirma.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Aprueba la solicitud en tu monedero y mantén esta pantalla abierta mientras la red de origen la confirma.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Error en el depósito del puente",
@@ -4620,8 +4620,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "La transacción de Sepolia está confirmada. Tus fondos aparecerán en Miden cuando se complete la entrega del puente.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "La transacción de origen está confirmada. Tus fondos aparecerán en Miden cuando se complete la transferencia a través del puente.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Ver en Etherscan",
@@ -4700,8 +4700,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "La transacción de Sepolia está confirmada. A la espera de que Circle certifique el depósito antes de que se acuñe USDCx en Miden.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "La transacción de origen está confirmada. A la espera de que Circle certifique el depósito antes de que se acuñe el USDCx en Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Ver en el explorador de bloques",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle ha certificado el depósito. En breve se acuñará USDCx en Miden.",
@@ -5160,8 +5164,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Este puente funciona en Ethereum Sepolia. No conectes un monedero que contenga fondos reales. Crea un monedero nuevo y recárgalo únicamente con ETH de Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Este puente utiliza Arc Testnet para USDC y Ethereum Sepolia para ETH. No conectes un monedero que contenga fondos reales. Crea un monedero nuevo y recárgalo únicamente con tokens de prueba.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Ayúdanos a mejorar Wallet",
@@ -5379,8 +5383,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Este puente traslada tokens de prueba de Ethereum Sepolia a Miden. Nunca realices un puente desde la red principal de Ethereum ni desde ninguna otra red real.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Este puente transfiere USDC de Arc Testnet o ETH de Ethereum Sepolia a Miden. Nunca realices un puente desde la red principal ni desde ninguna otra red real.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Transferencias ocultas: $count$",

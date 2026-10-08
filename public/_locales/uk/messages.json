@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "Введіть дійсну адресу Sepolia для цього виведення коштів.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "Введіть дійсну адресу Arc Testnet для цього виведення коштів.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "Виведення коштів у USDCx доступні лише для налаштованої мережі «faucet» у тестовій мережі Miden.",
@@ -157,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Ваш гаманець відкриється, щоб підтвердити точну суму та підписати транзакцію в Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Ваш гаманець відкриється для затвердження точної суми та підписання в вихідній мережі.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Ви отримуєте",
@@ -173,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Ваш гаманець попросить вас затвердити адресу $tokenSymbol$ та підписати транзакцію на Sepolia. Кошти надійдуть на Miden після підтвердження.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Ваш гаманець попросить затвердити «$tokenSymbol$» та підписати депозит у вихідній мережі. Кошти надходять на Miden після підтвердження.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4608,8 +4608,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Підтвердьте запит у своєму гаманці та залиште цей екран відкритим, поки Sepolia його підтверджує.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Схвалити запит у своєму гаманці та залишити цей екран відкритим, поки вихідна мережа його підтверджує.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Помилка під час депозиту через міст",
@@ -4620,8 +4620,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Транзакція Sepolia підтверджена. Ваші кошти з’являться на Miden після завершення передачі через міст.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "Транзакція-джерело підтверджена. Ваші кошти з’являться на Miden після завершення передачі через міст.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Переглянути на Etherscan",
@@ -4700,8 +4700,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Транзакція Sepolia підтверджена. Очікуємо, поки Circle засвідчить депозит, перш ніж USDCx буде випущено на Miden.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "Транзакція-джерело підтверджена. Очікуємо, поки Circle засвідчить депозит, перш ніж USDCx буде випущено на Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Переглянути в блок-експлорері",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle підтвердила депозит. USDCx незабаром буде випущено на Miden.",
@@ -5160,8 +5164,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Цей міст використовує Arc Testnet для USDC та Ethereum Sepolia для ETH. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його лише тестовими токенами.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Допоможіть вдосконалити Wallet",
@@ -5379,8 +5383,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Цей міст переміщує тестові токени Ethereum Sepolia до Miden. Ніколи не здійснюйте міст з основної мережі Ethereum або будь-якої іншої реальної мережі.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Цей міст переносить USDC з Arc Testnet або ETH з Ethereum Sepolia до Miden. Ніколи не використовуйте міст з мейннету або будь-якої іншої реальної мережі.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Приховані перекази: $count$",

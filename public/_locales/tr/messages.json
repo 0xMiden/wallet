@@ -64,8 +64,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "Bu para çekme işlemi için geçerli bir Sepolia adresi girin.",
-    "englishSource": "Enter a valid Sepolia address for this withdrawal."
+    "message": "Bu para çekme işlemi için geçerli bir Arc Testnet adresi girin.",
+    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCx para çekme işlemleri, yalnızca Miden test ağında yapılandırılmış faucet adresi için kullanılabilir.",
@@ -157,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Cüzdanınız, tam tutarı onaylamak ve Sepolia’da imzalamak üzere açılacaktır.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Cüzdanınız, tam tutarı onaylamak ve kaynak ağda imzalamak için açılacaktır.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Şunları alırsınız:",
@@ -173,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Cüzdanınız, $tokenSymbol$ adresini onaylamanızı ve Sepolia'da para yatırma işlemini imzalamanızı isteyecektir. Onaylandıktan sonra para Miden'e aktarılacaktır.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Cüzdanınız, $tokenSymbol$ adresini onaylamanızı ve kaynak ağdaki para yatırma işlemini imzalamanızı isteyecektir. Onaylandıktan sonra fonlar Miden'e ulaşır.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4608,8 +4608,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Cüzdanınızdaki talebi onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Cüzdanınızda talebi onaylayın ve kaynak ağ bunu onaylarken bu ekranı açık tutun.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Köprü yatırımı başarısız oldu",
@@ -4620,8 +4620,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia işlemi onaylandı. Köprü aktarımı tamamlandığında fonlarınız Miden'de görünecektir.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "Kaynak işlem onaylandı. Köprü aktarımı tamamlandığında paranız Miden'de görünecektir.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscan'da görüntüle",
@@ -4700,8 +4700,12 @@
     "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
   },
   "usdcxAwaitingAttestation": {
-    "message": "Sepolia işlemi onaylandı. Miden’de USDCx basılmadan önce Circle’ın yatırımı onaylamasını bekliyoruz.",
-    "englishSource": "The Sepolia transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+    "message": "Kaynak işlem onaylandı. Miden'de USDCx basılmadan önce Circle'ın yatırımı onaylamasını bekliyoruz.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Blok gezgininde görüntüle",
+    "englishSource": "View on block explorer"
   },
   "usdcxAttested": {
     "message": "Circle, bu yatırımı onayladı. USDCx, kısa süre içinde Miden'de basılacaktır.",
@@ -5160,8 +5164,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Bu köprü, Ethereum Sepolia üzerinde çalışır. Gerçek fon içeren bir cüzdanı bağlamayınız. Yeni bir cüzdan oluşturun ve içine yalnızca Sepolia ETH yatırın.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Bu köprü, USDC için Arc Testnet'i ve ETH için Ethereum Sepolia'yı kullanır. Gerçek para barındıran bir cüzdanı bağlamayın. Yeni bir cüzdan oluşturun ve içine yalnızca test token'ları yükleyin.",
+    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Cüzdanın geliştirilmesine yardımcı olun",
@@ -5379,8 +5383,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Bu köprü, Ethereum Sepolia test tokenlerini Miden’e aktarır. Asla Ethereum ana ağı veya başka herhangi bir gerçek ağdan köprü kurmayın.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Bu köprü, Arc Testnet USDC veya Ethereum Sepolia ETH'yi Miden'e aktarır. Asla ana ağdan veya başka herhangi bir gerçek ağdan köprü kurmayın.",
+    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Gizli transferler: $count$",
