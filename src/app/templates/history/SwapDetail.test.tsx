@@ -226,6 +226,21 @@ describe('SwapDetail token info', () => {
 
     expect(screen.queryByTestId('swap-token-info-button')).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['requested', { requestedFaucetId: TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '1000@8Test iETH'],
+    ['offered', { entry: { ...entry, faucetId: TOKEN_IETH.faucetId, token: 'Test iETH' } }, '500Test iETH']
+  ])("keeps the %s side's amount, name and (i) in one unit the hero wraps between (#477)", (_side, over, unitText) => {
+    renderDetail(over);
+
+    const hero = screen.getByTestId('swap-order-hero');
+    expect(hero).toHaveClass('flex-wrap');
+    // Two units, one per side: a hero too wide for one line breaks between the sides.
+    expect(hero.children).toHaveLength(2);
+    const unit = within(hero).getByTestId('swap-token-info-button').parentElement;
+    expect(unit?.parentElement).toBe(hero);
+    expect(unit?.textContent).toBe(unitText);
+  });
 });
 
 describe('SwapDetail amounts', () => {

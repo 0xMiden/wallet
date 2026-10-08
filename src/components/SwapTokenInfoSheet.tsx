@@ -2,8 +2,11 @@ import React, { FC, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { AcknowledgeSheet } from 'components/AcknowledgeSheet';
+import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { InfoHintTrigger } from 'components/ui/InfoHint';
+import { ListGroup } from 'components/ui/ListGroup';
 import { swapTokenInfo, type SwapTokenInfo } from 'lib/miden/swap/token-info';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -25,13 +28,21 @@ export const SwapTokenInfoSheet: FC<SwapTokenInfoSheetProps> = ({ open, onOpenCh
       testId="swap-token-info-sheet"
       title={label}
       description={t(info.descriptionKey)}
-      descriptionVariant="message"
     >
-      {/* The sheet's gutter, and 20px under the description (its own 8px plus 12px): a section apart. */}
-      <section className="flex flex-col gap-1 px-4 pt-3">
-        <h3 className="text-body-strong text-ink">{t('swapExecutionTitle')}</h3>
-        <p className="text-body text-muted">{t(info.executionKey)}</p>
-      </section>
+      {/* A sheet's facts, as the network sheet sets them; led by the swap action's own glyph and colour. */}
+      <ListGroup as="ul" surface="plain" insetHairlines className="px-4">
+        <FactRow
+          as="li"
+          titleAs="h3"
+          leading={
+            <IconCircle className="text-action-swap">
+              <Icon name={IconName.Convert} fill="currentColor" />
+            </IconCircle>
+          }
+          title={t('swapExecutionTitle')}
+          description={t(info.executionKey)}
+        />
+      </ListGroup>
     </AcknowledgeSheet>
   );
 };
