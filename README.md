@@ -1,9 +1,9 @@
 # Miden Wallet
 
-[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/0xMiden/miden-wallet/blob/main/LICENSE)
-[![build](https://github.com/0xMiden/miden-wallet/actions/workflows/production-branch.yml/badge.svg)](https://github.com/0xMiden/miden-wallet/actions/workflows/production-branch.yml)
-[![build](https://github.com/0xMiden/miden-wallet/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/0xMiden/miden-wallet/actions/workflows/build-desktop.yml)
-[![build](https://github.com/0xMiden/miden-wallet/actions/workflows/build-mobile.yml/badge.svg)](https://github.com/0xMiden/miden-wallet/actions/workflows/build-mobile.yml)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/0xMiden/wallet/blob/main/LICENSE)
+[![build](https://github.com/0xMiden/wallet/actions/workflows/production-branch.yml/badge.svg)](https://github.com/0xMiden/wallet/actions/workflows/production-branch.yml)
+[![build](https://github.com/0xMiden/wallet/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/0xMiden/wallet/actions/workflows/build-desktop.yml)
+[![build](https://github.com/0xMiden/wallet/actions/workflows/build-mobile.yml/badge.svg)](https://github.com/0xMiden/wallet/actions/workflows/build-mobile.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/0xMiden/wallet/badges/coverage.json)](https://github.com/0xMiden/wallet/actions/workflows/coverage-badge.yml)
 [![Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/0xMiden/wallet/badges/tests.json)](https://github.com/0xMiden/wallet/actions/workflows/coverage-badge.yml)
 
@@ -46,7 +46,7 @@ A secure, cross-platform wallet for the [Miden](https://miden.xyz) blockchain. A
 
 ## Install
 
-Download the latest release: **https://miden.fi/**
+Download the latest release: **https://miden.xyz/bread**
 
 ## Development
 
@@ -62,8 +62,8 @@ Download the latest release: **https://miden.fi/**
 
 ```bash
 # Clone the repository
-git clone https://github.com/0xMiden/miden-wallet.git
-cd miden-wallet
+git clone https://github.com/0xMiden/wallet.git
+cd wallet
 
 # Install dependencies
 yarn install
@@ -365,5 +365,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Links
 
 - [Miden Documentation](https://docs.miden.xyz/)
-- [Polygon Miden](https://miden.xyz/)
-- [Report Issues](https://github.com/0xMiden/miden-wallet/issues)
+- [Miden](https://miden.xyz/)
+- [Report Issues](https://github.com/0xMiden/wallet/issues)
