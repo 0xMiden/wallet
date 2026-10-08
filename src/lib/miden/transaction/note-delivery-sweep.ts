@@ -175,8 +175,12 @@ const targetsOf = (row: ITransaction): DeliveryTargets => {
   };
 };
 
-/** No note the sweep could ever push: none owed, no recipient, or every owed note dead. */
-const isInert = (targets: DeliveryTargets) => targets.retry.length === 0 && targets.verify.length === 0;
+/**
+ * Nothing to push and nothing to check: no owed note, or no recipient. A row whose owed
+ * notes are all dead is not inert: no push can carry them, but a consumed one still
+ * retires the row, so its receipts go on.
+ */
+const isInert = (targets: DeliveryTargets) => targets.owed.length === 0 || !targets.recipient;
 
 /** Whether the retry schedule is over: nothing left to retry, the window closed, or the cap reached. */
 const retriesOver = (row: ITransaction, targets: DeliveryTargets, at: number) =>

@@ -454,16 +454,6 @@ describe('sweepNoteDeliveries', () => {
     [
       'a custom row whose dApp named no recipient',
       { type: 'execute', relayNoteIds: ['0xnote'], relayRecipientId: undefined, noteDelivery: 'undelivered' }
-    ],
-    [
-      'a custom row whose one note could not be converted for relay',
-      {
-        type: 'execute',
-        relayNoteIds: ['0xnote'],
-        relayRecipientId: 'mtst1recipient',
-        relayDeadNoteIds: ['0xnote'],
-        noteDelivery: 'undelivered'
-      }
     ]
   ])('leaves %s inert: no push, no receipt, no attempt', async (_kind, overrides) => {
     rows.push(row(overrides));
@@ -475,6 +465,25 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).not.toHaveBeenCalled();
     expect(rows[0]!.relayAttempts).toBe(1);
     expect(rows[0]!.relayRetriesStopped).toBe(true);
+  });
+
+  // No push can carry a dead note, but its receipt can still be read.
+  it('never pushes a row whose every owed note is dead, and still reads its receipt', async () => {
+    rows.push(
+      row({
+        type: 'execute',
+        relayNoteIds: ['0xnote'],
+        relayRecipientId: 'mtst1recipient',
+        relayDeadNoteIds: ['0xnote'],
+        noteDelivery: 'undelivered'
+      })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xnote');
+    expect(rows[0]).toMatchObject({ relayAttempts: 1, relayRetriesStopped: true });
   });
 
   it('never touches a confirmed row again', async () => {
@@ -1065,6 +1074,25 @@ describe('the delivery schedule', () => {
     clock = rows[0]!.nextRelayAt!;
     await sweepNoteDeliveries();
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xkept']);
+  });
+
+  it('still confirms a row whose only owed note is dead once that note is consumed', async () => {
+    rows.push(
+      due('dead', NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xdead'],
+        relayRecipientId: 'mtst1recipient',
+        relayDeadNoteIds: ['0xdead'],
+        noteDelivery: 'undelivered'
+      })
+    );
+    mockIsConsumed.mockResolvedValue(true);
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xdead');
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.noteDelivery).toBe('confirmed');
   });
 
   // (g)
