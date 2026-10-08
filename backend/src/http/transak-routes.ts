@@ -4,7 +4,6 @@ import { z } from 'zod';
 
 import { clientIp } from './client-ip.js';
 import { HttpError } from './errors.js';
-import { createRateLimit } from './rate-limit.js';
 import type { AppDeps } from '../app.js';
 import { errorText, logEvent } from '../log.js';
 import { MIDEN_ACCOUNT_HEX_PATTERN } from '../miden-account.js';
@@ -57,16 +56,15 @@ export function createTransakRouter({
 }: TransakRoutesDeps): Router {
   const challenges = new ChallengeStore(now);
   const challengeSchema = challengeBodySchema(config.maxFiatAmountUsd);
-  const rateLimit = () => createRateLimit({ capacity: 10, refillPerMinute: 10, now });
   const router = Router();
 
-  router.post('/challenge', rateLimit(), async (req, res) => {
+  router.post('/challenge', async (req, res) => {
     const body = challengeSchema.parse(req.body);
     const address = getAddress(body.evmAddress);
     res.json(challenges.issue(address, body.fiatAmount, body.midenAccountHex));
   });
 
-  router.post('/session', rateLimit(), async (req, res) => {
+  router.post('/session', async (req, res) => {
     const { nonce, signature } = sessionBodySchema.parse(req.body);
     // Take the entry first, so a nonce is single use even when the check fails.
     const entry = challenges.take(nonce);

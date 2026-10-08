@@ -1,7 +1,6 @@
 import { Router } from 'express';
 
 import { HttpError } from './errors.js';
-import { createRateLimit } from './rate-limit.js';
 import { NONCE_PATTERN } from './transak-routes.js';
 import type { AppDeps } from '../app.js';
 import { buildPreparation, type Preparation } from '../chain-testnet/preparation.js';
@@ -44,9 +43,6 @@ export type OrderRoutesDeps = Pick<AppDeps, 'orders' | 'chain' | 'now'>;
 
 /** `GET /orders/:id` and `POST /orders/:id/signature`. Mount at `/orders`. */
 export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Router {
-  const rateLimit = () => createRateLimit({ capacity: 10, refillPerMinute: 10, now });
-  // The wallet polls the order status, so the read route permits more requests.
-  const readRateLimit = createRateLimit({ capacity: 30, refillPerMinute: 60, now });
   const router = Router();
 
   function findOrder(id: string | string[] | undefined): Order {
@@ -57,7 +53,7 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
     return order;
   }
 
-  router.get('/:id', readRateLimit, async (req, res) => {
+  router.get('/:id', async (req, res) => {
     const order = findOrder(req.params.id);
     let prepare: Preparation | null = null;
     if (order.state === 'awaiting_signature' && order.tokenAmount !== null) {
@@ -74,7 +70,7 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
     res.json(orderView(order, prepare, showRelay ? (relay?.txHash ?? null) : null));
   });
 
-  router.post('/:id/signature', rateLimit(), async (req, res) => {
+  router.post('/:id/signature', async (req, res) => {
     const body = signatureBodySchema.parse(req.body);
     const order = findOrder(req.params.id);
     if (order.state !== 'awaiting_signature' || order.tokenAmount === null) {

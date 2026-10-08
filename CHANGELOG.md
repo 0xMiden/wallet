@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.2 (TBD)
+
+### Changes
+
+- [CHANGE][backend] Move the per-IP rate limits from the server to an nginx reverse proxy (`backend/nginx.conf`) that also terminates TLS, installed with `make generate-nginx-conf DOMAIN=<domain>`. The server has no rate limit of its own.
+
 ## 1.16.3 (TBD)
 
 ### Features

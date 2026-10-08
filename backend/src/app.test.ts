@@ -157,8 +157,6 @@ beforeEach(() => {
   orders = memoryStore(() => now);
   chain = new FakeChain();
   created = [];
-  // Move the clock far forward so each test gets fresh rate-limit tokens.
-  now += 3_600_000;
 });
 
 describe('GET /health', () => {
@@ -234,18 +232,6 @@ describe('POST /transak/challenge', () => {
       body: '{'
     });
     assert.equal(response.status, 400);
-  });
-
-  it('rate-limits one IP', async () => {
-    const evmAddress = privateKeyToAccount(generatePrivateKey()).address;
-    const statuses: number[] = [];
-    for (let i = 0; i < 11; i += 1) {
-      statuses.push(
-        (await post('/transak/challenge', { evmAddress, fiatAmount: '10', midenAccountHex: MIDEN_ACCOUNT })).status
-      );
-    }
-    assert.deepEqual(statuses.slice(0, 10), Array(10).fill(200));
-    assert.equal(statuses[10], 429);
   });
 });
 

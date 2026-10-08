@@ -51,7 +51,7 @@ const challengeSchema = z.object({ nonce: z.string(), message: z.string() });
 
 describe('trusted proxy configuration', () => {
   for (const trusted of [false, true]) {
-    it(`uses the ${trusted ? 'forwarded' : 'socket'} IP for sessions and rate limits`, async () => {
+    it(`uses the ${trusted ? 'forwarded' : 'socket'} IP for sessions`, async () => {
       const app = await fixture(trusted ? ['127.0.0.1'] : []);
       try {
         const first = await app.post('/transak/challenge', body, '203.0.113.7');
@@ -62,11 +62,6 @@ describe('trusted proxy configuration', () => {
           200
         );
         assert.deepEqual(app.userIps, [trusted ? '203.0.113.7' : '127.0.0.1']);
-        for (let i = 0; i < 9; i += 1) {
-          assert.equal((await app.post('/transak/challenge', body, '203.0.113.7')).status, 200);
-        }
-        assert.equal((await app.post('/transak/challenge', body, '203.0.113.7')).status, 429);
-        assert.equal((await app.post('/transak/challenge', body, '203.0.113.8')).status, trusted ? 200 : 429);
       } finally {
         await app.close();
       }

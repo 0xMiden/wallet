@@ -125,7 +125,7 @@ On `SIGTERM` or `SIGINT`, the server stops accepting connections and feed events
 waits for active HTTP requests and the active order operation, then closes SQLite and releases the instance lock.
 Other queued orders resume after restart. Shutdown has a 30-second deadline; Compose allows 40 seconds before a
 forced stop. A forced exit releases the operating-system lock. Stored relay bytes permit recovery after restart.
-Unsigned checkout challenges and rate limits are held in memory; a restart clears them. A pending challenge must
+Unsigned checkout challenges are held in memory; a restart clears them. A pending challenge must
 be requested again.
 
 For an update, build first, stop the old instance, then start the replacement:
@@ -170,7 +170,7 @@ src/
 ├── config.ts        # environment parse
 ├── log.ts           # JSON log lines
 ├── miden-account.ts # Miden account ID format
-├── http/            # routers (transak-routes, order-routes), CORS, rate limit, errors, client IP
+├── http/            # routers (transak-routes, order-routes), CORS, errors, client IP
 ├── transak/         # Transak API client, Pusher feed, signed challenge, user IP (staging only)
 ├── chain-testnet/   # testnet only: Sepolia client, Calibur batch, Agglayer bridge calls, prepare, signature checks
 ├── orders/          # order states, SQLite store, Transak sync, state machine (advance), worker
@@ -214,11 +214,39 @@ All errors are JSON: `{ "error": string }`.
   the deadline is not in the next day, or when the batch signature or the authorization is not from `evmAddress`.
   Send an authorization only when `needsAuthorization` is true.
 
-Each IP can send 10 requests per minute to each POST route, and 60 per minute (burst 30) to `GET /orders/:id`.
-More requests get 429. Behind a reverse proxy, set `TRUSTED_PROXIES` to its IP addresses or CIDR ranges.
-For example, a proxy on the same host can use `127.0.0.1,::1`. The proxy must set `X-Forwarded-For` from the
-client connection and remove untrusted values. Express uses this configuration for both Transak sessions and
-rate limits. Empty configuration trusts no forwarded headers. Blanket trust and zero-length CIDR prefixes are rejected.
+The server has no rate limit of its own. nginx applies the limits (`nginx.conf`): each IP can send 10 requests per
+minute to each POST route, and 60 per minute (burst 30) to `GET /orders/:id`. More requests get 429 with
+`{ "error": "Too many requests" }` and a `Retry-After` header. A CORS preflight is not counted. A caller that
+connects to the server port directly has no limit, so keep that port on loopback.
+
+`nginx.conf` is a template for nginx on the same host as the server. nginx terminates TLS on port 443 and sends
+requests to `127.0.0.1:8787`. Port 80 serves the ACME challenge from `/var/www/certbot` and redirects all other
+requests to HTTPS. `DEPLOYMENT.md` is the full guide for an Amazon EC2 instance with Ubuntu, with the certbot
+installation. In short, get the certificate first, then generate and install the configuration:
+
+```bash
+sudo certbot certonly --standalone -d backend.example.com   # nginx must not use port 80 at this time
+sudo make generate-nginx-conf DOMAIN=backend.example.com
+sudo nginx -s reload
+```
+
+The command replaces the domain and the certificate directory in the template, writes
+`miden-wallet-backend.conf` to the nginx include directory, and runs `nginx -t`. When the check fails, it restores
+the previous file. It does not reload nginx. Two optional variables change the paths:
+
+| Variable | Default |
+| --- | --- |
+| `NGINX_CONF_DIR` | `/etc/nginx/conf.d` (Homebrew on Apple silicon: `/opt/homebrew/etc/nginx/servers`) |
+| `CERT_DIR` | `/etc/letsencrypt/live/<DOMAIN>`; the directory must contain `fullchain.pem` and `privkey.pem` |
+
+For renewal with nginx in operation, use `certbot renew --webroot -w /var/www/certbot` and reload nginx.
+
+Behind a reverse proxy, set `TRUSTED_PROXIES` to its IP addresses or CIDR ranges.
+For this nginx on the same host, use `127.0.0.1,::1` when the server runs on the host (`yarn start`). With Compose,
+the server sees nginx as the gateway address of its Docker network; use that address (see `DEPLOYMENT.md`).
+The proxy must set `X-Forwarded-For` from the
+client connection and remove untrusted values. Express uses this configuration for the Transak session IP.
+Empty configuration trusts no forwarded headers. Blanket trust and zero-length CIDR prefixes are rejected.
 
 Transak pins each widget session to the `x-user-ip` header. In staging only (`TRANSAK_ENV=staging`), when the caller
 IP is private (loopback, LAN, CGNAT), for example a simulator that calls `localhost`, the server sends its own public
