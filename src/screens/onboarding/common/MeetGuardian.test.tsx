@@ -29,7 +29,13 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
 
 // The sheet has its own test; here it only reports whether it is open and hands picks back.
-type SheetProps = { open: boolean; value: string | null; fastestId: string | null; onPick: (id: string) => void };
+type SheetProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  value: string | null;
+  fastestId: string | null;
+  onPick: (id: string) => void;
+};
 let mockSheet: SheetProps | null = null;
 jest.mock('./GuardianProviderSheet', () => ({
   ...jest.requireActual('./GuardianProviderSheet'),
@@ -207,6 +213,23 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
     fireEvent.click(screen.getByTestId('meet-guardian-continue'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
+  });
+
+  it("keeps the pick and Continue's label when the sheet is closed without a pick and opened again", () => {
+    const view = renderScreen();
+    view.setVerdicts(BOTH_ONLINE);
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    act(() => mockSheet?.onPick('open-zeppelin'));
+
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    act(() => mockSheet?.onOpenChange(false));
+    expect(screen.getByTestId('provider-sheet')).toHaveAttribute('data-open', 'false');
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+
+    expect(screen.getByTestId('provider-sheet')).toHaveAttribute('data-open', 'true');
+    expect(mockSheet?.value).toBe('open-zeppelin');
+    expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
+    expect(screen.getByTestId('meet-guardian-continue')).toHaveTextContent('meetGuardianContinueWith:OpenZeppelin');
   });
 
   it('keeps an operator the user picked earlier, however it ranks', () => {

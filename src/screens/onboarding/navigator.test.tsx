@@ -320,6 +320,15 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: null });
   });
 
+  it('keeps a sheet pick when back goes to the intro and the user returns', () => {
+    const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian });
+    act(() => mockCaptured['meet-guardian'].onProgressChange({ chosenId: 'g2' }));
+
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.GuardianIntro} />);
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: 'g2' });
+  });
+
   it("leaves the card alone for the fully private account and for the card's own Continue", () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
