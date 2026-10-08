@@ -14,6 +14,8 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
+import { MainnetCountdownBanner } from 'components/MainnetCountdownBanner';
+import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
@@ -491,18 +493,28 @@ const PageRouter: FC = () => {
     React.isValidElement<FullScreenPageProps>(page) &&
     page.type === FullScreenPage &&
     (page.props.entrance ?? defaultPageEntrance()) === 'slide';
-  const layered =
-    !ctx.ready || ctx.locked || !ctx.hydrated ? (
-      page
-    ) : (
-      <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
-        {page}
-      </MobilePageLayers>
-    );
+  const walletOpen = ctx.ready && !ctx.locked && ctx.hydrated;
+  // The banner follows the router's own root view (not locked, hydrated, ready, and not holding for
+  // onboarding to finish) and stays off the onboarding and recovery routes.
+  const showCountdown = resolveRootView(ctx) === 'app' && !OUTSIDE_WALLET_SHELL_ROUTES.has(pathname);
+  const layered = !walletOpen ? (
+    page
+  ) : (
+    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+      {page}
+    </MobilePageLayers>
+  );
 
-  // The wallet names its test network in a pill above Home's balance card (NetworkModePill), not in
-  // a banner above every page; the page takes the full height.
-  return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
+  // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
+  // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height
+  // left under it. The test network itself is named on the screens that commit value
+  // (NetworkModeBanner), not here.
+  return (
+    <div className="relative flex h-full min-h-0 w-full flex-col">
+      {showCountdown && <MainnetCountdownBanner />}
+      <div className="relative min-h-0 flex-1">{layered}</div>
+    </div>
+  );
 };
 
 export default PageRouter;

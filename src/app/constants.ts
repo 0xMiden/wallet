@@ -14,3 +14,8 @@ export const FEEDBACK_URL = 'https://cmuv78o9w003x5ebpyha3cf6p.zapier.app/page';
 // Miden support site opened from Settings › About. Same in-app webview /
 // new-tab treatment as FEEDBACK_URL.
 export const SUPPORT_URL = 'https://support.miden.xyz/';
+
+// The early-access list the mainnet countdown banner links to. The switch and
+// the launch moment come from the remote config (`mainnetCountdown`). Same
+// in-app webview / new-tab treatment as SUPPORT_URL.
+export const MAINNET_EARLY_ACCESS_URL = 'https://miden.xyz/bread';

@@ -1200,6 +1200,8 @@
   "networkModeBanner": "Bread'i Miden $network$ üzerinde kullanıyorsunuz",
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "Tokenların gerçek bir değeri yok",
+  "mainnetCountdownLink": "Erken erişim listesine katılın",
+  "mainnetCountdownLabel": "Bread'in ana ağa geçmesine kalan süre: $time$",
   "activityRestoreTransfers": "Geri Yükle",
   "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
   "exportAccountFile": "Hesap dosyasını dışa aktar",

@@ -5249,6 +5249,19 @@
     "message": "Les jetons n’ont aucune valeur réelle",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "Inscrivez-vous à la liste d’accès anticipé",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Temps restant avant le lancement du réseau principal de Bread : $time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Restaurer",
     "englishSource": "Restore"

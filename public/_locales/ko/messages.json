@@ -5249,6 +5249,19 @@
     "message": "토큰에는 실제 가치가 없습니다",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "얼리 액세스 목록에 가입하세요",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Bread가 메인넷에 출시되기까지 남은 시간: $time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "복원",
     "englishSource": "Restore"

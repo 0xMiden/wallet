@@ -26,7 +26,8 @@ const parsed = (version: number) => ({
   evm: {},
   agglayer: {},
   epoch: { allocatorUrl: 'https://allocator.example' },
-  features: { earn: true, fastBridge: false, bridgeIn: false, bridgeOut: false }
+  features: { earn: true, fastBridge: false, bridgeIn: false, bridgeOut: false },
+  mainnetCountdown: { enabled: false }
 });
 // A document an E2E harness serves, pointing at its local fakes.
 const localDoc = (version: number) => doc(version, { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } });
