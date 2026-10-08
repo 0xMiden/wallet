@@ -285,6 +285,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect.objectContaining({
         signer: expect.objectContaining({ approve: expect.any(Function), depositToRemote: expect.any(Function) }),
         isRemoteDomainRegistered: expect.any(Function),
+        readAllowance: expect.any(Function),
         waitForReceipt: expect.any(Function),
         updatePhase: expect.any(Function)
       })

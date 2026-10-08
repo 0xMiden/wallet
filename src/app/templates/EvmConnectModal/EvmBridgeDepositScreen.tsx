@@ -39,6 +39,7 @@ import { WalletAccount } from 'lib/shared/types';
 import {
   CIRCLE_USDC_DECIMALS,
   CIRCLE_USDC_SYMBOL,
+  ERC20_ALLOWANCE_ABI,
   ERC20_APPROVE_ABI,
   ERC20_BALANCE_OF_ABI,
   getUsdcxContracts,
@@ -135,6 +136,23 @@ async function readCircleUsdcBalance(evmAddress: string): Promise<bigint> {
     throw new Error('USDC balanceOf returned no data');
   }
   return decodeFunctionResult({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', data: result });
+}
+
+/** The Arc USDC allowance `evmAddress` gave `spender`, in base units. */
+async function readCircleUsdcAllowance(evmAddress: string, spender: `0x${string}`): Promise<bigint> {
+  if (!isAddress(evmAddress)) {
+    throw new Error(`Invalid EVM address: ${evmAddress}`);
+  }
+  const data = encodeFunctionData({
+    abi: ERC20_ALLOWANCE_ABI,
+    functionName: 'allowance',
+    args: [evmAddress, spender]
+  });
+  const result = await rpcRequest('eth_call', [{ to: circleUsdcAddress, data }, 'latest'], USDCX_CHAIN.id);
+  if (!isHex(result)) {
+    throw new Error('USDC allowance returned no data');
+  }
+  return decodeFunctionResult({ abi: ERC20_ALLOWANCE_ABI, functionName: 'allowance', data: result });
 }
 
 /** Whether Circle registered `remoteDomain` on Arc xReserve. A deposit to an unregistered domain reverts. */
@@ -650,6 +668,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await runUsdcxDeposit(trackingTxId, amount, recipient, {
           signer,
           isRemoteDomainRegistered: readRemoteDomainRegistered,
+          readAllowance: spender => readCircleUsdcAllowance(evmAddress, spender),
           waitForReceipt: hash => waitForEvmReceipt(hash, USDCX_CHAIN),
           updatePhase: updateBridgedReceivePhase
         });

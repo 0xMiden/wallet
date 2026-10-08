@@ -30,6 +30,8 @@ export interface UsdcxSigner {
 export interface UsdcxDepositDeps {
   signer: UsdcxSigner;
   isRemoteDomainRegistered(remoteDomain: number): Promise<boolean>;
+  /** The USDC allowance the depositing account gave `spender`, in base units. */
+  readAllowance(spender: Address): Promise<bigint>;
   waitForReceipt(hash: Hash): Promise<void>;
   updatePhase: typeof updateBridgedReceivePhase;
 }
@@ -65,8 +67,9 @@ export function buildDepositToRemoteArgs(amount: string, remoteRecipient: Hex): 
  * Run the EVM leg of a USDCx bridge-in against the tracking row `trackingTxId`.
  *
  * Order: check the remote domain is registered (so an unregistered domain fails
- * before any wallet prompt), approve xReserve for the amount, wait for that
- * receipt, call `depositToRemote`, record the hash on the row, wait for the
+ * before any wallet prompt), read the allowance xReserve has, approve xReserve
+ * for the amount and wait for that receipt only when the allowance is less than
+ * the amount, call `depositToRemote`, record the hash on the row, wait for the
  * deposit receipt, then move the row to `delivering`. Circle signs the
  * attestation and the relayer mints on Miden after that; nothing here waits
  * for them.
@@ -77,7 +80,7 @@ export async function runUsdcxDeposit(
   trackingTxId: string,
   amount: string,
   remoteRecipient: Hex,
-  { signer, isRemoteDomainRegistered, waitForReceipt, updatePhase }: UsdcxDepositDeps
+  { signer, isRemoteDomainRegistered, readAllowance, waitForReceipt, updatePhase }: UsdcxDepositDeps
 ): Promise<Hash> {
   const args = buildDepositToRemoteArgs(amount, remoteRecipient);
   const [value, remoteDomain] = args;
@@ -86,8 +89,13 @@ export async function runUsdcxDeposit(
     throw new UsdcxDomainNotRegisteredError(remoteDomain);
   }
 
-  const approvalHash = await signer.approve(getUsdcxContracts(USDCX_CHAIN.id).xReserve, value);
-  await waitForReceipt(approvalHash);
+  // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
+  // and `approve` would replace a larger allowance with this amount.
+  const { xReserve } = getUsdcxContracts(USDCX_CHAIN.id);
+  if ((await readAllowance(xReserve)) < value) {
+    const approvalHash = await signer.approve(xReserve, value);
+    await waitForReceipt(approvalHash);
+  }
 
   const depositHash = await signer.depositToRemote(args);
   await updatePhase(trackingTxId, 'submitting', { evmTxHash: depositHash });
