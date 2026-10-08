@@ -100,7 +100,8 @@ function parseSdkSpec(pkgJson) {
 
 /**
  * `{ op, version }` for the prover's miden-client requirement: `=` for an exact pin,
- * `^` for a caret range, which is also what Cargo reads a bare version as.
+ * `^` for a caret range, which is also what Cargo reads a bare version as. A caret range
+ * names a release; a prerelease requirement is refused here and pinned exactly instead.
  */
 function parseProverPin(cargoToml) {
   // miden-client = { version = "^0.17.2", ... }
@@ -108,53 +109,41 @@ function parseProverPin(cargoToml) {
     /^\s*miden-client\s*=\s*\{[^}]*?version\s*=\s*"([=^]?)([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/m
   );
   if (!m) throw new Error('could not parse the miden-client pin from the prover Cargo.toml');
-  return { op: m[1] === '=' ? '=' : '^', version: m[2] };
+  const op = m[1] === '=' ? '=' : '^';
+  if (op === '^' && releaseTriple(m[2]) === undefined) {
+    throw new Error(
+      `the prover's miden-client requirement "${m[1]}${m[2]}" is a caret range on a prerelease, which this guard ` +
+        `does not support; pin it exactly with "=${m[2]}"`
+    );
+  }
+  return { op, version: m[2] };
 }
 
 /** `^x.y.z` or `=x.y.z`, as the Cargo.toml spells it. */
 const describePin = pin => `${pin.op}${pin.version}`;
 
-function parseSemver(version) {
-  const m = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
-  if (!m) throw new Error(`unrecognized version "${version}"`);
-  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), pre: m[4] };
-}
-
-/** Semver precedence: negative when `a` is lower, 0 when equal. */
-function compareSemver(a, b) {
-  for (const key of ['major', 'minor', 'patch']) {
-    if (a[key] !== b[key]) return a[key] - b[key];
-  }
-  if (a.pre === b.pre) return 0;
-  if (a.pre === undefined) return 1;
-  if (b.pre === undefined) return -1;
-  const left = a.pre.split('.');
-  const right = b.pre.split('.');
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    if (left[i] === undefined) return -1;
-    if (right[i] === undefined) return 1;
-    if (left[i] === right[i]) continue;
-    const numeric = /^\d+$/.test(left[i]) && /^\d+$/.test(right[i]);
-    if (numeric) return Number(left[i]) - Number(right[i]);
-    return left[i] < right[i] ? -1 : 1;
-  }
-  return 0;
+/** `[major, minor, patch]` of a release version, or `undefined` for a prerelease or anything else. */
+function releaseTriple(version) {
+  const m = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
 }
 
 /**
  * Whether `version` satisfies the caret range `^pin`, as Cargo reads it: at or above the
  * pin and below the next breaking release (the next major, or the next minor below 1.0,
- * or the next patch below 0.1). A prerelease satisfies it only on the pin's own release.
+ * or the next patch below 0.1). Releases only: a prerelease never satisfies it.
  */
 function satisfiesCaret(version, pin) {
-  const v = parseSemver(version);
-  const p = parseSemver(pin);
-  if (compareSemver(v, p) < 0) return false;
-  const sameRelease = v.major === p.major && v.minor === p.minor && v.patch === p.patch;
-  if (v.pre !== undefined && !(p.pre !== undefined && sameRelease)) return false;
-  if (p.major > 0) return v.major === p.major;
-  if (p.minor > 0) return v.major === 0 && v.minor === p.minor;
-  return v.major === 0 && v.minor === 0 && v.patch === p.patch;
+  const v = releaseTriple(version);
+  const p = releaseTriple(pin);
+  if (v === undefined || p === undefined) return false;
+  const [major, minor, patch] = v;
+  const [pinMajor, pinMinor, pinPatch] = p;
+  const atLeastPin = major !== pinMajor ? major > pinMajor : minor !== pinMinor ? minor > pinMinor : patch >= pinPatch;
+  if (!atLeastPin) return false;
+  if (pinMajor > 0) return major === pinMajor;
+  if (pinMinor > 0) return major === 0 && minor === pinMinor;
+  return major === 0 && minor === 0 && patch === pinPatch;
 }
 
 function parseMidenClientFromCargoLock(lock) {
@@ -421,6 +410,14 @@ function selfTest() {
   );
   assert(samePin(parseProverPin('miden-client = { version = "^0.17.2", features = ["std"] }'), '^', '0.17.2'), 'pin ^');
   assert(samePin(parseProverPin('miden-client = { version = "0.15.5" }'), '^', '0.15.5'), 'bare pin is a caret range');
+  // A caret range names a release; a prerelease is pinned exactly, and the refusal says how.
+  let threw = false;
+  try {
+    parseProverPin('miden-client = { version = "^0.17.2-rc.1" }');
+  } catch (error) {
+    threw = error.message.includes('"=0.17.2-rc.1"');
+  }
+  assert(threw, 'caret pin with a prerelease → refused, naming the = form');
 
   // satisfiesCaret: same major (same minor below 1.0), at or above the pin, no foreign prerelease
   assert(satisfiesCaret('0.17.2', '0.17.2'), 'caret: the pin itself');
@@ -429,6 +426,9 @@ function selfTest() {
   assert(!satisfiesCaret('0.18.0', '0.17.2'), 'caret: the next 0.x minor');
   assert(!satisfiesCaret('0.17.3-rc.1', '0.17.2'), 'caret: a prerelease of another release');
   assert(satisfiesCaret('1.4.0', '1.2.3') && !satisfiesCaret('2.0.0', '1.2.3'), 'caret: 1.x');
+  assert(!satisfiesCaret('0.17.2-rc.1', '0.17.2'), 'caret: a prerelease of the pinned release');
+  assert(satisfiesCaret('0.17.3', '0.17.2'), 'caret: 0.17.3 satisfies ^0.17.2');
+  assert(!satisfiesCaret('0.18.0', '0.17.2'), 'caret: 0.18.0 does not satisfy ^0.17.2');
 
   // parseMidenClientFromCargoLock: exact block, NOT miden-client-web (even when -web appears first)
   assert(
