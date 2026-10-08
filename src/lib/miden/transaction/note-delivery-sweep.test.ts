@@ -1012,16 +1012,40 @@ describe('the delivery schedule', () => {
   });
 
   // Bounded as retries are, so a transport that keeps failing cannot hold a row in verification for good.
-  it.each<[string, number, number]>([
-    ['sent more than 72 hours ago', NOW - 73 * HOUR, 1],
-    ['whose push spent its last attempt', NOW - 1000, MAX_RELAY_ATTEMPTS - 1]
-  ])('counts a failed verification step as done on a row %s', async (_kind, completedAt, relayAttempts) => {
-    rows.push(verifying(completedAt, { relayAttempts }));
+  it('counts a failed verification step as done on a row whose push spent its last attempt', async () => {
+    rows.push(verifying(NOW - 1000, { relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
     mockRelayById.mockRejectedValueOnce(sendFailure('Unavailable'));
 
     await sweepNoteDeliveries();
 
     expect(rows[0]).toMatchObject({ relayVerifyPushes: 1, nextRelayAt: NOW + 30 * MINUTE });
+  });
+
+  // No push of any kind goes past the retry bounds; such a row serves receipts only.
+  it.each<[string, number, number]>([
+    ['sent more than 72 hours ago', NOW - 73 * HOUR, 1],
+    ['whose attempts are spent', NOW - 1000, MAX_RELAY_ATTEMPTS]
+  ])('makes no verification push on a row %s', async (_kind, completedAt, relayAttempts) => {
+    rows.push(verifying(completedAt, { relayAttempts }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({ relayVerifyPushes: 0, nextRelayAt: NOW + HOUR });
+  });
+
+  it('makes no verification push past 72 hours on a row whose push was evicted before them', async () => {
+    rows.push(verifying(NOW - 71 * HOUR, { relayAttempts: 5 }));
+    mockRelayById.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog', new Error('push parked')));
+
+    await sweepNoteDeliveries();
+    // retryDelayFor(5): the evicted step's backoff carries the row past the 72-hour mark.
+    expect(rows[0]!.nextRelayAt).toBe(NOW + 2 * HOUR);
+    clock = rows[0]!.nextRelayAt!;
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(rows[0]).toMatchObject({ relayAttempts: 5, relayVerifyPushes: 0, nextRelayAt: NOW + 3 * HOUR });
   });
 
   // No push can carry a dead note, so finding one dead is as much as its step can do.

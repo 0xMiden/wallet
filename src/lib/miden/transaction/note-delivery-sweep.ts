@@ -48,6 +48,10 @@ const RETRY_DELAYS_SECONDS = [5 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HO
  * An acknowledgement is not proof of storage (the 0.17 transport also acknowledges a
  * note it already holds), so two more pushes give a note the transport accepted and
  * lost two independent chances. A note it does hold costs the recipient nothing.
+ *
+ * A step counts once every note it set out to push was acknowledged or found dead; one
+ * left short is served again on {@link RETRY_DELAYS_SECONDS}. Like a retry, no step is
+ * pushed past {@link RETRY_WINDOW_SECONDS} after the send or {@link MAX_RELAY_ATTEMPTS}.
  */
 const VERIFY_DELAYS_SECONDS = [5 * MINUTE, 30 * MINUTE];
 
@@ -169,10 +173,13 @@ const retryBoundsPassed = (row: ITransaction, attempts: number, at: number) =>
 const retriesOver = (row: ITransaction, targets: DeliveryTargets, at: number) =>
   row.restoredFromBackup === true || targets.retry.length === 0 || retryBoundsPassed(row, attemptsOf(row), at);
 
-/** The notes to push now: the unacknowledged ones while retries last, else the verification pushes. */
+/**
+ * The notes to push now: the unacknowledged ones while retries last, else the verification
+ * pushes. Neither goes past the retry bounds, whichever step left the row due there.
+ */
 const pushesFor = (row: ITransaction, targets: DeliveryTargets, at: number): string[] => {
-  if (row.restoredFromBackup) return [];
-  if (targets.retry.length > 0) return retriesOver(row, targets, at) ? [] : targets.retry;
+  if (row.restoredFromBackup || retryBoundsPassed(row, attemptsOf(row), at)) return [];
+  if (targets.retry.length > 0) return targets.retry;
   return verifyPushesOf(row) < VERIFY_DELAYS_SECONDS.length ? targets.verify : [];
 };
 
@@ -601,9 +608,13 @@ const runPass = async (): Promise<{ nextDueAt: number; fused: boolean }> => {
  *
  * - A note the transport has not acknowledged is pushed on {@link RETRY_DELAYS_SECONDS}
  *   until it is acknowledged or {@link RETRY_WINDOW_SECONDS} has passed since the send.
- * - Once every live note is acknowledged, two verification pushes follow
+ * - Once every live note is acknowledged, two verification steps follow
  *   ({@link VERIFY_DELAYS_SECONDS}). The 0.17 transport acknowledges a note it already
- *   holds as it does a new one, so an ACK proves neither storage nor receipt.
+ *   holds as it does a new one, so an ACK proves neither storage nor receipt. A step
+ *   counts once every note it set out to push was acknowledged or found dead, and one
+ *   left short is repeated on the retry backoff.
+ * - No push of either kind is made past {@link RETRY_WINDOW_SECONDS} after the send or
+ *   {@link MAX_RELAY_ATTEMPTS}; the row then serves receipts only.
  * - Only the nullifier proves delivery: the recipient cannot consume a private note it
  *   never received. Every owed note is checked before each push and hourly once pushes
  *   are over, until {@link RECEIPT_WINDOW_SECONDS} after the send; all of them consumed

@@ -784,7 +784,11 @@ export interface ITransaction {
    * does not prove.
    */
   nextRelayAt?: number;
-  /** Verification pushes made since every live owed note was acknowledged; the sweep makes two. */
+  /**
+   * Verification steps completed since every live owed note was acknowledged, two at most. A step counts once every
+   * note it set out to push was acknowledged or found dead, one left short is repeated on the retry backoff, and no
+   * step is pushed past the retry bounds (72 hours after the send, or `MAX_RELAY_ATTEMPTS`).
+   */
   relayVerifyPushes?: number;
   /**
    * Set when an outage stopped the sweep's pushes with this row due: its push failed as an outage, or the pass
