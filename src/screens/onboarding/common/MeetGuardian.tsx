@@ -44,7 +44,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const { chosenId } = progress;
+  const { chosenId, fastestId } = progress;
 
   // Providers that run a Guardian on the active network, resolved to their endpoint on it.
   const options = useMemo(() => getGuardianOptionsForNetwork(), []);
@@ -66,13 +66,18 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   // Locked in once, on the first full round: the ranking is that moment's measurement. A re-probe can
   // take the operator offline, but never swaps it for another while the user reads about it. A choice
-  // that matches no operator here counts as none, and the fastest is locked in as an auto-pick.
+  // that matches no operator here counts as none, and the fastest is locked in as an auto-pick. The
+  // same round's fastest is recorded for the sheet's Fastest tag even when the user picked first.
   useEffect(() => {
-    if (chosen !== null || !allSettled || fastest === null) return;
-    onProgressChange(prev =>
-      options.some(option => option.id === prev.chosenId) ? prev : { ...prev, chosenId: fastest.id }
-    );
-  }, [chosen, allSettled, fastest, options, onProgressChange]);
+    if (!allSettled || fastest === null) return;
+    onProgressChange(prev => {
+      const next = {
+        chosenId: options.some(option => option.id === prev.chosenId) ? prev.chosenId : fastest.id,
+        fastestId: prev.fastestId ?? fastest.id
+      };
+      return next.chosenId === prev.chosenId && next.fastestId === prev.fastestId ? prev : { ...prev, ...next };
+    });
+  }, [allSettled, fastest, options, onProgressChange]);
   const chosenVerdict = chosen ? verdicts[chosen.endpoint] : undefined;
   const chosenOnline = chosenVerdict?.status === 'online';
   // No operator on this network at all is terminal, not a round still out: the picker would be empty too.
@@ -196,7 +201,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
         onOpenChange={setIsSheetOpen}
         options={options}
         verdicts={verdicts}
-        fastestId={fastest?.id ?? null}
+        fastestId={fastestId}
         value={chosen?.id ?? null}
         onPick={handlePick}
       />

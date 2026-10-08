@@ -307,7 +307,7 @@ describe('OnboardingFlow — action wiring per screen', () => {
 
   it('keeps the Meet your Guardian choice across the next step and back, and clears it on Welcome', () => {
     const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian });
-    const done = { chosenId: 'g1' };
+    const done = { chosenId: 'g1', fastestId: 'g2' };
     act(() => mockCaptured['meet-guardian'].onProgressChange(done));
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
@@ -315,24 +315,25 @@ describe('OnboardingFlow — action wiring per screen', () => {
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
+    // Welcome ends the attempt: the recorded fastest goes with the choice.
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.Welcome} />);
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: null });
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: null, fastestId: null });
   });
 
   it('keeps a sheet pick when back goes to the intro and the user returns', () => {
     const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian });
-    act(() => mockCaptured['meet-guardian'].onProgressChange({ chosenId: 'g2' }));
+    act(() => mockCaptured['meet-guardian'].onProgressChange({ chosenId: 'g2', fastestId: 'g1' }));
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.GuardianIntro} />);
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: 'g2' });
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: 'g2', fastestId: 'g1' });
   });
 
   it("leaves the card alone for the fully private account and for the card's own Continue", () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
-    const locked = { chosenId: 'g1' };
+    const locked = { chosenId: 'g1', fastestId: 'g1' };
     act(() => mockCaptured['meet-guardian'].onProgressChange(locked));
     act(() => mockCaptured['meet-guardian'].onSubmit({ guardianId: 'g1', guardianEndpoint: 'https://g1.example' }));
     expect(mockCaptured['meet-guardian'].progress).toEqual(locked);
@@ -348,14 +349,14 @@ describe('OnboardingFlow — action wiring per screen', () => {
   it('starts the Meet your Guardian step afresh for a new seed, which is a new create attempt', () => {
     const first = ['alpha'];
     const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian, seedPhrase: first });
-    const done = { chosenId: 'g1' };
+    const done = { chosenId: 'g1', fastestId: 'g1' };
     act(() => mockCaptured['meet-guardian'].onProgressChange(done));
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={first} />);
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={['beta']} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: null });
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: null, fastestId: null });
   });
 
   // Written out, not compared with each other: two missing table entries would agree on the fallback.

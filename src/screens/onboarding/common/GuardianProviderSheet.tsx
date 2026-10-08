@@ -29,7 +29,10 @@ export interface GuardianProviderSheetProps {
   options: readonly ResolvedGuardianOption[];
   /** Each operator's latest ping verdict by endpoint; undefined while its round is out. */
   verdicts: Readonly<Record<string, GuardianProbeVerdict | undefined>>;
-  /** The operator the step locked in as fastest, tagged so the user sees why it was picked. */
+  /**
+   * The fastest operator of the step's first full round with one online, tagged so the user sees why it was
+   * picked. A later round never moves it, so after a pick of the user's it can name another operator.
+   */
   fastestId: string | null;
   /** The step's chosen operator. */
   value: string | null;

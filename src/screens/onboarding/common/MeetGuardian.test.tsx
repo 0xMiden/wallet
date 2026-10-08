@@ -78,7 +78,11 @@ type HarnessProps = Omit<React.ComponentProps<typeof MeetGuardianScreen>, 'progr
 };
 
 /** Owns the step's progress the way OnboardingFlow does. */
-const Harness: React.FC<HarnessProps> = ({ initialProgress = { chosenId: null }, onProgress, ...props }) => {
+const Harness: React.FC<HarnessProps> = ({
+  initialProgress = { chosenId: null, fastestId: null },
+  onProgress,
+  ...props
+}) => {
   const [progress, setProgress] = React.useState<MeetGuardianProgress>(initialProgress);
   React.useEffect(() => onProgress?.(progress), [progress, onProgress]);
   return <MeetGuardianScreen {...props} progress={progress} onProgressChange={setProgress} />;
@@ -203,7 +207,7 @@ describe('MeetGuardianScreen', () => {
     view.setVerdicts(BOTH_ONLINE);
 
     act(() => mockSheet?.onPick('open-zeppelin'));
-    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'open-zeppelin' });
+    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'open-zeppelin', fastestId: 'gateway' });
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
 
     view.setVerdicts({
@@ -213,6 +217,41 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
     fireEvent.click(screen.getByTestId('meet-guardian-continue'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
+  });
+
+  // The tag says why the step chose what it chose, so it is that round's measurement, not the latest one.
+  it('keeps the Fastest tag on the operator locked in when a later round ranks another first', () => {
+    const view = renderScreen();
+    view.setVerdicts(BOTH_ONLINE);
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 10 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 90 }
+    });
+
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    expect(mockSheet?.fastestId).toBe('gateway');
+  });
+
+  it("records the first round's fastest even when the user picked another while it was out", () => {
+    const view = renderScreen();
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    act(() => mockSheet?.onPick('open-zeppelin'));
+    view.setVerdicts(BOTH_ONLINE);
+    view.setVerdicts({
+      [OZ.endpoint]: { status: 'online', latencyMs: 10 },
+      [GATEWAY.endpoint]: { status: 'online', latencyMs: 90 }
+    });
+
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    expect(mockSheet?.value).toBe('open-zeppelin');
+    expect(mockSheet?.fastestId).toBe('gateway');
+  });
+
+  it('keeps the Fastest tag recorded before the user left the step and came back', () => {
+    const view = renderScreen({ initialProgress: { chosenId: 'open-zeppelin', fastestId: 'open-zeppelin' } });
+    view.setVerdicts(BOTH_ONLINE);
+    fireEvent.click(screen.getByTestId('meet-guardian-choose-different'));
+    expect(mockSheet?.fastestId).toBe('open-zeppelin');
   });
 
   it("keeps the pick and Continue's label when the sheet is closed without a pick and opened again", () => {
@@ -233,17 +272,17 @@ describe('MeetGuardianScreen', () => {
   });
 
   it('keeps an operator the user picked earlier, however it ranks', () => {
-    const view = renderScreen({ initialProgress: { chosenId: 'open-zeppelin' } });
+    const view = renderScreen({ initialProgress: { chosenId: 'open-zeppelin', fastestId: null } });
     view.setVerdicts(BOTH_ONLINE);
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
   });
 
   it('replaces a choice that matches no operator with the fastest, as its own pick', () => {
     const onProgress = jest.fn();
-    const view = renderScreen({ initialProgress: { chosenId: 'gone' }, onProgress });
+    const view = renderScreen({ initialProgress: { chosenId: 'gone', fastestId: null }, onProgress });
     view.setVerdicts(BOTH_ONLINE);
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'gateway' });
+    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'gateway', fastestId: 'gateway' });
   });
 
   it('offers the fully private account when dev-gated on, and submits no guardian from it', () => {

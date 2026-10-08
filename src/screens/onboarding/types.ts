@@ -165,9 +165,14 @@ export type SelectRecoveryMethodAction = {
  */
 export interface MeetGuardianProgress {
   chosenId: string | null;
+  /**
+   * The fastest operator of the first full round that had one online, tagged Fastest in the provider sheet.
+   * Recorded once, whatever is chosen by then, and never moved by a later round.
+   */
+  fastestId: string | null;
 }
 
-export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { chosenId: null };
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { chosenId: null, fastestId: null };
 
 export type ImportSelectRecoveryMethodAction = {
   id: 'import-select-recovery-method';
