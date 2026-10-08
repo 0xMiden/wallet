@@ -1185,6 +1185,20 @@ describe('the delivery schedule', () => {
     expect(isSyncFused('note-delivery')).toBe(false);
   });
 
+  // A catch-up push is owed for an outage, never for an eviction: the evicted push may still be parked.
+  it('never lets a later catch-up pull an evicted row forward before its cooldown', async () => {
+    rows.push(due('a', NOW - 2000, { relayOutageDeferred: true }), due('b', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog', new Error('push parked')));
+
+    await sweepNoteDeliveries();
+    mockRelayById.mockClear();
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledWith('0xb', 'mtst1recipient');
+    expect(mockRelayById).not.toHaveBeenCalledWith('0xa', 'mtst1recipient');
+    expect(rows[0]).toMatchObject({ relayAttempts: 1, nextRelayAt: NOW + 5 * MINUTE });
+  });
+
   it('pushes nothing while the note-delivery fuse is lit, and still reads the receipt', async () => {
     for (let eviction = 0; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
       noteSyncWatchdogEviction('note-delivery');

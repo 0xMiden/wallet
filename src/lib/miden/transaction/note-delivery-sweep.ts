@@ -367,10 +367,12 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
       if (failure === 'interrupted') {
         // The push may still be parked in the abandoned hold, so it spends nothing and
         // records nothing, but the row moves to its next step: left due, the next lap
-        // would walk straight back into the same parked call.
+        // would walk straight back into the same parked call. Its outage mark goes too, so
+        // no catch-up can pull it forward before that step.
         const backoffAt = nowSeconds() + retryDelayFor(attemptsOf(row));
         await Repo.transactions.where({ id: row.id }).modify(tx => {
           tx.nextRelayAt = backoffAt;
+          delete tx.relayOutageDeferred;
         });
         noteDue(pass, backoffAt);
         return 'interrupted';
