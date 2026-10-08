@@ -154,6 +154,22 @@ sudo mkdir -p /var/www/certbot
 The second command removes the default welcome site. The third command makes the directory that certbot uses for
 certificate renewal.
 
+## Steps 7 to 10 with one command
+
+This command does steps 7 to 10. If you use it, continue at step 11.
+
+```bash
+sudo make setup-certbot DOMAIN=backend.example.com EMAIL=admin@example.com
+```
+
+The command installs certbot, gets the certificate, installs the nginx configuration, and changes the renewal
+to the webroot mode with a test renewal. It stops nginx for a short time while it gets the first certificate.
+`EMAIL` is the address for expiry notices. With `EMAIL`, certbot asks no questions, and you agree to the
+[Let's Encrypt terms of service](https://letsencrypt.org/repository/). Without `EMAIL`, certbot asks for the
+address and for the agreement. You can run the command again: it skips the steps that are done.
+
+The subsequent steps show the same work as manual commands.
+
 ## 7. Install certbot
 
 The certbot team supplies certbot for Ubuntu as a snap. Ubuntu on EC2 has `snapd` installed.

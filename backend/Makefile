@@ -1,4 +1,11 @@
-.PHONY: generate-nginx-conf set-trusted-proxies
+.PHONY: generate-nginx-conf set-trusted-proxies setup-certbot
+
+# Ubuntu: install certbot, get the certificate, install the nginx configuration and set up the renewal.
+# Usage: sudo make setup-certbot DOMAIN=backend.example.com EMAIL=admin@example.com
+# EMAIL is optional. With EMAIL, certbot asks no questions and you agree to the Let's Encrypt terms of service.
+# Optional: NGINX_CONF_DIR and CERT_DIR, as for generate-nginx-conf.
+setup-certbot:
+	@NGINX_CONF_DIR="$(NGINX_CONF_DIR)" CERT_DIR="$(CERT_DIR)" bash scripts/setup-certbot.sh "$(DOMAIN)" "$(EMAIL)"
 
 # Set TRUSTED_PROXIES in .env to the gateway address of the Docker network, then create the container again.
 # The backend container must be in operation. Usage: make set-trusted-proxies
