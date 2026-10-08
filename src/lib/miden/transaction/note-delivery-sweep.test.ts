@@ -1277,6 +1277,53 @@ describe('the delivery schedule', () => {
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xpushed', '0xevicted']);
   });
 
+  // A backup file can carry anything in these fields, and one such row must not starve the rest.
+  it('still pushes the next row when one row stores a relay id list that is not a list', async () => {
+    const bad = due('bad', NOW - 2000);
+    Object.assign(bad, { relayDeadNoteIds: 5 });
+    rows.push(bad, due('good', NOW - 1000));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledWith('0xgood', 'mtst1recipient');
+    // Read as no dead notes, so the row itself is pushed and serves its cooldown.
+    await sweepNoteDeliveries();
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xbad', '0xgood']);
+    expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
+  });
+
+  it('owes only the string ids of a stored relayNoteIds list', async () => {
+    const mixed = due('mixed', NOW - 1000, { type: 'execute', relayRecipientId: 'mtst1recipient' });
+    Object.assign(mixed, { relayNoteIds: ['0xa', 7, null] });
+    rows.push(mixed);
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xa']);
+  });
+
+  it('persists the acknowledgement and cooldown of a row whose stored acknowledgements are not a list', async () => {
+    const malformed = due('malformed', NOW - 1000);
+    Object.assign(malformed, { relayAckedNoteIds: 5 });
+    rows.push(malformed);
+
+    await sweepNoteDeliveries();
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(rows[0]!.relayAckedNoteIds).toEqual(['0xmalformed']);
+    expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
+  });
+
+  it('goes on with the next row when one row fails', async () => {
+    rows.push(due('failing', NOW - 2000), due('next', NOW - 1000));
+    mockRecord.mockRejectedValueOnce(new Error('store closed'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfailing', '0xnext']);
+  });
+
   // An endpoint change clears the ledger, and the sweep must not go on sitting out a window that no longer exists.
   it('pushes again as soon as the note-delivery fuse goes out, inside the window it had', async () => {
     for (let eviction = 0; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {

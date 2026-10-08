@@ -8,7 +8,8 @@ import {
   recordNoteDelivery,
   relayAckedNoteIdsOf,
   relayNoteIdsOf,
-  relayRecipientOf
+  relayRecipientOf,
+  storedNoteIds
 } from './helper';
 import { RETRY_WINDOW_SECONDS } from './note-delivery-window';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -151,7 +152,8 @@ const targetsOf = (row: ITransaction): DeliveryTargets => {
   const owed = relayNoteIdsOf(row);
   const recipient = relayRecipientOf(row);
   const acked = relayAckedNoteIdsOf(row) ?? [];
-  const live = recipient ? owed.filter(noteId => !row.relayDeadNoteIds?.includes(noteId)) : [];
+  const dead = storedNoteIds(row.relayDeadNoteIds);
+  const live = recipient ? owed.filter(noteId => !dead.includes(noteId)) : [];
   return {
     owed,
     recipient,
@@ -411,7 +413,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     relayAttempts: attempts,
     relayVerifyPushes: verifyPushes,
     relayAckedNoteIds: ackedAfter,
-    relayDeadNoteIds: [...(row.relayDeadNoteIds ?? []), ...dead]
+    relayDeadNoteIds: [...storedNoteIds(row.relayDeadNoteIds), ...dead]
   };
   const after = targetsOf(updated);
   // Stamped from the clock at write time, not from the pass's start: each push can take a
@@ -476,6 +478,20 @@ const passStopOf = (): Pick<PassState, 'pushesStopped' | 'fusedUntil'> => {
   return { pushesStopped: 'fused', fusedUntil: nowSeconds() + Math.ceil(fusedForMs / 1000) };
 };
 
+/**
+ * {@link sweepRow}, with a throw kept to its own row so the rows after it still run. A row
+ * that threw notes no due time, so it cannot hold the idle gate at now and re-run the
+ * whole pass every lap; the pass after the gate's next opening tries it again.
+ */
+const sweepRowIsolated = async (row: ITransaction, at: number, pass: PassState): Promise<RowOutcome> => {
+  try {
+    return await sweepRow(row, at, pass);
+  } catch (error) {
+    console.warn('[noteDeliverySweep] row failed; going on with the next', { txId: row.id, error });
+    return 'done';
+  }
+};
+
 /** One pass over the candidate rows. Resolves to when a row next needs one, and whether the fuse held its pushes. */
 const runPass = async (): Promise<{ nextDueAt: number; fused: boolean }> => {
   // Eligibility is judged against one snapshot so a single pass is internally consistent.
@@ -486,7 +502,7 @@ const runPass = async (): Promise<{ nextDueAt: number; fused: boolean }> => {
 
   let interrupted = false;
   for (const [index, row] of rows.entries()) {
-    const outcome = await sweepRow(row, at, pass);
+    const outcome = await sweepRowIsolated(row, at, pass);
     if (outcome === 'interrupted') {
       // The pass ends at an eviction; the rows it did not reach are due when they were.
       for (const unvisited of rows.slice(index + 1)) noteDue(pass, unvisited.nextRelayAt ?? at);
@@ -499,7 +515,7 @@ const runPass = async (): Promise<{ nextDueAt: number; fused: boolean }> => {
   // Rows an outage deferred that the pass reached before its first success.
   if (pass.caughtUp && !interrupted) {
     for (const row of awaitingCatchUp) {
-      if ((await sweepRow(row, at, pass)) === 'interrupted') break;
+      if ((await sweepRowIsolated(row, at, pass)) === 'interrupted') break;
     }
   }
   return { nextDueAt: pass.nextDueAt, fused: pass.pushesStopped === 'fused' };

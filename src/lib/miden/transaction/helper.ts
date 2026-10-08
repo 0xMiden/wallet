@@ -377,11 +377,19 @@ export const undeliveredDisplayMessage = (base: string, notes?: number): string 
   undeliveredLabel(base, notes, UNDELIVERED_SEPARATOR);
 
 /**
+ * A stored note id list as a list of strings. The store can hold anything here (`importDb` fills it from
+ * a user-supplied file), so a value that is not a list reads as empty and an element that is not a string
+ * is dropped; a well-formed list comes back as it is.
+ */
+export const storedNoteIds = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((noteId): noteId is string => typeof noteId === 'string') : [];
+
+/**
  * The private notes a row owes the relay, which its single `noteDelivery` covers. A send's one output
  * note is its private note; a custom row records them apart from its public notes in `relayNoteIds`.
  */
 export const relayNoteIdsOf = (row: Pick<ITransaction, 'relayNoteIds' | 'outputNoteIds'>): string[] =>
-  row.relayNoteIds ?? row.outputNoteIds ?? [];
+  storedNoteIds(row.relayNoteIds ?? row.outputNoteIds);
 
 /**
  * The account a row's private notes were relayed to. A send's recipient is its `secondaryAccountId`; a custom
@@ -416,7 +424,10 @@ const parseUndeliveredWording = (label: string): { base: string; notes: number |
  */
 export const relayAckedNoteIdsOf = (
   row: Pick<ITransaction, 'relayAckedNoteIds' | 'relayNoteIds' | 'outputNoteIds' | 'noteDelivery'>
-): string[] | undefined => row.relayAckedNoteIds ?? (row.noteDelivery === 'relayed' ? relayNoteIdsOf(row) : undefined);
+): string[] | undefined => {
+  if (row.relayAckedNoteIds != null) return storedNoteIds(row.relayAckedNoteIds);
+  return row.noteDelivery === 'relayed' ? relayNoteIdsOf(row) : undefined;
+};
 
 /** How many owed notes the transport has not acknowledged, or `undefined` when the row does not say. */
 const unacknowledgedNotesOf = (
@@ -453,11 +464,11 @@ let noteDeliveryWrites = 0;
  */
 export const noteDeliveryWriteCount = (): number => noteDeliveryWrites;
 
-/** `held` plus each of `added` it lacks, in order. */
-const withIds = (held: string[] | undefined, added: string[]): string[] => [
-  ...(held ?? []),
-  ...added.filter((noteId, at) => !held?.includes(noteId) && added.indexOf(noteId) === at)
-];
+/** `held`, read as stored ids, plus each of `added` it lacks, in order. */
+const withIds = (held: string[] | undefined, added: string[]): string[] => {
+  const kept = storedNoteIds(held);
+  return [...kept, ...added.filter((noteId, at) => !kept.includes(noteId) && added.indexOf(noteId) === at)];
+};
 
 /**
  * Record the delivery state of this row's private output note, plus the evidence
