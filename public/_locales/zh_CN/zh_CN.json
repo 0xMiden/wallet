@@ -1316,5 +1316,6 @@
   "testIethDescription": "iETH 是用于 Miden 测试网上的代币交换的测试代币。它并非 ETH，且不会在正式版钱包中提供。",
   "testIethExecution": "该更换操作通过 Miden 测试网上的智能合约执行。",
   "swapExecutionTitle": "交换操作的执行位置",
-  "tokenInfoLabel": "关于 $token$"
+  "tokenInfoLabel": "关于 $token$",
+  "externalPageLoadFailed": "无法打开此页面。请检查网络连接并重试。"
 }

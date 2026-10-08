@@ -5820,5 +5820,9 @@
         "content": "$1"
       }
     }
+  },
+  "externalPageLoadFailed": {
+    "message": "No se ha podido abrir esta página. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }

@@ -1316,5 +1316,6 @@
   "testIethDescription": "iETH est un jeton de test utilisé pour les échanges sur le Testnet Miden. Il ne s’agit pas d’ETH et il ne sera pas disponible dans le portefeuille de production.",
   "testIethExecution": "L'échange s'effectue via un contrat intelligent sur le Testnet de Miden.",
   "swapExecutionTitle": "Lieu d’exécution du swap",
-  "tokenInfoLabel": "À propos d’$token$"
+  "tokenInfoLabel": "À propos d’$token$",
+  "externalPageLoadFailed": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez."
 }

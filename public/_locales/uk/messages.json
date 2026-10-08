@@ -5820,5 +5820,9 @@
         "content": "$1"
       }
     }
+  },
+  "externalPageLoadFailed": {
+    "message": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }
