@@ -1312,5 +1312,9 @@
   "tokenSymbolInvalid": "1~$max$자 길이의 기호를 입력하십시오.",
   "tokenDecimalsInvalid": "0에서 $max$ 사이의 정수를 입력하십시오.",
   "tokenMetadataOverrideNotice": "이 설정 값들은 해당 지갑에서 토큰을 표시하는 방식만 변경합니다. faucet는 자체적인 값을 유지합니다. 전송하는 금액에는 여기서 설정한 소수점 자릿수가 적용됩니다.",
-  "tokenMetadataSaveError": "토큰 세부 정보를 저장할 수 없습니다. 다시 시도해 주십시오."
+  "tokenMetadataSaveError": "토큰 세부 정보를 저장할 수 없습니다. 다시 시도해 주십시오.",
+  "testIethDescription": "iETH는 Miden 테스트넷에서 스왑에 사용되는 테스트 토큰입니다. 이는 ETH가 아니며, 정식 출시된 지갑에서는 사용할 수 없습니다.",
+  "testIethExecution": "이 스왑은 Miden 테스트넷상의 스마트 계약을 통해 실행됩니다.",
+  "swapExecutionTitle": "교체가 실행되는 곳",
+  "tokenInfoLabel": "$token$에 관하여"
 }

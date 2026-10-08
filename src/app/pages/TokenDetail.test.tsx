@@ -9,7 +9,7 @@ import {
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { normalizedFaucetId, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -47,8 +47,17 @@ jest.mock('lib/remote-config/runtime', () =>
     .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
     .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
 );
+// The build's network unless a case names another.
+let mockTestNetworkKey: 'testnet' | 'devnet' | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey() };
+});
 afterEach(() => {
   mockBridgeSnapshot = undefined;
+  mockTestNetworkKey = undefined;
 });
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -312,6 +321,8 @@ jest.mock('framer-motion', () => {
 // A faucet the wallet prices (IETH, at ETH), and a realistic bech32 faucet id, long enough to
 // exercise HashShortView's middle truncation (default trimAfter 20) the way a real Miden faucet id does.
 const TOKEN_ID = TOKEN_IETH.faucetId;
+// A token the wallet gives no name of its own, for the tests that read the symbol the metadata carries.
+const PLAIN_ID = TOKEN_IMIDEN.faucetId;
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
@@ -652,7 +663,7 @@ describe('TokenDetail', () => {
     it('falls back to allTokensMetadata when the token is absent from balances', () => {
       // Empty balances -> no matching token -> metadata comes from the
       // allTokensMetadata map keyed by tokenId.
-      renderPage({ balances: [], metadata: { [TOKEN_ID]: { symbol: 'BTC' } } });
+      renderPage({ balances: [], metadata: { [PLAIN_ID]: { symbol: 'BTC' } } }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('BTC');
       // token undefined -> balance defaults to 0.
@@ -662,14 +673,14 @@ describe('TokenDetail', () => {
     it('shows the "unknown" symbol and zero balance when nothing resolves', () => {
       // balances undefined path (optional chaining short-circuits) + empty
       // metadata map -> metadata undefined -> symbol falls back to t('unknown').
-      renderPage({ balances: null, metadata: {} });
+      renderPage({ balances: null, metadata: {} }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('unknown');
       expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'unknown');
     });
 
     it('handles a matched token whose balance is nullish', () => {
-      renderPage({ balances: [{ tokenId: TOKEN_ID, metadata: { symbol: 'USDC' } }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, metadata: { symbol: 'USDC' } }] }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('USDC');
       // balance ?? 0 -> "0.00".
@@ -747,7 +758,7 @@ describe('TokenDetail', () => {
     });
 
     it('still names the token in the header and the logo', () => {
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 12.5, metadata: unresolved }] }, PLAIN_ID);
 
       expect(screen.getByTestId('nav-title')).toHaveTextContent('Unknown');
     });
@@ -1028,7 +1039,7 @@ describe('TokenDetail', () => {
 
     it("shows the faucet's description first, stacked under its label", () => {
       const description = 'A bridged stablecoin that the Miden faucet mints one to one against USDC.';
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] }, PLAIN_ID);
 
       const info = screen.getByTestId('token-detail-info');
       const row = within(info).getByTestId('token-detail-description');
@@ -1041,7 +1052,10 @@ describe('TokenDetail', () => {
     });
 
     it('reads the description from the base metadata when the balances do not list the token', () => {
-      renderPage({ balances: [], metadata: { [TOKEN_ID]: { symbol: 'ETH', description: 'From the faucet.' } } });
+      renderPage(
+        { balances: [], metadata: { [PLAIN_ID]: { symbol: 'ETH', description: 'From the faucet.' } } },
+        PLAIN_ID
+      );
 
       expect(screen.getByTestId('token-detail-description')).toHaveTextContent('From the faucet.');
     });
@@ -1050,11 +1064,37 @@ describe('TokenDetail', () => {
       ['undefined', undefined],
       ['empty', '']
     ])('shows no description row when the description is %s', (_case, description) => {
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 1, metadata: { symbol: 'ETH', description } }] }, PLAIN_ID);
 
       expect(screen.getByTestId('token-detail-contract')).toBeInTheDocument();
       expect(screen.queryByTestId('token-detail-description')).not.toBeInTheDocument();
       expect(screen.queryByText('tokenDescription')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['another', 'From the faucet.'],
+      ['no', undefined]
+    ])(
+      "describes testnet iETH in the wallet's words when the faucet carries %s description (#477)",
+      (_case, description) => {
+        mockTestNetworkKey = 'testnet';
+        renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'IETH', description } }] });
+
+        const row = screen.getByTestId('token-detail-description');
+        expect(row).toHaveTextContent('testIethDescription');
+        expect(row).not.toHaveTextContent('From the faucet.');
+      }
+    );
+
+    it("shows the faucet's own description for iETH off testnet", () => {
+      mockTestNetworkKey = 'devnet';
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'IETH', description: 'From the faucet.' } }]
+      });
+
+      const row = screen.getByTestId('token-detail-description');
+      expect(row).toHaveTextContent('From the faucet.');
+      expect(row).not.toHaveTextContent('testIethDescription');
     });
   });
 
@@ -1287,9 +1327,9 @@ describe('TokenDetail', () => {
     // A token whose faucet scale is unknown, with the decimals the user stated.
     const userScaleMetadata = { ...shownMetadata, scaleIsUnknown: false, scaleFromOverride: true };
     const renderEditable = (o: Overrides = {}) =>
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: shownMetadata }], ...o });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 12.5, metadata: shownMetadata }], ...o }, PLAIN_ID);
     const renderWithMetadata = (metadata: Record<string, unknown>) =>
-      renderEditable({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata }] });
+      renderEditable({ balances: [{ tokenId: PLAIN_ID, balance: 1, metadata }] });
     const action = () => screen.getByTestId('token-detail-edit');
     const field = (name: 'name' | 'symbol' | 'decimals') => screen.getByTestId(`edit-token-${name}`);
     const sheetOpen = () => screen.getByTestId('drawer').getAttribute('data-open');
@@ -1305,7 +1345,7 @@ describe('TokenDetail', () => {
     });
 
     it('offers no action for the native token', () => {
-      mockNativeFaucetId = TOKEN_ID;
+      mockNativeFaucetId = PLAIN_ID;
       renderEditable();
 
       expect(screen.queryByTestId('token-detail-edit')).toBeNull();
@@ -1415,7 +1455,7 @@ describe('TokenDetail', () => {
       fireEvent.change(field('decimals'), { target: { value: ' 18 ' } });
       fireEvent.click(screen.getByTestId('edit-token-save'));
 
-      expect(mockSetTokenMetadataOverride).toHaveBeenCalledWith(TOKEN_ID, {
+      expect(mockSetTokenMetadataOverride).toHaveBeenCalledWith(PLAIN_ID, {
         name: 'My Ether',
         symbol: 'METH',
         decimals: 18
@@ -1424,7 +1464,7 @@ describe('TokenDetail', () => {
     });
 
     it("saves a known-scale token's name and symbol only, so no stored decimals outlive the save", async () => {
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Ether', symbol: 'ETH', decimals: 2 } };
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { name: 'Ether', symbol: 'ETH', decimals: 2 } };
       renderEditable();
       fireEvent.click(action());
 
@@ -1432,7 +1472,7 @@ describe('TokenDetail', () => {
       fireEvent.click(screen.getByTestId('edit-token-save'));
 
       expect(mockSetTokenMetadataOverride).toHaveBeenCalledTimes(1);
-      expect(mockSetTokenMetadataOverride.mock.calls[0]).toStrictEqual([TOKEN_ID, { name: 'My Ether', symbol: 'ETH' }]);
+      expect(mockSetTokenMetadataOverride.mock.calls[0]).toStrictEqual([PLAIN_ID, { name: 'My Ether', symbol: 'ETH' }]);
       await waitFor(() => expect(sheetOpen()).toBe('false'));
     });
 
@@ -1498,7 +1538,7 @@ describe('TokenDetail', () => {
     });
 
     it('resets to the faucet values with a medium haptic, then closes the sheet', async () => {
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { symbol: 'ETH' } };
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { symbol: 'ETH' } };
       renderEditable();
       fireEvent.click(action());
 
@@ -1506,13 +1546,13 @@ describe('TokenDetail', () => {
 
       expect(screen.getByTestId('edit-token-reset')).toHaveTextContent('resetToFaucetValues');
       expect(mockHapticMedium).toHaveBeenCalled();
-      expect(mockClearTokenMetadataOverride).toHaveBeenCalledWith(TOKEN_ID);
+      expect(mockClearTokenMetadataOverride).toHaveBeenCalledWith(PLAIN_ID);
       expect(mockSetTokenMetadataOverride).not.toHaveBeenCalled();
       await waitFor(() => expect(sheetOpen()).toBe('false'));
     });
 
     it('marks an edited token with a neutral pill beside the card title', () => {
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine' } };
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { name: 'Mine' } };
       renderEditable();
 
       const pill = screen.getByTestId('token-detail-edited');
@@ -1528,11 +1568,31 @@ describe('TokenDetail', () => {
     });
 
     it('shows no Edited pill for the native token, whose override is never applied', () => {
-      mockNativeFaucetId = TOKEN_ID;
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine' } };
+      mockNativeFaucetId = PLAIN_ID;
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { name: 'Mine' } };
       renderEditable();
 
       expect(screen.queryByTestId('token-detail-edited')).toBeNull();
+    });
+
+    it('offers no edit for testnet iETH, which the wallet names itself, and no Edited pill for an override stored before (#477)', () => {
+      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine', symbol: 'MINE' } };
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { name: 'iETH', symbol: 'IETH', decimals: 8 } }]
+      });
+
+      expect(screen.getByTestId('nav-title')).toHaveTextContent('Test iETH');
+      expect(screen.queryByTestId('token-detail-edit')).toBeNull();
+      expect(screen.queryByTestId('token-detail-edited')).toBeNull();
+    });
+
+    it('offers the edit for iETH off testnet, where the wallet gives it no name', () => {
+      mockTestNetworkKey = 'devnet';
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { name: 'iETH', symbol: 'IETH', decimals: 8 } }]
+      });
+
+      expect(screen.getByTestId('token-detail-edit')).toBeInTheDocument();
     });
   });
 });
