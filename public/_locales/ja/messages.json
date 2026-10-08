@@ -2230,38 +2230,6 @@
     "message": "以下のオプションから選択してください",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "アカウントの設定",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Midenでは、アカウント情報は非公開となっています。各項目を一度確認し、その保護方法について理解してください。",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "アカウントはこのデバイス上に存在します",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "アカウントのプライベートな状態はデバイス上に保持されます。ネットワークが認識するのは、常に暗号的なコミットメントのみです。",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "リカバリーフレーズだけでは不十分です",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "リカバリーフレーズは鍵を復元するものであり、アカウントの状態を復元するものではありません。デバイスを紛失すれば、その状態は失われます。",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Guardianはあなたを守ることができます",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Guardianは、アカウントの状態を保存し、アカウントの復旧を支援します。これは、アカウントのバックアップを行うサーバーのようなものと考えてください。ただし、が資金にアクセスすることは決してありません。",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "どのオペレーターが最も早く応答するか確認中……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2313,23 +2281,6 @@
   "whatIsAGuardian": {
     "message": "Guardianとは何ですか？",
     "englishSource": "What is a Guardian?"
-  },
-  "meetGuardianYourGuardian": {
-    "message": "あなたのGuardian",
-    "englishSource": "Your Guardian"
-  },
-  "meetGuardianChange": {
-    "message": "変更",
-    "englishSource": "Change"
-  },
-  "meetGuardianSummary": {
-    "message": "$name$ はあなたのアカウントをバックアップします。資金を動かすことはできず、いつでも切り替えられます。",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "guardianIntroTitle": {
     "message": "Guardianについて",
@@ -5081,15 +5032,6 @@
   "activityTransferAccepted": {
     "message": "送金受理済み",
     "englishSource": "Transfer accepted"
-  },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "withdrawalRecoveryUnavailable": {
     "message": "この出金は安全に再試行できません。別の出金を開始する前に、この出金の状況を確認してください。",

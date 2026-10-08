@@ -1,12 +1,20 @@
 import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import fs from 'fs';
+import path from 'path';
 
 import { GUARDIAN_INTRO_POINTS, GuardianIntroScreen } from './GuardianIntro';
 
+// Echoes the key by default; a test that reads the copy itself swaps in the English source.
+let mockTranslate = (key: string) => key;
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string) => mockTranslate(key) })
 }));
+
+const english: Record<string, string> = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '../../../../public/_locales/en/en.json'), 'utf8')
+);
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
 
@@ -16,6 +24,10 @@ jest.mock('./GuardianInfoDrawer', () => ({
     <div data-testid="guardian-info-drawer" data-open={String(open)} />
   )
 }));
+
+beforeEach(() => {
+  mockTranslate = key => key;
+});
 
 describe('GuardianIntroScreen', () => {
   it('says what a Guardian is: its title, explainer and illustration, before naming any operator', () => {
@@ -45,6 +57,18 @@ describe('GuardianIntroScreen', () => {
     expect(more).toHaveTextContent('guardianIntroMoreAbout');
     fireEvent.click(more);
     expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'true');
+  });
+
+  // The phrase restores the keys and the Guardian's backup the account, so neither alone is enough and the
+  // phrase is still the user's to keep: the intro says so, and promises nothing about a lost phone.
+  it("states the recovery model: the phrase restores the keys, the Guardian's backup the account", () => {
+    mockTranslate = key => english[key] ?? key;
+    render(<GuardianIntroScreen />);
+    const recover = screen.getByTestId('guardian-intro-point-recover');
+    expect(recover).toHaveTextContent(/recovery phrase restores your keys/i);
+    expect(recover).toHaveTextContent(/Guardian's backup/i);
+    expect(recover).toHaveTextContent(/keep the phrase safe/i);
+    expect(screen.getByTestId('onboarding-guardian-intro')).not.toHaveTextContent(/losing your (phone|wallet)/i);
   });
 
   it('goes on with Continue, with nothing to tick first', () => {

@@ -2230,38 +2230,6 @@
     "message": "Sélectionnez l'une des options ci-dessous",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "Créez votre compte",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Votre compte est privé sur Miden. Vérifiez chaque point une fois pour comprendre comment il est protégé.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "Votre compte se trouve sur cet appareil",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "L'état privé du compte reste sur votre appareil. Le réseau ne voit jamais qu’un engagement cryptographique.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "Une phrase de récupération ne suffit pas",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "Votre phrase de récupération restaure vos clés, et non l’état de votre compte. Si vous perdez l’appareil, cet état est perdu.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Un «Guardian» peut vous protéger",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Un « Guardian » stocke l’état de votre compte et vous aide à le récupérer. Considérez-le comme un serveur qui effectue une sauvegarde de vos données, mais qui ne peut en aucun cas accéder à vos fonds.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "Je vérifie quel opérateur répond le plus vite…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2313,23 +2281,6 @@
   "whatIsAGuardian": {
     "message": "Qu’est-ce qu’un «Guardian» ?",
     "englishSource": "What is a Guardian?"
-  },
-  "meetGuardianYourGuardian": {
-    "message": "Votre Guardian",
-    "englishSource": "Your Guardian"
-  },
-  "meetGuardianChange": {
-    "message": "Changer",
-    "englishSource": "Change"
-  },
-  "meetGuardianSummary": {
-    "message": "$name$ sauvegarde votre compte. Il ne peut jamais déplacer vos fonds, et vous pouvez en changer à tout moment.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
   },
   "guardianIntroTitle": {
     "message": "Découvrez votre « Guardian »",
@@ -5081,15 +5032,6 @@
   "activityTransferAccepted": {
     "message": "Transfert accepté",
     "englishSource": "Transfer accepted"
-  },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "withdrawalRecoveryUnavailable": {
     "message": "Ce retrait ne peut pas être réessayé en toute sécurité. Vérifiez son statut avant de lancer un autre retrait.",
