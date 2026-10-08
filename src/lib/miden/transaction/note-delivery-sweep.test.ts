@@ -981,6 +981,71 @@ describe('the delivery schedule', () => {
       ...overrides
     });
 
+  /** A row whose one note the transport acknowledged, due its first verification push. */
+  const verifying = (completedAt: number, overrides: Partial<ITransaction> = {}) =>
+    due('verify', completedAt, {
+      noteDelivery: 'relayed',
+      relayAckedNoteIds: ['0xverify'],
+      relayVerifyPushes: 0,
+      ...overrides
+    });
+
+  // A push that failed gave the note no second chance, so the step it was is still owed.
+  it('serves a verification step again after its push fails, and counts it once a push lands', async () => {
+    rows.push(verifying(NOW - 1000));
+    mockRelayById.mockImplementationOnce(async () => {
+      pushTimes.push(clock);
+      throw sendFailure('Unavailable');
+    });
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.relayVerifyPushes).toBe(0);
+    // retryDelayFor(2): the push was made, so the row serves the step after it.
+    expect(rows[0]).toMatchObject({ relayAttempts: 2, nextRelayAt: NOW + 15 * MINUTE, relayOutageDeferred: true });
+
+    clock = rows[0]!.nextRelayAt!;
+    await drive(NOW + 8 * DAY);
+
+    expect(minutesAfter(NOW, pushTimes)).toEqual([0, 15, 45]);
+    expect(rows[0]).toMatchObject({ noteDelivery: 'relayed', relayVerifyPushes: 2 });
+  });
+
+  // Bounded as retries are, so a transport that keeps failing cannot hold a row in verification for good.
+  it.each<[string, number, number]>([
+    ['sent more than 72 hours ago', NOW - 73 * HOUR, 1],
+    ['whose push spent its last attempt', NOW - 1000, MAX_RELAY_ATTEMPTS - 1]
+  ])('counts a failed verification step as done on a row %s', async (_kind, completedAt, relayAttempts) => {
+    rows.push(verifying(completedAt, { relayAttempts }));
+    mockRelayById.mockRejectedValueOnce(sendFailure('Unavailable'));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]).toMatchObject({ relayVerifyPushes: 1, nextRelayAt: NOW + 30 * MINUTE });
+  });
+
+  // No push can carry a dead note, so finding one dead is as much as its step can do.
+  it('counts a verification step whose failed note was found dead', async () => {
+    rows.push(
+      verifying(NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xlost', '0xkept'],
+        relayRecipientId: 'mtst1recipient',
+        relayAckedNoteIds: ['0xlost', '0xkept']
+      })
+    );
+    mockRelayById.mockRejectedValueOnce(new Error('No output note found for the given id'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xlost', '0xkept']);
+    expect(rows[0]).toMatchObject({
+      relayVerifyPushes: 1,
+      relayDeadNoteIds: ['0xlost'],
+      nextRelayAt: NOW + 30 * MINUTE
+    });
+  });
+
   // (d)
   it('stops pushing for the pass after an outage: the next due row spends no attempt and is left as it was', async () => {
     rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
@@ -1314,7 +1379,10 @@ describe('the delivery schedule', () => {
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xlost']);
   });
 
-  /** Light the 'note-delivery' fuse and let its window lapse, so the next push is the one probe it grants. */
+  /**
+   * Light the 'note-delivery' fuse and let its window lapse, so the next push is the one probe it
+   * grants. Resolves to a way to move the fuse's clock on by `ms`.
+   */
   const lapseFuse = () => {
     let monotonic = 1_000;
     jest.spyOn(performance, 'now').mockImplementation(() => monotonic);
@@ -1322,6 +1390,9 @@ describe('the delivery schedule', () => {
       noteSyncWatchdogEviction('note-delivery');
     }
     monotonic += FUSED_SYNC_PROBE_INTERVAL_MS + 1_000;
+    return (ms: number) => {
+      monotonic += ms;
+    };
   };
 
   // The window a failed granted push re-arms binds the rest of its own pass, not only the next one.
@@ -1354,6 +1425,35 @@ describe('the delivery schedule', () => {
     // retryDelayFor(2): the row's push was made, so it serves the step after it.
     expect(rows[0]).toMatchObject({ relayAttempts: 2, relayDeadNoteIds: ['0xlost'], nextRelayAt: NOW + 15 * MINUTE });
     expect(rows[0]!.relayOutageDeferred).toBeUndefined();
+  });
+
+  // The note the fuse kept the step from reaching is still owed its verification push.
+  it('serves a verification step again once the fuse stops it between its notes', async () => {
+    const advanceFuseClock = lapseFuse();
+    rows.push(
+      due('pair', NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xlost', '0xkept'],
+        relayRecipientId: 'mtst1recipient',
+        noteDelivery: 'relayed',
+        relayAckedNoteIds: ['0xlost', '0xkept'],
+        relayVerifyPushes: 1
+      })
+    );
+    mockRelayById.mockRejectedValueOnce(new Error('No output note found for the given id'));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.relayVerifyPushes).toBe(1);
+    expect(rows[0]).toMatchObject({ relayDeadNoteIds: ['0xlost'], nextRelayAt: NOW + 15 * MINUTE });
+
+    // The next pass after the window the failed push re-armed.
+    clock = NOW + 31 * MINUTE;
+    advanceFuseClock(31 * MINUTE * 1000);
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xlost', '0xkept']);
+    expect(rows[0]!.relayVerifyPushes).toBe(2);
   });
 
   it('lets the next row push in the same pass once the push the lapsed fuse granted succeeds', async () => {

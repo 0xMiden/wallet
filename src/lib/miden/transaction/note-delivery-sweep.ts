@@ -161,12 +161,13 @@ const targetsOf = (row: ITransaction): DeliveryTargets => {
  */
 const isInert = (targets: DeliveryTargets) => targets.owed.length === 0 || !targets.recipient;
 
+/** Whether a row with `attempts` made is past the retry schedule's bounds: the window closed, or the cap reached. */
+const retryBoundsPassed = (row: ITransaction, attempts: number, at: number) =>
+  at - relayedAt(row) > RETRY_WINDOW_SECONDS || attempts >= MAX_RELAY_ATTEMPTS;
+
 /** Whether the retry schedule is over: nothing left to retry, the window closed, or the cap reached. */
 const retriesOver = (row: ITransaction, targets: DeliveryTargets, at: number) =>
-  row.restoredFromBackup === true ||
-  targets.retry.length === 0 ||
-  at - relayedAt(row) > RETRY_WINDOW_SECONDS ||
-  attemptsOf(row) >= MAX_RELAY_ATTEMPTS;
+  row.restoredFromBackup === true || targets.retry.length === 0 || retryBoundsPassed(row, attemptsOf(row), at);
 
 /** The notes to push now: the unacknowledged ones while retries last, else the verification pushes. */
 const pushesFor = (row: ITransaction, targets: DeliveryTargets, at: number): string[] => {
@@ -459,7 +460,14 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   });
 
   const attempts = attemptsOf(row) + 1;
-  const verifyPushes = verifying ? verifyPushesOf(row) + 1 : 0;
+  // A verification step counts only once every note it set out to push was acknowledged or
+  // found dead. One a failed push or an early stop left short is served again on the retry
+  // schedule, and counts as done once that schedule's own bounds would have ended it.
+  const repeatStep =
+    verifying &&
+    noteIds.some(noteId => !acked.includes(noteId) && !dead.includes(noteId)) &&
+    !retryBoundsPassed(row, attempts, at);
+  const verifyPushes = verifying ? verifyPushesOf(row) + (repeatStep ? 0 : 1) : 0;
   const updated: ITransaction = {
     ...row,
     relayAttempts: attempts,
@@ -473,7 +481,7 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   // the spread these delays exist to create.
   const now = nowSeconds();
   let nextRelayAt = now + RECEIPT_INTERVAL_SECONDS;
-  if (after.retry.length > 0) nextRelayAt = now + retryDelayFor(attempts);
+  if (after.retry.length > 0 || repeatStep) nextRelayAt = now + retryDelayFor(attempts);
   else if (verifyPushes < VERIFY_DELAYS_SECONDS.length) nextRelayAt = now + VERIFY_DELAYS_SECONDS[verifyPushes]!;
   await Repo.transactions.where({ id: row.id }).modify(tx => {
     tx.relayAttempts = attempts;
