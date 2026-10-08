@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
 
@@ -88,6 +88,39 @@ describe('GuardianProviderSheet', () => {
     const { onPick, onOpenChange } = renderSheet();
     fireEvent.click(card(KODA.endpoint));
     expect(onPick).toHaveBeenCalledWith('kodax');
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // A pick closes the sheet, so arrowing past an operator must not pick it.
+  it('moves focus with the arrow keys, Home and End without picking or closing', () => {
+    const { onPick, onOpenChange } = renderSheet();
+    const group = screen.getByRole('radiogroup');
+    card(KODA.endpoint).focus();
+
+    fireEvent.keyDown(group, { key: 'ArrowDown' });
+    expect(card(OZ.endpoint)).toHaveFocus();
+    fireEvent.keyDown(group, { key: 'End' });
+    expect(card(KODA.endpoint)).toHaveFocus();
+    fireEvent.keyDown(group, { key: 'Home' });
+    expect(card(OZ.endpoint)).toHaveFocus();
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  // Enter is the focused card's own button activation; jsdom does not perform it, so the test checks
+  // the group lets it through and then sends the click it produces.
+  it('picks and closes on Enter on the focused operator', () => {
+    const { onPick, onOpenChange } = renderSheet();
+    const group = screen.getByRole('radiogroup');
+    card(KODA.endpoint).focus();
+    fireEvent.keyDown(group, { key: 'ArrowDown' });
+
+    const enter = createEvent.keyDown(group, { key: 'Enter' });
+    fireEvent(group, enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(onPick).not.toHaveBeenCalled();
+    fireEvent.click(document.activeElement as HTMLElement);
+    expect(onPick).toHaveBeenCalledWith('open-zeppelin');
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 

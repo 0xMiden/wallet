@@ -43,7 +43,8 @@ export interface GuardianProviderSheetProps {
 /**
  * The guardian step's Change provider sheet: every operator on the network as a choice card, its logo,
  * name, what kind of company runs it and where. Choosing one is the whole decision, so the sheet closes
- * on the tap with no Select button. An operator that answered offline cannot be chosen, as on the picker.
+ * on the tap with no Select button, and the arrow keys only move between operators until Enter or Space
+ * chooses one. An operator that answered offline cannot be chosen, as on the picker.
  */
 export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
   open,
@@ -95,6 +96,7 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
             value={value}
             onChange={pick}
             onReselect={pick}
+            arrowKeys="focus"
             aria-label={t('guardianProviderSheetTitle')}
           />
           <p className="text-center text-caption text-muted">{t('guardianProviderSheetFootnote')}</p>
