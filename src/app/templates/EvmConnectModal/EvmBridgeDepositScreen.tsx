@@ -25,7 +25,7 @@ import { type EvmUsdc, getAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from
 import { WalletAccount } from 'lib/shared/types';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
-import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { readSepoliaErc20Allowance, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
@@ -73,6 +73,8 @@ const ERC20_BALANCE_OF_ABI = [
     outputs: [{ name: '', type: 'uint256' }]
   }
 ] as const;
+
+const ALLOWANCE_READ_FAILED = 'Could not check the USDC allowance the bridge has on Sepolia.';
 
 type SlowBridgeStatus = 'idle' | 'signing' | 'submitted' | 'failed';
 
@@ -451,8 +453,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
       try {
         // AggLayer bridges any asset: native ETH rides as `msg.value` with the zero
-        // token address; an ERC-20 is approved to the bridge first and then bridged
-        // with its own address and no value.
+        // token address; an ERC-20 is approved to the bridge first, unless its allowance
+        // already covers the deposit, and then bridged with its own address and no value.
         const isNative = token === 'ETH';
         if (!isNative && !evmUsdc) throw new Error('The bridge config names no USDC token.');
         // The L1 bridge the config names, and the Miden rollup id its bridge account reports.
@@ -469,10 +471,21 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           '0x'
         ] as const;
         const value = isNative ? amountInBaseUnits : 0n;
+        // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
+        // and `approve` would replace a larger allowance with this amount.
+        // A failed or timed-out read fails the deposit before any wallet prompt: the approve's own
+        // receipt wait would use the same RPC.
+        const needsApproval =
+          !isNative &&
+          (await readSepoliaErc20Allowance(tokenAddress, evmAddress as `0x${string}`, contractAddress).catch(
+            (cause: unknown) => {
+              throw new Error(ALLOWANCE_READ_FAILED, { cause });
+            }
+          )) < amountInBaseUnits;
 
         let hash: `0x${string}`;
         if (nativeReownAvailable) {
-          if (!isNative) {
+          if (needsApproval) {
             const approveData = encodeFunctionData({
               abi: ERC20_APPROVE_ABI,
               functionName: 'approve',
@@ -507,7 +520,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           // this a payable `bridgeAsset` would broadcast real ETH on the wrong chain
           // to a Sepolia-only address. The Fast/Epoch path guards this same case in
           // executeEVMToMiden; the native branch above already pins DEFAULT_CHAIN_ID.
-          if (!isNative) {
+          if (needsApproval) {
             const approvalHash = await writeContract.mutateAsync({
               chainId: DEFAULT_CHAIN_ID,
               abi: ERC20_APPROVE_ABI,
