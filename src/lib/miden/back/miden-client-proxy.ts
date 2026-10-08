@@ -1102,8 +1102,8 @@ export const midenClientProxy = {
    */
   async isOutputNoteConsumed(noteId: string): Promise<boolean> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      // A local store read the sweep makes on a timer: bounded and labelled, but not fused,
-      // since a healthy read says nothing about whether the push parks.
+      // A local store read the sweep makes on a timer: bounded and labelled, and fused by the
+      // sweep under this label, apart from the push, since either can park while the other does not.
       return await withWasmClientLock(
         async () => {
           const midenClient = await getMidenClient();

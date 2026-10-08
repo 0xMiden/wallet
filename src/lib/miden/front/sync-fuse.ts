@@ -33,6 +33,7 @@ export type SyncFuseKey =
   | 'balances'
   | 'note-import'
   | 'note-delivery'
+  | 'note-delivery-receipt'
   | 'swap-order-tracking'
   | `pending-rotation-recheck:${string}`
   | `guardian-sync:${string}`

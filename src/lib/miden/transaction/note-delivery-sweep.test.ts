@@ -1387,6 +1387,82 @@ describe('the delivery schedule', () => {
     expect(mockIsConsumed).toHaveBeenCalledTimes(1);
   });
 
+  // Left due, the row would open every later pass on the same killed read and starve the rows behind it.
+  it.each([
+    ['a lock eviction', () => new WasmClientPoisonedError('realm-error', new Error('trap'))],
+    ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')]
+  ])(
+    'moves a row whose receipt read was killed by %s, so the next pass reaches the rows behind it',
+    async (_kind, makeError) => {
+      rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+      mockIsConsumed.mockImplementation(async noteId => {
+        if (noteId === '0xfirst') throw makeError();
+        return false;
+      });
+
+      await sweepNoteDeliveries();
+      // retryDelayFor(1), as for an evicted push: nothing spent, nothing recorded.
+      expect(rows[0]).toMatchObject({ relayAttempts: 1, noteDelivery: 'pending', nextRelayAt: NOW + 5 * MINUTE });
+
+      await sweepNoteDeliveries();
+      expect(mockRelayById).toHaveBeenCalledWith('0xsecond', 'mtst1recipient');
+      expect(mockRelayById).not.toHaveBeenCalledWith('0xfirst', 'mtst1recipient');
+    }
+  );
+
+  it('lights the receipt fuse on evicted receipt reads, then pushes a due row without reading its receipt', async () => {
+    rows.push(due('first', NOW - 1000));
+    mockIsConsumed.mockRejectedValue(new WasmClientPoisonedError('watchdog', new Error('read parked')));
+
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass++) {
+      await sweepNoteDeliveries();
+      clock = rows[0]!.nextRelayAt!;
+    }
+    expect(isSyncFused('note-delivery-receipt')).toBe(true);
+    expect(isSyncFused('note-delivery')).toBe(false);
+
+    await sweepNoteDeliveries();
+
+    expect(mockIsConsumed).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(mockRelayById).toHaveBeenCalledWith('0xfirst', 'mtst1recipient');
+  });
+
+  // Only that read lost its race against a write; the realm and its client are intact.
+  it('goes on with the pass when an offscreen receipt read is failed without a kill', async () => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    mockIsConsumed.mockRejectedValueOnce(new OperationAbortedError('op', 'deadline-no-kill'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfirst', '0xsecond']);
+  });
+
+  it.each<[string, Record<string, boolean>, string]>([
+    ['every note consumed', { '0xa': true, '0xb': true }, '0xb'],
+    ['an early not-consumed answer', { '0xa': false, '0xb': true }, '0xa']
+  ])('books a receipt success only once the last read it made answered: %s', async (_kind, consumed, lastRead) => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery-receipt');
+    }
+    rows.push(
+      due('pair', NOW - 1000, { type: 'execute', relayNoteIds: ['0xa', '0xb'], relayRecipientId: 'mtst1recipient' })
+    );
+    let litAtLastRead: boolean | undefined;
+    mockIsConsumed.mockImplementation(async noteId => {
+      if (noteId === lastRead) {
+        // Completes the evidence, unless a success booked after an earlier read withdrew it.
+        noteSyncWatchdogEviction('note-delivery-receipt');
+        litAtLastRead = isSyncFused('note-delivery-receipt');
+      }
+      return consumed[noteId]!;
+    });
+
+    await sweepNoteDeliveries();
+
+    expect(litAtLastRead).toBe(true);
+    expect(isSyncFused('note-delivery-receipt')).toBe(false);
+  });
+
   it('ends the pass at an eviction, before any catch-up push', async () => {
     rows.push(
       due('deferred', NOW - 3000, { nextRelayAt: NOW + 600, relayOutageDeferred: true }),

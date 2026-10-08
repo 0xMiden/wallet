@@ -22,7 +22,7 @@ import { classifyRelayFailure, type RelayFailureClass, statusCodeOf } from './re
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { INoteDeliveryState, ITransaction } from '../db/types';
-import { causeChain, errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
+import { causeChain, errorMessageParts, isKilledPipeline, isRealmIntactAbort } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 const MINUTE = 60;
@@ -194,16 +194,37 @@ const markRetriesStopped = async (row: ITransaction, targets: DeliveryTargets, a
   });
 };
 
-/** Every owed note consumed on chain, which is the only proof the recipient had the bodies. */
-const allConsumed = async (row: ITransaction, owed: string[]): Promise<boolean> => {
+/** What a row's receipt read found: every owed note consumed, no proof of that, or a killed read. */
+type Receipt = 'consumed' | 'unproven' | 'killed';
+
+/**
+ * Whether every owed note is consumed on chain, which is the only proof the recipient had
+ * the bodies. A timer-driven probe with a fuse of its own, 'note-delivery-receipt': a local
+ * store read can park while the transport push does not, so it cannot share the push's key.
+ * While that fuse is lit nothing is read and the receipt counts as unproven.
+ */
+const readReceipt = async (row: ITransaction, owed: string[]): Promise<Receipt> => {
+  if (isSyncFused('note-delivery-receipt')) return 'unproven';
   try {
+    let consumed = owed.length > 0;
     for (const noteId of owed) {
-      if (!(await midenClientProxy.isOutputNoteConsumed(noteId))) return false;
+      if (!(await midenClientProxy.isOutputNoteConsumed(noteId))) {
+        consumed = false;
+        break;
+      }
     }
-    return owed.length > 0;
+    // Once, after the last read made: a success booked between reads would withdraw the
+    // evidence a later read of the same row adds.
+    noteSyncSuccess('note-delivery-receipt');
+    return consumed ? 'consumed' : 'unproven';
   } catch (error) {
-    // A killed read left the realm's client parked or torn down, and that ends the pass.
-    if (isKilledPipeline(error)) throw error;
+    noteProbeFailure('note-delivery-receipt', innermostKill(error));
+    // A killed read left the realm's client parked or torn down, and that ends the pass. An
+    // offscreen read failed without a kill lost only its own race against a write.
+    if (isKilledPipeline(error) && !isRealmIntactAbort(error)) {
+      console.warn('[noteDeliverySweep] delivery receipt read killed; the pass ends', { txId: row.id, error });
+      return 'killed';
+    }
     // Unreadable this cycle. Go on to the push: an extra push of a note that was
     // delivered costs the recipient nothing, whereas skipping one that was not is the
     // failure this sweep exists to prevent.
@@ -213,7 +234,7 @@ const allConsumed = async (row: ITransaction, owed: string[]): Promise<boolean> 
       priorState: row.noteDelivery,
       error
     });
-    return false;
+    return 'unproven';
   }
 };
 
@@ -280,7 +301,22 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     return row.relayOutageDeferred ? 'awaiting-catch-up' : 'done';
   }
 
-  if (await allConsumed(row, targets.owed)) {
+  const receipt = await readReceipt(row, targets.owed);
+  if (receipt === 'killed') {
+    // Recorded before the write, so a write that fails still ends the pass. The read may
+    // still be parked in the abandoned hold, so the row spends and records nothing and
+    // moves to its next step as an evicted push's row does, its outage mark with it: left
+    // due, every later pass would open on the same read and never reach the rows behind.
+    pass.interrupted = true;
+    const backoffAt = nowSeconds() + retryDelayFor(attemptsOf(row));
+    await Repo.transactions.where({ id: row.id }).modify(tx => {
+      tx.nextRelayAt = backoffAt;
+      delete tx.relayOutageDeferred;
+    });
+    noteDue(pass, backoffAt);
+    return 'interrupted';
+  }
+  if (receipt === 'consumed') {
     // Consumed on chain: the recipient had every body. Terminal, and it clears any
     // `undelivered` the row picked up on the way.
     await recordNoteDelivery(row.id, 'confirmed');
@@ -541,11 +577,12 @@ const runPass = async (): Promise<{ nextDueAt: number; fused: boolean }> => {
  *
  * A failed push is classified ({@link classifyRelayFailure}): an outage stops pushes for
  * the rest of the pass, and the first push that succeeds in a later pass makes the rows
- * the outage deferred due at once. Each push is a timer-driven hold, so its outcome feeds
- * the 'note-delivery' fuse, and while that fuse is lit no pass pushes; receipts are local
- * reads and go on regardless. Rows restored from a backup only get receipts, and a
- * row with nothing to push is left alone. A failed push never downgrades an earlier
- * acknowledgement and never fails a landed transaction.
+ * the outage deferred due at once. Each push and each receipt read is a timer-driven hold
+ * with a fuse of its own: while 'note-delivery' is lit no pass pushes, and while
+ * 'note-delivery-receipt' is lit no receipt is read and the row counts as unproven. Rows
+ * restored from a backup only get receipts, and a row with nothing to push is left alone.
+ * A failed push never downgrades an earlier acknowledgement and never fails a landed
+ * transaction.
  *
  * Every platform calls this after its sync laps, so a call costs nothing when it can:
  * calls that overlap share one pass, a call before anything is due makes no query (for
