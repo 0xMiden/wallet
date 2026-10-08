@@ -9,9 +9,11 @@ import {
   TEST_EVM_USDC,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
+import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { NativeReown } from 'lib/walletconnect/native';
+import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -95,8 +97,24 @@ jest.mock('lib/remote-config/use-feature-availability', () => {
   };
 });
 // The suite's Miden account is no real address; the Slow route only needs its EVM form to exist.
+// The native Reown signer encodes `bridgeAsset` itself, so the ABI carries that one entry.
 jest.mock('lib/agglayer', () => ({
-  AGGLAYER_BRIDGE_ABI: [],
+  AGGLAYER_BRIDGE_ABI: [
+    {
+      type: 'function',
+      name: 'bridgeAsset',
+      stateMutability: 'payable',
+      inputs: [
+        { name: 'destinationNetwork', type: 'uint32' },
+        { name: 'destinationAddress', type: 'address' },
+        { name: 'amount', type: 'uint256' },
+        { name: 'token', type: 'address' },
+        { name: 'forceUpdateGlobalExitRoot', type: 'bool' },
+        { name: 'permitData', type: 'bytes' }
+      ],
+      outputs: []
+    }
+  ],
   AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH',
   midenAddrToEvmAddr: () => '0x00000000000000000000000000000000000000a1'
 }));
@@ -166,8 +184,10 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: () => undefined
 }));
 
+// The signer flavour: the wagmi one unless a case selects the native Reown one.
+let mockNativeReown = false;
 jest.mock('lib/walletconnect/native', () => ({
-  isNativeReownAvailable: () => false,
+  isNativeReownAvailable: () => mockNativeReown,
   NativeReown: { sendTransaction: jest.fn() },
   unwrapNativeResult: (value: unknown) => value
 }));
@@ -399,9 +419,9 @@ const reachSlowUsdcReview = async () => {
 };
 
 const connectAnother = jest.fn();
-const depositScreen = (reportDeposit?: ReportDeposit) => (
+const depositScreen = (reportDeposit?: ReportDeposit, evmAddress = '0xevm-wallet') => (
   <EvmBridgeDepositScreen
-    evmAddress="0xevm-wallet"
+    evmAddress={evmAddress}
     midenAccount={midenAccount as never}
     onConnectAnother={connectAnother}
     onClose={jest.fn()}
@@ -1186,6 +1206,175 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(epochState).toMatchObject({ status: 'idle', flow: null, quote: null });
     expect(epochState.quoteEVMToMiden).toBe(idleEpoch.quoteEVMToMiden);
     expect(epochState.quoteEVMToMiden()).toBeUndefined();
+  });
+});
+
+describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
+  const EVM_WALLET = '0x00000000000000000000000000000000000000e1';
+  const USDC = '0x00000000000000000000000000000000000000c0';
+  const L1_BRIDGE = '0x00000000000000000000000000000000000000b2';
+  /** The `allowance(address,address)` selector. */
+  const ALLOWANCE_SELECTOR = '0xdd62ed3e';
+  /** The typed 10.6512 at the 18 decimals the suite gives the configured USDC. */
+  const DEPOSIT = 10_651_200_000_000_000_000n;
+
+  interface RpcCall {
+    method: string;
+    params: [{ to?: string; data?: string }, string];
+  }
+  const rpc = jest.fn();
+  /** The answer of the Sepolia RPC to the allowance read; a null answer is an RPC error. Other reads get `0x0`. */
+  const answerAllowance = (allowance: bigint | null) =>
+    rpc.mockImplementation(async (_url: string, init: { body: string }) => {
+      const call: RpcCall = JSON.parse(init.body);
+      const isAllowanceRead = call.params[0].data?.startsWith(ALLOWANCE_SELECTOR) ?? false;
+      if (!isAllowanceRead) return { json: async () => ({ result: '0x0' }) };
+      if (allowance === null) return { json: async () => ({ error: { message: 'rpc down' } }) };
+      return { json: async () => ({ result: `0x${allowance.toString(16).padStart(64, '0')}` }) };
+    });
+  const allowanceReads = (): [string, RpcCall][] =>
+    rpc.mock.calls
+      .map(([url, init]: [string, { body: string }]): [string, RpcCall] => [url, JSON.parse(init.body)])
+      .filter(([, call]) => call.params[0].data?.startsWith(ALLOWANCE_SELECTOR));
+
+  const confirmSlowUsdcDeposit = async () => {
+    render(depositScreen(undefined, EVM_WALLET));
+    await reachSlowUsdcReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAvailability = {};
+    mockSnapshot = READY_SNAPSHOT;
+    mockNativeReown = false;
+    jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
+    mockMutateAsync.mockResolvedValue('0xhash');
+    jest.mocked(NativeReown.sendTransaction).mockResolvedValue({ hash: '0xhash' });
+    global.fetch = rpc;
+  });
+
+  afterEach(() => {
+    Object.assign(epochState, idleEpoch);
+    mockNativeReown = false;
+  });
+
+  it('reads the allowance the wallet gave the L1 bridge on the USDC, through the Sepolia RPC', async () => {
+    answerAllowance(DEPOSIT);
+
+    await confirmSlowUsdcDeposit();
+
+    const reads = allowanceReads();
+    // One read, of the owner word then the spender word.
+    expect(reads).toEqual([
+      [
+        'https://rpc.test',
+        expect.objectContaining({
+          method: 'eth_call',
+          params: [
+            {
+              to: USDC,
+              data: `${ALLOWANCE_SELECTOR}${EVM_WALLET.slice(2).padStart(64, '0')}${L1_BRIDGE.slice(2).padStart(64, '0')}`
+            },
+            'latest'
+          ]
+        })
+      ]
+    ]);
+  });
+
+  it.each([
+    ['equal to the deposit', DEPOSIT],
+    ['larger than the deposit', DEPOSIT * 2n]
+  ])('sends no approval through wagmi when the allowance is %s', async (_name, allowance) => {
+    answerAllowance(allowance);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(mockMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: 11155111, address: L1_BRIDGE, functionName: 'bridgeAsset', value: 0n })
+    );
+    // The one receipt is the deposit's.
+    expect(waitForSepoliaReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['zero', 0n],
+    ['one unit short of the deposit', DEPOSIT - 1n]
+  ])('approves the exact deposit through wagmi when the allowance is %s', async (_name, allowance) => {
+    answerAllowance(allowance);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(mockMutateAsync).toHaveBeenCalledTimes(2);
+    expect(mockMutateAsync).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        chainId: 11155111,
+        address: USDC,
+        functionName: 'approve',
+        args: [L1_BRIDGE, DEPOSIT]
+      })
+    );
+    expect(mockMutateAsync).toHaveBeenNthCalledWith(2, expect.objectContaining({ functionName: 'bridgeAsset' }));
+    expect(waitForSepoliaReceipt).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends no approval through native Reown when the allowance covers the deposit', async () => {
+    mockNativeReown = true;
+    answerAllowance(DEPOSIT);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(NativeReown.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(NativeReown.sendTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: 11155111, from: EVM_WALLET, to: L1_BRIDGE })
+    );
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('approves the exact deposit through native Reown when the allowance is short', async () => {
+    mockNativeReown = true;
+    answerAllowance(DEPOSIT - 1n);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(NativeReown.sendTransaction).toHaveBeenCalledTimes(2);
+    // `approve(address,uint256)` on the USDC, for the bridge and the deposit amount.
+    expect(NativeReown.sendTransaction).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        chainId: 11155111,
+        from: EVM_WALLET,
+        to: USDC,
+        data: `0x095ea7b3${L1_BRIDGE.slice(2).padStart(64, '0')}${DEPOSIT.toString(16).padStart(64, '0')}`
+      })
+    );
+    expect(NativeReown.sendTransaction).toHaveBeenNthCalledWith(2, expect.objectContaining({ to: L1_BRIDGE }));
+  });
+
+  it('reads no allowance for a native ETH deposit', async () => {
+    answerAllowance(0n);
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(allowanceReads()).toHaveLength(0);
+    expect(mockMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'bridgeAsset' }));
+  });
+
+  it('sends nothing and fails the row when the allowance read fails', async () => {
+    answerAllowance(null);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'rpc down' });
   });
 });
 

@@ -3,7 +3,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppKitProvider } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 import { useDebounce } from 'use-debounce';
-import { decodeFunctionResult, encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
+import {
+  decodeFunctionResult,
+  encodeFunctionData,
+  EIP1193Provider,
+  formatUnits,
+  isAddress,
+  isHex,
+  parseUnits,
+  toHex
+} from 'viem';
 import { useWriteContract } from 'wagmi';
 
 import { ReportDeposit } from 'app/hooks/useFundTelemetry';
@@ -70,6 +79,19 @@ const ERC20_BALANCE_OF_ABI = [
     name: 'balanceOf',
     stateMutability: 'view',
     inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }]
+  }
+] as const;
+
+const ERC20_ALLOWANCE_ABI = [
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' }
+    ],
     outputs: [{ name: '', type: 'uint256' }]
   }
 ] as const;
@@ -153,6 +175,19 @@ async function readMockUsdcBalance(evmAddress: string, contract: `0x${string}`):
       data: result as `0x${string}`
     }) as bigint;
   }
+}
+
+/** The amount of `token` that `spender` can move for `owner`, read on Sepolia through the configured RPC. */
+async function readErc20Allowance(owner: string, token: `0x${string}`, spender: `0x${string}`): Promise<bigint> {
+  if (!isAddress(owner, { strict: false })) throw new Error('The connected EVM wallet address is not valid.');
+  const data = encodeFunctionData({
+    abi: ERC20_ALLOWANCE_ABI,
+    functionName: 'allowance',
+    args: [owner, spender]
+  });
+  const result = await rpcRequest('eth_call', [{ to: token, data }, 'latest']);
+  if (!isHex(result)) throw new Error('The allowance read returned no data.');
+  return decodeFunctionResult({ abi: ERC20_ALLOWANCE_ABI, functionName: 'allowance', data: result });
 }
 
 async function readEthBalance(evmAddress: string): Promise<bigint> {
@@ -451,8 +486,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
       try {
         // AggLayer bridges any asset: native ETH rides as `msg.value` with the zero
-        // token address; an ERC-20 is approved to the bridge first and then bridged
-        // with its own address and no value.
+        // token address; an ERC-20 is approved to the bridge first, unless its allowance
+        // already covers the deposit, and then bridged with its own address and no value.
         const isNative = token === 'ETH';
         if (!isNative && !evmUsdc) throw new Error('The bridge config names no USDC token.');
         // The L1 bridge the config names, and the Miden rollup id its bridge account reports.
@@ -469,10 +504,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           '0x'
         ] as const;
         const value = isNative ? amountInBaseUnits : 0n;
+        // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
+        // and `approve` would replace a larger allowance with this amount.
+        const needsApproval =
+          !isNative && (await readErc20Allowance(evmAddress, tokenAddress, contractAddress)) < amountInBaseUnits;
 
         let hash: `0x${string}`;
         if (nativeReownAvailable) {
-          if (!isNative) {
+          if (needsApproval) {
             const approveData = encodeFunctionData({
               abi: ERC20_APPROVE_ABI,
               functionName: 'approve',
@@ -507,7 +546,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           // this a payable `bridgeAsset` would broadcast real ETH on the wrong chain
           // to a Sepolia-only address. The Fast/Epoch path guards this same case in
           // executeEVMToMiden; the native branch above already pins DEFAULT_CHAIN_ID.
-          if (!isNative) {
+          if (needsApproval) {
             const approvalHash = await writeContract.mutateAsync({
               chainId: DEFAULT_CHAIN_ID,
               abi: ERC20_APPROVE_ABI,
