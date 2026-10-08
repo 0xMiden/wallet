@@ -5253,6 +5253,19 @@
     "message": "Tokeny nie mają realnej wartości",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "Dołącz do listy wczesnego dostępu",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Czas pozostały do uruchomienia sieci głównej Bread: $time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Przywróć",
     "englishSource": "Restore"

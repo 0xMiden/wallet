@@ -1201,6 +1201,8 @@
   "networkModeBanner": "您正在 Miden $network$ 上使用 Bread",
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "代幣沒有實際價值",
+  "mainnetCountdownLink": "加入早期體驗名單",
+  "mainnetCountdownLabel": "距離 Bread 正式上線還剩：$time$",
   "activityRestoreTransfers": "還原",
   "activityHiddenNotesError": "無法儲存隱藏轉帳。請重試。",
   "exportAccountFile": "匯出帳戶檔案",

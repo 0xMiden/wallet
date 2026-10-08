@@ -4,6 +4,7 @@
 
 ### Features
 
+- [FEATURE][all] A countdown to the mainnet launch with a link to the early-access list sits above every page of the open wallet, in place of the network pill above Home's balance card; the `mainnetCountdown` switch and launch moment in `0xMiden/wallet-config` drive it.
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
 - [FEATURE][all] On testnet iETH is shown as "Test iETH", its token page says what it is, and an info sheet behind an "i" on the swap screens adds where the swap executes; Test iETH and testnet Test Epoch USDC, which the wallet names itself, can no longer be edited, and an override stored for either stops applying (#477).
 - [FEATURE][all] Explore's apps and sections come from the `0xMiden/wallet-explore` repository, so a merged change reaches every wallet within about an hour with no release, and each network shows its own catalog: devnet now lists the devnet faucet (#1361).
