@@ -6,6 +6,10 @@ import {
 } from 'lib/miden/sync-backoff';
 import { canonicalGuardianEndpoint } from 'lib/settings/helpers';
 
+import { isOperationAbortedError } from '../back/offscreen-codec';
+import { isRealmIntactAbort } from '../sdk/sdk-error-code';
+import { isSyncWatchdogEviction, isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+
 /**
  * The automatic WASM probes this realm runs on a timer, each identified by the same
  * string it passes as its hold `label` so a fuse entry and an eviction record name the
@@ -29,6 +33,8 @@ export type SyncFuseKey =
   | 'claimable-notes'
   | 'balances'
   | 'note-import'
+  | 'note-delivery'
+  | 'note-delivery-receipt'
   | 'swap-order-tracking'
   | `pending-rotation-recheck:${string}`
   | `guardian-sync:${string}`
@@ -324,6 +330,64 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
       'lap and starves every probe behind it; dropping this one to a probe per ' +
       `${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min so the rest can run (#800)`
   );
+  entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+}
+
+/**
+ * Book one failed probe against `key`, splitting on the only question the fuse asks. Every
+ * probe that books its failures through here reads the same failure the same way.
+ *
+ * TWO DIFFERENT PREDICATES for two different decisions, and collapsing them into one
+ * is the mistake this helper exists to make impossible. A caller's BREAK wants any
+ * poison at all, because what makes continuing unsafe is that the mutex is already a
+ * successor's - equally true of a trap. The FUSE wants watchdog evictions only: its
+ * claim is "the node took our request and never answered, so replacing the client
+ * cannot reach it", and a `realm-error` trap's client is replaced in milliseconds, so
+ * it proves nothing about a parked node. Booked on the wide predicate, four traps
+ * silenced a healthy operator for half an hour.
+ *
+ * THREE OUTCOMES, NOT TWO. A poison that is not a watchdog eviction, or an offscreen
+ * kill, abandoned the probe without learning anything about the node, so it must not
+ * zero the eviction evidence the way a returned failure does - see
+ * `noteAbandonedSyncProbe` for why that left the loop-terminating breaks unbounded.
+ * Any other failure must be REPORTED, not skipped: while unlit it withdraws the evidence
+ * (so a producer that only ever adds would fuse permanently on the first four evictions
+ * of its life), and while lit it re-arms the deadline (so "one probe per 30 min until
+ * one SUCCEEDS" holds).
+ *
+ * And one that is no evidence at all: an abort that tore nothing down (`isRealmIntactAbort`,
+ * an offscreen read failed on its own deadline while a critical op held the document). It
+ * never reached the node and the realm runs on, so it goes to {@link noteLocalProbeFailure}
+ * and only re-arms. Booked as abandoned, routine reads that lost a race against a write lit
+ * the fuse on a healthy node.
+ *
+ * Reads `error` itself, not its cause chain, except for the intact-abort check, which walks
+ * the chain as `isRealmIntactAbort` does. A caller that classifies through the chain hands
+ * over the innermost killed-pipeline error it found there; a failure that never left the
+ * realm goes to {@link noteLocalProbeFailure} instead.
+ *
+ * The idle-sync loop in `useSyncTrigger` does not book through here, on purpose: it keeps a
+ * two-way split that counts a `realm-error` eviction toward its breaker's failure streak, so a
+ * realm that traps on every sync is not probed every 3 s, and lets that eviction reset the
+ * fuse's count like any other failure.
+ */
+export function noteProbeFailure(key: SyncFuseKey, error: unknown): void {
+  if (isRealmIntactAbort(error)) noteLocalProbeFailure(key);
+  else if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
+  else if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) noteAbandonedSyncProbe(key);
+  else noteNonEvictionSyncFailure(key);
+}
+
+/**
+ * This probe failed without leaving the realm (a note this client's store lacks, a refusal
+ * made before any request, a transport the client has disabled): the node neither answered
+ * nor parked us, so the evidence is neither added to nor withdrawn. A window that is lit, or
+ * lapsed with this as the probe it granted, is re-armed all the same: "one probe per window
+ * until one SUCCEEDS" holds, and this one did not succeed.
+ */
+export function noteLocalProbeFailure(key: SyncFuseKey): void {
+  const entry = ledger.get(key);
+  if (!entry || entry.fusedUntilMs === null) return;
   entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
 }
 

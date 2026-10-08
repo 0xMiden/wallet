@@ -659,8 +659,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Держите кошелёк открытым и подключённым — какое-то время после отправки доставка повторяется автоматически, и это предупреждение исчезнет, если она пройдёт. Если через час получатель так ничего и не получил, не отправляйте повторно; сохраните ID транзакции ниже и обратитесь в поддержку, так как перевод ещё можно восстановить по нему.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "Оставьте этот кошелек открытым и подключенным — повторная попытка доставки осуществляется автоматически в течение трех дней, и это предупреждение исчезнет, как только доставка состоится. Если получатель по-прежнему ничего не получил через сутки, не отправляйте снова; сохраните ID транзакции, указанный ниже, и обратитесь в службу поддержки, так как по нему перевод все еще можно восстановить.",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "Автоматическая доставка этого перевода приостановлена. Не отправляйте его повторно; сохраните указанный ниже идентификатор транзакции и обратитесь в службу поддержки, так как по нему перевод все еще можно восстановить.",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Доставка подтверждена",

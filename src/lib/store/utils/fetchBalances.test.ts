@@ -193,6 +193,19 @@ describe('fetchBalances', () => {
     __resetSyncFuseStateForTests();
   });
 
+  // A trap abandons the read without learning anything about the node.
+  it('books a realm-error eviction as abandoned, never erasing eviction evidence', async () => {
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('balances');
+    mockTryWithWasmClientLock.mockImplementationOnce(() => Promise.reject(new WasmClientPoisonedError('realm-error')));
+
+    await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    noteSyncWatchdogEviction('balances');
+
+    expect(isSyncFused('balances')).toBe(true);
+    __resetSyncFuseStateForTests();
+  });
+
   it('reports its own evictions to the fuse, and a completed read puts it out', async () => {
     __resetSyncFuseStateForTests();
     const evict = () => Promise.reject(new WasmClientPoisonedError('watchdog'));

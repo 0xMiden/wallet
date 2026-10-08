@@ -39,7 +39,11 @@ import type {
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
-import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  WasmClientPoisonedError,
+  isWasmClientPoisonReason,
+  WASM_LOCK_SYNC_WATCHDOG_MS
+} from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
@@ -244,30 +248,6 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * same 2-core runner took 12.1s and 9.9s end to end.
  */
 const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
-
-/**
- * Per-op deadline (ms) for the private-note transport relay.
- *
- * Sized as a WRITE, not a read, because of what a lost relay costs. The relay is a
- * network round-trip to the transport service carrying the only copy of a private
- * note's body the recipient can ever receive; the transaction has already landed
- * when it runs, so an abort here does not undo a spend — it strands one. It
- * previously carried `READ_DEADLINE_MS` (15s) on the reasoning that a transport
- * call does no prove or sign, which is true of the WORK but not of the STAKES.
- *
- * 45s, matching `SYNC_DEADLINE_MS`: the closest peer, being the other op whose
- * budget is dominated by a remote service rather than local WASM. Well below the
- * write ceiling, since no proving happens here.
- *
- * The deadline VALUE is the smaller half of the fix. The relay also dispatches as a
- * `criticalOp`, which is what moves the budget to execution start (`markOpStarted`)
- * so queue-wait behind other ops is off-budget, and what stops a coincident cheap
- * read's deadline from tearing the realm down mid-relay. Under the old arrangement
- * a busy realm could burn the entire 15s in the queue and abort the relay before it
- * had made a single request — the reported `OperationAbortedError`, whose error is
- * indistinguishable from a transport failure that DID reach the outbox.
- */
-const RELAY_DEADLINE_MS = 45_000;
 
 /**
  * Dispatch-time BACKSTOP deadline (ms) for a whole-op offscreen WRITE (issue #260
@@ -1079,14 +1059,12 @@ export const midenClientProxy = {
   /**
    * Relay a just-created PRIVATE note via the transport layer.
    *
-   * Always the SW client. 0.17 `notes.sendPrivate` takes the live Note and a
-   * scan-after hint, so it does not need the offscreen store. Offscreen fetch
-   * to localnet NTS (`127.0.0.1:57292`) is CORS-blocked; the SW fetch is not.
+   * Always the SW client, whatever the flag: offscreen fetch to a localnet
+   * transport (`127.0.0.1:57292`) is CORS-blocked even with host_permissions,
+   * and the SW fetch is not. `sendPrivateOutput` resolves the note by id from the
+   * SW client's store, which holds the output note the offscreen client applied.
    */
   async sendPrivateNote(note: Note, recipientAccountId: string): Promise<void> {
-    // Always the SW client. `notes.sendPrivate` takes the live Note, so it does
-    // not need the offscreen store. Offscreen fetch to 127.0.0.1:57292 is
-    // CORS-blocked even with host_permissions; the SW fetch already works.
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
       await midenClient.sendPrivateNote(note, recipientAccountId);
@@ -1096,26 +1074,23 @@ export const midenClientProxy = {
   /**
    * Re-push of an already-relayed private note, by id.
    *
-   * Same realm requirement and same critical-op treatment as
-   * {@link sendPrivateNote} — it is the identical transport call and the identical
-   * store lookup, differing only in that the sweep has no live `Note` to hand over
-   * (see `MidenClientInterface.relayPrivateNoteById`).
+   * Runs where {@link sendPrivateNote} runs, the SW client, for the same reasons:
+   * it is the identical transport call and the identical store lookup, differing
+   * only in that the sweep has no live `Note` to hand over (see
+   * `MidenClientInterface.relayPrivateNoteById`).
+   *
+   * Unlike the user's own relay it is a timer-driven hold, so it is bounded at the
+   * sync ceiling and labelled; the sweep reports its outcome to the 'note-delivery'
+   * fuse and consults that fuse before it pushes.
    */
   async relayPrivateNoteById(noteId: string, recipientAccountId: string): Promise<void> {
-    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      await withWasmClientLock(async () => {
+    await withWasmClientLock(
+      async () => {
         const midenClient = await getMidenClient();
         await midenClient.relayPrivateNoteById(noteId, recipientAccountId);
-      });
-      return;
-    }
-    const op_id = newOpId();
-    incrementCriticalOp();
-    try {
-      await dispatchOp(op_id, 'relayPrivateNoteById', [noteId, recipientAccountId], RELAY_DEADLINE_MS, true);
-    } finally {
-      decrementCriticalOp();
-    }
+      },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-push' }
+    );
   },
 
   /**
@@ -1127,10 +1102,15 @@ export const midenClientProxy = {
    */
   async isOutputNoteConsumed(noteId: string): Promise<boolean> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return await midenClient.isOutputNoteConsumed(noteId);
-      });
+      // A local store read the sweep makes on a timer: bounded and labelled, and fused by the
+      // sweep under this label, apart from the push, since either can park while the other does not.
+      return await withWasmClientLock(
+        async () => {
+          const midenClient = await getMidenClient();
+          return await midenClient.isOutputNoteConsumed(noteId);
+        },
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-receipt' }
+      );
     }
     const resultB64 = await this.call('isOutputNoteConsumed', [noteId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return false;

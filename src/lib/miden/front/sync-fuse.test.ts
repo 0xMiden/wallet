@@ -12,13 +12,17 @@ import {
   clearSyncFuseForEndpointChange,
   isSyncFused,
   noteAbandonedSyncProbe,
+  noteLocalProbeFailure,
   noteNonEvictionSyncFailure,
+  noteProbeFailure,
   noteSyncParked,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
   retireSyncFuse,
   syncFuseUntilMs
 } from './sync-fuse';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // `monotonicNowMs` prefers `performance.now`, so that is the clock to drive.
 let fakeNow = 0;
@@ -361,6 +365,112 @@ describe('sync fuse (#777)', () => {
       }
 
       expect(isSyncFused('idle-sync')).toBe(true);
+    });
+  });
+
+  // The one split every probe books a failed hold through, so two probes cannot read the
+  // same failure differently.
+  describe('noteProbeFailure', () => {
+    it('counts a watchdog eviction toward the fuse', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        noteProbeFailure('note-delivery', new WasmClientPoisonedError('watchdog'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it.each([
+      ['a realm-error poison', () => new WasmClientPoisonedError('realm-error')],
+      ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')]
+    ])('books %s as an abandoned probe, leaving the eviction count standing', (_kind, makeError) => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteProbeFailure('note-delivery', makeError());
+      expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+      noteSyncWatchdogEviction('note-delivery');
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('lights the fuse once enough probes were abandoned', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
+        noteProbeFailure('note-delivery', new WasmClientPoisonedError('realm-error'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('books any other failure as one that reached the node, withdrawing the evidence', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteProbeFailure('note-delivery', new Error('rpc blip'));
+      noteSyncWatchdogEviction('note-delivery');
+
+      expect(isSyncFused('note-delivery')).toBe(false);
+    });
+
+    // An offscreen read failed on its own deadline while a critical op held the document: the
+    // node was never asked and the realm runs on, so it is evidence for neither count.
+    describe('an abort that tore nothing down', () => {
+      const intactAbort = () => new OperationAbortedError('op', 'deadline-no-kill');
+
+      it('never lights the fuse, however many arrive', () => {
+        for (let i = 0; i < 2 * MAX_CONSECUTIVE_ABANDONED_PROBES; i++) noteProbeFailure('note-delivery', intactAbort());
+
+        expect(isSyncFused('note-delivery')).toBe(false);
+      });
+
+      it('neither withdraws the eviction count nor adds to it', () => {
+        for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+        noteProbeFailure('note-delivery', intactAbort());
+        expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+        noteSyncWatchdogEviction('note-delivery');
+        expect(isSyncFused('note-delivery')).toBe(true);
+      });
+
+      it('re-arms a lapsed window, so the probe it granted does not reopen the cadence', () => {
+        evictUntilLit('note-delivery');
+        fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS + 5_000;
+        expect(isSyncFused('note-delivery')).toBe(false);
+
+        noteProbeFailure('note-delivery', intactAbort());
+
+        expect(syncFuseUntilMs('note-delivery')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+      });
+    });
+  });
+
+  // A failure that never left this realm says nothing about the node either way.
+  describe('noteLocalProbeFailure', () => {
+    it('re-arms a lit window', () => {
+      evictUntilLit('note-delivery');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS - 5_000;
+
+      noteLocalProbeFailure('note-delivery');
+
+      expect(syncFuseUntilMs('note-delivery')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    it('re-arms a lapsed window, so the probe it granted does not reopen the cadence', () => {
+      evictUntilLit('note-delivery');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS + 5_000;
+      expect(isSyncFused('note-delivery')).toBe(false);
+
+      noteLocalProbeFailure('note-delivery');
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('leaves an unlit entry exactly as it stands', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteLocalProbeFailure('note-delivery');
+      expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+      noteSyncWatchdogEviction('note-delivery');
+      expect(isSyncFused('note-delivery')).toBe(true);
     });
   });
 

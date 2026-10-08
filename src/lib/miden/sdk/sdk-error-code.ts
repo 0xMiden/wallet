@@ -147,6 +147,25 @@ export function isKilledPipeline(err: unknown): boolean {
   return someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link));
 }
 
+/**
+ * A killed pipeline that tore nothing down: every kill in `err`'s cause chain is an
+ * offscreen read failed on its own deadline while a critical op held the document
+ * (`deadline-no-kill`). Only that read was lost; the realm and its client run on. A
+ * reason that cannot be read counts as a teardown.
+ */
+export function isRealmIntactAbort(err: unknown): boolean {
+  const abortReasonOf = (link: object): unknown => {
+    try {
+      return Reflect.get(link, 'reason');
+    } catch {
+      return undefined;
+    }
+  };
+  const tearsDown = (link: object) =>
+    isWasmClientPoisonedError(link) || (isOperationAbortedError(link) && abortReasonOf(link) !== 'deadline-no-kill');
+  return isKilledPipeline(err) && !someInCauseChain(err, tearsDown);
+}
+
 /** A lock-recovery eviction (`WasmClientPoisonedError`) anywhere in `err`'s cause chain. */
 export function isPoisonedPipeline(err: unknown): boolean {
   return someInCauseChain(err, isWasmClientPoisonedError);

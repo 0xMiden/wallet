@@ -1,30 +1,25 @@
 import { expect, test, type Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { resolve, sep } from 'node:path';
 
-// The real SDK WASM, with the relay patch postinstall applied, against a transport that answers
-// SDK 0.17's SendNoteWithProof with the old duplicate error. The 0.17 transport answers a
-// duplicate OK, so this stands for one that still sends that error, which the patch acknowledges.
-// The client's one RPC (the genesis header) is replayed from a recording, so nothing leaves the machine.
+import { classifyRelayFailure } from '../../src/lib/miden/transaction/relay-failure';
+
+// The real SDK WASM against a note transport whose replies the test chooses. It pins what the delivery
+// sweep relies on: a failed send is retried only inside the call, as often as the client allows, and
+// never again by the SDK, and its error text classifies the way the sweep expects. The client's one
+// RPC (the genesis header) is replayed from a recording, so nothing leaves the machine.
 const sdkRoot = resolve(__dirname, '../../node_modules/@miden-sdk/miden-sdk');
 const rpcFixture = resolve(__dirname, '../fixtures/note-relay-rpc.json');
-// A linked web-sdk build (`Web SDK PR: #N`) swaps in a `file:` source build that carries no relay patch.
-const linkedSdk = String(
-  JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')).dependencies['@miden-sdk/miden-sdk']
-).startsWith('file:');
 
-// The pre-0.17 transport's `grpc-message` header for a SendNote it already stores, verbatim.
-const DUPLICATE =
-  'Failed%20to%20store%20note:%20ConstraintViolation(%22Unique%20constraint%20violation:%20UNIQUE%20constraint%20failed:%20notes.id%22)';
-const GENUINE_FAILURE =
-  'Failed%20to%20store%20note:%20ConstraintViolation(%22Not%20null%20constraint%20violation:%20NOT%20NULL%20constraint%20failed:%20notes.tag%22)';
-
-// The SDK's outbox row holding this one private note and its mock proof, under the pinned SDK 0.17.0-rc.5.
-const ONE_ENTRY_BYTES = 284;
-
-type OutboxRun = { seeded: number; afterFirstSync: number; afterSecondSync: number; sendCalls: number };
+type Reply = 'unavailable' | 'invalidArgument' | 'throw';
+type Relay = {
+  rejected: boolean;
+  message: string;
+  sendCalls: number;
+  sendCallsAfterSync: number;
+  unknownNoteMessage: string;
+};
 
 let server: Server;
 let origin: string;
@@ -34,7 +29,7 @@ test.beforeAll(async () => {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     if (path === '/') {
       response.setHeader('content-type', 'text/html');
-      response.end('<!doctype html><title>relay outbox</title>');
+      response.end('<!doctype html><title>relay retry</title>');
       return;
     }
     const file = resolve(sdkRoot, path.slice('/sdk/'.length));
@@ -60,19 +55,18 @@ test.afterAll(async () => {
   await new Promise(done => server.close(done));
 });
 
-async function runOutbox(page: Page, rejection: string): Promise<OutboxRun> {
+/** One private note send against a transport that always gives `reply`, then a transport sync. */
+async function relay(page: Page, reply: Reply, maxRetries?: number): Promise<Relay> {
   const recording: unknown = JSON.parse(await readFile(rpcFixture, 'utf8'));
   await page.goto(origin);
   return page.evaluate(
-    async ({ recording, rejection }) => {
+    async ({ recording, reply, maxRetries }) => {
       const nativeFetch = globalThis.fetch.bind(globalThis);
       const rpc = new Map<string, string>();
       if (Array.isArray(recording)) {
         for (const entry of recording) rpc.set(String(entry.path), String(entry.body));
       }
       const transport = 'https://relay.example.invalid';
-      const storeName = `relay-outbox-${Math.random()}`;
-      let firstSend = true;
       let sendCalls = 0;
       // A trailers-only response with an empty, non-null body, as a network fetch returns it.
       const headersOnly = (status: string, message: string) =>
@@ -102,11 +96,10 @@ async function runOutbox(page: Page, rejection: string): Promise<OutboxRun> {
         }
         if (!url.pathname.endsWith('/SendNoteWithProof')) throw new Error(`Unexpected transport call ${url.pathname}`);
         sendCalls++;
-        if (firstSend) {
-          firstSend = false;
-          return headersOnly('14', 'transport%20unavailable');
-        }
-        return headersOnly('13', rejection);
+        if (reply === 'throw') throw new TypeError('Failed to fetch');
+        return reply === 'unavailable'
+          ? headersOnly('14', 'transport%20unavailable')
+          : headersOnly('3', 'note%20is%20invalid');
       };
 
       const specifier = '/sdk/dist/st/index.js';
@@ -115,7 +108,8 @@ async function runOutbox(page: Page, rejection: string): Promise<OutboxRun> {
       const client = await sdk.MidenClient.create({
         rpcUrl: 'https://rpc.testnet.miden.io',
         noteTransportUrl: transport,
-        storeName,
+        ...(maxRetries === undefined ? {} : { noteTransportMaxRetries: maxRetries }),
+        storeName: `relay-retry-${Math.random()}`,
         useWorker: false,
         autoSync: false
       });
@@ -126,58 +120,70 @@ async function runOutbox(page: Page, rejection: string): Promise<OutboxRun> {
         assets: [{ token: '0xaa0000000000bc110000bc000000de', amount: BigInt(1) }],
         type: 'private'
       });
-      const readOutbox = async (): Promise<number> => {
-        const db = await new Promise<IDBDatabase>((done, fail) => {
-          const opening = indexedDB.open(storeName);
-          opening.onsuccess = () => done(opening.result);
-          opening.onerror = () => fail(opening.error);
-        });
-        try {
-          const row = await new Promise<{ value?: ArrayBuffer } | undefined>((done, fail) => {
-            const reading = db.transaction('settings').objectStore('settings').get([0, 'note_transport_outbox']);
-            reading.onsuccess = () => done(reading.result);
-            reading.onerror = () => fail(reading.error);
-          });
-          return row?.value?.byteLength ?? 0;
-        } finally {
-          db.close();
-        }
-      };
+      // Read before the send, which takes the note by value and leaves this handle empty.
+      const noteId = note.id().toString();
+      const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-      // A relay that fails puts the note in the SDK's durable outbox. The fake transport checks no
-      // proof, so the SDK's mock proof at the genesis block stands in for one a node would issue.
+      // The fake transport checks no proof, so the SDK's mock proof at the genesis block stands in for
+      // one a node would issue.
+      let rejected = false;
+      let message = '';
       await client.notes
         .sendPrivate({ note, to: recipient, inclusionProof: sdk.NoteInclusionProof.mockAtBlock(0) })
-        .catch(() => undefined);
-      const seeded = await readOutbox();
+        .then(
+          () => undefined,
+          (error: unknown) => {
+            rejected = true;
+            message = messageOf(error);
+          }
+        );
+      const sentBeforeSync = sendCalls;
       await client.syncNoteTransport();
-      const afterFirstSync = await readOutbox();
-      await client.syncNoteTransport();
-      const afterSecondSync = await readOutbox();
+      const sendCallsAfterSync = sendCalls - sentBeforeSync;
+      // This note was built here, never by a transaction, so the store holds no output note for its id.
+      const unknownNoteMessage = await client.notes
+        .sendPrivateOutput({ noteId, to: recipient })
+        .then(() => '', messageOf);
       client.terminate();
-      return { seeded, afterFirstSync, afterSecondSync, sendCalls };
+      return { rejected, message, sendCalls: sentBeforeSync, sendCallsAfterSync, unknownNoteMessage };
     },
-    { recording, rejection }
+    { recording, reply, maxRetries }
   );
 }
 
-test.describe('SDK relay outbox, real WASM', () => {
-  test.skip(linkedSdk, 'A linked web-sdk build carries no relay patch');
+test.describe('note transport retries, real WASM', () => {
   test.setTimeout(120_000);
 
-  test("the transport's duplicate response retires the entry, so the next sync sends nothing", async ({ page }) => {
-    const run = await runOutbox(page, DUPLICATE);
-    expect(run.seeded).toBe(ONE_ENTRY_BYTES);
-    expect(run.afterFirstSync).toBe(0);
-    expect(run.afterSecondSync).toBe(0);
-    expect(run.sendCalls).toBe(2);
+  test("with the wallet's zero retries an unavailable transport gets one send, and a sync sends nothing", async ({
+    page
+  }) => {
+    const run = await relay(page, 'unavailable', 0);
+    expect(run.rejected).toBe(true);
+    expect(run.sendCalls).toBe(1);
+    expect(run.sendCallsAfterSync).toBe(0);
+    expect(classifyRelayFailure(new Error(run.message)), run.message).toBe('outage');
+    expect(classifyRelayFailure(new Error(run.unknownNoteMessage)), run.unknownNoteMessage).toBe('storeLoss');
   });
 
-  test('a genuine storage failure stays in the outbox and is sent again', async ({ page }) => {
-    const run = await runOutbox(page, GENUINE_FAILURE);
-    expect(run.seeded).toBe(ONE_ENTRY_BYTES);
-    expect(run.afterFirstSync).toBe(run.seeded);
-    expect(run.afterSecondSync).toBe(run.seeded);
-    expect(run.sendCalls).toBe(3);
+  test("with the SDK's default the same reply gets four sends", async ({ page }) => {
+    const run = await relay(page, 'unavailable');
+    expect(run.rejected).toBe(true);
+    expect(run.sendCalls).toBe(4);
+    expect(run.sendCallsAfterSync).toBe(0);
+  });
+
+  test("a fetch that throws gets one send even at the SDK's default", async ({ page }) => {
+    const run = await relay(page, 'throw');
+    expect(run.rejected).toBe(true);
+    expect(run.sendCalls).toBe(1);
+    expect(run.sendCallsAfterSync).toBe(0);
+    expect(classifyRelayFailure(new Error(run.message)), run.message).toBe('outage');
+  });
+
+  test('a rejected request reads as a fault of the note, not of the transport', async ({ page }) => {
+    const run = await relay(page, 'invalidArgument', 0);
+    expect(run.rejected).toBe(true);
+    expect(run.sendCalls).toBe(1);
+    expect(classifyRelayFailure(new Error(run.message)), run.message).toBe('noteLocal');
   });
 });

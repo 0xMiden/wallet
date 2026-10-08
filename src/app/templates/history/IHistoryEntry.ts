@@ -57,13 +57,20 @@ export interface IHistoryEntry {
   /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
   notConfirmedHint?: NotConfirmedHintKey;
   /**
-   * `tx.noteDelivery` — whether this send's private note reached the transport
+   * `tx.noteDelivery` - whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
    * chain may still not be spendable by its recipient, since a private note is
    * unreachable without its relayed body. Absent for public sends and for rows
    * written before the field existed.
    */
   noteDelivery?: INoteDeliveryState;
+  /**
+   * The delivery sweep will not push this row's notes again: `tx.relayRetriesStopped`,
+   * a row restored from a backup (never pushed), or a send past the retry window
+   * (which the sweep may never revisit to set the flag). The detail page then stops
+   * promising automatic retries and points to the transaction ID instead.
+   */
+  relayRetriesStopped?: boolean;
   /**
    * `tx.processingStartedAt` — stamped atomically with the Queued →
    * GeneratingTransaction transition. The detail page's Retry gate reads it as

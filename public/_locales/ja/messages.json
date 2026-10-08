@@ -659,8 +659,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "このウォレットを開いたまま接続を維持してください。送信後しばらくは配信が自動で再試行され、成功するとこの警告は消えます。1 時間経っても受取人に届かない場合は、再送しないでください。下の取引 ID を保存してサポートにご連絡ください。その ID から送金を復旧できます。",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "このウォレットを開いたまま接続状態を維持してください。配信は最大3日間自動的に再試行され、成功するとこの警告は消えます。1日経っても受取人に何も届かない場合は、再送信しないでください。以下の取引IDを保存し、サポートに連絡してください。この取引IDがあれば、送金を復元できる可能性があります。",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "この送金については自動配信が停止しました。再送は行わず、以下の取引IDを保存してサポートに連絡してください。この取引IDがあれば、送金を復元することが可能です。",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "受領確認済み",

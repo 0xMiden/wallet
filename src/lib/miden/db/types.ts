@@ -533,9 +533,8 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     indistinguishable from a successful one.
  *   - `relayed`     - the transport is believed to HOLD the note: it acknowledged
  *                     the push, which it also does for a note it already stores
- *                     (the SDK fetch boundary turns that duplicate into an ACK,
- *                     `sdk/note-relay-fetch.mjs`). Deliberately not
- *                     terminal, for two separate reasons. An empty
+ *                     (the 0.17 transport answers a duplicate as it does a new
+ *                     note). Deliberately not terminal, for two separate reasons. An empty
  *                     `SendNoteResponse` means acceptance is not proof of storage, so
  *                     the row stays eligible for the re-push sweep, which tests
  *                     exactly that. And even a genuinely stored note can be
@@ -549,11 +548,10 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     proof of delivery available: the recipient cannot consume a
  *                     private note without having received its body, so the
  *                     nullifier is the receipt. Terminal.
- *   - `undelivered` — the relay was attempted and did not succeed. Not necessarily
- *                     permanent (the SDK's own outbox may still retry it, and that
- *                     retry replays the ORIGINAL block hint, so it stays correct
- *                     however late it runs) — but it may equally mean nothing was
- *                     ever queued, so it is surfaced rather than assumed benign.
+ *   - `undelivered` - the relay was attempted and did not succeed. Not necessarily
+ *                     permanent: the SDK does not re-send it, but the delivery
+ *                     sweep does (`note-delivery-sweep.ts`), and a push the
+ *                     transport acknowledges moves the row to `relayed`.
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
@@ -573,8 +571,8 @@ export interface ITransaction {
    * it matched, carries. History and HistoryDetails key the recovered title and
    * icon and the suppressed bridge, swap and earn-settlement UI on it, and the
    * history merge replaces or merges only rows carrying it. `restoredFromBackup`,
-   * set with it, is what keeps the processing loop, retry and the delivery
-   * sweep away from such a row.
+   * set with it, is what keeps the processing loop and retry away from such a
+   * row, and the delivery sweep to receipt checks.
    */
   recovered?: boolean;
   recovery?: GuardianHistoryRecovery;
@@ -659,6 +657,18 @@ export interface ITransaction {
   relayNoteIds?: string[];
   /** The account a custom row's private notes were relayed to, kept apart from `secondaryAccountId`; see `relayRecipientOf`. */
   relayRecipientId?: string;
+  /**
+   * The owed private notes the transport has acknowledged, each added as its relay or re-push is acknowledged. The
+   * undelivered label counts the owed notes missing from it. Absent on a row written before acknowledgements were
+   * recorded, or with none yet; there `noteDelivery` decides, and `relayed` counts as every owed note acknowledged.
+   */
+  relayAckedNoteIds?: string[];
+  /**
+   * Owed private notes that can never be pushed: no relayable note could be built from them when the row completed, or
+   * a push found no relayable copy in this client's store. The sweep never pushes them again, and a row whose every
+   * owed note is here has nothing to push at all.
+   */
+  relayDeadNoteIds?: string[];
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
@@ -752,32 +762,46 @@ export interface ITransaction {
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
    *
-   * This is the wallet's OWN record that a relay is owed. It previously had none:
-   * durability was delegated entirely to the SDK's retry outbox, which Rust writes
-   * from inside the relay call and only after it has resolved the transport API.
-   * Every failure upstream of that write therefore queued nothing while throwing
-   * exactly like a mid-transport timeout that DID queue — and under 0.16 there is a
-   * new member of that class, since `notes.sendPrivateOutput` first resolves the
-   * note by id from the calling client's store and rejects with `No output note
-   * found for the given id` if it is not there as an applied output note.
+   * This is the wallet's OWN record that a relay is owed, and the only one: the
+   * SDK does not re-send a private note whose relay failed, so the delivery sweep
+   * (`note-delivery-sweep.ts`) retries from this row.
    */
   noteDelivery?: INoteDeliveryState;
   /**
-   * How many times this row's private note has been handed to the transport,
-   * counting the first attempt. Bounds the re-push sweep so a note nobody ever
-   * consumes cannot be re-pushed forever.
+   * How many times the sweep has pushed this row's private notes, counting the
+   * original relay. Indexes the retry schedule and caps it (`MAX_RELAY_ATTEMPTS`);
+   * the schedule itself ends 72 hours after the send.
    */
   relayAttempts?: number;
   /**
-   * Earliest time (unix seconds) the sweep may re-push this row's private note.
+   * Earliest time (unix seconds) the sweep next looks at this row: its next push,
+   * or its next receipt check once pushes are over.
    *
-   * Spread wide on purpose. Stamped from the clock at write time rather than from
-   * when the sweep began, except for the first arming, which is measured from the
-   * original relay (`completedAt`) so a row first seen long afterwards does not have
-   * to serve the wait twice. See `note-delivery-sweep.ts` for what each re-push
-   * outcome does and does not prove.
+   * Stamped from the clock at write time rather than from when the sweep began,
+   * except for the first arming, which is measured from the original relay
+   * (`completedAt`) so a row first seen long afterwards does not have to serve the
+   * wait twice. See `note-delivery-sweep.ts` for what each push outcome does and
+   * does not prove.
    */
   nextRelayAt?: number;
+  /**
+   * Verification steps completed since every live owed note was acknowledged, two at most. A step counts once every
+   * note it set out to push was acknowledged or found dead, one left short is repeated on the retry backoff, and no
+   * step is pushed past the retry bounds (72 hours after the send, or `MAX_RELAY_ATTEMPTS`).
+   */
+  relayVerifyPushes?: number;
+  /**
+   * Set when an outage stopped the sweep's pushes with this row due: its push failed as an outage, or the pass
+   * stopped before it. The first push that succeeds in a later pass makes the row due at once, and the push that
+   * follows clears it.
+   */
+  relayOutageDeferred?: true;
+  /**
+   * Set once the sweep will not push this row again while some owed note never reached the transport: its retries
+   * ran out, every unacknowledged note is dead, it was restored from a backup, or it has nothing to push. Receipt
+   * checks go on. The history card reads it to stop promising automatic retries.
+   */
+  relayRetriesStopped?: true;
   /**
    * Sticky: set once some attempt on this row reached a point from which a
    * chain submit cannot be ruled out, and never unset. Guards the cached

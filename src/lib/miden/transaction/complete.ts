@@ -81,10 +81,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
   const { userNotes: outputNotes } = splitExecutedOutputNotes(executedTx);
 
-  // Every private note this transaction produced. Collected first so the relays
-  // below are a flat sequence: the commit wait then happens ONCE, after them,
-  // rather than once per note inside the loop.
-  const notesToRelay: Note[] = [];
+  // Every private note this transaction produced, with the id it is owed under. Collected
+  // first so the relays below are a flat sequence: the commit wait then happens ONCE,
+  // after them, rather than once per note inside the loop.
+  const notesToRelay: { noteId: string; fullNote: Note }[] = [];
 
   // How many of this transaction's private notes cannot be shown to have reached
   // the transport. Counted across BOTH phases — conversion and relay — because a
@@ -100,46 +100,65 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   const relayNoteIds: string[] = [];
   // Read before `interpretTransactionResult`, which puts the input note's sender in `secondaryAccountId` on a consume.
   const relayRecipientId = transaction.secondaryAccountId;
+  // Owed notes no relay can ever carry.
+  const relayDeadNoteIds: string[] = [];
 
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
       continue;
     }
-    relayNoteIds.push(note.id().toString());
+    const noteId = note.id().toString();
+    relayNoteIds.push(noteId);
 
     if (!transaction.secondaryAccountId) {
       // The recipient is supplied by the requesting site and is optional, so a
       // custom request that emits a private note without naming one lands here.
+      // The row then has no recipient, which leaves it inert for the delivery
+      // sweep: there is no one to re-push its notes to.
       console.error('Missing recipient account id for private note', { txId: transaction.id });
       undeliveredNotes++;
       continue;
     }
 
-    // intoFull() can throw or return undefined
+    // intoFull() can throw or return undefined. Either way the note is recorded dead:
+    // the sweep re-pushes by id from the same output note record, and a note that
+    // yields no relayable note here yields none there, so pushing it would only
+    // spend attempts.
     try {
       const maybeFullNote = note.intoFull();
       if (!maybeFullNote) {
         console.error('intoFull() returned undefined for output note', { txId: transaction.id });
         undeliveredNotes++;
+        relayDeadNoteIds.push(noteId);
         continue;
       }
-      notesToRelay.push(maybeFullNote);
+      notesToRelay.push({ noteId, fullNote: maybeFullNote });
     } catch (error) {
       console.error('Failed to convert output note into full note', { txId: transaction.id, error });
       undeliveredNotes++;
+      relayDeadNoteIds.push(noteId);
       continue;
     }
   }
+
+  // What the sweep needs to re-push this row's notes if the pipeline stops before its
+  // terminal write: which notes, to whom, and which of them no push can carry.
+  const relayEvidence = () => ({
+    transactionId: executedTx.id().toHex(),
+    relayNoteIds,
+    relayRecipientId,
+    deadNoteIds: relayDeadNoteIds
+  });
 
   let noteDelivery: INoteDeliveryState | undefined;
 
   if (notesToRelay.length > 0) {
     // Record the debt before incurring it, for the same reason the send path does:
-    // the SDK's outbox is written from inside the relay, so nothing upstream of that
-    // point leaves any durable trace that a note is owed.
+    // the SDK keeps no record of a relay it could not make, so this row is the only
+    // durable trace that a note is owed, and what the delivery sweep retries from.
     try {
-      await recordNoteDelivery(transaction.id, 'pending', { transactionId: executedTx.id().toHex() });
+      await recordNoteDelivery(transaction.id, 'pending', relayEvidence());
     } catch (error) {
       console.warn('Could not record the pending note delivery', { txId: transaction.id, error });
     }
@@ -152,10 +171,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // note over: the proof does not exist yet. One wait covers every note,
     // because they share the transaction id.
     //
-    // Relays route through `midenClientProxy` (issue #260, slice 7b): under the flag
-    // the write ran offscreen, so each note is an APPLIED OUTPUT note of the
-    // OFFSCREEN client's store, and `sendPrivateOutput` resolves it by id out of
-    // that store, so the relay runs there, not on the dormant SW client.
+    // The wait routes through `midenClientProxy` (issue #260, slice 7b), so under the
+    // flag it runs on the offscreen client that applied the transaction. The relays
+    // run on the SW client (see `midenClientProxy.sendPrivateNote`), whose store
+    // holds the output notes the offscreen client applied.
     try {
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -165,7 +184,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       });
     }
 
-    for (const fullNote of notesToRelay) {
+    for (const { noteId, fullNote } of notesToRelay) {
       try {
         await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
       } catch (error) {
@@ -177,6 +196,14 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
           errorMessage: error instanceof Error ? error.message : String(error)
         });
         undeliveredNotes++;
+        continue;
+      }
+      // Persisted per relay: the terminal write below throws on a row Cancel or the
+      // stuck-row reaper finalized while the relays ran.
+      try {
+        await recordNoteDelivery(transaction.id, 'pending', { ackedNoteIds: [noteId] });
+      } catch (error) {
+        console.warn('Could not record the note acknowledgement', { txId: transaction.id, noteId, error });
       }
     }
 
@@ -193,7 +220,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // Private notes existed but none could be turned into a relayable note.
     noteDelivery = 'undelivered';
     try {
-      await recordNoteDelivery(transaction.id, noteDelivery, { transactionId: executedTx.id().toHex() });
+      await recordNoteDelivery(transaction.id, noteDelivery, relayEvidence());
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: transaction.id, error });
     }
@@ -1057,13 +1084,11 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // Record that a relay is OWED before attempting it, together with the landed
     // transaction id and the note it produced.
     //
-    // The ordering is the whole point. The SDK's retry outbox is written INSIDE the
-    // Rust relay and only after it resolves the transport API, so every failure
-    // upstream of that write queues nothing — and the wallet used to write nothing
-    // of its own either until the terminal "Sent". Between submit and that write
-    // there was no durable statement anywhere that a note was owed to anyone, so an
-    // interrupted relay was indistinguishable from a delivered one. Now the worst
-    // case is a row left at `pending`, which is at least a question someone can ask.
+    // The ordering is the whole point. The SDK keeps no record of a relay it could
+    // not make, so without this stamp nothing between submit and the terminal write
+    // would say a note is owed to anyone, and an interrupted relay would read like a
+    // delivered one. The worst case is a row left at `pending`, which the delivery
+    // sweep (`note-delivery-sweep.ts`) picks up and retries.
     try {
       await recordNoteDelivery(tx.id, 'pending', { transactionId: executedTx.id().toHex(), outputNoteIds });
     } catch (error) {
@@ -1074,10 +1099,9 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
     try {
       // The proof rc.5's transport verifies exists only after this commit wait
-      // syncs past the block. Both the wait and the relay route through
-      // `midenClientProxy` (issue #260, slice 7b) so they run on the client that
-      // created the note: the offscreen client when the flag is on, whose store
-      // holds the output note `sendPrivateOutput` reads.
+      // syncs past the block. The wait routes through `midenClientProxy` (issue
+      // #260, slice 7b) and runs on the client that applied the transaction; the
+      // relay runs on the SW client, whose store holds that output note too.
       await setTransactionStage(tx.id, 'confirming');
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -1088,19 +1112,13 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
       noteDelivery = 'relayed';
     } catch (error) {
-      // This used to log "SDK outbox will retry on next sync" and fall through to a
-      // clean "Sent". That premise does not hold for the failures that arrive here.
-      // Rust writes the outbox entry inside the relay, after resolving the transport
-      // API, so everything upstream of that point queues nothing while throwing
-      // exactly like a mid-transport timeout that DID queue: transport not
-      // configured, a realm torn down before the op ran, and — new under 0.16 —
-      // `sendPrivateOutput` failing to resolve the note by id in this client's store
-      // (`No output note found for the given id`), which is the whole relay refusing
-      // before it starts.
-      //
-      // The two are indistinguishable from here, so record the pessimistic one.
-      // Over-reporting a note that arrives anyway costs a stale warning;
-      // under-reporting costs the funds.
+      // The SDK does not re-send a private note whose relay failed, whatever the
+      // failure: a transport that is down or not configured, a realm torn down before
+      // the op ran, or `sendPrivateOutput` not finding the note in this client's store
+      // (`No output note found for the given id`). So the row says undelivered, and
+      // the delivery sweep (`note-delivery-sweep.ts`) retries from it. Over-reporting
+      // a note that arrives anyway costs a stale warning; under-reporting costs the
+      // funds.
       console.error('Private-note relay failed; note may be undelivered', {
         txId: tx.id,
         noteId,
@@ -1117,11 +1135,12 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // outcome would be lost with it. This is the same reason `recordNoteDelivery`
     // carries no terminal guard.
     try {
-      await recordNoteDelivery(tx.id, noteDelivery);
+      await recordNoteDelivery(tx.id, noteDelivery, { ackedNoteIds: noteDelivery === 'relayed' ? [noteId] : [] });
     } catch (error) {
       console.warn('Could not record the note delivery outcome', { txId: tx.id, noteId, noteDelivery, error });
     }
   } else if (isPrivateSend && (!note || !noteId)) {
+    // No output note id to re-push by, so the delivery sweep leaves this row inert.
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Send failed: note unavailable',

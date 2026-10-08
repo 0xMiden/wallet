@@ -659,8 +659,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "이 지갑을 열어 두고 연결 상태를 유지하세요. 전송 후 한동안 전달이 자동으로 재시도되며, 성공하면 이 경고는 사라집니다. 한 시간이 지나도 수신자가 받지 못했다면 다시 보내지 마세요. 아래 거래 ID를 저장해 고객 지원에 문의하시면 해당 ID로 이체를 복구할 수 있습니다.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "이 지갑을 열어두고 연결 상태를 유지하십시오. 전송은 최대 3일 동안 자동으로 재시도되며, 전송이 완료되면 이 경고는 사라집니다. 수신자가 하루가 지나도 아무것도 받지 못했다면 다시 보내지 마십시오. 아래의 거래 ID를 저장한 후 지원팀에 문의하십시오. 해당 거래 ID를 통해 전송 내역을 복구할 수 있습니다.",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "이 송금에 대한 자동 전달이 중단되었습니다. 다시 보내지 마시고, 아래의 거래 ID를 저장한 후 지원팀에 문의하십시오. 해당 거래 ID를 통해 송금을 복구할 수 있습니다.",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "전달 확인됨",

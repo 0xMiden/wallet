@@ -5,12 +5,7 @@ import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
-import {
-  isSyncFused,
-  noteNonEvictionSyncFailure,
-  noteSyncSuccess,
-  noteSyncWatchdogEviction
-} from 'lib/miden/front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
@@ -30,11 +25,7 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import {
-  isSyncWatchdogEviction,
-  WASM_LOCK_SYNC_WATCHDOG_MS,
-  WasmClientPoisonedError
-} from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
@@ -267,8 +258,7 @@ export async function fetchBalances(
     // Report before rethrowing, so this probe accumulates its own evidence. Bounding the
     // hold capped one park at 120s; only the fuse stops the wallet re-entering that park
     // — and leaking the client it poisoned — on the very next refresh, indefinitely.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('balances');
-    else noteNonEvictionSyncFailure('balances');
+    noteProbeFailure('balances', e);
     throw e;
   };
 
