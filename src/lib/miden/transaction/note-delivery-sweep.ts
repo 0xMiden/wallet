@@ -177,6 +177,15 @@ const pushesFor = (row: ITransaction, targets: DeliveryTargets, at: number): str
 };
 
 /**
+ * How long a row that spent nothing in a pass waits before the step it was serving: the next
+ * receipt read when no push is left, else the push its retry or verification schedule owes.
+ */
+const nextStepDelayOf = (row: ITransaction, targets: DeliveryTargets, at: number): number => {
+  if (pushesFor(row, targets, at).length === 0) return RECEIPT_INTERVAL_SECONDS;
+  return targets.retry.length > 0 ? retryDelayFor(attemptsOf(row)) : VERIFY_DELAYS_SECONDS[verifyPushesOf(row)]!;
+};
+
+/**
  * Mark, once, a row whose retries are over while some owed note never reached the
  * transport, so the history card stops promoting retries that will not come.
  */
@@ -322,10 +331,10 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   if (receipt === 'killed') {
     // Recorded before the write, so a write that fails still ends the pass. The read may
     // still be parked in the abandoned hold, so the row spends and records nothing and
-    // moves to its next step as an evicted push's row does, its outage mark with it: left
-    // due, every later pass would open on the same read and never reach the rows behind.
+    // moves to the step it would serve next, its outage mark with it: left due, every
+    // later pass would open on the same read and never reach the rows behind.
     pass.interrupted = true;
-    const backoffAt = nowSeconds() + retryDelayFor(attemptsOf(row));
+    const backoffAt = nowSeconds() + nextStepDelayOf(row, targets, at);
     await Repo.transactions.where({ id: row.id }).modify(tx => {
       tx.nextRelayAt = backoffAt;
       delete tx.relayOutageDeferred;

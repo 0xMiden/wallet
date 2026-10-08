@@ -1562,6 +1562,34 @@ describe('the delivery schedule', () => {
     }
   );
 
+  // The killed read spent nothing, so the step the row moves to is the one it was already serving.
+  it.each<[string, Partial<ITransaction>, number]>([
+    [
+      'whose retries are over',
+      { relayAttempts: MAX_RELAY_ATTEMPTS, initiatedAt: NOW - 4 * DAY, completedAt: NOW - 4 * DAY },
+      HOUR
+    ],
+    ['restored from a backup', { restoredFromBackup: true }, HOUR],
+    [
+      'between its verification pushes',
+      { noteDelivery: 'relayed', relayAckedNoteIds: ['0xfirst'], relayVerifyPushes: 1 },
+      30 * MINUTE
+    ],
+    // retryDelayFor(3).
+    ['with retries left', { relayAttempts: 3 }, 30 * MINUTE]
+  ])('moves a row %s whose receipt read was killed to its own next step', async (_kind, overrides, delay) => {
+    rows.push(due('first', NOW - 1000, overrides));
+    const before = { ...rows[0]! };
+    mockIsConsumed.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog', new Error('read parked')));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.nextRelayAt).toBe(NOW + delay);
+    expect(rows[0]).toEqual({ ...before, nextRelayAt: NOW + delay });
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
   it('lights the receipt fuse on evicted receipt reads, then pushes a due row without reading its receipt', async () => {
     rows.push(due('first', NOW - 1000));
     mockIsConsumed.mockRejectedValue(new WasmClientPoisonedError('watchdog', new Error('read parked')));
