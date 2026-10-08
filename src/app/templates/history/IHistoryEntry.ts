@@ -65,9 +65,10 @@ export interface IHistoryEntry {
    */
   noteDelivery?: INoteDeliveryState;
   /**
-   * `tx.relayRetriesStopped` - the delivery sweep will not push this row's notes
-   * again. The detail page then stops promising automatic retries and points to
-   * the transaction ID instead.
+   * The delivery sweep will not push this row's notes again: `tx.relayRetriesStopped`,
+   * a row restored from a backup (never pushed), or a send past the retry window
+   * (which the sweep may never revisit to set the flag). The detail page then stops
+   * promising automatic retries and points to the transaction ID instead.
    */
   relayRetriesStopped?: boolean;
   /**

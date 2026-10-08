@@ -16,6 +16,7 @@ import {
   relayNoteIdsOf,
   relayRecipientOf
 } from './helper';
+import { RETRY_WINDOW_SECONDS } from './note-delivery-window';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { INoteDeliveryState, ITransaction } from '../db/types';
 import { errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
@@ -36,14 +37,6 @@ const HOUR = 60 * MINUTE;
  * gRPC timeout.
  */
 const RETRY_DELAYS_SECONDS = [5 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 4 * HOUR, 6 * HOUR];
-
-/**
- * How long after the send a note the transport has not acknowledged is still pushed, in
- * seconds. The output note and its inclusion proof stay in this client's store for good,
- * so age alone never makes a push fail; the bound is how long a send that keeps failing
- * goes on before the history card tells the user retries have stopped.
- */
-export const RETRY_WINDOW_SECONDS = 72 * HOUR;
 
 /**
  * Delays before the verification pushes of a row whose every live note the transport

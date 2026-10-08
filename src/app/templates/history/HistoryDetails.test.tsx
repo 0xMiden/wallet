@@ -819,11 +819,13 @@ describe('HistoryDetails', () => {
       // transaction really did land, which is why the row is Completed and must
       // stay that way (Failed would offer a Retry that spends again). The note not
       // reaching the transport is the part the user has to be told about, since a
-      // private note is unreachable without its relayed body.
+      // private note is unreachable without its relayed body. An hour old, so still
+      // inside the retry window.
       setMockRow({
         ...baseSendTx,
         status: STATUS_COMPLETED,
-        noteDelivery: 'undelivered'
+        noteDelivery: 'undelivered',
+        completedAt: Math.floor(Date.now() / 1000) - 60 * 60
       });
 
       await renderAndLoad();
@@ -844,10 +846,12 @@ describe('HistoryDetails', () => {
     it.each(['undelivered', 'pending'] as const)(
       'drops the retry promise from a %s row whose automatic delivery has stopped',
       async noteDelivery => {
+        // An hour old, so the flag alone says the sweep has stopped.
         setMockRow({
           ...baseSendTx,
           status: STATUS_COMPLETED,
           noteDelivery,
+          completedAt: Math.floor(Date.now() / 1000) - 60 * 60,
           relayRetriesStopped: true
         });
 
@@ -857,6 +861,22 @@ describe('HistoryDetails', () => {
         expect(screen.queryByText('noteDeliveryRecoveryHint')).not.toBeInTheDocument();
       }
     );
+
+    // The sweep may never visit such a row again to set the flag, so the card works it out itself.
+    it.each<[string, Partial<Tx>]>([
+      ['a send past the retry window', { completedAt: Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60 }],
+      [
+        'a row restored from a backup',
+        { completedAt: Math.floor(Date.now() / 1000) - 60 * 60, restoredFromBackup: true }
+      ]
+    ])('shows the stopped hint for %s with no flag stored', async (_kind, overrides) => {
+      setMockRow({ ...baseSendTx, status: STATUS_COMPLETED, noteDelivery: 'undelivered', ...overrides });
+
+      await renderAndLoad();
+
+      expect(screen.getByText('noteDeliveryRetriesStoppedHint')).toBeInTheDocument();
+      expect(screen.queryByText('noteDeliveryRecoveryHint')).not.toBeInTheDocument();
+    });
 
     it('warns on a row still recording a PENDING delivery', async () => {
       // 'pending' means the wallet recorded that a relay was owed and never
