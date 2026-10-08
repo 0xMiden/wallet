@@ -5,11 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { useGuardianAvailability } from 'app/hooks/useGuardianAvailability';
 import { usePageActive } from 'app/layouts/page-active';
 import { Button } from 'components/Button';
-import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
 import { Notice } from 'components/ui/Notice';
-import { Pill } from 'components/ui/Pill';
-import { StatusBadge } from 'components/ui/StatusBadge';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
@@ -20,6 +17,7 @@ import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'l
 import type { GuardianOption } from 'lib/shared/types';
 import { NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
+import { guardianOperatorCard } from './guardian-operator-card';
 import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
@@ -220,37 +218,17 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   };
 
   const items: ChoiceCardItem[] = options.map(option => {
-    const isDefault = option.id === defaultId;
     const isCurrent = currentEndpoint != null && sameGuardianEndpoint(option.endpoint, currentEndpoint);
-    const isOffline = isOfflineEndpoint(option.endpoint);
-    return {
-      id: option.id,
-      title: option.name,
+    // "Current" (the switch flow) or "Default" (the create flow), kept beside the offline verdict: the
+    // card most likely to be offline is the one the account is on, and that is exactly when the user
+    // needs to see which operator they are leaving.
+    const tag = isCurrent ? t('currentLabel') : option.id === defaultId ? t('default') : undefined;
+    return guardianOperatorCard({
+      option,
       subtitle: t('guardianCardMeta', { operator: option.operatedBy, location: option.location }),
-      leading: <GuardianLogoTile guardianId={option.id} />,
-      // "Current" (the switch flow) or "Default" (the create flow), and the offline verdict beside it,
-      // never instead of it: the card most likely to be offline is the one the account is on, and
-      // that is exactly when the user needs to see which operator they are leaving.
-      badge:
-        isCurrent || isDefault || isOffline ? (
-          <>
-            {isCurrent ? (
-              <Pill size="xs" tone="inactive">
-                {t('currentLabel')}
-              </Pill>
-            ) : isDefault ? (
-              <Pill size="xs" tone="inactive">
-                {t('default')}
-              </Pill>
-            ) : null}
-            {isOffline && <StatusBadge status="offline" data-testid="guardian-offline-banner" />}
-          </>
-        ) : undefined,
-      // A down operator cannot be chosen: an account created against it fails deep in the
-      // pipeline, after the user has already backed up a seed phrase and set a password.
-      disabled: isOffline,
-      data: { 'data-guardian-endpoint': option.endpoint }
-    };
+      tag,
+      offline: isOfflineEndpoint(option.endpoint)
+    });
   });
 
   if (showNoGuardianOption) {

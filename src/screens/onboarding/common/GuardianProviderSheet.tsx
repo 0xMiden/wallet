@@ -3,12 +3,11 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
-import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
-import { Pill } from 'components/ui/Pill';
-import { StatusBadge } from 'components/ui/StatusBadge';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+
+import { guardianOperatorCard } from './guardian-operator-card';
 
 /**
  * Who each listed operator is, in words: `about` is the sentence the guardian step shows under the
@@ -61,11 +60,8 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
 
   const items: ChoiceCardItem[] = options.map(option => {
     const copy = guardianOperatorCopy(option.id);
-    const isOffline = verdicts[option.endpoint]?.status === 'offline';
-    const isFastest = option.id === fastestId;
-    return {
-      id: option.id,
-      title: option.name,
+    return guardianOperatorCard({
+      option,
       // The region is kept on one line: a break inside "EU-NORTH" reads as two words.
       subtitle: (
         <>
@@ -74,21 +70,9 @@ export const GuardianProviderSheet: React.FC<GuardianProviderSheetProps> = ({
           <span className="whitespace-nowrap">{option.location}</span>
         </>
       ),
-      leading: <GuardianLogoTile guardianId={option.id} />,
-      badge:
-        isFastest || isOffline ? (
-          <>
-            {isFastest && (
-              <Pill size="xs" tone="inactive">
-                {t('guardianFastest')}
-              </Pill>
-            )}
-            {isOffline && <StatusBadge status="offline" />}
-          </>
-        ) : undefined,
-      disabled: isOffline,
-      data: { 'data-guardian-endpoint': option.endpoint }
-    };
+      tag: option.id === fastestId ? t('guardianFastest') : undefined,
+      offline: verdicts[option.endpoint]?.status === 'offline'
+    });
   });
 
   return (

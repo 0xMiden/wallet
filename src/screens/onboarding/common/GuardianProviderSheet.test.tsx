@@ -101,6 +101,13 @@ describe('GuardianProviderSheet', () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
+  // One mapping draws an operator card here and on Rotate Guardian's picker, so the offline hook is the same.
+  it("badges an offline operator with the picker's offline test id", () => {
+    renderSheet({ verdicts: { [OZ.endpoint]: { status: 'offline' } } });
+    expect(within(card(OZ.endpoint)).getByTestId('guardian-offline-banner')).toHaveTextContent('guardianOfflineLabel');
+    expect(within(card(KODA.endpoint)).queryByTestId('guardian-offline-banner')).toBeNull();
+  });
+
   it("falls back to the operator's company for an operator with no description", () => {
     renderSheet({ options: [OTHER], fastestId: null, value: null });
     expect(guardianOperatorCopy('other')).toBeUndefined();
