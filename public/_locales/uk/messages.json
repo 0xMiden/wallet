@@ -5210,6 +5210,19 @@
     "message": "Токени не мають реальної цінності",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "Приєднайтеся до списку раннього доступу",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Bread виходить у мейннет о $time$",
+    "englishSource": "Bread goes mainnet in $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Відновити",
     "englishSource": "Restore"

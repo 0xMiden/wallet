@@ -1189,6 +1189,8 @@
   "networkModeBanner": "Вы используете Bread на Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "Токены не имеют реальной ценности",
+  "mainnetCountdownLink": "Включитесь в список раннего доступа",
+  "mainnetCountdownLabel": "Bread выходит в мейннет в $time$",
   "activityRestoreTransfers": "Восстановить",
   "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
   "exportAccountFile": "Экспорт файла учетной записи",

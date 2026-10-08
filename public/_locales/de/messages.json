@@ -5210,6 +5210,19 @@
     "message": "Token haben keinen echten Wert",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "Tragen Sie sich in die Early-Access-Liste ein",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Bread geht in $time$ ins Mainnet",
+    "englishSource": "Bread goes mainnet in $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Wiederherstellen",
     "englishSource": "Restore"

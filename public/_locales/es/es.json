@@ -1189,6 +1189,8 @@
   "networkModeBanner": "Estás utilizando Bread en Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "Los tokens no tienen valor real",
+  "mainnetCountdownLink": "Únete a la lista de acceso anticipado",
+  "mainnetCountdownLabel": "Bread se lanza a la red principal en $time$",
   "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "No se han podido guardar las transferencias ocultas. Inténtalo de nuevo.",
   "exportAccountFile": "Exportar archivo de cuenta",

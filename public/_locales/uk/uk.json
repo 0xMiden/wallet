@@ -1189,6 +1189,8 @@
   "networkModeBanner": "Ви користуєтеся сервісом Bread на платформі Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "Токени не мають реальної цінності",
+  "mainnetCountdownLink": "Приєднайтеся до списку раннього доступу",
+  "mainnetCountdownLabel": "Bread виходить у мейннет о $time$",
   "activityRestoreTransfers": "Відновити",
   "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
   "exportAccountFile": "Експортувати файл облікового запису",

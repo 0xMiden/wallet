@@ -5210,6 +5210,19 @@
     "message": "トークンに実際の価値はありません",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "早期アクセスリストに登録する",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Breadは$time$にメインネットを開始します",
+    "englishSource": "Bread goes mainnet in $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "復元",
     "englishSource": "Restore"

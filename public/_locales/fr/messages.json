@@ -5210,6 +5210,19 @@
     "message": "Les jetons n’ont aucune valeur réelle",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "Inscrivez-vous à la liste d’accès anticipé",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Bread passe sur le réseau principal à l’heure $time$",
+    "englishSource": "Bread goes mainnet in $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Restaurer",
     "englishSource": "Restore"
