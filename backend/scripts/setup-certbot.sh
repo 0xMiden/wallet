@@ -68,11 +68,15 @@ fi
 
 echo "==> Install the nginx configuration"
 bash "$SCRIPT_DIR/generate-nginx-conf.sh" "$DOMAIN"
+# Some images install nginx but do not start it on boot.
+systemctl enable nginx
 systemctl reload-or-restart nginx
 
 echo "==> Set up the certificate renewal"
 # The renewal uses the webroot mode, because nginx has port 80 from now on.
-certbot reconfigure --cert-name "$DOMAIN" --webroot -w "$WEBROOT" --deploy-hook "systemctl reload nginx"
+# `--run-deploy-hooks` answers the question that certbot asks about the hook, so the test also reloads nginx.
+certbot reconfigure --cert-name "$DOMAIN" --webroot -w "$WEBROOT" --deploy-hook "systemctl reload nginx" \
+  --run-deploy-hooks
 certbot renew --dry-run --cert-name "$DOMAIN"
 
 echo "TLS is set up. Check it from a different computer: curl https://$DOMAIN/health"

@@ -132,13 +132,6 @@ The command reads the gateway address from the backend container and writes it t
 `TRUSTED_PROXIES=172.18.0.1`. It replaces the full value of the key. Then it creates the container again, so the
 backend stops for a few seconds. When the value is already correct, the command changes nothing.
 
-To do the same steps manually, print the address, put it in `.env`, and create the container again:
-
-```bash
-docker network inspect miden-wallet-backend_default --format '{{(index .IPAM.Config 0).Gateway}}'
-docker compose up -d --no-build
-```
-
 If this value is wrong, the backend sends a private address to Transak as the user IP, and the Transak widget
 can reject the session. Do this step again if you delete the Docker network (`docker compose down`), because the
 gateway address can change.
@@ -148,107 +141,36 @@ gateway address can change.
 ```bash
 sudo apt-get install -y nginx
 sudo rm /etc/nginx/sites-enabled/default
-sudo mkdir -p /var/www/certbot
+sudo systemctl enable --now nginx
 ```
 
-The second command removes the default welcome site. The third command makes the directory that certbot uses for
-certificate renewal.
+The second command removes the default welcome site. The third command starts nginx now and on each boot.
 
-## Steps 7 to 10 with one command
-
-This command does steps 7 to 10. If you use it, continue at step 11.
+## 7. Set up certbot and TLS
 
 ```bash
 sudo make setup-certbot DOMAIN=backend.example.com EMAIL=admin@example.com
 ```
 
-The command installs certbot, gets the certificate, installs the nginx configuration, and changes the renewal
-to the webroot mode with a test renewal. It stops nginx for a short time while it gets the first certificate.
+The command does these steps:
+
+1. It installs certbot as a snap.
+2. It gets the certificate from Let's Encrypt. It stops nginx for a short time for this step.
+3. It writes `/etc/nginx/conf.d/miden-wallet-backend.conf` from the template `nginx.conf`, checks it, and reloads
+   nginx.
+4. It sets up the automatic renewal and does a test renewal.
+
 `EMAIL` is the address for expiry notices. With `EMAIL`, certbot asks no questions, and you agree to the
 [Let's Encrypt terms of service](https://letsencrypt.org/repository/). Without `EMAIL`, certbot asks for the
 address and for the agreement. You can run the command again: it skips the steps that are done.
 
-The subsequent steps show the same work as manual commands.
-
-## 7. Install certbot
-
-The certbot team supplies certbot for Ubuntu as a snap. Ubuntu on EC2 has `snapd` installed.
-
-1. Remove an older certbot from `apt`, if there is one:
-
-   ```bash
-   sudo apt-get remove -y certbot
-   ```
-
-2. Install certbot:
-
-   ```bash
-   sudo snap install --classic certbot
-   ```
-
-3. Make the `certbot` command available:
-
-   ```bash
-   sudo ln -s /snap/bin/certbot /usr/bin/certbot
-   certbot --version
-   ```
-
-## 8. Get the certificate
-
-nginx cannot load the backend configuration before the certificate exists. Thus, get the first certificate with
-the standalone mode of certbot. This mode uses port 80, so stop nginx first:
-
-```bash
-sudo systemctl stop nginx
-sudo certbot certonly --standalone -d backend.example.com
-```
-
-Certbot asks for an email address (for expiry notices) and for agreement to the terms of service. At the end it
-prints the paths of the certificate:
-
-```
-/etc/letsencrypt/live/backend.example.com/fullchain.pem
-/etc/letsencrypt/live/backend.example.com/privkey.pem
-```
-
-If certbot fails, check the DNS record and the inbound rule for port 80 of the security group.
-
-## 9. Install the nginx configuration
-
-```bash
-sudo make generate-nginx-conf DOMAIN=backend.example.com
-sudo systemctl start nginx
-```
-
-The first command writes `/etc/nginx/conf.d/miden-wallet-backend.conf` from the template `nginx.conf` and runs
-`nginx -t`. It must print `The configuration is valid`. If the check fails, the command removes the file and
-prints the nginx error.
-
-## 10. Set up certificate renewal
+The last line of the output must start with `TLS is set up`. If certbot fails, check the DNS record and the inbound rule
+for port 80 of the security group.
 
 A Let's Encrypt certificate is valid for 90 days. The certbot snap installs a timer that tries a renewal two times
-each day. The certificate from step 8 uses the standalone mode, which cannot use port 80 while nginx runs. Change
-the renewal to the webroot mode, and reload nginx after each renewal:
+each day, and nginx reloads after each renewal. No manual work is necessary.
 
-```bash
-sudo certbot reconfigure --cert-name backend.example.com \
-  --webroot -w /var/www/certbot \
-  --deploy-hook "systemctl reload nginx"
-```
-
-Test the renewal. This command does not change the certificate:
-
-```bash
-sudo certbot renew --dry-run
-```
-
-It must print `Congratulations, all simulated renewals succeeded`. Make sure that the timer is active:
-
-```bash
-systemctl list-timers snap.certbot.renew.timer
-```
-
-## 11. Make sure that the deployment works
+## 8. Make sure that the deployment works
 
 Run these commands from your computer, not from the instance:
 
