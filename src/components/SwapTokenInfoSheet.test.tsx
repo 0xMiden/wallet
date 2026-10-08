@@ -2,8 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { swapTokenInfo } from 'lib/miden/swap/token-info';
 import { hapticLight } from 'lib/mobile/haptics';
+import { testnetTokenInfo } from 'lib/remote-config/token-labels';
 
 import { SwapTokenInfoButton } from './SwapTokenInfoSheet';
 
@@ -36,20 +36,20 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
-jest.mock('lib/miden/swap/token-info', () => ({ swapTokenInfo: jest.fn() }));
+jest.mock('lib/remote-config/token-labels', () => ({ testnetTokenInfo: jest.fn() }));
 
 beforeEach(() => jest.clearAllMocks());
 
 describe('SwapTokenInfoButton', () => {
   it('renders nothing for a token without info', () => {
-    jest.mocked(swapTokenInfo).mockReturnValue(null);
+    jest.mocked(testnetTokenInfo).mockReturnValue(null);
     render(<SwapTokenInfoButton faucetId="mtst1other" label="MIDEN" />);
     expect(screen.queryByTestId('swap-token-info-button')).not.toBeInTheDocument();
-    expect(swapTokenInfo).toHaveBeenCalledWith('mtst1other');
+    expect(testnetTokenInfo).toHaveBeenCalledWith('mtst1other');
   });
 
   it('opens a sheet naming the token, what it is and where the swap executes', () => {
-    jest.mocked(swapTokenInfo).mockReturnValue({
+    jest.mocked(testnetTokenInfo).mockReturnValue({
       descriptionKey: 'testIethDescription',
       executionKey: 'testIethExecution'
     });
@@ -74,7 +74,7 @@ describe('SwapTokenInfoButton', () => {
   });
 
   it('sets where the swap executes as a plain fact row under the caption description, as the network sheet does', () => {
-    jest.mocked(swapTokenInfo).mockReturnValue({
+    jest.mocked(testnetTokenInfo).mockReturnValue({
       descriptionKey: 'testIethDescription',
       executionKey: 'testIethExecution'
     });

@@ -10,17 +10,38 @@ export const TEST_EPOCH_USDC_LABEL = 'Test Epoch USDC';
 /** What testnet calls the swap registry's iETH, a test asset that is not ETH (#477). A token name: never translated. */
 export const TEST_IETH_LABEL = 'Test iETH';
 
-interface TestnetTokenLabel {
+/** The copy a token page and an info sheet show for a token: what it is, and where its swaps execute. */
+export interface TestnetTokenInfo {
+  descriptionKey: string;
+  executionKey: string;
+}
+
+interface TestnetToken {
   faucetId: string | null;
   label: string;
+  info?: TestnetTokenInfo;
+}
+
+// The tokens testnet names whatever the bridge config says; one with info is described as well as named.
+function staticTestnetTokens(): TestnetToken[] {
+  return [
+    {
+      faucetId: TOKEN_IETH.faucetId,
+      label: TEST_IETH_LABEL,
+      info: { descriptionKey: 'testIethDescription', executionKey: 'testIethExecution' }
+    }
+  ];
 }
 
 // Each Miden token testnet shows under a name of the wallet's own; another token is one more entry.
-function testnetMidenTokenLabels(s: BridgeConfigSnapshot): TestnetTokenLabel[] {
-  return [
-    { faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL },
-    { faucetId: TOKEN_IETH.faucetId, label: TEST_IETH_LABEL }
-  ];
+function testnetMidenTokens(s: BridgeConfigSnapshot): TestnetToken[] {
+  return [{ faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL }, ...staticTestnetTokens()];
+}
+
+function testnetTokenFor(tokens: TestnetToken[], faucetId: string | undefined): TestnetToken | undefined {
+  if (!faucetId || getTestNetworkNameKey() !== 'testnet') return undefined;
+  const canonical = normalizedFaucetId(faucetId);
+  return tokens.find(({ faucetId: id }) => !!id && normalizedFaucetId(id) === canonical);
 }
 
 /**
@@ -31,10 +52,12 @@ function testnetMidenTokenLabels(s: BridgeConfigSnapshot): TestnetTokenLabel[] {
  * (`useBridgeConfigSnapshot`), so the label appears when the config lands.
  */
 export function midenTokenLabel(snapshot: BridgeConfigSnapshot, faucetId: string | undefined, symbol: string): string {
-  if (!faucetId || getTestNetworkNameKey() !== 'testnet') return symbol;
-  const labels = testnetMidenTokenLabels(snapshot).flatMap(({ faucetId: id, label }) => (id ? [{ id, label }] : []));
-  const canonical = normalizedFaucetId(faucetId);
-  return labels.find(({ id }) => normalizedFaucetId(id) === canonical)?.label ?? symbol;
+  return testnetTokenFor(testnetMidenTokens(snapshot), faucetId)?.label ?? symbol;
+}
+
+/** On testnet, the info of the entry for `faucetId` (iETH's, #477); null for any other token and off testnet. */
+export function testnetTokenInfo(faucetId: string | undefined): TestnetTokenInfo | null {
+  return testnetTokenFor(staticTestnetTokens(), faucetId)?.info ?? null;
 }
 
 /**

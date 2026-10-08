@@ -32,7 +32,6 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from
 import { canOverrideMetadata } from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
-import { swapTokenInfo } from 'lib/miden/swap/token-info';
 import { normalizedFaucetId, priceSymbolFor } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -42,7 +41,7 @@ import { fetchKlineData, pricesLoaded, quotedPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
 import { isNominalQuote } from 'lib/prices/binance';
 import { isFixedQuote } from 'lib/prices/fixed';
-import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { midenTokenLabel, testnetTokenInfo } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -408,7 +407,7 @@ const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const { t } = useTranslation();
   const network = useNetwork();
   // Testnet iETH is a test asset, not ETH: the wallet says so itself instead of trusting its faucet's words.
-  const info = swapTokenInfo(tokenId);
+  const info = testnetTokenInfo(tokenId);
   const description = info ? t(info.descriptionKey) : metadata?.description;
   const nativeFaucetId = useMidenFaucetId();
   // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.

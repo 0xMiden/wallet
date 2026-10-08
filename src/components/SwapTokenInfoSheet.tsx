@@ -7,18 +7,18 @@ import { AcknowledgeSheet } from 'components/AcknowledgeSheet';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
 import { InfoHintTrigger } from 'components/ui/InfoHint';
 import { ListGroup } from 'components/ui/ListGroup';
-import { swapTokenInfo, type SwapTokenInfo } from 'lib/miden/swap/token-info';
 import { hapticLight } from 'lib/mobile/haptics';
+import { testnetTokenInfo, type TestnetTokenInfo } from 'lib/remote-config/token-labels';
 
 interface SwapTokenInfoSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   label: string;
-  info: SwapTokenInfo;
+  info: TestnetTokenInfo;
 }
 
 /** What a swap token is and where its swap executes, opened from the "i" on the token (#477). */
-export const SwapTokenInfoSheet: FC<SwapTokenInfoSheetProps> = ({ open, onOpenChange, label, info }) => {
+const SwapTokenInfoSheet: FC<SwapTokenInfoSheetProps> = ({ open, onOpenChange, label, info }) => {
   const { t } = useTranslation();
   return (
     <AcknowledgeSheet
@@ -47,7 +47,7 @@ export const SwapTokenInfoSheet: FC<SwapTokenInfoSheetProps> = ({ open, onOpenCh
   );
 };
 
-export interface SwapTokenInfoButtonProps {
+interface SwapTokenInfoButtonProps {
   faucetId: string | undefined;
   /** The token's display name (`midenTokenLabel`): the sheet's title and the button's label. */
   label: string;
@@ -57,7 +57,7 @@ export interface SwapTokenInfoButtonProps {
 export const SwapTokenInfoButton: FC<SwapTokenInfoButtonProps> = ({ faucetId, label }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const info = swapTokenInfo(faucetId);
+  const info = testnetTokenInfo(faucetId);
   if (!info) return null;
   return (
     <>

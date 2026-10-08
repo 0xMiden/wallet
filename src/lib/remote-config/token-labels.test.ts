@@ -9,7 +9,13 @@ import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import { evmUsdcLabel, midenTokenLabel, TEST_EPOCH_USDC_LABEL, TEST_IETH_LABEL } from './token-labels';
+import {
+  evmUsdcLabel,
+  midenTokenLabel,
+  TEST_EPOCH_USDC_LABEL,
+  TEST_IETH_LABEL,
+  testnetTokenInfo
+} from './token-labels';
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getTestNetworkNameKey: jest.fn() }));
@@ -126,5 +132,28 @@ describe('token labels', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     setEarnCollateralFaucetOverride({ faucetId: '0xab000000000000ab00000000000001' });
     expect(midenTokenLabel(UNLOADED, '0xab000000000000ab00000000000001', 'EUSDC')).toBe('Test Epoch USDC');
+  });
+});
+
+describe('testnet token info', () => {
+  it("gives iETH's description and execution copy on testnet, matched by its faucet", () => {
+    expect(testnetTokenInfo(TOKEN_IETH.faucetId)).toEqual({
+      descriptionKey: 'testIethDescription',
+      executionKey: 'testIethExecution'
+    });
+  });
+
+  it('has nothing for another faucet, no faucet, or iETH off testnet', () => {
+    expect(testnetTokenInfo(TEST_NATIVE_ETH_FAUCET)).toBeNull();
+    expect(testnetTokenInfo(undefined)).toBeNull();
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('devnet');
+    expect(testnetTokenInfo(TOKEN_IETH.faucetId)).toBeNull();
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('localnet');
+    expect(testnetTokenInfo(TOKEN_IETH.faucetId)).toBeNull();
+  });
+
+  it('has nothing for a token the table names without copy', () => {
+    expect(midenTokenLabel(LOADED, TEST_MIDEN_USDC_FAUCET, 'USDC')).toBe('Test Epoch USDC');
+    expect(testnetTokenInfo(TEST_MIDEN_USDC_FAUCET)).toBeNull();
   });
 });
