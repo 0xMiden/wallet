@@ -1,4 +1,9 @@
-.PHONY: generate-nginx-conf
+.PHONY: generate-nginx-conf set-trusted-proxies
+
+# Set TRUSTED_PROXIES in .env to the gateway address of the Docker network, then create the container again.
+# The backend container must be in operation. Usage: make set-trusted-proxies
+set-trusted-proxies:
+	@bash scripts/set-trusted-proxies.sh
 
 # Generate the nginx site configuration from nginx.conf and install it in the nginx include directory.
 # Usage: sudo make generate-nginx-conf DOMAIN=backend.example.com

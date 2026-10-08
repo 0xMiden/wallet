@@ -122,15 +122,20 @@ The backend reads the client IP from the `X-Forwarded-For` header only when the 
 proxy. nginx runs on the host, and the backend runs in a container. For this reason the backend sees each request
 come from the gateway address of its Docker network, not from `127.0.0.1`.
 
-Print the gateway address:
+Run this command while the backend is in operation:
+
+```bash
+make set-trusted-proxies
+```
+
+The command reads the gateway address from the backend container and writes it to `.env`, for example
+`TRUSTED_PROXIES=172.18.0.1`. It replaces the full value of the key. Then it creates the container again, so the
+backend stops for a few seconds. When the value is already correct, the command changes nothing.
+
+To do the same steps manually, print the address, put it in `.env`, and create the container again:
 
 ```bash
 docker network inspect miden-wallet-backend_default --format '{{(index .IPAM.Config 0).Gateway}}'
-```
-
-Put the result in `.env`, for example `TRUSTED_PROXIES=172.18.0.1`. Then create the container again:
-
-```bash
 docker compose up -d --no-build
 ```
 
