@@ -77,9 +77,14 @@ export const USDCX_REMOTE_DOMAIN = USDCX_MIDEN_REMOTE_DOMAIN;
 export const USDCX_SYMBOL = 'USDCx';
 export const USDCX_DECIMALS = 6;
 
-/** BURN root recorded by the faucet deployment; checked against the running SDK before sending. */
-export const USDCX_BURN_SCRIPT_ROOT = '0x1106bde3e27e3ba82096917427fe798c54ce0bb5997a145d8e8157fe22b70935';
+/**
+ * The stock burn script root of the Miden 0.17.1 standards, which the USDCx faucet allow-lists;
+ * checked against the running SDK before sending, so an SDK on another protocol line sends nothing.
+ */
+export const USDCX_BURN_SCRIPT_ROOT = '0x3d951250cb118282a37b8ee9395f3e3b3c30fab4dbe8c6b0093acfeed3ba04af';
 export const USDCX_BURN_TAG = 0x4255524e;
+/** The withdrawal attachment's scheme: `StandardNoteAttachment::UsdcxBurn` in the 0.17.1 standards. */
+export const USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME = 5;
 export const USDCX_MIN_BURN_SLOT = 'miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount';
 /** Circle domains are not EVM chain ids or Miden remote-domain ids. */
 export const USDCX_WITHDRAWAL_DESTINATION = { chainId: USDCX_CHAIN.id, domain: 26 };

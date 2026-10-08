@@ -7,6 +7,7 @@ import {
   NoteAssets,
   NoteAttachment,
   NoteAttachmentScheme,
+  NoteExecutionHint,
   NoteMetadata,
   NoteRecipient,
   NoteScript,
@@ -28,6 +29,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import {
   USDCX_BURN_SCRIPT_ROOT,
   USDCX_BURN_TAG,
+  USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
   USDCX_MIN_BURN_SLOT,
   USDCX_WITHDRAWAL_DESTINATION
 } from './constant';
@@ -56,7 +58,7 @@ export async function readUsdcxMinimumBurn(hold: WasmLockHold): Promise<bigint> 
   }
 }
 
-/** Caller owns the WASM lock. Mirrors miden-usdcx's XReserveBurnNote factory. */
+/** Caller owns the WASM lock. Mirrors the `XReserveBurnNote` factory of miden-usdcx 0.17.1. */
 export function buildUsdcxBurnRequest(sender: string, amount: bigint, destinationAddress: string) {
   if (NoteScript.burn().root().toHex() !== USDCX_BURN_SCRIPT_ROOT) {
     throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
@@ -68,8 +70,12 @@ export function buildUsdcxBurnRequest(sender: string, amount: bigint, destinatio
   const metadata = new NoteMetadata(accountRefToSdk(sender), NoteType.Public, new NoteTag(USDCX_BURN_TAG));
   const payload = encodeBurnWithdrawal(destinationAddress, USDCX_WITHDRAWAL_DESTINATION.domain);
   const words = [0, 4, 8].map(i => new Word(new BigUint64Array(payload.slice(i, i + 4))));
-  const withdrawal = NoteAttachment.fromWords(new NoteAttachmentScheme(6), words);
-  const routing = new NetworkAccountTarget(accountRefToSdk(requireUsdcxFaucetId())).toAttachment();
+  const withdrawal = NoteAttachment.fromWords(new NoteAttachmentScheme(USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME), words);
+  // The factory routes with the `Always` hint; the note id commits to the attachment.
+  const routing = new NetworkAccountTarget(
+    accountRefToSdk(requireUsdcxFaucetId()),
+    NoteExecutionHint.always()
+  ).toAttachment();
   const note = Note.withAttachments(new NoteAssets([asset]), metadata, recipient, [routing, withdrawal]);
   // NoteArray takes ownership. Capture identity before transferring the note.
   const burnNoteId = note.id().toString();

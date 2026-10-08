@@ -8,9 +8,13 @@ let network = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => network }));
 
 describe('USDCx withdrawal encoding', () => {
-  it('encodes the bytes32 recipient as unsigned little-endian limbs, with Arc domain 26 and three padding felts', () => {
+  // The miden-usdcx 0.17 layout: word 0 is [domain, 0, 0, 0]; words 1 and 2 are the recipient.
+  it('encodes Arc domain 26 in a zero-padded word, then the bytes32 recipient as unsigned little-endian limbs', () => {
     expect(encodeBurnWithdrawal('0x112233445566778899aabbccddeeff0011223344', 26)).toEqual([
       26n,
+      0n,
+      0n,
+      0n,
       0n,
       0n,
       0n,
@@ -18,10 +22,7 @@ describe('USDCx withdrawal encoding', () => {
       0x88776655n,
       0xccbbaa99n,
       0x00ffeeddn,
-      0x44332211n,
-      0n,
-      0n,
-      0n
+      0x44332211n
     ]);
   });
 
@@ -31,14 +32,14 @@ describe('USDCx withdrawal encoding', () => {
       0n,
       0n,
       0n,
-      0xffffffffn,
-      0xffffffffn,
-      0xffffffffn,
-      0xffffffffn,
-      0xffffffffn,
       0n,
       0n,
-      0n
+      0n,
+      0xffffffffn,
+      0xffffffffn,
+      0xffffffffn,
+      0xffffffffn,
+      0xffffffffn
     ]);
   });
 

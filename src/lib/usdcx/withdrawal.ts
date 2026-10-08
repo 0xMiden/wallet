@@ -2,7 +2,6 @@ import { hexToBytes, isAddress, padHex } from 'viem';
 
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
 import { USDCX_WITHDRAWAL_DESTINATION } from './constant';
@@ -33,7 +32,11 @@ export function isUsdcxWithdrawalAvailable(faucetId: string | undefined): boolea
   return getEffectiveNetworkName() === 'testnet' && isUsdcxFaucet(faucetId);
 }
 
-/** Canonical XReserveBurnItems: domain, eight LE u32 recipient limbs, three padding felts. */
+/**
+ * Canonical XReserveBurnItems of miden-usdcx 0.17: three words, `[domain, 0, 0, 0]`, then the
+ * recipient's eight LE u32 limbs as a double word. The faucet's burn policy refuses a domain
+ * word whose padding is not zero.
+ */
 export function encodeBurnWithdrawal(destinationAddress: string, destinationDomain: number): bigint[] {
   if (!Number.isInteger(destinationDomain) || destinationDomain < 0 || destinationDomain > 0xffffffff) {
     throw new UsdcxBurnError('usdcxInvalidDestination');
@@ -43,10 +46,10 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return [
     BigInt(destinationDomain),
-    ...Array.from({ length: 8 }, (_, i) => BigInt(view.getUint32(i * 4, true))),
     0n,
     0n,
-    0n
+    0n,
+    ...Array.from({ length: 8 }, (_, i) => BigInt(view.getUint32(i * 4, true)))
   ];
 }
 
