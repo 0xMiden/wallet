@@ -659,8 +659,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "請保持此錢包處於開啟並連線狀態——傳送後的一段時間內會自動重試投遞，成功後該警告會消失。如果一小時後收款人仍未收到，請勿重複傳送；儲存下方的交易 ID 並聯絡支援，因為仍可憑它復原該轉帳。",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "請保持此錢包開啟並連線——系統會自動重試發送長達三天，一旦成功送達，此警告即會消失。若收件人隔天仍未收到款項，請勿再次發送；請保存下方的交易 ID 並聯繫客服，因為仍可透過該 ID 追回轉帳款項。",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "此筆轉帳的自動送達功能已停止。請勿再次發送；請保存下方的交易 ID 並聯繫客服，因為仍可透過該 ID 恢復此筆轉帳。",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "已確認送達",
