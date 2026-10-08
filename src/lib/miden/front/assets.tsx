@@ -128,12 +128,19 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
     );
     // A faucet the bridge config names cannot be overridden, so the overrides apply again when the config changes
     // which overridden faucets those are. A publish that changes none, such as a poll, leaves the store alone.
+    // The baseline follows the overrides the store holds, however they change: a read, a storage event, a write.
     const refusedOverrides = () =>
       Object.keys(useWalletStore.getState().tokenMetadataOverrides)
         .filter(faucetId => !canOverrideMetadata(faucetId))
         .sort()
         .join(' ');
     let refused = refusedOverrides();
+    const stopOverrides = useWalletStore.subscribe(
+      state => state.tokenMetadataOverrides,
+      () => {
+        refused = refusedOverrides();
+      }
+    );
     const stopBridgeConfig = subscribeBridgeConfig(() => {
       const next = refusedOverrides();
       if (next === refused) return;
@@ -149,6 +156,7 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
     return () => {
       cancelled = true;
       stop();
+      stopOverrides();
       stopBridgeConfig();
     };
   }, [hydrateTokenMetadataOverrides]);

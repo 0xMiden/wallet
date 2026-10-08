@@ -47,6 +47,7 @@ beforeEach(() => {
 jest.mock('lib/store', () => ({
   useWalletStore: Object.assign(<T,>(select: (state: NativeState) => T) => mockStore(select), {
     getState: () => mockStore.getState(),
+    subscribe: () => () => {},
     setState: (update: (state: NativeState) => Partial<NativeState>) => mockStore.setState(update)
   })
 }));
