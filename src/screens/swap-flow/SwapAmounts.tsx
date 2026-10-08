@@ -11,6 +11,8 @@ import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
@@ -73,6 +75,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const reduceMotion = useReducedMotion();
   const motionTokens = useTabBarMotion();
   // Each press turns the arrow another half turn and lifts the two sides past each other, so the
@@ -132,6 +135,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             showAmountDivider={false}
             accent="swap"
             token={swapTokenToUIToken(offerToken, offerBalance)}
+            tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
             logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
             isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
@@ -186,6 +190,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
             showAmountDivider={false}
             accent="swap"
             token={swapTokenToUIToken(requestToken)}
+            tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
             logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
             isValidAmount={Number(requestAmount) > 0}

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { Status, StatusBadge } from 'components/ui/StatusBadge';
@@ -313,17 +314,30 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             <TransactionIcon entry={entry} size="lg" />
           </div>
 
+          {/* Each side (amount, name and its (i)) is one unit, so a hero too wide for the popup wraps
+              between the two sides instead of cutting the amounts or breaking a name. On one line the
+              4xl radius clamps to the pill's half height; on two it keeps the corners clear of the text. */}
           <div
             data-testid="swap-order-hero"
-            className="mt-2 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-fill px-4 font-heading text-2xl font-extrabold text-text-primary-token"
+            className="mt-2 flex min-h-14 w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-4xl bg-fill px-4 py-2 font-heading text-2xl font-extrabold text-text-primary-token"
           >
-            <span className="truncate">{formattedOffered}</span>
-            {entry.token && <span className="text-text-secondary-token">{entry.token}</span>}
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-tx-swap text-text-on-accent">
-              <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
+            <span className="flex min-w-0 max-w-full items-center gap-2">
+              <span className="truncate">{formattedOffered}</span>
+              {entry.token && (
+                <span className="shrink-0 whitespace-nowrap text-text-secondary-token">{entry.token}</span>
+              )}
+              {entry.token && <SwapTokenInfoButton faucetId={entry.faucetId} label={entry.token} />}
             </span>
-            <span className="truncate">{formattedRequested}</span>
-            {requestedSymbol && <span className="text-text-secondary-token">{requestedSymbol}</span>}
+            <span className="flex min-w-0 max-w-full items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-tx-swap text-text-on-accent">
+                <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
+              </span>
+              <span className="truncate">{formattedRequested}</span>
+              {requestedSymbol && (
+                <span className="shrink-0 whitespace-nowrap text-text-secondary-token">{requestedSymbol}</span>
+              )}
+              {requestedSymbol && <SwapTokenInfoButton faucetId={requestedFaucetId} label={requestedSymbol} />}
+            </span>
           </div>
 
           {approximateUsdAmount && (

@@ -4,17 +4,25 @@ import {
   TEST_MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET
 } from 'lib/epoch/testing/bridge-config';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import { evmUsdcLabel, midenTokenLabel, TEST_EPOCH_USDC_LABEL } from './token-labels';
+import {
+  evmUsdcLabel,
+  midenTokenLabel,
+  TEST_EPOCH_USDC_LABEL,
+  TEST_IETH_LABEL,
+  testnetTokenInfo
+} from './token-labels';
 
 jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getTestNetworkNameKey: jest.fn() }));
 // normalizedFaucetId reduces every spelling of a faucet to one id: here, the configured faucet's hex to its bech32.
 const mockUsdcFaucetBech32 = 'mtst1arjemrxne8lj5qz4mg9c8mtyxv5mjv7j';
-jest.mock('lib/miden/swap/tokens', () => ({
+jest.mock('lib/miden/swap/faucet-ids', () => ({
+  ...jest.requireActual('lib/miden/swap/faucet-ids'),
   normalizedFaucetId: (faucetId: string) =>
     faucetId === '0x537c15a622074e91188aa894456c52' ? mockUsdcFaucetBech32 : faucetId
 }));
@@ -41,6 +49,22 @@ afterAll(() => {
 });
 
 describe('token labels', () => {
+  const IETH_FAUCET = TOKEN_IETH.faucetId;
+
+  it('names iETH "Test iETH" on testnet by its faucet, before the bridge config loads too', () => {
+    expect(TEST_IETH_LABEL).toBe('Test iETH');
+    expect(midenTokenLabel(UNLOADED, IETH_FAUCET, 'IETH')).toBe('Test iETH');
+    expect(midenTokenLabel(LOADED, IETH_FAUCET, 'IETH')).toBe('Test iETH');
+  });
+
+  it('keeps the symbol of a token that only calls itself IETH, and of iETH off testnet', () => {
+    expect(midenTokenLabel(LOADED, TEST_NATIVE_ETH_FAUCET, 'IETH')).toBe('IETH');
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('devnet');
+    expect(midenTokenLabel(LOADED, IETH_FAUCET, 'IETH')).toBe('IETH');
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('localnet');
+    expect(midenTokenLabel(LOADED, IETH_FAUCET, 'IETH')).toBe('IETH');
+  });
+
   it('is the untranslated token name', () => {
     expect(TEST_EPOCH_USDC_LABEL).toBe('Test Epoch USDC');
   });
@@ -108,5 +132,28 @@ describe('token labels', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     setEarnCollateralFaucetOverride({ faucetId: '0xab000000000000ab00000000000001' });
     expect(midenTokenLabel(UNLOADED, '0xab000000000000ab00000000000001', 'EUSDC')).toBe('Test Epoch USDC');
+  });
+});
+
+describe('testnet token info', () => {
+  it("gives iETH's description and execution copy on testnet, matched by its faucet", () => {
+    expect(testnetTokenInfo(TOKEN_IETH.faucetId)).toEqual({
+      descriptionKey: 'testIethDescription',
+      executionKey: 'testIethExecution'
+    });
+  });
+
+  it('has nothing for another faucet, no faucet, or iETH off testnet', () => {
+    expect(testnetTokenInfo(TEST_NATIVE_ETH_FAUCET)).toBeNull();
+    expect(testnetTokenInfo(undefined)).toBeNull();
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('devnet');
+    expect(testnetTokenInfo(TOKEN_IETH.faucetId)).toBeNull();
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('localnet');
+    expect(testnetTokenInfo(TOKEN_IETH.faucetId)).toBeNull();
+  });
+
+  it('has nothing for a token the table names without copy', () => {
+    expect(midenTokenLabel(LOADED, TEST_MIDEN_USDC_FAUCET, 'USDC')).toBe('Test Epoch USDC');
+    expect(testnetTokenInfo(TEST_MIDEN_USDC_FAUCET)).toBeNull();
   });
 });

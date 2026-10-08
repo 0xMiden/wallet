@@ -5896,5 +5896,26 @@
   "tokenMetadataSaveError": {
     "message": "Nie udało się zapisać szczegółów tokenu. Spróbuj ponownie.",
     "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH to token testowy używany do wymiany w sieci testowej Miden Testnet. Nie jest to ETH i nie będzie dostępny w portfelu produkcyjnym.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "Wymiana odbywa się za pośrednictwem inteligentnego kontraktu w sieci testowej Miden Testnet.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Gdzie odbywa się wymiana",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "O $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

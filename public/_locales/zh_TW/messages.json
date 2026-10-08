@@ -5896,5 +5896,26 @@
   "tokenMetadataSaveError": {
     "message": "無法儲存代幣詳細資訊。請重試。",
     "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH 是用於 Miden 測試網（Testnet）上代幣兌換的測試代幣。它並非 ETH，且不會在正式版錢包中提供。",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "此交換操作將透過 Miden 測試網上的智慧合約執行。",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "交換操作的執行位置",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "關於 $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

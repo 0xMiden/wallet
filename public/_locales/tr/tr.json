@@ -1335,5 +1335,9 @@
   "tokenSymbolInvalid": "1 ila $max$ karakterden oluşan bir sembol girin.",
   "tokenDecimalsInvalid": "0 ile $max$ arasında bir tam sayı girin.",
   "tokenMetadataOverrideNotice": "Bu değerler yalnızca bu cüzdanın token'ı gösterme şeklini değiştirir. faucet kendi değerlerini korur. Gönderdiğiniz tutarlar, burada ayarladığınız ondalık basamakları kullanır.",
-  "tokenMetadataSaveError": "Token ayrıntılarını kaydedilemedi. Lütfen tekrar deneyin."
+  "tokenMetadataSaveError": "Token ayrıntılarını kaydedilemedi. Lütfen tekrar deneyin.",
+  "testIethDescription": "iETH, Miden Testnet'te takas işlemleri için kullanılan bir test tokenidir. ETH değildir ve üretim cüzdanında mevcut olmayacaktır.",
+  "testIethExecution": "Takas, Miden Testnet üzerindeki bir akıllı sözleşme aracılığıyla gerçekleştirilir.",
+  "swapExecutionTitle": "Değişimin gerçekleştiği yer",
+  "tokenInfoLabel": "$token$ hakkında"
 }

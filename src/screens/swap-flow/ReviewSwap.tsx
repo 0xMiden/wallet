@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewLayout } from 'components/review';
+import { SwapTokenInfoButton } from 'components/SwapTokenInfoSheet';
 import { Toggle } from 'components/Toggle';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
@@ -14,6 +15,8 @@ import { InfoHint } from 'components/ui/InfoHint';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 import {
   bestUnitForSeconds,
@@ -132,6 +135,9 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
 }) => {
   const { t } = useTranslation();
   const networkFee = useNetworkFeeEstimate();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const offerLabel = midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol);
+  const requestLabel = midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol);
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
   // The quote is re-fetched while this screen is open, so the rate counts to each new one.
   const rate = parseRate(swapEta?.marketPrice);
@@ -195,7 +201,12 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
-        value={`${offerAmount} ${offerToken.symbol}`}
+        value={
+          <span className="inline-flex items-center gap-1">
+            {`${offerAmount} ${offerLabel}`}
+            <SwapTokenInfoButton faucetId={offerToken.faucetId} label={offerLabel} />
+          </span>
+        }
       />
 
       <div className="my-4 flex w-full items-center gap-3">
@@ -215,7 +226,12 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
             size="md"
           />
         }
-        value={`${requestAmount} ${requestToken.symbol}`}
+        value={
+          <span className="inline-flex items-center gap-1">
+            {`${requestAmount} ${requestLabel}`}
+            <SwapTokenInfoButton faucetId={requestToken.faucetId} label={requestLabel} />
+          </span>
+        }
       />
     </div>
   );
@@ -253,7 +269,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           {rate !== undefined && (
             <AnimatedNumber
               value={rate}
-              format={value => `1 ${offerToken.symbol} ≈ ${formatRateValue(value)} ${requestToken.symbol}`}
+              format={value => `1 ${offerLabel} ≈ ${formatRateValue(value)} ${requestLabel}`}
             />
           )}
         </DetailRow>

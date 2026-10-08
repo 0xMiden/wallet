@@ -14,6 +14,8 @@ import {
   applyMetadataOverride,
   applyOverrideFor,
   canOverrideMetadata,
+  isNativeFaucetId,
+  overrideFor,
   TokenMetadataOverride,
   TokenMetadataOverrides,
   writeTokenMetadataOverride
@@ -112,6 +114,7 @@ function shownMetadata(
  * A row's balance was divided by `10 ** row.metadata.decimals`, so a change of decimals shifts it
  * by the difference. Home then shows the new scale at once, with no new read.
  * The native token's rows and each account's display row (`balancesDisplayFaucetId`) keep the reader's build.
+ * Any other faucet that cannot be overridden shows its own record, so an override stored before the wallet named it goes.
  */
 function withOverrides(
   state: WalletStore,
@@ -121,8 +124,8 @@ function withOverrides(
   const assetsMetadata = { ...state.assetsMetadata };
   let balances = state.balances;
   for (const faucetId of faucetIds) {
-    if (!canOverrideMetadata(faucetId)) continue;
-    const shown = shownMetadata(faucetMetadataFor(state, faucetId), overrides[faucetId]);
+    if (isNativeFaucetId(faucetId)) continue;
+    const shown = shownMetadata(faucetMetadataFor(state, faucetId), overrideFor(overrides, faucetId));
     if (shown) assetsMetadata[faucetId] = shown;
     else delete assetsMetadata[faucetId];
     // Without any metadata, the rows show the placeholder until the next balance read.
@@ -928,7 +931,7 @@ export const useWalletStore = create<WalletStore>()(
 
     setTokenMetadataOverride: async (faucetId, override) => {
       if (!canOverrideMetadata(faucetId)) {
-        throw new Error('The metadata of the native token cannot be overridden');
+        throw new Error('The metadata of this token cannot be overridden');
       }
       await changeTokenMetadataOverride(faucetId, override);
     },

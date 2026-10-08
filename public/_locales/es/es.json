@@ -1335,5 +1335,9 @@
   "tokenSymbolInvalid": "Introduce un símbolo de entre 1 y$max$es caracteres.",
   "tokenDecimalsInvalid": "Introduce un número entero comprendido entre 0 y $max$.",
   "tokenMetadataOverrideNotice": "Estos valores solo modifican la forma en que esta cartera muestra el token. El «faucet» conserva sus propios valores. Las cantidades que envíes utilizarán los decimales que configures aquí.",
-  "tokenMetadataSaveError": "No se han podido guardar los datos del token. Inténtalo de nuevo."
+  "tokenMetadataSaveError": "No se han podido guardar los datos del token. Inténtalo de nuevo.",
+  "testIethDescription": "iETH es un token de prueba utilizado para intercambios en la red de pruebas Miden. No es ETH y no estará disponible en la cartera de producción.",
+  "testIethExecution": "El intercambio se lleva a cabo mediante un contrato inteligente en la red de pruebas de Miden.",
+  "swapExecutionTitle": "Dónde se lleva a cabo el cambio",
+  "tokenInfoLabel": "Acerca de $token$"
 }

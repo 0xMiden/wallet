@@ -1335,5 +1335,9 @@
   "tokenSymbolInvalid": "Geben Sie ein Symbol mit 1 bis $max$ Zeichen ein.",
   "tokenDecimalsInvalid": "Geben Sie eine ganze Zahl zwischen 0 und $max$ ein.",
   "tokenMetadataOverrideNotice": "Diese Werte beeinflussen lediglich die Darstellung des Tokens in dieser Wallet. Die „faucet“ behält ihre eigenen Werte bei. Bei den von Ihnen gesendeten Beträgen werden die hier festgelegten Dezimalstellen verwendet.",
-  "tokenMetadataSaveError": "Die Token-Details konnten nicht gespeichert werden. Bitte versuchen Sie es erneut."
+  "tokenMetadataSaveError": "Die Token-Details konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+  "testIethDescription": "iETH ist ein Test-Token, das für Swaps im Miden-Testnetz verwendet wird. Es handelt sich nicht um ETH und wird in der Produktions-Wallet nicht verfügbar sein.",
+  "testIethExecution": "Der Austausch erfolgt über einen Smart Contract im Miden-Testnetz.",
+  "swapExecutionTitle": "Wo der Austausch stattfindet",
+  "tokenInfoLabel": "Über „$token$“"
 }

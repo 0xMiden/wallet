@@ -1335,5 +1335,9 @@
   "tokenSymbolInvalid": "Saisissez un symbole composé de 1 à$max$s de caractères.",
   "tokenDecimalsInvalid": "Saisissez un nombre entier compris entre 0 et $max$.",
   "tokenMetadataOverrideNotice": "Ces valeurs ne modifient que la manière dont ce portefeuille affiche le jeton. L’faucete conserve ses propres valeurs. Les montants que vous envoyez utilisent les décimales que vous définissez ici.",
-  "tokenMetadataSaveError": "Impossible d’enregistrer les détails du jeton. Veuillez réessayer."
+  "tokenMetadataSaveError": "Impossible d’enregistrer les détails du jeton. Veuillez réessayer.",
+  "testIethDescription": "iETH est un jeton de test utilisé pour les échanges sur le Testnet Miden. Il ne s’agit pas d’ETH et il ne sera pas disponible dans le portefeuille de production.",
+  "testIethExecution": "L'échange s'effectue via un contrat intelligent sur le Testnet de Miden.",
+  "swapExecutionTitle": "Lieu d’exécution du swap",
+  "tokenInfoLabel": "À propos d’$token$"
 }
