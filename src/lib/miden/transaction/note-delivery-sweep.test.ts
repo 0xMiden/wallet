@@ -8,8 +8,10 @@
  */
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import { INoteDeliveryState, ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
 import { NoteTypeEnum } from '../types';
@@ -113,6 +115,7 @@ beforeEach(() => {
   jest.spyOn(console, 'info').mockImplementation(() => undefined);
   // What the last pass learned about when work is next due is module state, like the sweep's realm.
   __resetNoteDeliverySweepForTests();
+  __resetSyncFuseStateForTests();
 });
 
 afterEach(() => {
@@ -1111,7 +1114,7 @@ describe('the delivery schedule', () => {
   it.each([
     ['a lock eviction', () => new WasmClientPoisonedError('watchdog')],
     ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')]
-  ])('stops the pass and changes nothing on %s', async (_kind, makeError) => {
+  ])('stops the pass and spends nothing on %s, only moving that row to its next step', async (_kind, makeError) => {
     rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
     const before = rows.map(tx => ({ ...tx }));
     mockRelayById.mockRejectedValue(makeError());
@@ -1119,7 +1122,69 @@ describe('the delivery schedule', () => {
     await sweepNoteDeliveries();
 
     expect(mockRelayById).toHaveBeenCalledTimes(1);
-    expect(rows).toEqual(before);
+    expect(rows).toEqual([{ ...before[0], nextRelayAt: NOW + 5 * MINUTE }, before[1]]);
+
+    // The row the pass never reached is still due, so the next lap pushes it.
+    await sweepNoteDeliveries();
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfirst', '0xsecond']);
+  });
+
+  // An evicted push is still parked somewhere: the next lap must not walk back into the same hold.
+  it('backs a row off after its push is evicted, spending nothing, so the next lap does not push it again', async () => {
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValue(new WasmClientPoisonedError('watchdog', new Error('push parked')));
+
+    await sweepNoteDeliveries();
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    // retryDelayFor(1): the step after the row's one attempt.
+    expect(rows[0]).toMatchObject({ relayAttempts: 1, noteDelivery: 'pending', nextRelayAt: NOW + 5 * MINUTE });
+    // The pass still left its idle gate, so the second lap did not even query.
+    expect(jest.mocked(Repo.transactions.where).mock.calls.filter(([arg]) => arg === 'noteDelivery')).toHaveLength(1);
+  });
+
+  it('withdraws the push fuse evidence only on a push that resolved', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+
+    await sweepNoteDeliveries();
+    noteSyncWatchdogEviction('note-delivery');
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+    expect(isSyncFused('note-delivery')).toBe(false);
+  });
+
+  it('pushes nothing while the note-delivery fuse is lit, and still reads the receipt', async () => {
+    for (let eviction = 0; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledWith('0xfirst');
+  });
+
+  // The receipt is a local read: its health says nothing about whether the push parks.
+  it('lights the note-delivery fuse on evicted pushes despite healthy receipts, and no receipt clears it', async () => {
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValue(new WasmClientPoisonedError('watchdog', new Error('push parked')));
+
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass++) {
+      await sweepNoteDeliveries();
+      clock = rows[0]!.nextRelayAt!;
+    }
+    expect(isSyncFused('note-delivery')).toBe(true);
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    expect(receiptTimes).toHaveLength(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 1);
+    expect(isSyncFused('note-delivery')).toBe(true);
   });
 });
 

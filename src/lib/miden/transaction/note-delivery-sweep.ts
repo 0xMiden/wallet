@@ -1,4 +1,12 @@
+import {
+  isSyncFused,
+  noteNonEvictionSyncFailure,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction,
+  syncFuseUntilMs
+} from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 
 import {
@@ -11,6 +19,7 @@ import {
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { INoteDeliveryState, ITransaction } from '../db/types';
 import { errorMessageParts, isKilledPipeline } from '../sdk/sdk-error-code';
+import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -88,8 +97,8 @@ const NOTE_LOCAL_CODES = ['InvalidArgument', 'FailedPrecondition'];
  * - `notConfigured`: the client has no transport (`NoteTransportError::Disabled`). No
  *   push can work, so none is made and nothing is spent; receipts still run.
  * - `interrupted`: the call was torn down from outside (a lock eviction poisoning the
- *   client, or an offscreen kill) and may still be running, so the pass stops and the
- *   row is left exactly as it was.
+ *   client, or an offscreen kill) and may still be running, so the pass stops, nothing
+ *   is spent or recorded, and the row only moves to its next step.
  * - `storeLoss`: this client's store has no relayable copy of the note (a restore into
  *   a fresh store, a reinstall, a raze, or a record with no details). No later push can
  *   work, so the note is recorded dead; its siblings go on.
@@ -226,7 +235,9 @@ const allConsumed = async (row: ITransaction, owed: string[]): Promise<boolean> 
 /** What one pass has learned about the transport so far. */
 interface PassState {
   /** Why pushes are over for the rest of the pass, if they are. */
-  pushesStopped?: 'notConfigured' | 'outage';
+  pushesStopped?: 'notConfigured' | 'fused' | 'outage';
+  /** While the 'note-delivery' fuse is lit: when (unix seconds) its window ends. */
+  fusedUntil?: number;
   /** A push succeeded in this pass, so the rows an outage deferred are due now. */
   caughtUp: boolean;
   /** The earliest time (unix seconds) a row the pass saw next needs the sweep. */
@@ -307,6 +318,13 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     await scheduleReceipt(row, pass);
     return 'done';
   }
+  if (pass.pushesStopped === 'fused') {
+    // Pushes have parked the realm's lock until evicted, so the fuse holds them to one
+    // probe per window. Nothing is spent and the row stays due; the next pass that may
+    // push is the one after the window.
+    noteDue(pass, pass.fusedUntil ?? at);
+    return 'done';
+  }
   if (pass.pushesStopped === 'outage') {
     // The pass stopped pushing before this row. It spends nothing and is left as it is:
     // still due, so the next pass pushes it.
@@ -325,6 +343,8 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     const known = acked.length + dead.length;
     try {
       await midenClientProxy.relayPrivateNoteById(noteId, targets.recipient!);
+      // Only a push that resolved withdraws the fuse's evidence: it is the probe that parks.
+      noteSyncSuccess('note-delivery');
       acked.push(noteId);
       pass.caughtUp = true;
       // The transport acknowledges a note it already holds as it does a new one, so an
@@ -345,7 +365,19 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
         priorState: row.noteDelivery,
         error
       });
-      if (failure === 'interrupted') return 'interrupted';
+      if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction('note-delivery');
+      else noteNonEvictionSyncFailure('note-delivery');
+      if (failure === 'interrupted') {
+        // The push may still be parked in the abandoned hold, so it spends nothing and
+        // records nothing, but the row moves to its next step: left due, the next lap
+        // would walk straight back into the same parked call.
+        const backoffAt = nowSeconds() + retryDelayFor(attemptsOf(row));
+        await Repo.transactions.where({ id: row.id }).modify(tx => {
+          tx.nextRelayAt = backoffAt;
+        });
+        noteDue(pass, backoffAt);
+        return 'interrupted';
+      }
       if (failure === 'notConfigured') {
         pass.pushesStopped = 'notConfigured';
         await scheduleReceipt(row, pass);
@@ -434,35 +466,42 @@ const runGuardedPass = async (): Promise<void> => {
   idle = undefined;
   try {
     const nextDueAt = await runPass();
-    // A pass that stopped early leaves the next call to query.
-    if (nextDueAt !== undefined) {
-      idle = { until: Math.min(nextDueAt, nowSeconds() + RECEIPT_INTERVAL_SECONDS), writes };
-    }
+    idle = { until: Math.min(nextDueAt, nowSeconds() + RECEIPT_INTERVAL_SECONDS), writes };
   } catch (error) {
     console.warn('[noteDeliverySweep] pass failed', error);
   }
 };
 
-/** One pass over the candidate rows. Resolves to when a row next needs one, or `undefined` if it stopped early. */
-const runPass = async (): Promise<number | undefined> => {
+/** Why this pass may not push at all, if it may not. */
+const passStopOf = (): Pick<PassState, 'pushesStopped' | 'fusedUntil'> => {
+  if (!isNoteTransportConfigured()) return { pushesStopped: 'notConfigured' };
+  if (!isSyncFused('note-delivery')) return {};
+  const fusedForMs = Math.max(0, (syncFuseUntilMs('note-delivery') ?? 0) - monotonicNowMs());
+  return { pushesStopped: 'fused', fusedUntil: nowSeconds() + Math.ceil(fusedForMs / 1000) };
+};
+
+/** One pass over the candidate rows. Resolves to when a row next needs one. */
+const runPass = async (): Promise<number> => {
   // Eligibility is judged against one snapshot so a single pass is internally consistent.
   const at = nowSeconds();
   const rows = await candidateRows(at);
-  const pass: PassState = isNoteTransportConfigured()
-    ? { caughtUp: false, nextDueAt: Infinity }
-    : { caughtUp: false, nextDueAt: Infinity, pushesStopped: 'notConfigured' };
+  const pass: PassState = { caughtUp: false, nextDueAt: Infinity, ...passStopOf() };
   const awaitingCatchUp: ITransaction[] = [];
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     const outcome = await sweepRow(row, at, pass);
-    if (outcome === 'interrupted') return undefined;
+    if (outcome === 'interrupted') {
+      // The pass ends at an eviction; the rows it did not reach are due when they were.
+      for (const unvisited of rows.slice(index + 1)) noteDue(pass, unvisited.nextRelayAt ?? at);
+      return pass.nextDueAt;
+    }
     if (outcome === 'awaiting-catch-up') awaitingCatchUp.push(row);
   }
 
   // Rows an outage deferred that the pass reached before its first success.
   if (pass.caughtUp) {
     for (const row of awaitingCatchUp) {
-      if ((await sweepRow(row, at, pass)) === 'interrupted') return undefined;
+      if ((await sweepRow(row, at, pass)) === 'interrupted') break;
     }
   }
   return pass.nextDueAt;
@@ -486,7 +525,9 @@ const runPass = async (): Promise<number | undefined> => {
  *
  * A failed push is classified ({@link classifyRelayFailure}): an outage stops pushes for
  * the rest of the pass, and the first push that succeeds in a later pass makes the rows
- * the outage deferred due at once. Rows restored from a backup only get receipts, and a
+ * the outage deferred due at once. Each push is a timer-driven hold, so its outcome feeds
+ * the 'note-delivery' fuse, and while that fuse is lit no pass pushes; receipts are local
+ * reads and go on regardless. Rows restored from a backup only get receipts, and a
  * row with nothing to push is left alone. A failed push never downgrades an earlier
  * acknowledgement and never fails a landed transaction.
  *

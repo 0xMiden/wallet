@@ -39,7 +39,11 @@ import type {
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
-import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  WasmClientPoisonedError,
+  isWasmClientPoisonReason,
+  WASM_LOCK_SYNC_WATCHDOG_MS
+} from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
@@ -1074,12 +1078,19 @@ export const midenClientProxy = {
    * it is the identical transport call and the identical store lookup, differing
    * only in that the sweep has no live `Note` to hand over (see
    * `MidenClientInterface.relayPrivateNoteById`).
+   *
+   * Unlike the user's own relay it is a timer-driven hold, so it is bounded at the
+   * sync ceiling and labelled; the sweep reports its outcome to the 'note-delivery'
+   * fuse and consults that fuse before it pushes.
    */
   async relayPrivateNoteById(noteId: string, recipientAccountId: string): Promise<void> {
-    await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
-      await midenClient.relayPrivateNoteById(noteId, recipientAccountId);
-    });
+    await withWasmClientLock(
+      async () => {
+        const midenClient = await getMidenClient();
+        await midenClient.relayPrivateNoteById(noteId, recipientAccountId);
+      },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-push' }
+    );
   },
 
   /**
@@ -1091,10 +1102,15 @@ export const midenClientProxy = {
    */
   async isOutputNoteConsumed(noteId: string): Promise<boolean> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return await midenClient.isOutputNoteConsumed(noteId);
-      });
+      // A local store read the sweep makes on a timer: bounded and labelled, but not fused,
+      // since a healthy read says nothing about whether the push parks.
+      return await withWasmClientLock(
+        async () => {
+          const midenClient = await getMidenClient();
+          return await midenClient.isOutputNoteConsumed(noteId);
+        },
+        { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-receipt' }
+      );
     }
     const resultB64 = await this.call('isOutputNoteConsumed', [noteId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return false;
