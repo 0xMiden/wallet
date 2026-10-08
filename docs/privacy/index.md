@@ -152,13 +152,13 @@ Biometric matching is performed entirely by your device's operating system insid
 
 The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden.io`) and the Miden note transport service (`transport.miden.io`) to send and receive on-chain transactions. These requests contain only data needed to interact with the blockchain (transaction payloads, public account state) - never your private keys or recovery phrase.
 
-It also downloads public data. Miden's verified-token list and update notices come from GitHub (`raw.githubusercontent.com`) and carry nothing about you. The logos of listed tokens come from the same GitHub list, so GitHub sees which listed tokens' logos the App draws (the listed tokens you hold or open), never your account, address or balance. Token prices and charts come from Binance (`api.binance.com`), which sees which tokens' prices the App requests (the priced tokens you hold or open), never your address, keys or balances.
+It also downloads public data. Miden's verified-token list and update notices come from GitHub (`raw.githubusercontent.com`) and carry nothing about you. The logos of listed tokens come from the same GitHub list, so GitHub sees which listed tokens' logos the App draws (the listed tokens you hold or open), never your account, address or balance. Explore's catalog of apps and their icons come from GitHub too, so GitHub sees which network's catalog and which of its icons the App requests, never your account, address or balance. Token prices and charts come from Binance (`api.binance.com`), which sees which tokens' prices the App requests (the priced tokens you hold or open), never your address, keys or balances.
 
 Three features send the service behind them only what that feature needs. Requesting test tokens sends your account address and the amount to the Miden faucet (`faucet-api.testnet.miden.io`). Tracking a bridge transfer sends its destination address to the bridge's status service (`miden-testnet-bridge.dev.eu-north-3.gateway.fm`). A swap quote sends the two tokens and their amounts to the swap-quote service (`35-175-40-181.sslip.io`), never your address.
 
 If **Share usage data** is on, the App also reaches the two processors named above. If it is off, it does not contact them at all.
 
-Apart from those token logos, and the site icons the dApp browser on mobile fetches from Google's favicon service, the App loads no fonts, scripts, or images from third-party servers. Everything else it needs to draw itself ships inside the App.
+Apart from those token logos and Explore icons, and the site icons the dApp browser on mobile fetches from Google's favicon service, the App loads no fonts, scripts, or images from third-party servers. Everything else it needs to draw itself ships inside the App.
 
 ## Permissions
 

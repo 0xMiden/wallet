@@ -3781,17 +3781,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "ツール",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "ソーシャル",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "ゲーム",
@@ -3808,14 +3800,6 @@
   "exploreCategoriesLabel": {
     "message": "カテゴリ",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "おすすめ",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "ヘルパーツール",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "開く",
@@ -3844,10 +3828,6 @@
   "exploreNoResultsDescription": {
     "message": "別の名前を試すか、dAppのURLを貼り付けてください。",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "スワップ用のテストネットトークンを入手",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "最小化",

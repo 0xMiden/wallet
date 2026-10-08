@@ -3781,17 +3781,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "工具",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "社交",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "游戏",
@@ -3808,14 +3800,6 @@
   "exploreCategoriesLabel": {
     "message": "类别",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "精选",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "辅助工具",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "打开",
@@ -3844,10 +3828,6 @@
   "exploreNoResultsDescription": {
     "message": "试试其他名称，或粘贴 dApp 的 URL。",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "获取用于兑换的测试网代币",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "最小化",
