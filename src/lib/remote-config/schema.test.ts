@@ -192,16 +192,35 @@ it.each([
   ['a numeric Earn protocol', withSection('epoch', { earnProtocol: 1 })],
   ['a switch written as text', withSection('features', { earn: 'true' })],
   ['a numeric switch', withSection('features', { bridgeIn: 1 })],
-  ['a null switch', withSection('features', { bridgeOut: null })],
+  ['a null switch', withSection('features', { bridgeOut: null })]
+])('rejects a document with %s', (_label, body) => {
+  expect(parseBridgeConfig(body, 'testnet')).toBeNull();
+});
+
+it.each([
   ['a countdown section that is an array', doc({ mainnetCountdown: [] })],
+  ['a null countdown section', doc({ mainnetCountdown: null })],
   ['a countdown switch written as text', withSection('mainnetCountdown', { enabled: 'true' })],
   ['a countdown moment as a date only', withSection('mainnetCountdown', { launchAt: '2026-10-26' })],
   ['a countdown moment with an offset', withSection('mainnetCountdown', { launchAt: '2026-10-26T00:00:00+02:00' })],
   ['a countdown moment with a space', withSection('mainnetCountdown', { launchAt: '2026-10-26 00:00:00Z' })],
   ['a countdown moment that is not a date', withSection('mainnetCountdown', { launchAt: '2026-13-40T00:00:00Z' })],
+  ['a countdown moment on an impossible day', withSection('mainnetCountdown', { launchAt: '2026-02-30T00:00:00Z' })],
   ['a numeric countdown moment', withSection('mainnetCountdown', { launchAt: 1792000000000 })]
-])('rejects a document with %s', (_label, body) => {
-  expect(parseBridgeConfig(body, 'testnet')).toBeNull();
+])('turns the countdown off, and keeps the rest, for %s', (_label, body) => {
+  const parsed = parseBridgeConfig(body, 'testnet');
+  expect(parsed).not.toBeNull();
+  expect(parsed?.mainnetCountdown).toStrictEqual({ enabled: false });
+  expect(parsed?.features).toStrictEqual({ earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true });
+  expect(parsed?.evm).toStrictEqual({ chainId: 11155111 });
+  expect(parsed?.epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
+});
+
+it('reads a fraction of any length as the same instant', () => {
+  const at = (launchAt: string) =>
+    parseBridgeConfig(withSection('mainnetCountdown', { launchAt }), 'testnet')?.mainnetCountdown;
+  expect(at('2026-10-26T00:00:00.5Z')).toStrictEqual(at('2026-10-26T00:00:00.500Z'));
+  expect(at('2026-10-26T00:00:00.5Z')?.launchAt).toBe(Date.UTC(2026, 9, 26, 0, 0, 0, 500));
 });
 
 describe('the E2E local http allowance', () => {

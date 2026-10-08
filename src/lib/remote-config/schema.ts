@@ -46,6 +46,7 @@ const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
+// The one exception is mainnetCountdown, which only drives a banner: a bad countdown turns it off (see readCountdown).
 const invalid = (): never => {
   throw new Error('invalid bridge config');
 };
@@ -108,10 +109,23 @@ function featureSwitch(features: Record<string, unknown>, name: string): boolean
   return typeof value === 'boolean' ? value : invalid();
 }
 
-function utcTimestamp(value: unknown): number {
-  if (typeof value !== 'string' || !UTC_TIMESTAMP.test(value)) return invalid();
+// Undefined for anything but the one accepted spelling of a real instant. Engines differ on an impossible day
+// (V8 rolls 2026-02-30 over to March), so the date must survive a round trip through toISOString.
+function utcTimestamp(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !UTC_TIMESTAMP.test(value)) return undefined;
   const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? invalid() : parsed;
+  if (Number.isNaN(parsed)) return undefined;
+  return new Date(parsed).toISOString().slice(0, 19) === value.slice(0, 19) ? parsed : undefined;
+}
+
+// Never throws: a countdown that is malformed in any way is off, and the rest of the document still counts.
+function readCountdown(value: unknown): MainnetCountdownConfig {
+  if (value === undefined || !isRecord(value)) return { enabled: false };
+  const { enabled, launchAt } = value;
+  if (enabled !== undefined && typeof enabled !== 'boolean') return { enabled: false };
+  const moment = launchAt === undefined ? undefined : utcTimestamp(launchAt);
+  if (launchAt !== undefined && moment === undefined) return { enabled: false };
+  return { enabled: enabled === true, ...(moment === undefined ? {} : { launchAt: moment }) };
 }
 
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
@@ -123,7 +137,6 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const agglayer = section(body.agglayer);
   const epoch = section(body.epoch);
   const features = section(body.features);
-  const countdown = section(body.mainnetCountdown);
   const chain = read(evm, 'chainId', chainId);
   const l1Bridge = read(agglayer, 'l1Bridge', evmAddress);
   const midenBridge = read(agglayer, 'midenBridge', midenAccountId);
@@ -133,7 +146,6 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const midenUsdcFaucet = read(epoch, 'midenUsdcFaucet', midenAccountId);
   const evmUsdc = read(epoch, 'evmUsdc', evmAddress);
   const protocol = read(epoch, 'earnProtocol', earnProtocol);
-  const launchAt = read(countdown, 'launchAt', utcTimestamp);
   return {
     network,
     version,
@@ -156,10 +168,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       bridgeIn: featureSwitch(features, 'bridgeIn'),
       bridgeOut: featureSwitch(features, 'bridgeOut')
     },
-    mainnetCountdown: {
-      enabled: featureSwitch(countdown, 'enabled'),
-      ...(launchAt === undefined ? {} : { launchAt })
-    }
+    mainnetCountdown: readCountdown(body.mainnetCountdown)
   };
 }
 
