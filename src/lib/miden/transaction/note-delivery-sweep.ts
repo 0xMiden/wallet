@@ -211,6 +211,8 @@ const allConsumed = async (row: ITransaction, owed: string[]): Promise<boolean> 
     }
     return owed.length > 0;
   } catch (error) {
+    // A killed read left the realm's client parked or torn down, and that ends the pass.
+    if (isKilledPipeline(error)) throw error;
     // Unreadable this cycle. Go on to the push: an extra push of a note that was
     // delivered costs the recipient nothing, whereas skipping one that was not is the
     // failure this sweep exists to prevent.
@@ -232,6 +234,8 @@ interface PassState {
   fusedUntil?: number;
   /** A push succeeded in this pass, so the rows an outage deferred are due now. */
   caughtUp: boolean;
+  /** A push or receipt read in this pass was killed, so the pass pushes nothing more. */
+  interrupted: boolean;
   /** The earliest time (unix seconds) a row the pass saw next needs the sweep. */
   nextDueAt: number;
 }
@@ -360,6 +364,9 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
       // A disabled transport refused locally, so no probe ran and there is nothing to book.
       if (failure !== 'notConfigured') noteProbeFailure('note-delivery', error);
       if (failure === 'interrupted') {
+        // Recorded before any write, so a write that fails still ends the pass (the row's
+        // isolation reads this flag).
+        pass.interrupted = true;
         // The push may still be parked in the abandoned hold, so it spends nothing and
         // records nothing, but the row moves to its next step: left due, the next lap
         // would walk straight back into the same parked call. Its outage mark goes too, so
@@ -487,6 +494,13 @@ const sweepRowIsolated = async (row: ITransaction, at: number, pass: PassState):
   try {
     return await sweepRow(row, at, pass);
   } catch (error) {
+    // A killed pipeline is not this row's problem: the client is parked or torn down, and
+    // the pass ends there rather than push again on a rebuilt one.
+    if (pass.interrupted || isKilledPipeline(error)) {
+      pass.interrupted = true;
+      console.warn('[noteDeliverySweep] pass ended by a killed pipeline', { txId: row.id, error });
+      return 'interrupted';
+    }
     console.warn('[noteDeliverySweep] row failed; going on with the next', { txId: row.id, error });
     return 'done';
   }
@@ -497,23 +511,21 @@ const runPass = async (): Promise<{ nextDueAt: number; fused: boolean }> => {
   // Eligibility is judged against one snapshot so a single pass is internally consistent.
   const at = nowSeconds();
   const rows = await candidateRows(at);
-  const pass: PassState = { caughtUp: false, nextDueAt: Infinity, ...passStopOf() };
+  const pass: PassState = { caughtUp: false, interrupted: false, nextDueAt: Infinity, ...passStopOf() };
   const awaitingCatchUp: ITransaction[] = [];
 
-  let interrupted = false;
   for (const [index, row] of rows.entries()) {
     const outcome = await sweepRowIsolated(row, at, pass);
     if (outcome === 'interrupted') {
       // The pass ends at an eviction; the rows it did not reach are due when they were.
       for (const unvisited of rows.slice(index + 1)) noteDue(pass, unvisited.nextRelayAt ?? at);
-      interrupted = true;
       break;
     }
     if (outcome === 'awaiting-catch-up') awaitingCatchUp.push(row);
   }
 
   // Rows an outage deferred that the pass reached before its first success.
-  if (pass.caughtUp && !interrupted) {
+  if (pass.caughtUp && !pass.interrupted) {
     for (const row of awaitingCatchUp) {
       if ((await sweepRowIsolated(row, at, pass)) === 'interrupted') break;
     }

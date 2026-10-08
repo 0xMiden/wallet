@@ -867,6 +867,28 @@ describe('the delivery schedule', () => {
     });
   });
 
+  let restoreWhere: (() => void) | undefined;
+  afterEach(() => {
+    restoreWhere?.();
+    restoreWhere = undefined;
+  });
+
+  /** Make every write to row `id` reject, until the test ends. */
+  const failWritesTo = (id: string) => {
+    const where = jest.mocked(Repo.transactions.where);
+    const real = where.getMockImplementation()!;
+    where.mockImplementation(arg =>
+      typeof arg !== 'string' && arg.id === id
+        ? ({
+            modify: async () => {
+              throw new Error('store closed');
+            }
+          } as never)
+        : real(arg)
+    );
+    restoreWhere = () => where.mockImplementation(real);
+  };
+
   /** Run a pass at each time the row asks to be looked at again, until `until`. */
   const drive = async (until: number) => {
     for (;;) {
@@ -1260,6 +1282,48 @@ describe('the delivery schedule', () => {
 
     expect(mockRelayById).not.toHaveBeenCalled();
     expect(mockIsConsumed).toHaveBeenCalledWith('0xfirst');
+  });
+
+  // The eviction ends the pass even when the row's own cooldown cannot be written.
+  it.each([
+    ['a lock eviction', () => new WasmClientPoisonedError('watchdog', new Error('push parked'))],
+    ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')]
+  ])('ends the pass at %s whose cooldown write fails', async (_kind, makeError) => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(makeError());
+    failWritesTo('first');
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
+  });
+
+  it('pushes nothing more after an eviction whose cooldown write fails, catch-up included', async () => {
+    rows.push(
+      due('deferred', NOW - 3000, { nextRelayAt: NOW + 600, relayOutageDeferred: true }),
+      due('pushed', NOW - 2000),
+      due('evicted', NOW - 1000),
+      due('after', NOW - 500)
+    );
+    mockRelayById
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new WasmClientPoisonedError('watchdog', new Error('push parked')));
+    failWritesTo('evicted');
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xpushed', '0xevicted']);
+  });
+
+  // An evicted receipt read leaves the realm's client parked as surely as an evicted push.
+  it('ends the pass at an evicted receipt read, before any push', async () => {
+    rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
+    mockIsConsumed.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog', new Error('read parked')));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(mockIsConsumed).toHaveBeenCalledTimes(1);
   });
 
   it('ends the pass at an eviction, before any catch-up push', async () => {
