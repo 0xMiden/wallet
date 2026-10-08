@@ -3,7 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
-import { NetworkChip } from 'components/NetworkChip';
+import { NetworkModePill } from 'components/NetworkModePill';
 import { NetworkNoticeRows } from 'components/NetworkNoticeRows';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
@@ -28,7 +28,7 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
   return (
     <OnboardingStepLayout
       data-testid="onboarding-network-notice"
-      eyebrow={<NetworkChip kind="miden" label={t('networkNoticeChip', { network })} />}
+      eyebrow={<NetworkModePill data-testid="network-notice-pill" />}
       title={t('networkModeBanner', { network })}
       description={t('networkNoticeBody')}
       footer={

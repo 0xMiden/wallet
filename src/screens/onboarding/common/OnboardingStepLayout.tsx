@@ -40,7 +40,7 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
   <SubPageLayout data-testid={dataTestId} footer={footer} footerLayout={footerLayout} footerNavbarCushion={false}>
     {(eyebrow || title || description || aside) && (
       <div data-slot="step-heading" className="flex shrink-0 flex-col items-start gap-2 pt-4">
-        {eyebrow && <div className="pb-1">{eyebrow}</div>}
+        {eyebrow && <div className="self-stretch pb-1">{eyebrow}</div>}
         {title && <h1 className="text-title-tab text-ink">{title}</h1>}
         {/* The explainer's size and leading, in Nunito semibold like the rest of the step's text. */}
         {description && <div className="text-explainer font-semibold text-muted face-heading">{description}</div>}

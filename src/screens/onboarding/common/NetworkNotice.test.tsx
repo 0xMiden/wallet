@@ -22,11 +22,11 @@ describe('NetworkNoticeScreen', () => {
     mockNetworkKey = 'testnet';
   });
 
-  it('names Testnet on a network chip and the step title, on the step layout', () => {
+  it('names Testnet on the network pill and the step title, on the step layout', () => {
     render(<NetworkNoticeScreen />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('networkModeBanner:testnet');
-    expect(screen.getByText('networkNoticeChip:testnet')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-pill-text')).toHaveTextContent('testnet·networkModePillNoValue');
     expect(screen.getByText('networkNoticeBody')).toHaveClass('text-muted');
     const root = screen.getByTestId('onboarding-network-notice');
     expect(root.querySelector('[data-slot="step-heading"]')).not.toBeNull();
@@ -61,7 +61,7 @@ describe('NetworkNoticeScreen', () => {
     render(<NetworkNoticeScreen />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('networkModeBanner:devnet');
-    expect(screen.getByText('networkNoticeChip:devnet')).toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-pill-text')).toHaveTextContent('devnet·networkModePillNoValue');
   });
 
   it('renders nothing on mainnet', () => {
