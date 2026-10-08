@@ -53,6 +53,14 @@ jobs:
       # broadcasts at the local Anvil the spec starts. Baked into the app bundle
       # at build time (config.ts override) and read by the counterparty at run.
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
+      # The USDCx spec forks Sepolia on that Anvil and deposits into Circle's real
+      # xReserve contract; an Arc Testnet fork cannot move Arc's USDC. This makes
+      # the wallet's USDCx route use Sepolia's xReserve and USDC. Baked into the app
+      # bundle at build time, and read by the spec at run to decide if it can run.
+      MIDEN_E2E_USDCX_CHAIN: sepolia
+      # Optional: the RPC the fork reads Sepolia's state from. Unset, the spec uses
+      # a public Sepolia RPC.
+      E2E_SEPOLIA_FORK_URL: ${{ secrets.E2E_SEPOLIA_FORK_URL }}
       # The config document the suite's global setup serves on :8550: the live
       # testnet bridge account, indexer and USDC faucet, this job's Anvil bridge
       # and USDC, and the local FAKE allocator (:8548) the Epoch spec starts for

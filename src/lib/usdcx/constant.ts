@@ -1,10 +1,16 @@
-import type { Address, Hex } from 'viem';
+import type { Address, Chain, Hex } from 'viem';
 import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, sepolia } from 'viem/chains';
 
 import { ARC_TESTNET } from 'lib/walletconnect/config';
 
+// E2E-only: the bridge-in harness runs the deposit on a local Anvil fork of Sepolia. Arc's USDC calls
+// chain precompiles that Anvil does not have, so an Arc fork reverts every transfer; Sepolia's USDC
+// is a plain ERC-20 and its xReserve is the same contract at the same address. Inert in production:
+// the flag is baked in only by the e2e build, and only when `MIDEN_E2E_TEST` is also on.
+const E2E_USDCX_CHAIN = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.MIDEN_E2E_USDCX_CHAIN ?? '').trim() : '';
+
 /** USDCx uses Arc Testnet; ERC-20 USDC has 6 decimals, unlike native gas USDC (18). */
-export const USDCX_CHAIN = ARC_TESTNET;
+export const USDCX_CHAIN: Chain = E2E_USDCX_CHAIN === 'sepolia' ? sepolia : ARC_TESTNET;
 /** Circle's direct-deposit contracts, keyed by EVM chain id (not Circle domain). */
 export const XRESERVE_ADDRESS = new Map<number, Address>([
   [ARC_TESTNET.id, '0x008888878f94C0d87defdf0B07f46B93C1934442'],

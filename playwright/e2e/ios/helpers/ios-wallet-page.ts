@@ -197,7 +197,7 @@ export class IosWalletPage implements WalletPage {
    * creates the row inside `handleConfirm` and never surfaces its txId to the
    * DOM, so the harness reads it back here after confirming the deposit.
    */
-  async latestBridgeReceive(provider?: 'epoch' | 'agglayer'): Promise<{
+  async latestBridgeReceive(provider?: 'epoch' | 'agglayer' | 'usdcx'): Promise<{
     id: string;
     amount?: string;
     faucetId: string;
@@ -262,6 +262,15 @@ export class IosWalletPage implements WalletPage {
   async selectBridgeRouteFast(): Promise<void> {
     await this.clickWhenEnabled('[data-testid="bridge-route-fast"]', 30_000);
     await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 30_000);
+  }
+
+  /**
+   * Confirm the Circle xReserve route (USDC) and continue to review. The route
+   * step shows one card, already selected, so the step only confirms.
+   */
+  async confirmBridgeRouteUsdcx(): Promise<void> {
+    await this.waitFor('[data-testid="bridge-route-usdcx"]', { timeoutMs: 15_000 });
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
   }
 
   /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
