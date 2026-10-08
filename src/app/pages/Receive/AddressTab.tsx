@@ -21,10 +21,10 @@ import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { useAnyFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
+import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
@@ -228,8 +228,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     await copyAddress();
   }, [copyAddress, shareText, t]);
 
-  // Cross Chain opens either bridge-in route, so it stays enabled while one of them can start.
-  const crossChain = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn']);
+  // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
+  const crossChain = useBridgeInAvailability();
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
