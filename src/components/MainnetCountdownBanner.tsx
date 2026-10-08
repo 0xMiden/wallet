@@ -4,9 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { MAINNET_EARLY_ACCESS_URL } from 'app/constants';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
-import { usePageActive } from 'app/layouts/page-active';
+import { TextAction } from 'components/ui/TextAction';
 import { openExternalUrl } from 'lib/mobile/external-browser';
-import { hapticLight } from 'lib/mobile/haptics';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 const SECOND_MS = 1000;
@@ -35,18 +34,18 @@ export function formatCountdown(now: number, launchAt: number): string | null {
  * to the mainnet launch, and a link to the early-access list. The network's remote config drives
  * it (`mainnetCountdown`, 0xMiden/wallet-config): the banner shows while the switch is on and the
  * launch moment is set and still ahead, and renders nothing otherwise, so flipping the switch or
- * the moment there reaches every wallet within about an hour. The clock ticks once a second only
- * while the page is on screen, so a hidden tab pane does not re-render for nothing.
+ * the moment there reaches every wallet within about an hour. The clock ticks once a second while a
+ * countdown is set; the banner mounts outside every page-active provider, so it has no on-screen
+ * signal to gate on.
  */
 export const MainnetCountdownBanner: FC = () => {
   const { t } = useTranslation();
-  const pageActive = usePageActive();
   const [now, setNow] = useState(() => Date.now());
 
   const config = useBridgeConfigSnapshot().config?.mainnetCountdown;
   const launchAt = config?.enabled ? config.launchAt : undefined;
   const countdown = launchAt === undefined ? null : formatCountdown(now, launchAt);
-  const ticking = pageActive && countdown !== null;
+  const ticking = countdown !== null;
 
   useEffect(() => {
     if (!ticking) return;
@@ -58,13 +57,12 @@ export const MainnetCountdownBanner: FC = () => {
   if (countdown === null) return null;
 
   const openEarlyAccess = () => {
-    hapticLight();
     openExternalUrl({ url: MAINNET_EARLY_ACCESS_URL, title: t('mainnetCountdownLink') }).catch(() => {});
   };
 
   return (
     <div
-      className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-dashed border-accent-tint-ink/30 bg-accent-tint px-4 py-3"
+      className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-dashed border-accent-tint-ink/30 bg-accent-tint px-4 py-1"
       data-testid="mainnet-countdown-banner"
     >
       <BreadLogo aria-hidden="true" className="h-[18px] w-[18px] shrink-0" />
@@ -77,14 +75,9 @@ export const MainnetCountdownBanner: FC = () => {
           {countdown}
         </time>
         <span aria-hidden="true" className="size-[3px] shrink-0 rounded-full bg-accent-tint-ink opacity-50" />
-        <button
-          type="button"
-          onClick={openEarlyAccess}
-          className="text-action font-extrabold text-accent-tint-ink underline decoration-1 underline-offset-[3px]"
-          data-testid="mainnet-countdown-link"
-        >
+        <TextAction onClick={openEarlyAccess} data-testid="mainnet-countdown-link">
           {t('mainnetCountdownLink')}
-        </button>
+        </TextAction>
       </div>
     </div>
   );

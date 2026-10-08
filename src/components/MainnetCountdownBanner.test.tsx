@@ -19,11 +19,6 @@ jest.mock('lib/mobile/external-browser', () => ({
   openExternalUrl: (options: { url: string; title: string }) => mockOpenExternalUrl(options)
 }));
 
-let mockPageActive = true;
-jest.mock('app/layouts/page-active', () => ({
-  usePageActive: () => mockPageActive
-}));
-
 jest.mock('app/constants', () => ({
   MAINNET_EARLY_ACCESS_URL: 'https://miden.xyz/bread'
 }));
@@ -70,14 +65,13 @@ describe('MainnetCountdownBanner', () => {
     jest.setSystemTime(Date.parse('2026-10-08T19:47:24Z'));
     jest.clearAllMocks();
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
-    mockPageActive = true;
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  it('counts down to the launch once a second while the page is on screen', () => {
+  it('counts down to the launch once a second', () => {
     render(<MainnetCountdownBanner />);
 
     const clock = screen.getByTestId('mainnet-countdown');
@@ -90,22 +84,15 @@ describe('MainnetCountdownBanner', () => {
     expect(clock).toHaveTextContent('17:04:12:35');
   });
 
-  it('stops ticking while the page is off screen', () => {
-    mockPageActive = false;
-    render(<MainnetCountdownBanner />);
-
-    act(() => {
-      jest.advanceTimersByTime(5_000);
-    });
-    expect(screen.getByTestId('mainnet-countdown')).toHaveTextContent('17:04:12:36');
-  });
-
   it('opens the early-access list with a tap haptic', () => {
     render(<MainnetCountdownBanner />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'mainnetCountdownLink' }));
+    const link = screen.getByRole('button', { name: 'mainnetCountdownLink' });
+    fireEvent.click(link);
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(link).toHaveClass('min-h-11', 'focus-visible:ring-2');
+    expect(link).not.toHaveClass('underline');
     expect(mockOpenExternalUrl).toHaveBeenCalledWith({ url: 'https://miden.xyz/bread', title: 'mainnetCountdownLink' });
   });
 
