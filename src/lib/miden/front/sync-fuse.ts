@@ -356,6 +356,11 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
  * Reads `error` itself, not its cause chain. A caller that classifies through the chain
  * hands over the innermost killed-pipeline error it found there; a failure that never left
  * the realm goes to {@link noteLocalProbeFailure} instead.
+ *
+ * The idle-sync loop in `useSyncTrigger` does not book through here, on purpose: it keeps a
+ * two-way split that counts a `realm-error` eviction toward its breaker's failure streak, so a
+ * realm that traps on every sync is not probed every 3 s, and lets that eviction reset the
+ * fuse's count like any other failure.
  */
 export function noteProbeFailure(key: SyncFuseKey, error: unknown): void {
   if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);

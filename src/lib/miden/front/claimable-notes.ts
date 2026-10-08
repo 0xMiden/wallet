@@ -18,10 +18,10 @@ import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
 import { fetchFromStorage, putToStorage } from './storage';
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
@@ -199,8 +199,7 @@ async function fetchNotesFromLocalClient(
     // Keyed on 'claimable-notes' rather than shared, because a healthy chain sync says
     // nothing about a note read whose call is parked, and a single counter let either
     // fact erase the other.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
-    else noteNonEvictionSyncFailure('claimable-notes');
+    noteProbeFailure('claimable-notes', e);
     debugInfoRef.current = {
       ...debugInfoRef.current,
       error: `getConsumableNotes failed: ${e}`,
@@ -231,8 +230,7 @@ async function fetchNotesFromLocalClient(
   } catch (e) {
     // Same ledger as the read above: this is the second hold of one probe, and an
     // eviction here is the same parked client with the same per-lap cost.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
-    else noteNonEvictionSyncFailure('claimable-notes');
+    noteProbeFailure('claimable-notes', e);
     throw e;
   }
 

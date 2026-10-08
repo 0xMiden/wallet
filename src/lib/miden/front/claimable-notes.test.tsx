@@ -101,6 +101,12 @@ jest.mock('../sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => (globalThis as any).__cnTest.currentHold ?? null,
   withWasmClientLock: async (fn: (hold: object) => Promise<any>, options?: any) => {
     lockOptionsSeen.push(options);
+    // One hold, picked by its label, rejects instead of running.
+    const reject = (globalThis as any).__cnTest.rejectHold;
+    if (reject && reject.label === options?.label) {
+      (globalThis as any).__cnTest.rejectHold = undefined;
+      throw reject.error;
+    }
     const hold = { id: `cn-hold-${lockOptionsSeen.length}` };
     (globalThis as any).__cnTest.currentHold = hold;
     try {
@@ -203,6 +209,7 @@ afterEach(async () => {
 });
 
 beforeEach(() => {
+  _g.__cnTest.rejectHold = undefined;
   _g.__cnTest.kv = {};
   _g.__cnTest.puts = 0;
   _g.__cnTest.putOverride = undefined;
@@ -1175,6 +1182,24 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     expect(isSyncFused('claimable-notes')).toBe(false);
     __resetSyncFuseStateForTests();
   });
+
+  // A trap in either hold abandons the probe without learning anything about the node.
+  it.each(['claimable-notes', 'claimable-notes-swap-lineage'])(
+    'books a realm-error eviction of the %s hold as abandoned, never erasing eviction evidence',
+    async label => {
+      __resetSyncFuseStateForTests();
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      _g.__cnTest.rejectHold = { label, error: new WasmClientPoisonedError('realm-error') };
+
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      noteSyncWatchdogEviction('claimable-notes');
+
+      expect(lockOptionsSeen.map(options => options?.label)).toContain(label);
+      expect(isSyncFused('claimable-notes')).toBe(true);
+      __resetSyncFuseStateForTests();
+    }
+  );
 
   it('exposes debugInfo only on iOS', () => {
     _g.__cnTest.isIOS = true;

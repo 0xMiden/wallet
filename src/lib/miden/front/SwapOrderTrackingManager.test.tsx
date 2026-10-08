@@ -390,6 +390,17 @@ describe('SwapOrderTrackingManager', () => {
     expect(useSwapOrderTrackingStore.getState().entries).toEqual({});
   });
 
+  // A trap abandons the read without learning anything about the node.
+  it('keeps unlit eviction evidence on a realm-error eviction', async () => {
+    mockRows = [swapRow(9n)];
+    for (let i = 0; i < 3; i += 1) noteSyncWatchdogEviction('swap-order-tracking');
+    mockTrackSwapOrders.mockRejectedValue(new WasmClientPoisonedError('realm-error'));
+    render(<SwapOrderTrackingManager />);
+    await settleMount();
+    noteSyncWatchdogEviction('swap-order-tracking');
+    expect(isSyncFused('swap-order-tracking')).toBe(true);
+  });
+
   it('clears unlit eviction evidence on ordinary read failures', async () => {
     mockRows = [swapRow(9n)];
     for (let i = 0; i < 3; i += 1) noteSyncWatchdogEviction('swap-order-tracking');

@@ -19,6 +19,8 @@ _g.__notesTest = {
   // which is what lets a test put the callback in a specific mid-loop state first —
   // the watchdog fires two minutes in, by which point earlier notes have imported.
   evictNextHold: false as boolean | Promise<void>,
+  // The poison reason the eviction reports.
+  evictReason: 'watchdog' as string,
   // The abandoned callback, so a test can let it finish and observe what it writes.
   abandonedHold: null as Promise<unknown> | null,
   // Who owns the mutex right now, mirroring `getCurrentWasmLockHold`. An eviction
@@ -65,7 +67,7 @@ jest.mock('../sdk/miden-client', () => ({
       // callback no longer owns it — exactly what production does before it
       // rejects the holder.
       t.currentHold = null;
-      throw Object.assign(new Error('WASM client evicted'), { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+      throw Object.assign(new Error('WASM client evicted'), { name: 'WasmClientPoisonedError', reason: t.evictReason });
     }
     try {
       return await fn(hold);
@@ -107,6 +109,7 @@ beforeEach(() => {
   _g.__notesTest.midenClient.syncState.mockResolvedValue(undefined);
   _g.__notesTest.lockOptions = [];
   _g.__notesTest.evictNextHold = false;
+  _g.__notesTest.evictReason = 'watchdog';
   _g.__notesTest.abandonedHold = null;
   _g.__notesTest.currentHold = null;
 });
@@ -956,6 +959,19 @@ describe('importAllNotes', () => {
     // condition the no-op pass above has zeroed the count and this cannot light the fuse.
     noteSyncWatchdogEviction('note-import');
     expect(syncFuseUntilMs('note-import')).not.toBeNull();
+  });
+
+  // A trap abandons the pass without learning anything about the node.
+  it('books a realm-error eviction of the import hold as abandoned, never erasing eviction evidence', async () => {
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-import');
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    _g.__notesTest.evictNextHold = true;
+    _g.__notesTest.evictReason = 'realm-error';
+
+    await importAllNotes().catch(() => {});
+    noteSyncWatchdogEviction('note-import');
+
+    expect(isSyncFused('note-import')).toBe(true);
   });
 
   it('lights its own fuse after repeated evictions of the import hold (#777)', async () => {

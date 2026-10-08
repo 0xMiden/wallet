@@ -480,6 +480,19 @@ describe('swap order note settlement', () => {
       __resetSyncFuseStateForTests();
     });
 
+    // A trap abandons the tick without learning anything about the node.
+    it('books a realm-error eviction as abandoned, never erasing eviction evidence', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('claimable-notes');
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockRejectedValueOnce(
+        new WasmClientPoisonedError('realm-error')
+      );
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      noteSyncWatchdogEviction('claimable-notes');
+
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
     it('feeds its own evictions into that fuse, so four parked ticks stop the fifth', async () => {
       (midenClientProxy.getConsumableNotes as jest.Mock).mockRejectedValue(new WasmClientPoisonedError('watchdog'));
 

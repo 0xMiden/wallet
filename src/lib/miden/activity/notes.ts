@@ -4,17 +4,10 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
 import { isLikelyNetworkError, isPermanentHttpRejection } from './connectivity-classify';
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import {
-  grantManualSyncProbe,
-  isSyncFused,
-  noteNonEvictionSyncFailure,
-  noteSyncSuccess,
-  noteSyncWatchdogEviction
-} from '../front/sync-fuse';
+import { grantManualSyncProbe, isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
 import { addToNoteDeadletter, listDeadletteredNotes, removeManyFromNoteDeadletter } from '../note-deadletter';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import {
-  isSyncWatchdogEviction,
   isWasmClientPoisonedError,
   WasmClientPoisonedError,
   WASM_LOCK_SYNC_WATCHDOG_MS
@@ -726,10 +719,9 @@ export const importAllNotes = async () => {
       banked.push({ ...note, attempts, firstFailureAt, nextEligibleAt: now + backoffMs });
     }
     await commitQueue(loopRetry ?? banked);
-    // Evidence for this probe's own fuse, in the same shape as the sync probes': an
-    // eviction says the client is parked, any other failure does not.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('note-import');
-    else noteNonEvictionSyncFailure('note-import');
+    // Evidence for this probe's own fuse, booked through the shared three-way split: an
+    // eviction says the client is parked, a trap says nothing, any other failure does not.
+    noteProbeFailure('note-import', e);
     throw e;
   }
 

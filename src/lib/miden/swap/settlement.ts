@@ -10,10 +10,10 @@ import {
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isRotationPendingAccount } from '../back/rotation-pending';
 import { ITransactionStatus } from '../db/types';
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
 import { swapOrderExpired } from './expiry';
@@ -270,8 +270,7 @@ export async function settleSwapOrders(
       ];
     });
   }, WASM_SETTLEMENT_LOCK_OPTIONS).catch((e: unknown) => {
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
-    else noteNonEvictionSyncFailure('claimable-notes');
+    noteProbeFailure('claimable-notes', e);
     throw e;
   });
   if (managedNotes === null) {
