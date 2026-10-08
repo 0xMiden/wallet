@@ -308,13 +308,8 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
     return 'done';
   }
   if (pass.pushesStopped === 'outage') {
-    // The pass stopped pushing before this row. It spends nothing and stays due, and the
-    // first push that succeeds in a later pass makes it due at once wherever it falls.
-    if (!row.relayOutageDeferred) {
-      await Repo.transactions.where({ id: row.id }).modify(tx => {
-        tx.relayOutageDeferred = true;
-      });
-    }
+    // The pass stopped pushing before this row. It spends nothing and is left as it is:
+    // still due, so the next pass pushes it.
     noteDue(pass, row.nextRelayAt);
     return 'done';
   }
@@ -323,7 +318,11 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
   const acked: string[] = [];
   const dead: string[] = [];
   let outage = false;
-  for (const noteId of noteIds) {
+  // Every owed note the transport acknowledged, the legacy `relayed` row's implied ones included:
+  // a partial list written for that row would read as the rest unacknowledged.
+  const ackedSoFar = () => [...targets.acked, ...acked.filter(noteId => !targets.acked.includes(noteId))];
+  for (const [index, noteId] of noteIds.entries()) {
+    const known = acked.length + dead.length;
     try {
       await midenClientProxy.relayPrivateNoteById(noteId, targets.recipient!);
       acked.push(noteId);
@@ -359,15 +358,24 @@ const sweepRow = async (row: ITransaction, at: number, pass: PassState): Promise
         break;
       }
     }
+    // Persisted before the next note's push, so a later push that ends the row early (an
+    // eviction, a disabled transport) cannot take this note's outcome with it. The last
+    // note's outcome rides on the row's write below.
+    if (acked.length + dead.length > known && index < noteIds.length - 1) {
+      const soFar = ackedSoFar();
+      await recordNoteDelivery(
+        row.id,
+        targets.owed.every(owedId => soFar.includes(owedId)) ? 'relayed' : (row.noteDelivery ?? 'pending'),
+        { ackedNoteIds: soFar, ...(dead.length > 0 ? { deadNoteIds: dead } : {}) }
+      );
+    }
   }
 
   // A failed push says nothing against an earlier acknowledgement, so the row reads
   // `relayed` exactly while every owed note has one.
-  const ackedAfter = [...targets.acked, ...acked.filter(noteId => !targets.acked.includes(noteId))];
+  const ackedAfter = ackedSoFar();
   const allAcked = targets.owed.every(noteId => ackedAfter.includes(noteId));
   await recordNoteDelivery(row.id, allAcked ? 'relayed' : 'undelivered', {
-    // Every acknowledgement the row implies, not only this pass's: a legacy `relayed` row
-    // records none, and a partial list written now would read as the rest unacknowledged.
     ackedNoteIds: ackedAfter,
     ...(dead.length > 0 ? { deadNoteIds: dead } : {})
   });

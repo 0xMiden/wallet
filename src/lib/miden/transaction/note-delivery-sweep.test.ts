@@ -944,7 +944,7 @@ describe('the delivery schedule', () => {
     });
 
   // (d)
-  it('stops pushing for the pass after an outage: the next due row spends no attempt and is marked', async () => {
+  it('stops pushing for the pass after an outage: the next due row spends no attempt and is left as it was', async () => {
     rows.push(due('first', NOW - 2000), due('second', NOW - 1000));
     mockRelayById.mockRejectedValue(sendFailure('Unavailable'));
 
@@ -952,7 +952,37 @@ describe('the delivery schedule', () => {
 
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfirst']);
     expect(rows[0]).toMatchObject({ relayAttempts: 2, relayOutageDeferred: true });
-    expect(rows[1]).toMatchObject({ relayAttempts: 1, relayOutageDeferred: true, nextRelayAt: NOW - 1 });
+    // Still due, so the next pass pushes it whatever the mark says; only the row whose own push failed is marked.
+    expect(rows[1]).toMatchObject({ relayAttempts: 1, nextRelayAt: NOW - 1 });
+    expect(rows[1]!.relayOutageDeferred).toBeUndefined();
+  });
+
+  // An early exit must not lose what the row's earlier notes already got from the transport.
+  it.each([
+    ['a lock eviction', () => new WasmClientPoisonedError('watchdog', new Error('push parked'))],
+    [
+      'a transport the client reports disabled',
+      () =>
+        new Error(
+          'failed sending private output note: note transport error: note transport is disabled; ' +
+            'enable it in the client configuration to send or receive notes via P2P'
+        )
+    ]
+  ])("keeps the first note's acknowledgement when the second push ends the row on %s", async (_kind, makeError) => {
+    rows.push(
+      due('pair', NOW - 1000, {
+        type: 'execute',
+        relayNoteIds: ['0xa', '0xb'],
+        relayRecipientId: 'mtst1recipient',
+        noteDelivery: 'undelivered'
+      })
+    );
+    mockRelayById.mockResolvedValueOnce(undefined).mockRejectedValueOnce(makeError());
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xa', '0xb']);
+    expect(rows[0]!.relayAckedNoteIds).toEqual(['0xa']);
   });
 
   // (d2)
