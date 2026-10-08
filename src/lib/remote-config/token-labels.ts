@@ -1,4 +1,5 @@
-import { normalizedFaucetId, TOKEN_IETH } from 'lib/miden/swap/tokens';
+// The leaf, never lib/miden/swap/tokens: the metadata overrides read these labels (see faucet-ids.ts).
+import { IETH_FAUCET_ID, normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import type { BridgeConfigSnapshot } from './runtime';
@@ -26,7 +27,7 @@ interface TestnetToken {
 function staticTestnetTokens(): TestnetToken[] {
   return [
     {
-      faucetId: TOKEN_IETH.faucetId,
+      faucetId: IETH_FAUCET_ID,
       label: TEST_IETH_LABEL,
       info: { descriptionKey: 'testIethDescription', executionKey: 'testIethExecution' }
     }
@@ -52,7 +53,12 @@ function testnetTokenFor(tokens: TestnetToken[], faucetId: string | undefined): 
  * (`useBridgeConfigSnapshot`), so the label appears when the config lands.
  */
 export function midenTokenLabel(snapshot: BridgeConfigSnapshot, faucetId: string | undefined, symbol: string): string {
-  return testnetTokenFor(testnetMidenTokens(snapshot), faucetId)?.label ?? symbol;
+  return midenTokenLabelFor(snapshot, faucetId) ?? symbol;
+}
+
+/** The label `midenTokenLabel` shows for `faucetId`, or null when the token keeps its own symbol. */
+export function midenTokenLabelFor(snapshot: BridgeConfigSnapshot, faucetId: string | undefined): string | null {
+  return testnetTokenFor(testnetMidenTokens(snapshot), faucetId)?.label ?? null;
 }
 
 /** On testnet, the info of the entry for `faucetId` (iETH's, #477); null for any other token and off testnet. */

@@ -5,6 +5,7 @@ import axios from 'axios';
 import type * as FaucetIdSettingModule from 'lib/miden/assets/faucet-id-setting';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { MidenMessageType } from 'lib/miden/types';
 import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
 import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
@@ -683,6 +684,21 @@ describe('useWalletStore', () => {
       expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
       expect(state.assetsMetadata[OTHER]).toEqual({ ...faucetMetadata, name: 'Other', symbol: 'OTH' });
       expect(state.assetsMetadata[NATIVE]).toBeUndefined();
+    });
+
+    it("keeps testnet iETH's own metadata under an override stored for it, since the wallet names it itself (#477)", async () => {
+      const IETH = TOKEN_IETH.faucetId;
+      const ieth = { name: 'iETH', symbol: 'IETH', decimals: 8 };
+      useWalletStore.getState().setAssetsMetadata({ [IETH]: ieth });
+
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ [IETH]: { name: 'Mine', symbol: 'MINE' } });
+      expect(useWalletStore.getState().assetsMetadata[IETH]).toEqual(ieth);
+
+      await expect(
+        useWalletStore.getState().setTokenMetadataOverride(IETH, { name: 'Mine', symbol: 'MINE' })
+      ).rejects.toThrow('The metadata of this token cannot be overridden');
+      expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
+      expect(useWalletStore.getState().assetsMetadata[IETH]).toEqual(ieth);
     });
 
     describe('a balance read that lands after an override change', () => {

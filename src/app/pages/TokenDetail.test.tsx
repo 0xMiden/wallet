@@ -1327,9 +1327,9 @@ describe('TokenDetail', () => {
     // A token whose faucet scale is unknown, with the decimals the user stated.
     const userScaleMetadata = { ...shownMetadata, scaleIsUnknown: false, scaleFromOverride: true };
     const renderEditable = (o: Overrides = {}) =>
-      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: shownMetadata }], ...o });
+      renderPage({ balances: [{ tokenId: PLAIN_ID, balance: 12.5, metadata: shownMetadata }], ...o }, PLAIN_ID);
     const renderWithMetadata = (metadata: Record<string, unknown>) =>
-      renderEditable({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata }] });
+      renderEditable({ balances: [{ tokenId: PLAIN_ID, balance: 1, metadata }] });
     const action = () => screen.getByTestId('token-detail-edit');
     const field = (name: 'name' | 'symbol' | 'decimals') => screen.getByTestId(`edit-token-${name}`);
     const sheetOpen = () => screen.getByTestId('drawer').getAttribute('data-open');
@@ -1345,7 +1345,7 @@ describe('TokenDetail', () => {
     });
 
     it('offers no action for the native token', () => {
-      mockNativeFaucetId = TOKEN_ID;
+      mockNativeFaucetId = PLAIN_ID;
       renderEditable();
 
       expect(screen.queryByTestId('token-detail-edit')).toBeNull();
@@ -1455,7 +1455,7 @@ describe('TokenDetail', () => {
       fireEvent.change(field('decimals'), { target: { value: ' 18 ' } });
       fireEvent.click(screen.getByTestId('edit-token-save'));
 
-      expect(mockSetTokenMetadataOverride).toHaveBeenCalledWith(TOKEN_ID, {
+      expect(mockSetTokenMetadataOverride).toHaveBeenCalledWith(PLAIN_ID, {
         name: 'My Ether',
         symbol: 'METH',
         decimals: 18
@@ -1464,7 +1464,7 @@ describe('TokenDetail', () => {
     });
 
     it("saves a known-scale token's name and symbol only, so no stored decimals outlive the save", async () => {
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Ether', symbol: 'ETH', decimals: 2 } };
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { name: 'Ether', symbol: 'ETH', decimals: 2 } };
       renderEditable();
       fireEvent.click(action());
 
@@ -1472,7 +1472,7 @@ describe('TokenDetail', () => {
       fireEvent.click(screen.getByTestId('edit-token-save'));
 
       expect(mockSetTokenMetadataOverride).toHaveBeenCalledTimes(1);
-      expect(mockSetTokenMetadataOverride.mock.calls[0]).toStrictEqual([TOKEN_ID, { name: 'My Ether', symbol: 'ETH' }]);
+      expect(mockSetTokenMetadataOverride.mock.calls[0]).toStrictEqual([PLAIN_ID, { name: 'My Ether', symbol: 'ETH' }]);
       await waitFor(() => expect(sheetOpen()).toBe('false'));
     });
 
@@ -1538,7 +1538,7 @@ describe('TokenDetail', () => {
     });
 
     it('resets to the faucet values with a medium haptic, then closes the sheet', async () => {
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { symbol: 'ETH' } };
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { symbol: 'ETH' } };
       renderEditable();
       fireEvent.click(action());
 
@@ -1546,13 +1546,13 @@ describe('TokenDetail', () => {
 
       expect(screen.getByTestId('edit-token-reset')).toHaveTextContent('resetToFaucetValues');
       expect(mockHapticMedium).toHaveBeenCalled();
-      expect(mockClearTokenMetadataOverride).toHaveBeenCalledWith(TOKEN_ID);
+      expect(mockClearTokenMetadataOverride).toHaveBeenCalledWith(PLAIN_ID);
       expect(mockSetTokenMetadataOverride).not.toHaveBeenCalled();
       await waitFor(() => expect(sheetOpen()).toBe('false'));
     });
 
     it('marks an edited token with a neutral pill beside the card title', () => {
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine' } };
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { name: 'Mine' } };
       renderEditable();
 
       const pill = screen.getByTestId('token-detail-edited');
@@ -1568,11 +1568,31 @@ describe('TokenDetail', () => {
     });
 
     it('shows no Edited pill for the native token, whose override is never applied', () => {
-      mockNativeFaucetId = TOKEN_ID;
-      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine' } };
+      mockNativeFaucetId = PLAIN_ID;
+      mockTokenMetadataOverrides = { [PLAIN_ID]: { name: 'Mine' } };
       renderEditable();
 
       expect(screen.queryByTestId('token-detail-edited')).toBeNull();
+    });
+
+    it('offers no edit for testnet iETH, which the wallet names itself, and no Edited pill for an override stored before (#477)', () => {
+      mockTokenMetadataOverrides = { [TOKEN_ID]: { name: 'Mine', symbol: 'MINE' } };
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { name: 'iETH', symbol: 'IETH', decimals: 8 } }]
+      });
+
+      expect(screen.getByTestId('nav-title')).toHaveTextContent('Test iETH');
+      expect(screen.queryByTestId('token-detail-edit')).toBeNull();
+      expect(screen.queryByTestId('token-detail-edited')).toBeNull();
+    });
+
+    it('offers the edit for iETH off testnet, where the wallet gives it no name', () => {
+      mockTestNetworkKey = 'devnet';
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { name: 'iETH', symbol: 'IETH', decimals: 8 } }]
+      });
+
+      expect(screen.getByTestId('token-detail-edit')).toBeInTheDocument();
     });
   });
 });

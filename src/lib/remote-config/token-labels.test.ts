@@ -21,8 +21,8 @@ jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getTestNetworkNameKey: jest.fn() }));
 // normalizedFaucetId reduces every spelling of a faucet to one id: here, the configured faucet's hex to its bech32.
 const mockUsdcFaucetBech32 = 'mtst1arjemrxne8lj5qz4mg9c8mtyxv5mjv7j';
-jest.mock('lib/miden/swap/tokens', () => ({
-  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
+jest.mock('lib/miden/swap/faucet-ids', () => ({
+  ...jest.requireActual('lib/miden/swap/faucet-ids'),
   normalizedFaucetId: (faucetId: string) =>
     faucetId === '0x537c15a622074e91188aa894456c52' ? mockUsdcFaucetBech32 : faucetId
 }));

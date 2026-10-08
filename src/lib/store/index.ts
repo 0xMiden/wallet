@@ -928,7 +928,7 @@ export const useWalletStore = create<WalletStore>()(
 
     setTokenMetadataOverride: async (faucetId, override) => {
       if (!canOverrideMetadata(faucetId)) {
-        throw new Error('The metadata of the native token cannot be overridden');
+        throw new Error('The metadata of this token cannot be overridden');
       }
       await changeTokenMetadataOverride(faucetId, override);
     },
