@@ -7,6 +7,7 @@
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
 - [FEATURE][all] On testnet iETH is shown as "Test iETH", its token page says what it is, and an info sheet behind an "i" on the swap screens adds where the swap executes; Test iETH and testnet Test Epoch USDC, which the wallet names itself, can no longer be edited, and an override stored for either stops applying (#477).
 - [FEATURE][all] Explore's apps and sections come from the `0xMiden/wallet-explore` repository, so a merged change reaches every wallet within about an hour with no release, and each network shows its own catalog: devnet now lists the devnet faucet (#1361).
+- [FEATURE][all] On testnet, bridge Arc Testnet USDC to USDCx on Miden through Circle xReserve from Receive's Cross Chain entry, which stays enabled for this route when the Fast and Slow routes are unavailable, and send USDCx back to Arc Testnet with a burn whose confirmation Activity tracks; the wallet reads the USDCx faucet from the chain's native asset.
 
 ### Fixes
 
