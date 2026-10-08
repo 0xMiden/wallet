@@ -11,8 +11,7 @@ jest.mock('lib/miden/front', () => ({
   MIDEN_METADATA: {
     symbol: 'MIDEN',
     name: 'Miden',
-    decimals: 8,
-    shouldPreferSymbol: true
+    decimals: 8
   },
   isMidenAsset: jest.fn((slug: string) => slug === 'miden'),
   fetchFromStorage: jest.fn(),
@@ -32,20 +31,18 @@ describe('front/assets', () => {
       'token-1': {
         symbol: 'TKN1',
         name: 'Token One',
-        decimals: 8,
-        shouldPreferSymbol: true
+        decimals: 8
       },
       'token-2': {
         symbol: 'TKN2',
         name: 'Token Two',
-        decimals: 6,
-        shouldPreferSymbol: true
+        decimals: 6
       },
       'token-3': {
         symbol: 'ABC',
         name: 'Alpha Beta Coin',
         decimals: 18,
-        shouldPreferSymbol: false
+        description: 'A token for tests'
       }
     };
 
@@ -89,7 +86,7 @@ describe('front/assets', () => {
   describe('getTokensBaseMetadata', () => {
     it('returns metadata for a specific asset', async () => {
       const storedMetadata = {
-        'asset-1': { symbol: 'A1', name: 'Asset 1', decimals: 8, shouldPreferSymbol: true }
+        'asset-1': { symbol: 'A1', name: 'Asset 1', decimals: 8 }
       };
       mockFetchFromStorage.mockResolvedValue(storedMetadata);
 
@@ -119,13 +116,13 @@ describe('front/assets', () => {
   describe('setTokensBaseMetadata', () => {
     it('merges new metadata with existing storage', async () => {
       const existingMetadata = {
-        'existing-asset': { symbol: 'EX', name: 'Existing', decimals: 8, shouldPreferSymbol: true }
+        'existing-asset': { symbol: 'EX', name: 'Existing', decimals: 8 }
       };
       mockFetchFromStorage.mockResolvedValue(existingMetadata);
       mockPutToStorage.mockResolvedValue(undefined);
 
       const newMetadata = {
-        'new-asset': { symbol: 'NEW', name: 'New Asset', decimals: 6, shouldPreferSymbol: false }
+        'new-asset': { symbol: 'NEW', name: 'New Asset', decimals: 6 }
       };
 
       await setTokensBaseMetadata(newMetadata as Record<string, AssetMetadata>);
@@ -147,7 +144,7 @@ describe('front/assets', () => {
       mockPutToStorage.mockResolvedValue(undefined);
 
       const newMetadata = {
-        'first-asset': { symbol: 'FIRST', name: 'First', decimals: 8, shouldPreferSymbol: true }
+        'first-asset': { symbol: 'FIRST', name: 'First', decimals: 8 }
       };
 
       await setTokensBaseMetadata(newMetadata as Record<string, AssetMetadata>);

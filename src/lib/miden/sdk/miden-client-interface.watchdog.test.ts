@@ -65,7 +65,8 @@ describe('miden-client-interface watchdog pauses', () => {
       getEffectiveNetworkName: () => 'localnet',
       getEffectiveRpcUrl: () => 'rpc-local',
       getEffectiveProverUrl: () => undefined,
-      getEffectiveNoteTransportUrl: () => undefined
+      getEffectiveNoteTransportUrl: () => undefined,
+      getEffectiveFeeFaucetId: () => '0xfee'
     }));
     jest.doMock('./constants', () => ({ NoteExportType: {} }));
     jest.doMock('./helpers', () => ({

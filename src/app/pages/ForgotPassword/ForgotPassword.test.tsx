@@ -3,10 +3,32 @@ import React from 'react';
 import { act, render } from '@testing-library/react';
 
 import { isOnboardingFinishing } from 'app/onboarding-finish';
-import { deserializeError } from 'lib/intercom/helpers';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 import ForgotPassword from './ForgotPassword';
+
+// The real store, with each mark's arm/release recorded so the handler's ordering is assertable.
+const mockMarks: Array<{ arm: jest.Mock; release: jest.Mock }> = [];
+// Wraps the real navigateOnFromOnboarding so a holder that regresses to a plain navigate is
+// distinguishable from one that still goes through it: this stays a jest.fn, the delegate call
+// resolves the real module lazily so it is safe regardless of when the factory below runs.
+const mockNavigateOn = jest.fn((to: string) =>
+  jest.requireActual('app/onboarding-finish').navigateOnFromOnboarding(to)
+);
+jest.mock('app/onboarding-finish', () => {
+  const actual = jest.requireActual('app/onboarding-finish');
+  return {
+    ...actual,
+    navigateOnFromOnboarding: (to: string) => mockNavigateOn(to),
+    markOnboardingFinishing: () => {
+      const mark = actual.markOnboardingFinishing();
+      const recorded = { arm: jest.fn(() => mark.arm()), release: jest.fn(() => mark.release()) };
+      mockMarks.push(recorded);
+      return recorded;
+    }
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read/write at call time (must be `mock`-prefixed so
@@ -65,6 +87,12 @@ jest.mock('lib/woozie', () => ({
 const mockPostOnboardingRoute = jest.fn<string, []>(() => '/');
 jest.mock('lib/extension/side-panel-handoff', () => ({
   postOnboardingRoute: () => mockPostOnboardingRoute()
+}));
+
+// False (the extension and desktop path) unless a case sets it.
+const mockIsMobile = jest.fn(() => false);
+jest.mock('lib/platform', () => ({
+  isMobile: () => mockIsMobile()
 }));
 
 // Store the latest handler closure so tests can invoke the mobile back handler
@@ -178,6 +206,7 @@ beforeEach(() => {
   mockClassifyError.mockReturnValue('unknown');
   mockFetchFromStorage.mockResolvedValue(null);
   mockPostOnboardingRoute.mockReturnValue('/');
+  mockIsMobile.mockReturnValue(false);
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
   captured.onAction = undefined;
   captured.backHandler = undefined;
@@ -205,6 +234,17 @@ describe('ForgotPassword', () => {
   it('create-wallet: generates a seed phrase and moves to BackupSeedPhrase (Create)', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'create-wallet' });
+    const el = flow(container);
+    expect(mockGenerateMnemonic).toHaveBeenCalledTimes(1);
+    expect(el.getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
+    expect(el.getAttribute('data-type')).toBe(OnboardingType.Create);
+    expect(el.getAttribute('data-step')).toBe(OnboardingStep.BackupSeedPhrase);
+  });
+
+  // The onboarding Welcome step's Get started emits choose-protection, not create-wallet.
+  it('choose-protection: generates a seed phrase and moves to BackupSeedPhrase (Create)', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'choose-protection' });
     const el = flow(container);
     expect(mockGenerateMnemonic).toHaveBeenCalledTimes(1);
     expect(el.getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
@@ -263,6 +303,33 @@ describe('ForgotPassword', () => {
     const { container } = renderPage();
     await dispatch({ id: 'create-password' });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+  });
+
+  it('mobile: the create path asks for a passcode, backs out to VerifySeedPhrase and confirms', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const { container } = renderPage();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'verify-seed-phrase' });
+    await dispatch({ id: 'create-password' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.VerifySeedPhrase);
+
+    await dispatch({ id: 'create-password' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+  });
+
+  it('mobile: the import path asks for a passcode and backs out to ImportFromSeed', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.SetupPasscode);
+
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
   });
 
   it('create-password-submit: stores the password and moves to Confirmation', async () => {
@@ -344,6 +411,12 @@ describe('ForgotPassword', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
+    expect(mockNavigateOn).toHaveBeenCalledWith('/finish-side-panel');
+    const mark = mockMarks[mockMarks.length - 1]!;
+    expect(mockNavigateOn.mock.invocationCallOrder[mockNavigateOn.mock.invocationCallOrder.length - 1]!).toBeLessThan(
+      mark.release.mock.invocationCallOrder[0]!
+    );
   });
 
   it('holds the finishing mark while it registers and releases it after navigating on', async () => {
@@ -411,12 +484,14 @@ describe('ForgotPassword', () => {
   it('surfaces the reason for the shape the EXTENSION actually rejects with (#630)', async () => {
     // Every other case here rejects with `new Error(...)`, which is not what
     // production produces: on the extension `registerWallet` crosses the intercom
-    // port and a rejected request rejects with `deserializeError(...)`. That used
-    // to be an object that only `implements Error`, so the `e instanceof Error`
-    // narrowing below fell through to `String(e)` and the user — whose wallet had
-    // just been wiped — was shown the literal "[object Object]". Build the error
-    // through the real deserializer so this stays pinned to the production shape.
-    mockRegisterWallet.mockRejectedValue(deserializeError('Failed to create wallet'));
+    // port and a rejected request rejects with `deserializeInternalError(...)` of what
+    // `serializeInternalError` sent. That used to be an object that only `implements Error`,
+    // so the `e instanceof Error` narrowing below fell through to `String(e)` and the user -
+    // whose wallet had just been wiped - was shown the literal "[object Object]". Build the
+    // error through the real port pair so this stays pinned to the production shape.
+    mockRegisterWallet.mockRejectedValue(
+      deserializeInternalError(serializeInternalError(new Error('Failed to create wallet')))
+    );
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
@@ -457,7 +532,7 @@ describe('ForgotPassword', () => {
     // namespace, so a user who onboarded with "no guardian" had their wallet
     // wiped by clearClientStorage() and then hit "No Guardian accounts found at
     // this guardian endpoint for this seed" — their OffChain account at
-    // m/44'/0'/1'/0' was never derived or looked up.
+    // getMainDerivationPath(WalletType.OffChain, 0) was never derived or looked up.
     const { container } = renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
@@ -523,8 +598,8 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
-    // Stage 1 of #408: the detected endpoint is threaded explicitly into
-    // registerWallet rather than written to the global GUARDIAN_URL_STORAGE_KEY.
+    // The detected endpoint is threaded into registerWallet, never written to
+    // storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledWith(
       WalletType.Guardian,
@@ -589,9 +664,7 @@ describe('ForgotPassword', () => {
   });
 
   it('clears the spinner and retries from the start when the recovery wipe throws (#1093)', async () => {
-    mockClearClientStorage.mockImplementationOnce(() => {
-      throw new Error('storage unavailable');
-    });
+    mockClearClientStorage.mockRejectedValueOnce(new Error('storage unavailable'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });

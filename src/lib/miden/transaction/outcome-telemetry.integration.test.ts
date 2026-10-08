@@ -47,7 +47,10 @@ jest.mock('lib/telemetry/report-operation', () => ({
 }));
 (global as unknown as { __reported: SettledOperation[] }).__reported = reported;
 
-jest.mock('../back/background-notification', () => ({ notifyBackgroundTransactionFailed: jest.fn() }));
+jest.mock('../back/background-notification', () => ({
+  notifyBackgroundTransactionFailed: jest.fn(),
+  notifyBackgroundTransactionNotConfirmed: jest.fn()
+}));
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: { getInputNoteDetails: jest.fn(async () => []), syncState: jest.fn(async () => ({})) },
   dispatchGuardianPipeline: jest.fn()
@@ -57,7 +60,10 @@ jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn()
 }));
 jest.mock('lib/platform', () => ({ isMobile: () => false, isExtension: () => true, isDesktop: () => false }));
-jest.mock('lib/mobile/background-time', () => ({ hiddenSecondsSince: () => 0 }));
+jest.mock('lib/mobile/background-time', () => ({
+  ...jest.requireActual('lib/mobile/background-time'),
+  hiddenSecondsSince: () => 0
+}));
 
 /** Started 30 seconds ago, so the reported duration is a real elapsed time. */
 const STARTED_SECONDS_AGO = 30;
@@ -153,7 +159,7 @@ describe('what is not a failure', () => {
   ])('reports nothing when %s', async (_why, reason) => {
     // Counting these would put a floor under the error rate that no amount of
     // fixing could lower, and the startup sweep alone would dominate it: it
-    // fails every in-progress row on every cold start.
+    // fails every in-progress row an earlier session left, on every cold start.
     const tx = row(`not-a-failure-${reason}`);
     await Repo.transactions.add(tx);
 
@@ -288,7 +294,7 @@ describe('a transaction that succeeded', () => {
     await Repo.transactions.add(tx);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {});
-    await markBridgedSendFailed(tx.id, 'solver has no liquidity for this route', 12345);
+    await markBridgedSendFailed(tx.id, 'solver has no liquidity for this route');
 
     expect(reported).toEqual([
       { operation: 'tx_bridge', result: 'completed', durationMs: expect.any(Number) },

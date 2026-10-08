@@ -4,10 +4,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { SelectRecipient, SelectRecipientProps } from './SelectRecipient';
 
-jest.mock('lib/epoch', () => ({
-  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL: 'USDC',
-  EPOCH_DESTINATION_CHAIN_ID: 11155111
-}));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -17,7 +13,6 @@ const MIDEN_ADDRESS = 'mtst1recipient';
 
 const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
-  BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
   },
@@ -81,6 +76,13 @@ describe('SelectRecipient', () => {
     renderRecipient();
 
     expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
+  });
+
+  it('hides the placeholder while the recipient field is focused, as the other text fields do', () => {
+    renderRecipient({ onScan: jest.fn() });
+    const field = screen.getByTestId('send-recipient-input');
+    expect(field).toHaveClass('focus:placeholder:text-transparent');
+    expect(field).toHaveAttribute('placeholder');
   });
 
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
@@ -300,6 +302,76 @@ describe('SelectRecipient — paste', () => {
     renderRecipient();
 
     expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+});
+
+describe('SelectRecipient: clear (#503)', () => {
+  const clearButton = () => screen.queryByRole('button', { name: 'clear' });
+
+  it('offers no clear action while the address field is empty', () => {
+    renderRecipient();
+    expect(clearButton()).toBeNull();
+  });
+
+  it('clears an entered address through the change handler typing uses, keeping focus', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: MIDEN_ADDRESS,
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+    expect(screen.getByTestId('send-recipient-input')).toHaveFocus();
+  });
+
+  it('empties the field and drops the button once its owner takes the empty address', () => {
+    const Owner = () => {
+      const [address, setAddress] = React.useState(MIDEN_ADDRESS);
+      return (
+        <SelectRecipient
+          {...baseRecipientProps()}
+          address={address}
+          onAddressChange={event => setAddress(event.target.value)}
+        />
+      );
+    };
+    render(<Owner />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(screen.getByTestId('send-recipient-input')).toHaveValue('');
+    expect(clearButton()).toBeNull();
+  });
+
+  it('offers to clear an address of only spaces, which the pills already treat as empty', () => {
+    const seen: string[] = [];
+    renderRecipient({
+      address: '   ',
+      onPaste: jest.fn(),
+      onAddressChange: event => {
+        seen.push(event.target.value);
+      }
+    });
+    expect(screen.getByTestId('send-paste')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(seen).toEqual(['']);
+  });
+
+  it('sits at the end of the address line, the field shrinking for it', () => {
+    renderRecipient({ address: MIDEN_ADDRESS });
+    const field = screen.getByTestId('send-recipient-input');
+    const clear = screen.getByRole('button', { name: 'clear' });
+    expect(clear.parentElement).toBe(field.parentElement);
+    expect(field).toHaveClass('min-w-0', 'flex-1');
+    expect(field).not.toHaveClass('w-full');
+    expect(clear).toHaveClass('-my-2');
+    expect(clear).not.toHaveClass('-mr-3');
   });
 });
 

@@ -45,6 +45,13 @@ export async function settleCaptureMotion(page: MotionPage): Promise<void> {
 // liveness verdict into otherwise deterministic operator captures.
 export const guardianPubkeyRoute = /\/pubkey(?:\?.*)?$/;
 
+// What the stubbed operators serve: it must have a Guardian key's shape, or the picker shows them offline.
+export const guardianPubkeyStubCommitment = `0x${'5b'.repeat(32)}`;
+
+// The Explore catalog's published repo. Capture refuses it, so the launcher draws the catalog the build bundles,
+// bundled icons included: the same rows on every run, whatever the repo holds that day.
+export const exploreCatalogRoute = /^https:\/\/raw\.githubusercontent\.com\/0xMiden\/wallet-explore\//;
+
 const runtimes = {
   appStore: {
     platformFlag: 'ios',
@@ -120,7 +127,7 @@ export const capturePlan: CapturePlanEntry[] = [
     sceneId: 'ios-dapp-browser',
     fixtureState: 'deterministic-fixture-dapp-browser',
     outputPath: 'store-listing/raw/app-store/ios-dapp-browser.png',
-    ready: { testId: 'dapp-hero-search', hiddenTestIds: [] }
+    ready: { testId: 'dapp-grid-card', hiddenTestIds: [] }
   }),
   entry('appStore', {
     sceneId: 'ios-protection',
@@ -133,7 +140,7 @@ export const capturePlan: CapturePlanEntry[] = [
     sceneId: 'android-dapp-browser',
     fixtureState: 'deterministic-fixture-dapp-browser',
     outputPath: 'store-listing/raw/play-store/android-dapp-browser.png',
-    ready: { testId: 'dapp-hero-search', hiddenTestIds: [] }
+    ready: { testId: 'dapp-grid-card', hiddenTestIds: [] }
   }),
   entry('playStore', {
     sceneId: 'android-local-proving',
@@ -220,7 +227,7 @@ validateCapturePlan(capturePlan);
 /**
  * The page-side shim every capture context installs, hoisted so it can be driven directly.
  *
- * It wraps `globalThis.fetch` in an accessor so the wallet's own `installGuardianCorsBypass` can
+ * It wraps `globalThis.fetch` in an accessor so the wallet's own `installGuardianFetchBoundary` can
  * still install its wrapper, while a re-entrant call from inside that wrapper reaches the real
  * browser fetch instead of looping. The guard distinguishes NESTING from CONCURRENCY: it covers
  * only the synchronous call into the installed wrapper, never the network round trip, because a
@@ -254,4 +261,28 @@ export function installCaptureShim(platformName: string): void {
   try {
     localStorage.setItem('theme_setting_key', JSON.stringify('light'));
   } catch {}
+}
+
+/**
+ * The init script that makes the platform's vault hardware probe pass, as on a device with a Secure Enclave or a
+ * hardware-backed keystore. Welcome renders the protection chooser only where that probe passes, and this simulated
+ * mobile browser has no native plugin, so only the onboarding capture installs it: nothing here implements the
+ * vault's hardware-key calls a wallet context would go on to make.
+ *
+ * Capacitor's core keeps a `Capacitor` global that already exists, and sends a method its `PluginHeaders` list to
+ * `nativePromise`, as a native bridge does. Only `isHardwareSecurityAvailable` is listed, so every other method on
+ * the plugin stays unimplemented.
+ */
+export function installHardwareSecurityShim(platformName: string): void {
+  const pluginName = platformName === 'ios' ? 'LocalBiometric' : 'HardwareSecurity';
+  const methodName = 'isHardwareSecurityAvailable';
+  const existing: unknown = Reflect.get(globalThis, 'Capacitor');
+  const capacitor = typeof existing === 'object' && existing !== null ? existing : {};
+  Reflect.set(capacitor, 'PluginHeaders', [{ name: pluginName, methods: [{ name: methodName, rtype: 'promise' }] }]);
+  Reflect.set(capacitor, 'nativePromise', (plugin: string, method: string) =>
+    plugin === pluginName && method === methodName
+      ? Promise.resolve({ available: true })
+      : Promise.reject(new Error(`${plugin}.${method}() is not implemented by the capture shim`))
+  );
+  Reflect.set(globalThis, 'Capacitor', capacitor);
 }

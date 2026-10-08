@@ -1,4 +1,3 @@
-import { BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL, EPOCH_DESTINATION_CHAIN_ID } from 'lib/epoch';
 import { USDCX_CHAIN } from 'lib/usdcx/constant';
 
 /**
@@ -19,7 +18,8 @@ export interface BridgeNetwork {
   chainId: number;
 }
 
-const SEPOLIA: BridgeNetwork = { id: 'sepolia', name: 'Sepolia', chainId: EPOCH_DESTINATION_CHAIN_ID };
+// A display descriptor of Sepolia itself; the chain a bridge settles on is the config's `evm.chainId`.
+const SEPOLIA: BridgeNetwork = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
 export const USDCX_BRIDGE_NETWORK: BridgeNetwork = {
   id: 'arc-testnet',
   name: USDCX_CHAIN.name,
@@ -30,9 +30,6 @@ export const BRIDGE_NETWORKS: readonly BridgeNetwork[] = [SEPOLIA, USDCX_BRIDGE_
 
 /** The network pre-selected when a cross-chain send begins. */
 export const DEFAULT_BRIDGE_NETWORK: BridgeNetwork = SEPOLIA;
-
-/** Token symbol every bridged send arrives as on the destination chain. */
-export const BRIDGE_OUTPUT_TOKEN_SYMBOL = BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL;
 
 export function getBridgeNetwork(id: BridgeNetworkId | undefined): BridgeNetwork | undefined {
   return BRIDGE_NETWORKS.find(n => n.id === id);

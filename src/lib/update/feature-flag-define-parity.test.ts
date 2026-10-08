@@ -1,4 +1,12 @@
-import { defineEntry, defineSource, occurrences, readSource, viteConfigs } from '../testing/define-parity';
+import {
+  defineEntry,
+  defineSource,
+  envReads,
+  listSources,
+  occurrences,
+  readSource,
+  viteConfigs
+} from '../testing/define-parity';
 
 const CONFIGS = viteConfigs();
 
@@ -37,6 +45,40 @@ describe('update notification build-time flag', () => {
       const defines = defineSource(readSource(config));
       expect(occurrences(defines, `'process.env.MIDEN_E2E_TEST':`)).toBe(1);
       expect(defines).toMatch(defineEntry('MIDEN_E2E_TEST', `process.env.MIDEN_E2E_TEST ?? 'false'`));
+    }
+  );
+});
+
+// Every env read in the remote-config and Explore catalog modules except the E2E flag, which is pinned above, must be
+// forwarded as the raw value with an empty default. A config missing one would bake `{}.X`, i.e. undefined, into that
+// bundle, and its E2E build would read the published repo instead of the served document. A later read with a
+// different default fails here on purpose, until the case is written for it.
+const REMOTE_CONFIG_KEYS = [
+  ...new Set(
+    ['src/lib/remote-config', 'src/lib/explore-config']
+      .flatMap(dir => listSources(dir))
+      .flatMap(file => envReads(readSource(file)))
+  )
+]
+  .filter(key => key !== 'MIDEN_E2E_TEST' && key !== 'NODE_ENV')
+  .sort();
+
+describe('remote config defines', () => {
+  it('finds the served-document URLs among the remote-config and Explore catalog env reads', () => {
+    // A read moved out of the modules would otherwise drop out of the cases below unpinned.
+    expect(REMOTE_CONFIG_KEYS).toEqual(expect.arrayContaining(['MIDEN_REMOTE_CONFIG_URL', 'MIDEN_EXPLORE_CONFIG_URL']));
+  });
+
+  it('declares the Explore catalog URL in ProcessEnv, writable so tests can set it', () => {
+    expect(readSource('src/react-app.d.ts')).toContain('    MIDEN_EXPLORE_CONFIG_URL?: string;');
+  });
+
+  it.each(CONFIGS.flatMap(config => REMOTE_CONFIG_KEYS.map(key => [config, key])))(
+    '%s forwards %s with an empty default',
+    (config, key) => {
+      const defines = defineSource(readSource(config));
+      expect(occurrences(defines, `'process.env.${key}':`)).toBe(1);
+      expect(defines).toMatch(defineEntry(key, `process.env.${key} ?? ''`));
     }
   );
 });

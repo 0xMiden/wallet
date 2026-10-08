@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
-import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, BRIDGE_OUTPUT_TOKEN_SYMBOL } from 'screens/send-flow/bridge-networks';
+import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
 
@@ -12,7 +12,12 @@ import { EvmWalletHeader } from './EvmWalletHeader';
 
 interface EvmBridgeDepositFormProps {
   token: UIToken;
+  /** The source network. Defaults to Sepolia; the USDCx route passes Arc Testnet. */
   network?: BridgeNetwork;
+  /** The token's name, such as the testnet label (`evmUsdcLabel`). */
+  tokenLabel: string;
+  /** What the deposit arrives on Miden as on the route chosen (`arrivingTokenName`), as the Review names it. */
+  arrivingName: string;
   amount: string;
   isValidAmount: boolean;
   error?: string;
@@ -29,6 +34,8 @@ interface EvmBridgeDepositFormProps {
 export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   token,
   network = DEFAULT_BRIDGE_NETWORK,
+  tokenLabel,
+  arrivingName,
   amount,
   isValidAmount,
   error,
@@ -44,12 +51,13 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   return (
     <SelectAmount
       token={token}
+      tokenLabel={tokenLabel}
       amount={amount}
       isValidAmount={isValidAmount}
       error={error}
       isBridge
       network={network}
-      outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
+      outputSymbol={arrivingName}
       title={title}
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}

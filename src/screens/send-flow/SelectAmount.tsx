@@ -29,6 +29,11 @@ export interface SelectAmountProps {
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  /**
+   * Keep the field's invalid (red) state for `error` but leave its message to the caller, which
+   * draws it elsewhere (the swap's fee notice sits under the token, with its own action).
+   */
+  hideErrorText?: boolean;
   /** Overrides the amount label (e.g. "Select Amount", "You Pay"). */
   label?: React.ReactNode;
   /** Overrides the Confirm button label in the page variant. */
@@ -54,8 +59,13 @@ export interface SelectAmountProps {
    * carries one colour throughout (design-system.md, "Action colours").
    */
   accent?: FlowAccent;
-  /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
+  /** The mark drawn when `token.name` has none and the verified list gives no logo, e.g. the DEX `logoSymbol`. */
   logoSymbol?: string;
+  /**
+   * The token's name in the selector and the Available line, such as a testnet label. Defaults to `token.name`, which
+   * still keys the logo.
+   */
+  tokenLabel?: string;
   /** Cross-chain deposit — swaps the Miden chip for a destination-network selector. */
   isBridge?: boolean;
   /** Chosen destination network (bridge only). */
@@ -66,6 +76,15 @@ export interface SelectAmountProps {
   title?: React.ReactNode;
   /** Show a skeleton in place of the amount while it is being computed (e.g. the swap receive quote). */
   loading?: boolean;
+  /**
+   * Inset the page variant at the 16px page margin instead of the send flow's own, and start it at
+   * the height the earn pages start under their header. For a page whose header sits on that margin
+   * (the earn deposit step), so the field lines up under the back button and its first line starts
+   * where the vault page's does.
+   */
+  pageInset?: boolean;
+  /** Draw the accent rule under a typed amount. The earn deposit step turns it off. */
+  showAmountDivider?: boolean;
   onSelectNetwork?: () => void;
 }
 
@@ -84,6 +103,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  hideErrorText = false,
   label,
   confirmTitle,
   showNetworkPill = true,
@@ -95,11 +115,14 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   embedded = false,
   accent = 'brand',
   logoSymbol,
+  tokenLabel,
   isBridge = false,
   network,
   outputSymbol,
   title,
   loading,
+  pageInset = false,
+  showAmountDivider = true,
   onSelectNetwork
 }) => {
   const { t } = useTranslation();
@@ -125,15 +148,17 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         hapticLight();
         onSelectToken();
       }}
-      className="flex items-center gap-1.25 cursor-pointer rounded-full bg-input-bg px-3 py-2"
+      className="flex items-center gap-1.5 cursor-pointer rounded-full bg-input-bg py-1.5 pr-2.5 pl-1.5"
     >
       {token ? (
-        <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+        <TokenLogo symbol={token.name} faucetId={token.id} fallbackSymbol={logoSymbol} size="sm" />
       ) : embedded ? (
-        <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
+        <Avatar size={24} icon={<span className="text-sm font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
-      <Icon name={IconName.ChevronDown} size="sm" className={accentClasses.text} fill="currentColor" />
+      <span className="font-heading text-xl font-bold text-ink">
+        {token ? (tokenLabel ?? token.name) : t('selectAToken')}
+      </span>
+      <Icon name={IconName.ChevronDown} size="xs" className={accentClasses.text} fill="currentColor" />
     </button>
   );
 
@@ -151,11 +176,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         className="flex items-center gap-3 text-left"
       >
         {token ? (
-          <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+          <TokenLogo symbol={token.name} faucetId={token.id} fallbackSymbol={logoSymbol} size="md" />
         ) : (
           <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
         )}
-        <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
+        <span className="font-heading text-2xl font-bold text-ink">
+          {token ? (tokenLabel ?? token.name) : t('selectAToken')}
+        </span>
         <Icon name={IconName.ChevronRightLucide} size="sm" className={accentClasses.text} />
       </button>
 
@@ -213,7 +240,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             <AnimatedNumber
               key={token.id}
               value={token.balance}
-              format={value => `${t('available')} ${formatAvailableBalance(value)} ${token.name}`}
+              format={value => `${t('available')} ${formatAvailableBalance(value)} ${tokenLabel ?? token.name}`}
             />
           ) : (
             t('unknownTokenScale')
@@ -238,7 +265,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
       invalid={!!error}
-      error={error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
+      error={!hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
       // how much is spendable (#461). Embedded callers that don't want it (e.g.
@@ -246,7 +273,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       helper={helper}
       tokenSelector={isBridge ? bridgeSelector : tokenSelector}
       accent={accent}
-      showDivider={!!amount && !!token}
+      showDivider={showAmountDivider && !!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
       onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
@@ -258,8 +285,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   }
 
   return (
-    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
-      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', pageInset ? 'px-4' : isMobile() ? 'px-8' : 'px-6')}>
+      <div className={clsx('flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar', pageInset ? 'pt-7' : 'pt-10')}>
         {title}
         {showNetworkPill && !isBridge && (
           <span

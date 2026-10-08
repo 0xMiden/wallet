@@ -75,7 +75,7 @@ describe('BottomNav — exports & structure', () => {
     const { container } = renderNav();
 
     const nav = container.querySelector('nav')!;
-    expect(nav).toHaveClass('flex', 'items-center', 'bg-page');
+    expect(nav).toHaveClass('flex', 'items-center', 'bg-pure-white/2');
     expect(screen.getAllByRole('button')).toHaveLength(3);
     for (const label of ['Home', 'Activity', 'Settings']) {
       // Icons only: the label is the button's accessible name, never visible text.
@@ -85,51 +85,36 @@ describe('BottomNav — exports & structure', () => {
     }
   });
 
-  it('floats as a rounded, shadowed pill by default, on the page surface', () => {
+  it('floats as a glass capsule: white at 2% over a 6px blur, a white edge, an inner glow and two highlights', () => {
     const { container } = renderNav();
 
     const nav = container.querySelector('nav')!;
-    // The original floating pill: 8px above and below the 56px tabs, centred, rounded, shadowed.
-    expect(nav).toHaveClass('rounded-3xl', 'px-4', 'py-2', 'justify-center');
-    expect(nav.className).toContain('shadow-[');
+    // 4px of bar around the 48px tabs, centred, fully rounded.
+    expect(nav).toHaveClass('rounded-full', 'p-1', 'justify-center', 'overflow-hidden');
+    expect(nav).toHaveClass('border', 'border-pure-white/30', 'bg-pure-white/2');
+    // Plain filter values, prefixed and not: a composed `backdrop-blur-*` draws no blur on older WebViews.
+    expect(nav).toHaveClass('[backdrop-filter:blur(6px)]', '[-webkit-backdrop-filter:blur(6px)]');
+    expect(nav).not.toHaveClass('backdrop-blur-[6px]');
+    // A thin glow: a larger one fills the 58px bar with white. Dark mode uses much less white.
+    expect(nav.className).toContain('inset_0_0_12px_2px_rgba(255,255,255,0.12)');
+    expect(nav.className).toContain('inset_0_0_12px_2px_rgba(255,255,255,0.02)');
+    expect(nav).toHaveClass('dark:border-pure-white/10', 'dark:before:via-pure-white/25');
+    // The top and left highlights never take a tap from a tab.
+    expect(nav).toHaveClass('before:h-px', 'before:bg-linear-to-r', 'before:pointer-events-none');
+    expect(nav).toHaveClass('after:w-px', 'after:bg-linear-to-b', 'after:pointer-events-none');
     expect(nav).not.toHaveClass('border-t');
   });
 
-  it('docks edge to edge with a hairline top rule and the safe-area padding when `docked`', () => {
-    const { container } = renderNav({ docked: true });
+  it('never reads the safe-area inset: the owner keeps the pill clear of it', () => {
+    const { container } = renderNav();
 
-    const nav = container.querySelector('nav')!;
-    expect(nav).toHaveClass('w-full', 'border-t', 'border-hairline', 'bg-page');
-    // The original docked geometry: 8px above the tabs, and below them the body's safe-area floor
-    // minus 16px with an 8px floor (18px on an iPhone: 1 + 8 + 56 + 18 = 83px).
-    expect(nav).toHaveClass(
-      'pt-2',
-      'pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))]'
-    );
-    expect(nav).not.toHaveClass('rounded-3xl');
-    expect(nav.className).not.toContain('shadow-');
-  });
-
-  it('pads a docked bar by the whole inset plus 8px with `clearInset`, so the tabs end above the system bar', () => {
-    const { container } = renderNav({ docked: true, clearInset: true });
-
-    const nav = container.querySelector('nav')!;
-    expect(nav).toHaveClass('w-full', 'border-t', 'pt-2', 'pb-[calc(env(safe-area-inset-bottom)+0.5rem)]');
-    expect(nav.className).not.toContain('-16px');
-  });
-
-  it('ignores `clearInset` on the floating pill, which never meets the inset', () => {
-    const { container } = renderNav({ clearInset: true });
-
-    const nav = container.querySelector('nav')!;
-    expect(nav).toHaveClass('rounded-3xl', 'py-2');
-    expect(nav.className).not.toContain('safe-area-inset-bottom');
+    expect(container.querySelector('nav')!.className).not.toContain('safe-area-inset-bottom');
   });
 
   it('appends a caller-supplied className to the nav container', () => {
     const { container } = renderNav({ className: 'my-extra-class' });
 
-    expect(container.querySelector('nav')).toHaveClass('my-extra-class', 'bg-page');
+    expect(container.querySelector('nav')).toHaveClass('my-extra-class', 'bg-pure-white/2');
   });
 
   it('renders an empty nav when there are no items', () => {
@@ -141,20 +126,20 @@ describe('BottomNav — exports & structure', () => {
 });
 
 describe('BottomNav — sizing shared with the action bar', () => {
-  it('keeps the original 80 x 56 tab (a 72 x 48 pill plus 4px) with a 24px icon', () => {
+  it('draws a 64 x 48 tab (a 56 x 40 highlight plus 4px) with a 24px icon', () => {
     renderNav();
 
     for (const label of ['Home', 'Activity', 'Settings']) {
-      expect(getTab(label)).toHaveClass('h-14', 'w-20', 'p-1', 'group');
+      expect(getTab(label)).toHaveClass('h-12', 'w-16', 'p-1', 'group');
       expect(iconOf(getTab(label))).toHaveClass('size-6', '[&>svg]:size-6');
     }
   });
 
-  it('draws the highlight as a raised 72 x 48 bubble that sinks while pressed', () => {
+  it('draws the highlight as a raised 56 x 40 bubble that sinks while pressed', () => {
     renderNav();
 
     const pill = pillIn(getTab('Home'))!;
-    // 80 x 56 tab minus inset-1 (4px) all round = 72 x 48.
+    // 64 x 48 tab minus inset-1 (4px) all round = 56 x 40.
     expect(pill).toHaveClass('inset-1', 'rounded-full', 'bg-raised', 'shadow-raised');
     expect(pill).toHaveClass('group-active:shadow-raised-pressed');
     expect(pill).not.toHaveClass('bg-fill');
@@ -326,81 +311,6 @@ describe('BottomNav — four destinations', () => {
     const buttons = screen.getAllByRole('button');
     expect(buttons.map(b => b.getAttribute('aria-label'))).toEqual(['Home', 'Explore', 'Activity', 'Settings']);
     expect(buttons.filter(b => b.hasAttribute('aria-current'))).toEqual([getTab('Settings')]);
-  });
-});
-
-describe('BottomNav — corner overlay', () => {
-  it('draws the corner over the bar, clipped to its shape and transparent to taps, taking no layout space', () => {
-    const { container } = renderNav({ corner: <button type="button">Testnet</button> });
-
-    const nav = container.querySelector('nav')!;
-    const ribbon = screen.getByRole('button', { name: 'Testnet' });
-    const box = ribbon.parentElement!;
-    expect(nav).toHaveClass('relative');
-    expect(box).toHaveAttribute('data-slot', 'bottom-nav-corner');
-    expect(box).toHaveClass('pointer-events-none', 'absolute', 'inset-0', 'overflow-hidden', 'rounded-[inherit]');
-    // Out of flow: the nav's only in-flow child is still the tab row, so the tabs keep their widths.
-    const inFlow = Array.from(nav.children).filter(child => !child.classList.contains('absolute'));
-    expect(inFlow).toHaveLength(1);
-    expect(inFlow[0]).toHaveClass('flex', 'gap-2');
-    ['Home', 'Activity', 'Settings'].map(getTab).forEach(tab => {
-      expect(tab).not.toContainElement(ribbon);
-      expect(tab).toHaveClass('w-20');
-    });
-  });
-
-  it('spreads docked tabs across the full width, as without a corner', () => {
-    const { container } = renderNav({ docked: true, corner: <span /> });
-
-    expect(container.querySelector('nav')).toHaveClass('px-4');
-    expect(container.querySelector('nav')!.firstElementChild).toHaveClass('flex-1', 'justify-around');
-  });
-
-  it('keeps every tab tappable with a corner drawn over them', () => {
-    const onChange = jest.fn();
-    renderNav({ onChange, corner: <button type="button">Testnet</button> });
-
-    fireEvent.click(getTab('Settings'));
-
-    expect(onChange).toHaveBeenCalledWith('settings');
-  });
-
-  it('renders no corner box without one', () => {
-    const { container } = renderNav();
-
-    expect(container.querySelector('[data-slot="bottom-nav-corner"]')).toBeNull();
-    expect(container.querySelector('nav')!.children).toHaveLength(1);
-  });
-
-  it('ends the corner at the inset with `clearInset`, so the ribbon sits above the system bar', () => {
-    renderNav({ docked: true, clearInset: true, corner: <button type="button">Testnet</button> });
-
-    const box = screen.getByRole('button', { name: 'Testnet' }).parentElement!;
-    expect(box).toHaveAttribute('data-slot', 'bottom-nav-corner');
-    expect(box).toHaveClass(
-      'absolute',
-      'inset-x-0',
-      'top-0',
-      'bottom-[env(safe-area-inset-bottom)]',
-      'overflow-hidden'
-    );
-    expect(box).not.toHaveClass('inset-0');
-  });
-
-  it('keeps the corner on the whole docked bar without `clearInset`', () => {
-    renderNav({ docked: true, corner: <button type="button">Testnet</button> });
-
-    const box = screen.getByRole('button', { name: 'Testnet' }).parentElement!;
-    expect(box).toHaveClass('inset-0');
-    expect(box.className).not.toContain('safe-area-inset-bottom');
-  });
-
-  it('ignores `clearInset` on the floating pill corner, which never meets the inset', () => {
-    renderNav({ clearInset: true, corner: <button type="button">Testnet</button> });
-
-    const box = screen.getByRole('button', { name: 'Testnet' }).parentElement!;
-    expect(box).toHaveClass('inset-0');
-    expect(box.className).not.toContain('safe-area-inset-bottom');
   });
 });
 

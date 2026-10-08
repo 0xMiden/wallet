@@ -18,24 +18,30 @@
  * underneath it is the easy part.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const DEFAULT_EPOCH_URL = 'https://testnet-dev.epochprotocol.xyz';
-const DEFAULT_EPOCH_POSITIONS_URL = 'https://positions-testnet-dev.epochprotocol.xyz';
 const DEFAULT_SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
 const SEPOLIA_CHAIN_ID = 11155111;
 /** Epoch's virtual chain id for a Miden leg - src/lib/epoch/config.ts. */
 const MIDEN_CHAIN_ID = 999999999;
 
-/** Kept in sync with src/lib/epoch/bridgeable-token.ts and helpers/sepolia.ts. */
-const SEPOLIA_USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-/** The Compact and the AggLayer bridge, at the addresses the wallet hardcodes. */
+/** The Compact, pinned in the Epoch SDK. Everything else the probes ask about comes from the config document. */
 const SEPOLIA_COMPACT = '0x00000000000000171ede64904551eeDF3C6C9788';
-const SEPOLIA_AGGLAYER_BRIDGE = '0x1348947e282138d8f377b467f7d9c2eb0f335d1f';
+/** Where wallets read `<network>.json` (0xMiden/wallet-config, branch main) - src/lib/remote-config/source.ts. */
+const PUBLISHED_CONFIG_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main';
+
+/**
+ * The testnet rollup id: the network id the AggLayer indexer files every Miden -> EVM exit under, and the one the
+ * wallet's Slow bridge-out looks its deposit up by. The wallet derives it from the bridge account the config document
+ * names (`agglayer::bridge::network_id`, src/lib/remote-config/derive.ts); this probe reads no Miden storage, so it
+ * holds the testnet's value, the one the indexer filed the golden exits under
+ * (src/lib/agglayer/b2agg/exit-hash.vectors.json).
+ */
+export const AGGLAYER_MIDEN_NETWORK_ID = 86;
 
 const MIDEN_RPC = {
   testnet: 'https://rpc.testnet.miden.io',
@@ -71,13 +77,13 @@ export const SUITES = {
     grep: 'Slow AggLayer',
     // No epoch: this route never asks the solver anything, so an Epoch refusal
     // must not decide whether an AggLayer run happens.
-    probes: ['sepolia'],
+    probes: ['sepolia', 'agglayer'],
     describe: 'Miden testnet -> real AggLayer bridge (Miden leg asserted)'
   },
   'bridge-out': {
     config: 'playwright.bridge.config.ts',
     grep: 'bridge-out',
-    probes: ['epoch', 'sepolia'],
+    probes: ['epoch', 'sepolia', 'agglayer'],
     retries: 0, // includes the Epoch route; see bridge-out-epoch.
     describe: 'both bridge-out routes'
   },
@@ -113,17 +119,21 @@ ${Object.entries(SUITES)
 Options
   --suite <name>            which suite to run (required)
   --network <net>           testnet | devnet            (default: testnet)
-  --epoch-url <url>         Epoch allocator base URL    (default: hosted testnet-dev)
-  --epoch-positions-url <u> Epoch positions base URL    (default: hosted testnet-dev)
   --sepolia-rpc <url>       Sepolia RPC                 (default: a public node)
   --sepolia-key <0x...>     funded Sepolia EOA key, for suites with a signed EVM leg
                             (env: E2E_SEPOLIA_PRIVATE_KEY)
   --min-eth <amount>        preflight gas floor in ether (default: 0.02)
   --preflight-only          probe the services and exit; build and run nothing
+  --agglayer-indexer-only   probe only the AggLayer indexer's Miden exit filing and exit;
+                            takes no --suite, reads the config document, no URL or key
   --skip-build              reuse the existing dist/ (it must match --network)
   --headed                  run the browser headed
   --grep <pattern>          further narrow the tests within the suite
   -h, --help                this message
+
+The Epoch allocator, the Sepolia USDC, the AggLayer bridge and its indexer come
+from the network's config document, read as the wallet reads it:
+MIDEN_REMOTE_CONFIG_URL when set, else the published 0xMiden/wallet-config.
 
 No suite here is secret-gated. Bridge-out is solver-fulfilled and swap is
 Miden-side, so neither signs on EVM and neither needs a key; --sepolia-key is
@@ -139,37 +149,76 @@ function parseArgs(argv) {
   const opts = {
     suite: undefined,
     network: 'testnet',
-    epochUrl: process.env.EPOCH_ALLOCATOR_URL ?? DEFAULT_EPOCH_URL,
-    epochPositionsUrl: process.env.EPOCH_POSITIONS_URL ?? DEFAULT_EPOCH_POSITIONS_URL,
     sepoliaRpc: process.env.E2E_SEPOLIA_RPC_URL ?? DEFAULT_SEPOLIA_RPC,
     sepoliaKey: process.env.E2E_SEPOLIA_PRIVATE_KEY,
     minEth: '0.02',
     preflightOnly: false,
+    agglayerIndexerOnly: false,
     skipBuild: false,
     headed: false,
     grep: undefined
   };
+  const helpNames = ['-h', '--help'];
+  const booleanFlags = {
+    '--preflight-only': 'preflightOnly',
+    '--agglayer-indexer-only': 'agglayerIndexerOnly',
+    '--skip-build': 'skipBuild',
+    '--headed': 'headed'
+  };
   const takesValue = {
     '--suite': 'suite',
     '--network': 'network',
-    '--epoch-url': 'epochUrl',
-    '--epoch-positions-url': 'epochPositionsUrl',
     '--sepolia-rpc': 'sepoliaRpc',
     '--sepolia-key': 'sepoliaKey',
     '--min-eth': 'minEth',
     '--grep': 'grep'
   };
+  // A flag never takes another option as its value: `--sepolia-rpc
+  // $UNSET --preflight-only` would otherwise store the option as the URL and
+  // build and run a suite the operator asked only to preflight. A Set, so an
+  // inherited name such as `constructor` stays a valid value.
+  // The wallet reads its Epoch hosts from the config document, so a host given here would be preflighted while the
+  // wallet used another.
+  const retired = ['--epoch-url', '--epoch-positions-url'];
+  const optionNames = new Set([...helpNames, ...retired, ...Object.keys(booleanFlags), ...Object.keys(takesValue)]);
+  // `--sepolia-key=<key>` names an option too, so it is never a value either:
+  // whatever later refused or ran that value would print the key.
+  const namesAnOption = token => optionNames.has(token.split('=', 1)[0]);
+  const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '-h' || arg === '--help') return { help: true };
-    if (arg === '--preflight-only') opts.preflightOnly = true;
-    else if (arg === '--skip-build') opts.skipBuild = true;
-    else if (arg === '--headed') opts.headed = true;
-    else if (takesValue[arg]) {
+    if (helpNames.includes(arg)) return { help: true };
+    if (retired.includes(arg)) {
+      fail(`${arg} is gone: the wallet reads the Epoch hosts from the network's config document`);
+    }
+    if (Object.hasOwn(booleanFlags, arg)) opts[booleanFlags[arg]] = true;
+    else if (Object.hasOwn(takesValue, arg)) {
       const value = argv[++i];
-      if (value === undefined) fail(`${arg} needs a value`);
+      // A quoted unset variable arrives as '': `--grep "$UNSET"` would otherwise
+      // drop the operator's narrowing and widen a real-money run.
+      if (value === undefined || value === '' || namesAnOption(value)) fail(`${arg} needs a value`);
+      // A later --grep or --suite would silently replace the operator's narrowing
+      // and widen a real-money run. Neither refusal prints a value.
+      if (seen.has(arg)) fail(`${arg} given more than once`);
+      seen.add(arg);
       opts[takesValue[arg]] = value;
+    } else if (arg.includes('=')) {
+      fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
     } else fail(`unknown argument: ${arg}`);
+  }
+  if (opts.agglayerIndexerOnly) {
+    // This probe reads the config document and no URL or key, so the empty-variable refusals below do not apply:
+    // E2E Bridge sets E2E_SEPOLIA_RPC_URL from an optional secret, which is empty when the secret is unset.
+    if (opts.suite !== undefined) fail('--agglayer-indexer-only probes one service and takes no --suite');
+    return opts;
+  }
+  // A flag is never '', so an empty URL here was exported empty and would be
+  // probed and built in. After the loop, so a flag overrides it and -h still works.
+  if (opts.sepoliaRpc === '') fail('E2E_SEPOLIA_RPC_URL is set but empty');
+  for (const name of ['EPOCH_ALLOCATOR_URL', 'EPOCH_POSITIONS_URL']) {
+    if (process.env[name] !== undefined) {
+      fail(`${name} is set, but the wallet reads the Epoch hosts from the network's config document: unset it`);
+    }
   }
   return opts;
 }
@@ -191,12 +240,64 @@ export function suiteRetries(suite) {
  * passed as separate flags: the suite's filter would be discarded without a
  * word, and a narrowing flag would silently widen the run onto specs that spend
  * real money. Lookaheads match anywhere in the title, which is what each pattern
- * did on its own.
+ * did on its own. Each pattern is grouped so the `.*` reaches every alternative:
+ * without the group, (?=.*a|b) tests b only where the match starts.
+ *
+ * Each given pattern must compile on its own, or this throws: one that does not
+ * can close the group it is spliced into, and `x))|((` then composes into a
+ * valid pattern with an empty alternative that matches every title.
  */
 export function composeGrep(suiteGrep, userGrep) {
+  assertRegExp(suiteGrep, "the suite's grep");
+  assertRegExp(userGrep, '--grep');
   if (!suiteGrep) return userGrep;
   if (!userGrep) return suiteGrep;
-  return `(?=.*${suiteGrep})(?=.*${userGrep})`;
+  return `(?=.*(?:${suiteGrep}))(?=.*(?:${userGrep}))`;
+}
+
+function assertRegExp(pattern, label) {
+  if (!pattern) return;
+  try {
+    new RegExp(pattern);
+  } catch (error) {
+    throw new Error(`${label} is not a valid regular expression: ${pattern} - ${error.message}`);
+  }
+}
+
+/**
+ * Check parsed operator input in the order main() refuses it. Returns `{ error }`
+ * with the refusal, or `{ suite, grep }`: the suite's record and its grep
+ * composed with the operator's.
+ *
+ * Names are looked up as own properties, so `toString` or `constructor` is
+ * refused as unknown instead of resolving to what Object.prototype carries.
+ */
+export function resolveOperatorInput(opts) {
+  if (!opts.suite) return { error: `--suite is required. One of: ${Object.keys(SUITES).join(', ')}${USAGE}` };
+  if (!Object.hasOwn(SUITES, opts.suite)) {
+    return { error: `unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}` };
+  }
+  const suite = SUITES[opts.suite];
+  if (!Object.hasOwn(MIDEN_RPC, opts.network)) {
+    return { error: `--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}` };
+  }
+  let grep;
+  try {
+    grep = composeGrep(suite.grep, opts.grep);
+  } catch (error) {
+    return { error: error.message };
+  }
+  if (!/^\d+(\.\d+)?$/.test(opts.minEth)) {
+    return { error: `--min-eth must be a plain non-negative decimal amount of ether, got "${opts.minEth}"` };
+  }
+  // The key itself is never echoed.
+  if (suite.probes?.includes('sepolia') && opts.sepoliaKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(opts.sepoliaKey)) {
+    return {
+      error:
+        'the Sepolia key (--sepolia-key or E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
+    };
+  }
+  return { suite, grep };
 }
 
 function fail(message) {
@@ -268,6 +369,131 @@ async function rpc(url, method, params, timeoutMs = 20_000) {
     throw new Error(`${method}: reply carried no result`);
   }
   return body.result;
+}
+
+// ── config document ─────────────────────────────────────────────────────────
+
+/** What each probe group asks about, by the document field it comes from. */
+const DOCUMENT_FIELDS = {
+  epoch: ['allocatorUrl', 'evmUsdc'],
+  sepolia: ['evmUsdc', 'l1Bridge'],
+  agglayer: ['indexerUrl']
+};
+const FIELD_PATHS = {
+  allocatorUrl: 'epoch.allocatorUrl',
+  evmUsdc: 'epoch.evmUsdc',
+  l1Bridge: 'agglayer.l1Bridge',
+  indexerUrl: 'agglayer.indexerUrl'
+};
+const URL_FIELDS = new Set(['allocatorUrl', 'indexerUrl']);
+
+// Reads `{ body, network, allowLocalHttp }` on stdin and prints what the wallet's parser makes of the body.
+const PARSE_SCRIPT = `
+const { parseBridgeConfig } = require('./src/lib/remote-config/schema.ts');
+let input = '';
+process.stdin.on('data', chunk => (input += chunk));
+process.stdin.on('end', () => {
+  const { body, network, allowLocalHttp } = JSON.parse(input);
+  process.stdout.write(JSON.stringify(parseBridgeConfig(body, network, { allowLocalHttp })));
+});
+`;
+
+/**
+ * Where the wallet this run builds reads its config: an E2E build takes MIDEN_REMOTE_CONFIG_URL when it is set,
+ * the published repo otherwise (src/lib/remote-config/source.ts).
+ */
+function configDocumentUrl(network) {
+  return `${(process.env.MIDEN_REMOTE_CONFIG_URL || PUBLISHED_CONFIG_URL).replace(/\/+$/, '')}/${network}.json`;
+}
+
+/**
+ * The document as the wallet's own parser reads it (src/lib/remote-config/schema.ts), or null where the wallet refuses
+ * it, so the preflight never judges a document by rules of its own. The parser is TypeScript, so a child process runs
+ * it through ts-node, transpiling only.
+ */
+function parseLikeTheWallet(body, network, allowLocalHttp) {
+  const res = spawnSync(process.execPath, ['-r', 'ts-node/register', '-e', PARSE_SCRIPT], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    input: JSON.stringify({ body, network, allowLocalHttp }),
+    env: {
+      ...process.env,
+      NODE_PATH: 'src',
+      TS_NODE_TRANSPILE_ONLY: '1',
+      TS_NODE_COMPILER_OPTIONS: '{"module":"commonjs","moduleResolution":"node"}'
+    },
+    timeout: 60_000
+  });
+  if (res.status !== 0) {
+    throw new Error(`could not be parsed: ${res.error?.message ?? res.stderr.trim().split('\n')[0]}`);
+  }
+  return JSON.parse(res.stdout);
+}
+
+/**
+ * The values the `needs` probe groups ask about, from a document the wallet's parser accepted: Sepolia, and each
+ * field present. Throws naming the first problem. EVM addresses come back checksummed, as the wallet's getters send
+ * them; the parser lowercases them.
+ */
+function configTargets(config, needs, getAddress) {
+  if (config.evm.chainId !== SEPOLIA_CHAIN_ID) {
+    throw new Error(`does not name Sepolia (${SEPOLIA_CHAIN_ID}) as evm.chainId`);
+  }
+  const read = {
+    allocatorUrl: config.epoch.allocatorUrl,
+    evmUsdc: config.epoch.evmUsdc,
+    l1Bridge: config.agglayer.l1Bridge,
+    indexerUrl: config.agglayer.indexerUrl
+  };
+  const targets = {};
+  for (const field of new Set(needs.flatMap(probe => DOCUMENT_FIELDS[probe] ?? []))) {
+    const value = read[field];
+    if (value === undefined) throw new Error(`names no ${FIELD_PATHS[field]}`);
+    targets[field] = URL_FIELDS.has(field) ? value : getAddress(value);
+  }
+  return targets;
+}
+
+/**
+ * The probe targets from the network's config document, or null after recording why there are none. A GET that fails
+ * or answers anything but 200 is asked again once before it counts, as the indexer probe does: E2E Bridge reads the
+ * document on every push to main. A document that arrives is never asked for again, whether or not the wallet's parser
+ * accepts it. `get` and `retryDelayMs` are injectable for test.
+ *
+ * Exported for test.
+ */
+export async function probeConfigDocument(network, needs, { get = getJson, retryDelayMs = 5_000 } = {}) {
+  const url = configDocumentUrl(network);
+  const ask = async () => {
+    try {
+      const reply = await get(url);
+      return reply.status === 200 ? { reply } : { problem: `${url} answered HTTP ${reply.status}` };
+    } catch (err) {
+      return { problem: `${url} unreachable: ${err.message}` };
+    }
+  };
+  let answer = await ask();
+  if (answer.problem !== undefined) {
+    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    answer = await ask();
+  }
+  if (answer.problem !== undefined) {
+    record(false, 'Config document', answer.problem);
+    return null;
+  }
+  const { reply } = answer;
+  try {
+    // The wallet takes local http only from a document an E2E build serves itself (src/lib/remote-config/source.ts).
+    const config = parseLikeTheWallet(reply.body, network, Boolean(process.env.MIDEN_REMOTE_CONFIG_URL));
+    if (config === null) throw new Error('is a document the wallet refuses');
+    const { getAddress } = await import('viem');
+    const targets = configTargets(config, needs, getAddress);
+    record(true, 'Config document', `${url} version ${config.version}`);
+    return targets;
+  } catch (err) {
+    record(false, 'Config document', `${url} ${err.message}`);
+    return null;
+  }
 }
 
 async function probeMidenNode(network) {
@@ -355,7 +581,7 @@ export function pricedAmountFrom(res) {
  * but nominal, which keeps the probe free of the SDK (whose ESM entry needs a
  * bundler) without weakening what is being asserted.
  */
-async function probeEpochQuote(epochUrl, faucetId) {
+async function probeEpochQuote(epochUrl, evmUsdc, faucetId) {
   // Loaded inside the try with every other failure mode: this is a deep subpath
   // of a sub-1.0 dependency, and a resolution failure here must read as one
   // failed check, not as an exception that kills the preflight before any
@@ -391,7 +617,7 @@ async function probeEpochQuote(epochUrl, faucetId) {
       mandate: {
         tokenIn: ZERO_ADDRESS,
         tokenInAmount: amountIn,
-        tokenOut: SEPOLIA_USDC,
+        tokenOut: evmUsdc,
         minTokenOut: '0',
         destinationChainId: String(SEPOLIA_CHAIN_ID),
         taskType: '0xb492b7f5', // keccak256('gettokenout').slice(0, 10)
@@ -522,15 +748,16 @@ async function probeSepolia(sepoliaRpc) {
 }
 
 /**
- * The three contracts the wallet hardcodes. On Anvil they are `anvil_setCode`
- * stubs; a real run needs the genuine deployments, and an empty address would
- * otherwise surface as an opaque revert deep inside a 15-minute test.
+ * The three contracts a run calls: the USDC and the AggLayer bridge the config
+ * document names, and the Compact the Epoch SDK pins. On Anvil they are
+ * `anvil_setCode` stubs; a real run needs the genuine deployments, and an empty
+ * address would otherwise surface as an opaque revert deep inside a 15-minute test.
  */
-async function probeSepoliaContracts(sepoliaRpc) {
+async function probeSepoliaContracts(sepoliaRpc, { evmUsdc, l1Bridge }) {
   const targets = [
-    ['USDC', SEPOLIA_USDC],
+    ['USDC', evmUsdc],
     ['The Compact', SEPOLIA_COMPACT],
-    ['AggLayer bridge', SEPOLIA_AGGLAYER_BRIDGE]
+    ['AggLayer bridge', l1Bridge]
   ];
   const sizes = [];
   for (const [name, address] of targets) {
@@ -546,7 +773,7 @@ async function probeSepoliaContracts(sepoliaRpc) {
   return record(true, 'Sepolia contracts', sizes.join(', '));
 }
 
-async function probeFundedKey(sepoliaRpc, privateKey, minEth) {
+async function probeFundedKey(sepoliaRpc, privateKey, minEth, evmUsdc) {
   let viem;
   let accounts;
   try {
@@ -584,10 +811,11 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth) {
   // mint its own - but no suite here signs on EVM, so minting during preflight
   // would be an external mutation with no consumer.
   // C-10: advisory. This can never gate a run, so it is a note(), not a record().
+  if (!evmUsdc) return note('Sepolia test USDC', 'not read: the config document named no USDC');
   try {
     const balance = BigInt(
       await rpc(sepoliaRpc, 'eth_call', [
-        { to: SEPOLIA_USDC, data: `0x70a08231${account.address.slice(2).padStart(64, '0')}` },
+        { to: evmUsdc, data: `0x70a08231${account.address.slice(2).padStart(64, '0')}` },
         'latest'
       ])
     );
@@ -595,6 +823,53 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth) {
   } catch (err) {
     return note('Sepolia test USDC', `not read: ${err.message}`);
   }
+}
+
+/**
+ * Why the indexer's answer for Miden exit 0 shows it no longer files Miden exits under the testnet rollup id this
+ * runner pins, or undefined when it does. The wallet derives the rollup id at runtime from the Miden bridge account;
+ * the Slow bridge-out finds its deposit by that `network_id` and by `dest_net`, so an indexer that renumbers the Miden
+ * network leaves every bridge-out unsettled with no error anywhere (#1325).
+ *
+ * Exported for test.
+ */
+export function agglayerExitFilingProblem(status, body) {
+  if (status !== 200) return `answered HTTP ${status} for Miden exit 0`;
+  const deposit = body?.deposit;
+  if (deposit?.network_id !== AGGLAYER_MIDEN_NETWORK_ID) {
+    return `files Miden exit 0 under network ${deposit?.network_id}, not the testnet rollup id ${AGGLAYER_MIDEN_NETWORK_ID}`;
+  }
+  if (deposit.dest_net !== 0) return `files Miden exit 0 as bound for network ${deposit.dest_net}, not Sepolia (0)`;
+  return undefined;
+}
+
+/**
+ * Check the filing of Miden exit 0 by the indexer the config document names, asking a second time before a failure
+ * counts: E2E Bridge runs this on every push to main, and a third party's blip must not red main on its own. A
+ * renumbering fails both asks. `get` and `retryDelayMs` are injectable for test.
+ *
+ * Exported for test.
+ */
+export async function probeAgglayerIndexer(indexerUrl, { get = getJson, retryDelayMs = 5_000 } = {}) {
+  const url = `${indexerUrl}/bridge?net_id=${AGGLAYER_MIDEN_NETWORK_ID}&deposit_cnt=0`;
+  const ask = async () => {
+    try {
+      const { status, body } = await get(url);
+      return agglayerExitFilingProblem(status, body);
+    } catch (err) {
+      return `${indexerUrl} unreachable: ${err.message}`;
+    }
+  };
+  let problem = await ask();
+  if (problem !== undefined) {
+    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    problem = await ask();
+  }
+  return record(
+    problem === undefined,
+    'AggLayer indexer',
+    problem ?? `files Miden exits under network ${AGGLAYER_MIDEN_NETWORK_ID}`
+  );
 }
 
 function formatUnits(value, decimals) {
@@ -657,15 +932,25 @@ async function main() {
     console.log(USAGE);
     return 0;
   }
-  if (!opts.suite) fail(`--suite is required. One of: ${Object.keys(SUITES).join(', ')}${USAGE}`);
-  const suite = SUITES[opts.suite];
-  if (!suite) fail(`unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}`);
-  if (!MIDEN_RPC[opts.network]) fail(`--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}`);
+  if (opts.agglayerIndexerOnly) {
+    console.log(`\nConfig   ${configDocumentUrl(opts.network)}`);
+    console.log('\nPreflight');
+    const targets = await probeConfigDocument(opts.network, ['agglayer']);
+    if (targets) await probeAgglayerIndexer(targets.indexerUrl);
+    return results.every(r => r.ok) ? 0 : 1;
+  }
+  // Every refusal of operator input happens here, before the banner: one found
+  // later is never reached under --preflight-only, and otherwise costs the probes
+  // and a build first. probeFundedKey keeps its own checks as a backstop.
+  const { error, suite, grep } = resolveOperatorInput(opts);
+  if (error !== undefined) fail(error);
 
+  const needs = suite.probes ?? [];
+  const needsDocument = needs.some(probe => Object.hasOwn(DOCUMENT_FIELDS, probe));
   console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
   console.log(`Network  ${opts.network}`);
-  if (suite.probes?.includes('epoch')) console.log(`Epoch    ${opts.epochUrl}`);
-  if (suite.probes?.includes('sepolia')) console.log(`Sepolia  ${opts.sepoliaRpc}`);
+  if (needsDocument) console.log(`Config   ${configDocumentUrl(opts.network)}`);
+  if (needs.includes('sepolia')) console.log(`Sepolia  ${opts.sepoliaRpc}`);
   console.log('');
   console.log('Preflight');
 
@@ -675,31 +960,35 @@ async function main() {
   await probeMidenNode(opts.network);
   await probeMidenFaucet(opts.network);
 
+  // What the probes ask about is what the wallet will use: the document it reads,
+  // never a copy kept here. Without a usable one, nothing it names is probed.
+  const targets = needsDocument ? await probeConfigDocument(opts.network, needs) : null;
+
   // Keyed on what the suite actually talks to, not on which Playwright config it
   // happens to share: both bridge routes use one config, but only the Epoch route
   // asks the solver anything.
-  const needs = suite.probes ?? [];
-  if (needs.includes('epoch')) {
-    await probeEpochHealth(opts.epochUrl);
+  if (targets && needs.includes('epoch')) {
+    await probeEpochHealth(targets.allocatorUrl);
     // The spec mints a throwaway faucet per run, so the probe asks about one too:
     // it must reflect what the suite will actually request, not a friendlier token.
-    await probeEpochQuote(opts.epochUrl, '0xabcdefabcdefabcdefabcdefabcdef');
+    await probeEpochQuote(targets.allocatorUrl, targets.evmUsdc, '0xabcdefabcdefabcdefabcdefabcdef');
   }
   if (needs.includes('sepolia')) {
     await probeSepolia(opts.sepoliaRpc);
-    await probeSepoliaContracts(opts.sepoliaRpc);
+    if (targets) await probeSepoliaContracts(opts.sepoliaRpc, targets);
   }
+  if (targets && needs.includes('agglayer')) await probeAgglayerIndexer(targets.indexerUrl);
   if (needs.includes('guardian')) await probeGuardian(opts.network);
   // Only for a suite that actually talks to Sepolia: a key handed to a swap run
   // must not make Sepolia's availability decide whether that run happens.
   if (needs.includes('sepolia') && opts.sepoliaKey) {
-    await probeFundedKey(opts.sepoliaRpc, opts.sepoliaKey, opts.minEth);
+    await probeFundedKey(opts.sepoliaRpc, opts.sepoliaKey, opts.minEth, targets?.evmUsdc);
   }
 
   // Advisory, printed with `·` and never counted: these report services the
   // PRODUCT depends on and main CI never touches, but no suite here asks them
   // anything, so neither may decide whether a run happens.
-  if (needs.includes('epoch')) await probeEpochGasless(opts.epochUrl);
+  if (targets && needs.includes('epoch')) await probeEpochGasless(targets.allocatorUrl);
   if (needs.includes('dex')) await probeSwapQuoteService();
 
   const failed = results.filter(r => !r.ok);
@@ -719,17 +1008,15 @@ async function main() {
     // it from the run's own environment record, so injecting it here would make
     // this table a second owner of the same fact. The table below stays because
     // probeGuardian reads it to decide what to probe.
-    EPOCH_ALLOCATOR_URL: opts.epochUrl,
-    EPOCH_POSITIONS_URL: opts.epochPositionsUrl,
     E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc,
     ...(opts.sepoliaKey ? { E2E_SEPOLIA_PRIVATE_KEY: opts.sepoliaKey } : {})
   };
 
   if (!opts.skipBuild) {
     console.log('Building the extension for a real-endpoint run…\n');
-    // The allocator URL is a bundler define, so pointing at a different Epoch
-    // host is a REBUILD, not a runtime switch. --skip-build is only safe when
-    // dist/ was produced with this same env.
+    // The wallet reads its Epoch hosts from the config document at runtime, but
+    // the network and MIDEN_REMOTE_CONFIG_URL are build defines: --skip-build is
+    // only safe when dist/ was produced with this same env.
     const code = await run('yarn', ['test:e2e:blockchain:build'], env);
     if (code !== 0) {
       console.error('\n✗ build failed - not running the suite.\n');
@@ -743,7 +1030,6 @@ async function main() {
   // the suite's - and `--suite bridge-out-agglayer --grep 'Fast Epoch'` would
   // then run the real-money Epoch spec the suite exists to exclude. Lookaheads
   // are how two patterns become one that requires both.
-  const grep = composeGrep(suite.grep, opts.grep);
   if (grep) args.push('--grep', grep);
   if (suite.grepInvert) args.push('--grep-invert', suite.grepInvert);
   if (opts.headed) args.push('--headed');

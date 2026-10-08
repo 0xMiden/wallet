@@ -5,6 +5,8 @@ import React, { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchingAddresses } from 'lib/store/utils/fetchBalances';
@@ -13,6 +15,8 @@ import { useAllBalances, getAllBalanceSWRKey, type TokenBalanceData } from './ba
 
 // webextension-polyfill auto-mock causes isExtension() to return true in tests.
 // Override to return false so balance hooks use the WASM polling path.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
   isExtension: jest.fn(() => false)
@@ -24,6 +28,7 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(() => 'miden-faucet-id'),
   // Read by the swap-token registry the placeholder row is priced through.
   getNativeAssetMetadataSync: jest.fn(() => null),
+  getSdkSyncedNativeAssetIdSync: jest.fn(() => null),
   getNativeAssetId: jest.fn(async () => 'miden-faucet-id'),
   primeNativeAssetId: jest.fn(),
   onNativeAssetChanged: jest.fn(() => () => {}),
@@ -337,7 +342,7 @@ describe('instant balance loading', () => {
     }
   });
 
-  it('returns default 0 MIDEN balance instantly before any async IndexedDB lookup', async () => {
+  it('returns default 0 native balance instantly before any async IndexedDB lookup', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
@@ -377,18 +382,19 @@ describe('instant balance loading', () => {
       testRoot!.render(<BalanceConsumer />);
     });
 
-    // Verify: on first render, we get the default zero MIDEN row immediately
+    // Verify: on first render, we get the default zero native row immediately
     // (the native-asset mock above pretends discovery is already complete).
     // This happens BEFORE fetchBalances is called.
     expect(firstRenderData).not.toBeNull();
     expect(firstRenderData.data).toHaveLength(1);
-    expect(firstRenderData.data[0].tokenSlug).toBe('MIDEN');
+    expect(firstRenderData.data[0].tokenSlug).toBe('USDCX');
+    expect(firstRenderData.data[0].metadata.scaleIsUnknown).toBe(true);
     expect(firstRenderData.data[0].balance).toBe(0);
     // isLoading should be true since we haven't fetched yet
     expect(firstRenderData.isLoading).toBe(true);
   });
 
-  it('prices the placeholder row like every other row: 0 without a quote, the quote with one', async () => {
+  it('prices the placeholder row by its faucet, never by the USDCX symbol (#1131)', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
@@ -403,12 +409,39 @@ describe('instant balance loading', () => {
       testRoot!.render(<BalanceConsumer />);
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 0, change24h: 0 });
+    expect(rows[0]).toMatchObject({ tokenSlug: 'USDCX', fiatPrice: 0, change24h: 0 });
 
     await act(async () => {
-      useWalletStore.setState({ tokenPrices: { MIDEN: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+      useWalletStore.setState({ tokenPrices: { USDCX: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
     });
-    expect(rows[0]).toMatchObject({ tokenSlug: 'MIDEN', fiatPrice: 2, change24h: 0.5 });
+    expect(rows[0]).toMatchObject({ tokenSlug: 'USDCX', fiatPrice: 0, change24h: 0 });
+  });
+
+  it("gives the placeholder row its faucet's quote when that faucet is priced", async () => {
+    jest.mocked(getNativeAssetIdSync).mockImplementation(() => MIDEN_USDC_FAUCET);
+    try {
+      testContainer = document.createElement('div');
+      testRoot = createRoot(testContainer);
+      fetchBalancesMock.mockImplementation(() => new Promise(() => {}));
+      let rows: TokenBalanceData[] = [];
+      const BalanceConsumer = () => {
+        rows = useAllBalances('placeholder-priced-faucet-address', {}).data;
+        return null;
+      };
+
+      useWalletStore.setState({ tokenPrices: {} });
+      await act(async () => {
+        testRoot!.render(<BalanceConsumer />);
+      });
+      expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 0, change24h: 0 });
+
+      await act(async () => {
+        useWalletStore.setState({ tokenPrices: { USDC: { price: 2, change24h: 0.5, percentageChange24h: 1 } } });
+      });
+      expect(rows[0]).toMatchObject({ tokenId: MIDEN_USDC_FAUCET, fiatPrice: 2, change24h: 0.5 });
+    } finally {
+      jest.mocked(getNativeAssetIdSync).mockImplementation(() => 'miden-faucet-id');
+    }
   });
 
   it('transitions from default 0 to actual balance after fetch completes', async () => {

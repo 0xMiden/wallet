@@ -22,10 +22,14 @@ export type HeroProps = HeroContentProps & {
   'data-testid'?: string;
   /** Ref for the `name` heading, e.g. to move focus there on mount so an outcome is announced. */
   nameRef?: React.Ref<HTMLHeadingElement>;
+  /** `lg` sets the name at the page title's size, for a screen whose hero is its only heading (onboarding's outcome). */
+  nameSize?: 'md' | 'lg';
   /** The `name` heading's level: `h2` under a page header's title, `h1` on a screen with no header. */
   nameAs?: 'h1' | 'h2';
   /** Extra attributes for the `name` heading, e.g. `tabIndex={-1}` alongside `nameRef`. */
   nameProps?: Omit<React.HTMLAttributes<HTMLHeadingElement>, 'className' | 'children'>;
+  /** Overrides on the value's type style, e.g. a lighter weight than the hero's black. */
+  valueClassName?: string;
 };
 
 /**
@@ -42,13 +46,24 @@ export const Hero: React.FC<HeroProps> = ({
   'data-testid': dataTestId,
   nameRef,
   nameProps,
-  nameAs: NameTag = 'h2'
+  nameSize = 'md',
+  nameAs: NameTag = 'h2',
+  valueClassName
 }) => (
   <div data-testid={dataTestId} className={cn('flex w-full flex-col items-center', className)}>
     {visual}
-    {value !== undefined && <div className="mt-4 text-center text-hero-value text-ink">{value}</div>}
+    {value !== undefined && (
+      <div className={cn('mt-4 text-center text-hero-value text-ink', valueClassName)}>{value}</div>
+    )}
     {name !== undefined && (
-      <NameTag ref={nameRef} className="mt-4 w-full text-center text-hero-name text-ink outline-none" {...nameProps}>
+      <NameTag
+        ref={nameRef}
+        className={cn(
+          'mt-4 w-full text-center text-ink outline-none',
+          nameSize === 'lg' ? 'text-title-tab' : 'text-hero-name'
+        )}
+        {...nameProps}
+      >
         {name}
       </NameTag>
     )}

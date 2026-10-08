@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import { type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 
+import { Pill, type PillTone } from './Pill';
 import { SelectionCheck } from './SelectionCheck';
 import { Skeleton } from './Skeleton';
 
@@ -37,6 +38,8 @@ export interface AssetListItemProps {
    * share a symbol, so a caller that has to address one exactly passes its faucet id here.
    */
   'data-token-id'?: string;
+  /** A short mark after the name, such as a token's verification. It never shrinks; the name truncates first. */
+  badge?: ReactNode;
 }
 
 export const AssetListItem: FC<AssetListItemProps> = ({
@@ -51,7 +54,8 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   onClick,
   className,
   'data-testid': dataTestId,
-  'data-token-id': dataTokenId
+  'data-token-id': dataTokenId,
+  badge
 }) => {
   const handleClick = () => {
     if (!onClick) return;
@@ -59,15 +63,9 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     onClick();
   };
 
-  // The status badge's sage and clay inks, the same pair ActivityRow uses: the raw status fills are
-  // 2.2-3.5:1 and never carry text (design-system Rule 3). Neutral keeps its muted token, which is
-  // not a fill.
-  const deltaColor =
-    delta?.direction === 'negative'
-      ? 'text-negative-tint-ink'
-      : delta?.direction === 'neutral'
-        ? 'text-text-tertiary-token'
-        : 'text-positive-tint-ink';
+  // A flat move is grey rather than green or red; an unsigned one reads as a gain.
+  const deltaTone: PillTone =
+    delta?.direction === 'negative' ? 'negative' : delta?.direction === 'neutral' ? 'muted' : 'positive';
 
   const classes = classNames(
     'w-full h-18 flex items-center justify-between text-left',
@@ -86,7 +84,10 @@ export const AssetListItem: FC<AssetListItemProps> = ({
         <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
         <div className="flex flex-col min-w-0">
-          <div className="text-row-title text-ink truncate">{name}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="text-row-title text-ink truncate">{name}</div>
+            {badge && <div className="shrink-0">{badge}</div>}
+          </div>
           <div className="text-caption text-muted truncate">{amount}</div>
         </div>
       </div>
@@ -96,7 +97,11 @@ export const AssetListItem: FC<AssetListItemProps> = ({
       <div data-slot="trailing" className="flex shrink-0 items-center gap-3">
         <div className="flex flex-col items-end">
           {price && <div className="text-row-title text-ink">{price}</div>}
-          {delta && <div className={classNames('text-caption', deltaColor)}>{delta.value}</div>}
+          {delta && (
+            <Pill size="xs" tone={deltaTone} className="mt-0.5">
+              {delta.value}
+            </Pill>
+          )}
         </div>
 
         {selected && <SelectionCheck accent={accent} />}

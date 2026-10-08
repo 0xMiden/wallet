@@ -1,11 +1,14 @@
-import { AccountId, Address, FungibleAsset, Note } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, Address, FungibleAsset, Note, TransactionRequestBuilder } from '@miden-sdk/miden-sdk/lazy';
+
+import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 
 import {
   accountIdStringToSdk,
   accountRefToSdk,
+  buildConsumeTransactionRequest,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
-  canonicalFaucetBech32Id,
+  feeAwareRequestBuilder,
   getBech32AddressFromAccountId,
   sameWalletAccountId,
   walletAccountIdToSdk
@@ -48,15 +51,57 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteArray: jest.fn(function (this: any, notes: any) {
     this.notes = notes;
   }),
+  NoteAndArgs: jest.fn(function (this: any, note: any, args: any) {
+    this.note = note;
+    this.args = args;
+  }),
+  NoteAndArgsArray: jest.fn(function (this: any, items: any) {
+    this.items = items;
+  }),
   NoteType: { Private: 'Private', Public: 'Public' },
   TransactionRequestBuilder: jest.fn(function (this: any) {
     this.withOwnOutputNotes = (notes: any) => {
       this.ownOutputNotes = notes;
       return this;
     };
-    this.build = () => ({ kind: 'request', ownOutputNotes: this.ownOutputNotes });
+    // Present so a regression back to the two-word salt commit is observable, not a TypeError.
+    this.withFeeConversionSalt = jest.fn(() => this);
+    this.withExpirationDelta = (delta: number) => {
+      this.expirationDelta = delta;
+      return this;
+    };
+    this.withInputNotes = (pairs: any) => {
+      this.inputNotes = pairs;
+      return this;
+    };
+    this.build = () => ({
+      kind: 'request',
+      ownOutputNotes: this.ownOutputNotes,
+      inputNotes: this.inputNotes,
+      expirationDelta: this.expirationDelta
+    });
   })
 }));
+
+/**
+ * A builder as `feeAwareTransactionRequestBuilder` resolves it. Since protocol 0.17 it carries the
+ * three words of fee auth args a multisig resolves, which `withFeeConversionSalt` (two words) could
+ * not, so a request handed one must be built from it and never from a fresh builder.
+ */
+const feeAwareBaseBuilder = () => {
+  const builder = {
+    withOwnOutputNotes: jest.fn(),
+    withExpirationDelta: jest.fn(),
+    withFeeConversionSalt: jest.fn(),
+    build: jest.fn(() => ({ kind: 'fee-aware-request' }))
+  };
+  builder.withOwnOutputNotes.mockReturnValue(builder);
+  builder.withExpirationDelta.mockReturnValue(builder);
+  return builder;
+};
+
+/** The builder instances `new TransactionRequestBuilder()` produced in this test. */
+const freshBuilders = () => jest.mocked(TransactionRequestBuilder).mock.instances;
 
 /** A vault entry: one fungible asset slot as `account.vault().fungibleAssets()` returns it. */
 const vaultAsset = (faucetHex: string, amount: bigint, flag: string) => ({
@@ -155,29 +200,6 @@ describe('miden sdk helpers', () => {
     });
   });
 
-  describe('canonicalFaucetBech32Id', () => {
-    it('round-trips a hex faucet id to the same bech32 form the metadata cache keys on', () => {
-      (AccountId.fromHex as jest.Mock).mockReturnValueOnce('accountId-0xABCDEF');
-      const res = canonicalFaucetBech32Id('0xABCDEF');
-      expect(AccountId.fromHex).toHaveBeenCalledWith('0xABCDEF');
-      expect(Address.fromAccountId).toHaveBeenCalledWith('accountId-0xABCDEF', 'BasicWallet');
-      expect(res).toBe('bech32-accountId-0xABCDEF');
-    });
-
-    it('is a no-op for an id already in bech32 form', () => {
-      const res = canonicalFaucetBech32Id('mtst1qabc');
-      expect(Address.fromBech32).toHaveBeenCalledWith('mtst1qabc');
-      expect(res).toBe('bech32-accountId-mtst1qabc');
-    });
-
-    it('falls back to the raw id when it cannot be parsed at all', () => {
-      (Address.fromBech32 as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('not bech32');
-      });
-      expect(canonicalFaucetBech32Id('not-an-id')).toBe('not-an-id');
-    });
-  });
-
   describe('walletAccountIdToSdk', () => {
     it('strips the composite publicKey suffix', () => {
       walletAccountIdToSdk('mtst1qabc_qr7suffix');
@@ -191,6 +213,35 @@ describe('miden sdk helpers', () => {
       walletAccountIdToSdk('0xABCDEF');
       expect(AccountId.fromHex).toHaveBeenCalledWith('0xABCDEF');
     });
+  });
+
+  describe('feeAwareRequestBuilder', () => {
+    // An approval expiration is bound only when one is given (#1081).
+    it.each([undefined, 180])(
+      'asks the SDK for the executing account with the salt as its fee conversion salt (approval expiration %s)',
+      async approvalExpirationDelta => {
+        const builder = feeAwareBaseBuilder();
+        const salt = { kind: 'salt' };
+        const feeAwareTransactionRequestBuilder = jest.fn(async () => builder);
+
+        const result = await feeAwareRequestBuilder(
+          { feeAwareTransactionRequestBuilder } as any,
+          'accountId-guarded',
+          salt as any,
+          approvalExpirationDelta
+        );
+
+        expect(feeAwareTransactionRequestBuilder).toHaveBeenCalledTimes(1);
+        expect(feeAwareTransactionRequestBuilder).toHaveBeenCalledWith(
+          'accountId-guarded',
+          approvalExpirationDelta === undefined
+            ? { feeConversionSalt: salt }
+            : { feeConversionSalt: salt, approvalExpirationDelta }
+        );
+        expect(result).toBe(builder);
+        expect(builder.withFeeConversionSalt).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('buildSendTransactionRequest', () => {
@@ -210,12 +261,65 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
       expect(FungibleAsset).not.toHaveBeenCalled();
-      expect(request).toEqual({ kind: 'request', ownOutputNotes: expect.anything() });
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: expect.anything(),
+        expirationDelta: EXPIRATION_DELTA_BLOCKS
+      });
+    });
+
+    it('starts from a fresh builder when no base builder is given, declaring no fee salt', () => {
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
+      );
+
+      expect(freshBuilders()).toHaveLength(1);
+      expect(freshBuilders()[0]!.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: { notes: [(Note.createP2IDNote as jest.Mock).mock.results[0]!.value] },
+        expirationDelta: EXPIRATION_DELTA_BLOCKS
+      });
+    });
+
+    // A guarded (multisig) sender's fee auth args live on the builder `feeAwareRequestBuilder`
+    // returned; building from a fresh one would drop them and fail the proposal.
+    it('adds the note to the base builder it is given and builds from THAT builder', () => {
+      const base = feeAwareBaseBuilder();
+
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Public' as any,
+        180,
+        125,
+        base as any
+      );
+
+      expect(request).toEqual({ kind: 'fee-aware-request' });
+      expect(base.withOwnOutputNotes).toHaveBeenCalledWith({
+        notes: [(Note.createP2IDENote as jest.Mock).mock.results[0]!.value]
+      });
+      // The delta rides on the same builder, after the fee auth args it carries (#1081).
+      expect(base.withExpirationDelta).toHaveBeenCalledWith(180);
+      expect(base.build).toHaveBeenCalledTimes(1);
+      expect(base.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(freshBuilders()).toHaveLength(0);
     });
 
     // The flag is part of the vault key, so one faucet can occupy two slots.
@@ -229,7 +333,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -246,7 +351,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         50n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 50n);
@@ -259,7 +365,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       // Largest slot, so the resulting kernel error names the real shortfall.
@@ -275,7 +382,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -288,7 +396,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Private' as any
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
@@ -297,7 +406,15 @@ describe('miden sdk helpers', () => {
 
     it('constructs the asset directly when the sender account is unavailable', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-      buildSendTransactionRequest(undefined, sender, recipient, FAUCET_REF, 100n, 'Private' as any);
+      buildSendTransactionRequest(
+        undefined,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
+      );
 
       expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
       expect(FungibleAsset).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) }), 100n);
@@ -313,7 +430,8 @@ describe('miden sdk helpers', () => {
         recipient,
         FAUCET_REF,
         100n,
-        'Public' as any
+        'Public' as any,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(Note.createP2IDNote).toHaveBeenCalled();
@@ -328,6 +446,7 @@ describe('miden sdk helpers', () => {
         FAUCET_REF,
         100n,
         'Public' as any,
+        EXPIRATION_DELTA_BLOCKS,
         230
       );
 
@@ -353,6 +472,7 @@ describe('miden sdk helpers', () => {
         FAUCET_REF,
         100n,
         'Public' as any,
+        EXPIRATION_DELTA_BLOCKS,
         0
       );
 
@@ -385,7 +505,8 @@ describe('miden sdk helpers', () => {
             recipient,
             FAUCET_REF,
             amount,
-            'Public' as any
+            'Public' as any,
+            EXPIRATION_DELTA_BLOCKS
           )
         ).toThrow('outside the representable range');
         expect(Note.createP2IDNote).not.toHaveBeenCalled();
@@ -400,9 +521,38 @@ describe('miden sdk helpers', () => {
           recipient,
           FAUCET_REF,
           MAX_AMOUNT,
-          'Public' as any
+          'Public' as any,
+          EXPIRATION_DELTA_BLOCKS
         )
       ).not.toThrow();
+    });
+
+    it('carries the expiration delta it is given (#1081)', () => {
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any,
+        180
+      );
+      expect(request).toMatchObject({ expirationDelta: 180 });
+    });
+  });
+
+  describe('buildConsumeTransactionRequest (#1081)', () => {
+    it('pairs every note with no argument and sets the delta', () => {
+      const request = buildConsumeTransactionRequest(['note-a', 'note-b'] as any, 600);
+      expect(request).toMatchObject({
+        expirationDelta: 600,
+        inputNotes: {
+          items: [
+            { note: 'note-a', args: null },
+            { note: 'note-b', args: null }
+          ]
+        }
+      });
     });
   });
 
@@ -439,7 +589,8 @@ describe('miden sdk helpers', () => {
         accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
         referenceRequest(referenceNote()),
         FAUCET_REF,
-        100n
+        100n,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -457,7 +608,8 @@ describe('miden sdk helpers', () => {
         accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
         referenceRequest(referenceNote()),
         FAUCET_REF,
-        100n
+        100n,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       const [, metadata, recipient, attachments] = rebuilt();
@@ -475,7 +627,8 @@ describe('miden sdk helpers', () => {
         accountHolding(vaultAsset(FAUCET_HEX, 10n, 'disabled'), vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
         referenceRequest(referenceNote()),
         FAUCET_REF,
-        100n
+        100n,
+        EXPIRATION_DELTA_BLOCKS
       );
 
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
@@ -489,7 +642,8 @@ describe('miden sdk helpers', () => {
           accountHolding(vaultAsset('accountId-0xother', 500n, 'enabled')) as any,
           referenceRequest(referenceNote()),
           FAUCET_REF,
-          100n
+          100n,
+          EXPIRATION_DELTA_BLOCKS
         );
 
         expect(request).toBeDefined();
@@ -499,13 +653,54 @@ describe('miden sdk helpers', () => {
       }
     });
 
+    it('starts from a fresh builder when no base builder is given, declaring no fee salt', () => {
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n,
+        EXPIRATION_DELTA_BLOCKS
+      );
+
+      expect(freshBuilders()).toHaveLength(1);
+      expect(freshBuilders()[0]!.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: { notes: [(Note.withAttachments as jest.Mock).mock.results[0]!.value] },
+        expirationDelta: EXPIRATION_DELTA_BLOCKS
+      });
+    });
+
+    it('adds the rebuilt note to the base builder it is given and builds from THAT builder', () => {
+      const base = feeAwareBaseBuilder();
+
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n,
+        180,
+        base as any
+      );
+
+      expect(request).toEqual({ kind: 'fee-aware-request' });
+      expect(base.withOwnOutputNotes).toHaveBeenCalledWith({
+        notes: [(Note.withAttachments as jest.Mock).mock.results[0]!.value]
+      });
+      expect(base.withExpirationDelta).toHaveBeenCalledWith(180);
+      expect(base.build).toHaveBeenCalledTimes(1);
+      expect(base.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(freshBuilders()).toHaveLength(0);
+    });
+
     it('rejects an amount outside the representable range', () => {
       expect(() =>
         buildPswapCreateRequest(
           accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
           referenceRequest(referenceNote()),
           FAUCET_REF,
-          MAX_AMOUNT + 1n
+          MAX_AMOUNT + 1n,
+          EXPIRATION_DELTA_BLOCKS
         )
       ).toThrow('outside the representable range');
       expect(Note.withAttachments).not.toHaveBeenCalled();
@@ -519,9 +714,21 @@ describe('miden sdk helpers', () => {
           accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
           referenceRequest(undefined),
           FAUCET_REF,
-          100n
+          100n,
+          EXPIRATION_DELTA_BLOCKS
         )
       ).toThrow('carried no own output note');
+    });
+
+    it('carries the expiration delta it is given (#1081)', () => {
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n,
+        180
+      );
+      expect(request).toMatchObject({ expirationDelta: 180 });
     });
   });
 });

@@ -1,12 +1,12 @@
 /**
- * Decoder for note-transport `SendNote` requests captured on the wire.
+ * Decoder for note-transport `SendNoteWithProof` requests captured on the wire.
  *
  * Why this exists. The 2026-08-24 stress run lost 14 private notes (53 TST) that
  * were committed on chain, ACKed by the wallet, and never stored on the transport
  * service. Diagnosing it took a bespoke recording proxy, because every artifact the
- * harness keeps is an ENDPOINT state — client IndexedDB at each end, the chain, the
- * transport service — and none of them record the hop between sender and service.
- * Network capture already logs that a `SendNote` happened; what it could not say is
+ * harness keeps is an ENDPOINT state - client IndexedDB at each end, the chain, the
+ * transport service - and none of them record the hop between sender and service.
+ * Network capture already logs that a push happened; what it could not say is
  * WHICH note, which is exactly what you need to correlate a wire push against the
  * set that went missing.
  *
@@ -14,58 +14,69 @@
  * Diagnostics only: every export is total and returns `[]` rather than throwing, so
  * a malformed or truncated body can never fail a run.
  *
- * Wire format, outermost first (verified against `miden_note_transport.proto` in
- * `miden-note-transport-proto-build`, and against `NoteHeader`/`NoteMetadata`
- * serialization in `miden-protocol`):
- *   gRPC-web frame : [flag u8][length u32 big-endian][payload]   (repeated)
- *   SendNoteRequest: field 1, length-delimited -> TransportNote
- *   TransportNote  : field 1 `header` (bytes), field 2 `details` (bytes),
- *                    field 3 `after_block_num` (varint)
- *   NoteHeader     : [0:32]  details commitment
- *                    [32]    note type (u8; 0 = private)
- *                    [33:48] sender account id (15 bytes)
- *                    [48:52] note TAG, little-endian u32
- *                    [52]    count of PRESENT attachment headers (u8)
- *                    [53:..] those attachment headers (variable, 0-4 of them)
- *                    [..]    32-byte attachments commitment
+ * Wire format, outermost first. The service is SDK 0.17's
+ * `miden.note_transport.v1.NoteTransportService` (`proto/note_transport.proto` in
+ * miden-node-proto-build, with `note`, `primitives` and `block_number` protos from
+ * miden-objects); every level is plain protobuf:
+ *   gRPC-web frame           : [flag u8][length u32 big-endian][payload]   (repeated)
+ *   SendNoteWithProofRequest : 1 `note` TransportNote, 2 `inclusion_proof` NoteInclusionProof
+ *   TransportNote            : 1 `header` NoteHeader, 2 `details` NoteDetails
+ *   NoteHeader               : 1 `metadata` NoteMetadata, 2 `details_commitment` Word
+ *   NoteMetadata             : ... 4 `tag` fixed32 ...
+ *   NoteInclusionProof       : 1 `note_id` NoteId, 2 `block_num` BlockNumber, 3 index, 4 path
+ *   NoteId                   : 1 `id` Word
+ *   Word                     : 1 `encoded` bytes (exactly 32)
+ *   BlockNumber              : 1 `block_num` fixed32
  *
- * Two traps in that layout, both of which produce a confident wrong answer rather
+ * Traps in that format, each of which produces a confident wrong answer rather
  * than an obvious failure:
  *
  *   - The header does NOT contain the note id. `NoteHeader::id()` is
  *     `hash(details_commitment, metadata_commitment)`, computed on demand, so the
- *     only identifier recoverable from these bytes is the DETAILS COMMITMENT. That
- *     is still a perfectly good correlation key — the SDK records it alongside the
- *     note id on the wallet side — but it is not the note id and must not be
- *     labelled as one.
- *   - The header is VARIABLE length (85-97 bytes), because the metadata writes only
- *     the attachment headers that are present. Any fixed-size expectation silently
- *     drops notes; everything this decoder reads lives below offset 52.
- *
- * The tag being little-endian is likewise load-bearing and easy to get wrong:
- * reading it big-endian yields a plausible-looking number that matches nothing on
- * the service.
+ *     identifier the header yields is the DETAILS COMMITMENT, which the SDK records
+ *     alongside the note id on the wallet side.
+ *   - The note id that IS on the wire sits in the inclusion proof, and it is the id
+ *     the sender's proof CLAIMS: the client fills it from `note.header().id()`
+ *     (miden-client 0.17 `note_transport/grpc.rs`). The transport verifies the proof;
+ *     this decoder does not, so it reports the id beside the details commitment and
+ *     never in place of it.
+ *   - The tag is a protobuf `fixed32`: four LITTLE-ENDIAN bytes, not a varint.
+ *     Reading it big-endian yields a plausible-looking number that matches nothing
+ *     on the service.
+ *   - proto3 omits zero scalars, so an absent `tag` or `block_num` means 0, not
+ *     "unknown": a proof for genesis block 0 arrives as a present but EMPTY
+ *     BlockNumber. An absent BlockNumber MESSAGE is not that zero, and a field that is
+ *     present but malformed is the case to drop.
  */
 
-/** One note recovered from a `SendNote` body. */
+/** One note recovered from a `SendNoteWithProof` body. */
 export interface SentNoteOnWire {
   /**
-   * Commitment to the note's details, as 0x-prefixed hex.
+   * Commitment to the note's details, from the note header, as 0x-prefixed hex.
    *
-   * NOT the note id — see the trap note above. Correlate against the wallet's
-   * recorded details commitment for an output note, not against `outputNoteIds`.
+   * NOT the note id - see the trap note above. Correlate by `noteId` when it is
+   * present, and by this against the wallet's recorded details commitment otherwise.
    */
   detailsCommitment: string;
-  /** Note tag as the transport service stores it (little-endian u32). */
+  /** Note tag as the transport service stores it (`fixed32`, little-endian on the wire). */
   tag: number;
-  /** Sender-supplied scan floor, or undefined when the field was absent. */
-  afterBlockNum?: number;
+  /** The note id the inclusion proof claims, as 0x-prefixed hex; omitted when absent or malformed. */
+  noteId?: string;
+  /** The block the inclusion proof places the note in; omitted when absent or malformed. */
+  inclusionBlockNum?: number;
 }
 
-const DETAILS_COMMITMENT_BYTES = 32;
-const TAG_OFFSET = 48;
-/** Smallest header this decoder can read: everything it uses sits below the tag. */
-const MIN_HEADER_BYTES = TAG_OFFSET + 4;
+const WORD_BYTES = 32;
+
+type Field = { wireType: 0; value: number } | { wireType: 1 | 2 | 5; value: Uint8Array };
+
+/** A parsed message. `complete` is false when the walk stopped before the end of its bytes. */
+interface Message {
+  fields: Map<number, Field[]>;
+  complete: boolean;
+}
+
+const UNTRUSTED: Message = { fields: new Map(), complete: false };
 
 /**
  * Reads a protobuf varint.
@@ -92,44 +103,97 @@ function readVarint(buf: Uint8Array, start: number): [number, number] | undefine
 }
 
 /** Walks one protobuf message into {fieldNumber: values}. Never throws. */
-function walkFields(buf: Uint8Array): Map<number, (Uint8Array | number)[]> {
-  const out = new Map<number, (Uint8Array | number)[]>();
+function walkFields(buf: Uint8Array): Message {
+  const fields = new Map<number, Field[]>();
   let i = 0;
   while (i < buf.length) {
     const keyRead = readVarint(buf, i);
-    if (!keyRead) break;
+    if (!keyRead) return { fields, complete: false };
     const [key, afterKey] = keyRead;
     i = afterKey;
-    const field = key >> 3;
-    const wireType = key & 7;
-    let value: Uint8Array | number;
-    if (wireType === 0) {
+    const fieldNumber = Math.floor(key / 8);
+    const wireType = key % 8;
+    let entry: Field;
+    if (fieldNumber === 0) {
+      return { fields, complete: false }; // field 0 is reserved; this is not protobuf
+    } else if (wireType === 0) {
       const varint = readVarint(buf, i);
-      if (!varint) break;
-      [value, i] = varint;
+      if (!varint) return { fields, complete: false };
+      entry = { wireType, value: varint[0] };
+      i = varint[1];
     } else if (wireType === 2) {
       const lenRead = readVarint(buf, i);
-      if (!lenRead) break;
+      if (!lenRead) return { fields, complete: false };
       const [len, afterLen] = lenRead;
-      if (afterLen + len > buf.length) break;
-      value = buf.subarray(afterLen, afterLen + len);
+      if (afterLen + len > buf.length) return { fields, complete: false };
+      entry = { wireType, value: buf.subarray(afterLen, afterLen + len) };
       i = afterLen + len;
-    } else if (wireType === 5) {
-      if (i + 4 > buf.length) break;
-      value = buf.subarray(i, i + 4);
-      i += 4;
-    } else if (wireType === 1) {
-      if (i + 8 > buf.length) break;
-      value = buf.subarray(i, i + 8);
-      i += 8;
+    } else if (wireType === 5 || wireType === 1) {
+      const width = wireType === 5 ? 4 : 8;
+      if (i + width > buf.length) return { fields, complete: false };
+      entry = { wireType, value: buf.subarray(i, i + width) };
+      i += width;
     } else {
-      break; // groups / unknown wire type — stop rather than guess
+      return { fields, complete: false }; // groups / unknown wire type - stop rather than guess
     }
-    const bucket = out.get(field);
-    if (bucket) bucket.push(value);
-    else out.set(field, [value]);
+    const bucket = fields.get(fieldNumber);
+    if (bucket) bucket.push(entry);
+    else fields.set(fieldNumber, [entry]);
   }
-  return out;
+  return { fields, complete: true };
+}
+
+/**
+ * The embedded message at `fieldNumber`, or `undefined` when the field is absent.
+ *
+ * A singular message field that appears more than once is MERGED, as protobuf
+ * parsers (prost on the service side) do: equivalent to parsing the occurrences
+ * concatenated, so scalars inside follow last-wins and a later occurrence that
+ * omits a field keeps the earlier value. Reporting only the first, or only the
+ * last, could name a note the service never wrote.
+ */
+function messageField(msg: Message, fieldNumber: number): Message | undefined {
+  const entries = msg.fields.get(fieldNumber);
+  if (!entries) return undefined;
+  const parts: Uint8Array[] = [];
+  for (const entry of entries) {
+    if (entry.wireType !== 2) return UNTRUSTED; // a parser rejects this; so do we
+    parts.push(entry.value);
+  }
+  const merged = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    merged.set(part, offset);
+    offset += part.length;
+  }
+  return walkFields(merged);
+}
+
+/** A `fixed32` scalar, last-wins; 0 when absent (proto3 default); undefined when not a fixed32. */
+function fixed32Field(msg: Message, fieldNumber: number): number | undefined {
+  const entries = msg.fields.get(fieldNumber);
+  if (!entries) return 0;
+  if (entries.some(entry => entry.wireType !== 5)) return undefined;
+  const bytes = entries[entries.length - 1]!.value;
+  if (!(bytes instanceof Uint8Array)) return undefined;
+  return bytes[0]! + (bytes[1]! << 8) + (bytes[2]! << 16) + bytes[3]! * 2 ** 24;
+}
+
+/** A `bytes` scalar, last-wins; empty when absent; undefined when not length-delimited. */
+function bytesField(msg: Message, fieldNumber: number): Uint8Array | undefined {
+  const entries = msg.fields.get(fieldNumber);
+  if (!entries) return new Uint8Array();
+  if (entries.some(entry => entry.wireType !== 2)) return undefined;
+  const bytes = entries[entries.length - 1]!.value;
+  return bytes instanceof Uint8Array ? bytes : undefined;
+}
+
+/** The 32 bytes of the `Word` message at `fieldNumber`, or undefined when absent or malformed. */
+function wordField(msg: Message, fieldNumber: number): Uint8Array | undefined {
+  const word = messageField(msg, fieldNumber);
+  if (!word?.complete) return undefined;
+  const encoded = bytesField(word, 1);
+  return encoded?.length === WORD_BYTES ? encoded : undefined;
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -138,24 +202,12 @@ function toHex(bytes: Uint8Array): string {
   return s;
 }
 
-/** Last value in a field bucket matching `is` — protobuf singular fields are last-wins. */
-function lastOfType<T extends Uint8Array | number>(
-  values: (Uint8Array | number)[] | undefined,
-  is: (v: Uint8Array | number) => v is T
-): T | undefined {
-  for (let i = (values?.length ?? 0) - 1; i >= 0; i -= 1) {
-    const value = values![i]!;
-    if (is(value)) return value;
-  }
-  return undefined;
-}
-
 /**
  * Splits a gRPC-web body into its plain-protobuf message frames.
  *
  * Skips two kinds of frame that are not raw protobuf: the trailers frame (flag bit
  * 0x80, which carries grpc-status) and a compressed message (flag bit 0x01). Feeding
- * a compressed payload to the field walker would not fail loudly — it would parse
+ * a compressed payload to the field walker would not fail loudly - it would parse
  * gzip bytes as protobuf and could emit a plausible wrong note.
  */
 function dataFrames(body: Uint8Array): Uint8Array[] {
@@ -172,10 +224,40 @@ function dataFrames(body: Uint8Array): Uint8Array[] {
   return frames;
 }
 
+/** Decodes one `SendNoteWithProofRequest` message, or `undefined` when it cannot be trusted. */
+function decodeRequest(frame: Uint8Array): SentNoteOnWire | undefined {
+  // An incomplete walk means bytes the service would have rejected, and with merge
+  // semantics the unread tail could have changed any field already read.
+  const request = walkFields(frame);
+  if (!request.complete) return undefined;
+  const note = messageField(request, 1);
+  if (!note?.complete) return undefined;
+  const header = messageField(note, 1);
+  if (!header?.complete) return undefined;
+  const metadata = messageField(header, 1);
+  if (!metadata?.complete) return undefined;
+  const commitment = wordField(header, 2);
+  const tag = fixed32Field(metadata, 4);
+  if (commitment === undefined || tag === undefined) return undefined;
+  // The header alone names the note, so a malformed proof drops only what it carried.
+  // An absent BlockNumber stays unknown: only a present, empty one is block 0.
+  const proof = messageField(request, 2);
+  const noteIdMessage = proof?.complete ? messageField(proof, 1) : undefined;
+  const noteId = noteIdMessage?.complete ? wordField(noteIdMessage, 1) : undefined;
+  const block = proof?.complete ? messageField(proof, 2) : undefined;
+  const inclusionBlockNum = block?.complete ? fixed32Field(block, 1) : undefined;
+  return {
+    detailsCommitment: toHex(commitment),
+    tag,
+    ...(noteId === undefined ? {} : { noteId: toHex(noteId) }),
+    ...(inclusionBlockNum === undefined ? {} : { inclusionBlockNum })
+  };
+}
+
 /**
- * Recovers the notes carried by a captured `SendNote` request body.
+ * Recovers the notes carried by a captured `SendNoteWithProof` request body.
  *
- * Returns `[]` for anything it cannot parse — a body that is truncated, a
+ * Returns `[]` for anything it cannot parse - a body that is truncated, a
  * different RPC, or a future wire change. Callers treat an empty array as "no
  * identity available", never as "no notes were sent".
  */
@@ -184,26 +266,8 @@ export function decodeSendNoteBody(body: Uint8Array | null | undefined): SentNot
   const notes: SentNoteOnWire[] = [];
   try {
     for (const frame of dataFrames(body)) {
-      const request = walkFields(frame);
-      // `SendNoteRequest.note` is a SINGULAR field, so a body that repeats field 1
-      // stores only its LAST value — and reporting the earlier ones would send an
-      // operator after a note the service never wrote. Same rule inside the note.
-      const noteField = lastOfType(request.get(1), (v): v is Uint8Array => v instanceof Uint8Array);
-      if (!noteField) continue;
-      const note = walkFields(noteField);
-      const header = lastOfType(note.get(1), (v): v is Uint8Array => v instanceof Uint8Array);
-      if (!header || header.length < MIN_HEADER_BYTES) continue;
-      const tag =
-        header[TAG_OFFSET]! +
-        (header[TAG_OFFSET + 1]! << 8) +
-        (header[TAG_OFFSET + 2]! << 16) +
-        header[TAG_OFFSET + 3]! * 2 ** 24;
-      const afterBlockNum = lastOfType(note.get(3), (v): v is number => typeof v === 'number');
-      notes.push({
-        detailsCommitment: toHex(header.subarray(0, DETAILS_COMMITMENT_BYTES)),
-        tag,
-        ...(afterBlockNum === undefined ? {} : { afterBlockNum })
-      });
+      const note = decodeRequest(frame);
+      if (note) notes.push(note);
     }
   } catch {
     return notes; // keep whatever decoded cleanly
@@ -211,9 +275,16 @@ export function decodeSendNoteBody(body: Uint8Array | null | undefined): SentNot
   return notes;
 }
 
-/** True when this URL is the transport service's `SendNote` RPC. */
+/**
+ * True when this URL is the transport service's push RPC, SDK 0.17's
+ * `miden.note_transport.v1.NoteTransportService/SendNoteWithProof`.
+ *
+ * The SDK calls no other push path, so the pre-0.17 `SendNote` services are not
+ * matched. The leading `/` keeps a longer package (`x.miden.note_transport.v1`)
+ * from matching.
+ */
 export function isSendNoteUrl(url: string): boolean {
-  return /MidenNoteTransport\/SendNote$/.test(url);
+  return /\/miden\.note_transport\.v1\.NoteTransportService\/SendNoteWithProof$/.test(url);
 }
 
 /** Decodes a base64 body tunnelled out of the service-worker fetch wrapper. */

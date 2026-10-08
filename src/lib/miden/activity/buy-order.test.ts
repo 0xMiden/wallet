@@ -30,6 +30,13 @@ jest.mock('lib/onramp/buy-batch', () => ({
   midenAccountHexToEvmAddress: () => '0x000000000a0a0a0a0a0a0a0a0a0a0a0a0a0a0a00'
 }));
 
+// The indexer URL and network ids come from the remote config, which no test loads.
+jest.mock('lib/remote-config/values', () => ({
+  getAgglayerIndexerUrl: () => 'https://indexer.test/api',
+  getAgglayerEvmNetworkId: () => 0,
+  getAgglayerRollupId: () => 86
+}));
+
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
 jest.mock('lib/settings/helpers', () => ({

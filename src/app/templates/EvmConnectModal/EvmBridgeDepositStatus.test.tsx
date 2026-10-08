@@ -1,10 +1,13 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 
@@ -15,6 +18,35 @@ import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
  */
 
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
+let mockAssetsMetadata: Record<string, AssetMetadata> = {};
+
+// The screen resolves the delivered faucet synchronously from the store, as the transaction badge does.
+jest.mock('lib/store', () => ({
+  useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, AssetMetadata> }) => T) =>
+    selector({ assetsMetadata: mockAssetsMetadata })
+}));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => 'native-faucet'
+}));
+
+// Real base-unit scaling: the shared `lib/i18n/numbers` manual mock has no `formatBigInt`.
+jest.mock('lib/shared/format', () => ({
+  formatAmount: (amount: bigint, decimals: number) =>
+    jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').formatBigInt(amount, decimals)
+}));
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -110,28 +142,7 @@ jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () 
   )
 }));
 
-jest.mock('app/layouts/page-active', () => ({
-  usePageActive: () => true
-}));
-
-// The attestation poll is captured rather than run: the test drives `poll` and
-// `onArrival` by hand, so no timers are involved.
-type TrackerOptions = { active: boolean; intervalMs?: number; poll: () => Promise<boolean>; onArrival?: () => void };
-let trackerOptions: TrackerOptions | undefined;
-jest.mock('lib/agglayer/use-bridge-tracker', () => ({
-  useBridgeTracker: (options: TrackerOptions) => {
-    trackerOptions = options;
-  }
-}));
-
-const fetchXReserveAttestations = jest.fn();
-jest.mock('lib/usdcx/attestation', () => ({
-  fetchXReserveAttestations: (...args: unknown[]) => fetchXReserveAttestations(...args),
-  findAttestationForDomain: (list: { remoteDomain: number }[], domain: number) =>
-    list.find(entry => entry.remoteDomain === domain)
-}));
-
-const makeRow = (extraInputs: IBridgedReceiveExtraInputs): ITransaction => ({
+const makeRow = (extraInputs: IBridgedReceiveExtraInputs, overrides: Partial<ITransaction> = {}): ITransaction => ({
   id: 'bridge-1',
   type: 'bridged-receive',
   accountId: 'miden-account',
@@ -142,7 +153,8 @@ const makeRow = (extraInputs: IBridgedReceiveExtraInputs): ITransaction => ({
   completedAt: 1,
   displayMessage: 'Bridging in',
   displayIcon: 'DEFAULT',
-  extraInputs
+  extraInputs,
+  ...overrides
 });
 
 const makeInputs = (overrides: Partial<IBridgedReceiveExtraInputs> = {}): IBridgedReceiveExtraInputs => ({
@@ -160,6 +172,7 @@ describe('EvmBridgeDepositStatus', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRowState = { row: undefined, loaded: false };
+    mockAssetsMetadata = { 'miden-usdc': { symbol: 'USDC', name: 'USDC', decimals: 6 } };
   });
 
   it('shows a spinner until a transaction row is available', () => {
@@ -174,7 +187,7 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByText('bridgeDepositProcessing')).toBeInTheDocument();
     expect(screen.getByText('bridgeDepositProcessingDescription')).toBeInTheDocument();
     expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
-    expect(screen.getByTestId('summary-badge')).toHaveTextContent('12.50 USDC → Miden');
+    expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 USDC → Miden');
     // A bridge row is the slate wherever it is drawn, so its arrow is too — not the badge's
     // default, which is the Send flow's blue.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
@@ -213,7 +226,6 @@ describe('EvmBridgeDepositStatus', () => {
     // The same slate as the processing body: one bridge, one colour, either side of submission.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
     expect(screen.getByTestId('success-footer')).toHaveTextContent('bridgeDepositDeliveryDescription');
-    expect(trackerOptions?.active).toBe(false);
   });
 
   describe('USDCx (Circle xReserve) route', () => {
@@ -227,11 +239,6 @@ describe('EvmBridgeDepositStatus', () => {
         evmTxHash: DEPOSIT_HASH,
         ...overrides
       });
-
-    beforeEach(() => {
-      trackerOptions = undefined;
-      fetchXReserveAttestations.mockResolvedValue([]);
-    });
 
     it('labels the route USDCx', () => {
       mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
@@ -251,83 +258,96 @@ describe('EvmBridgeDepositStatus', () => {
       });
     });
 
-    it('polls Circle for the attestation of the deposit hash while delivering', async () => {
+    // The app-root watcher writes the phase; the screen reads the row and polls nothing.
+    it('waits for the attestation while the row is delivering', () => {
       mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-      expect(trackerOptions?.active).toBe(true);
-      expect(trackerOptions?.intervalMs).toBe(12_000);
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('delivering');
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
-
-      await expect(trackerOptions?.poll()).resolves.toBe(false);
-      expect(fetchXReserveAttestations).toHaveBeenCalledWith(DEPOSIT_HASH);
     });
 
-    it('reports the attestation once Circle signs for the configured domain', async () => {
-      const { USDCX_REMOTE_DOMAIN } = jest.requireActual('lib/usdcx/constant');
-      fetchXReserveAttestations.mockResolvedValue([{ remoteDomain: USDCX_REMOTE_DOMAIN }]);
-      mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
+    it('reads Confirmed once the attestation moved the row to ready', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ phase: 'ready' })), loaded: true };
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-      await expect(trackerOptions?.poll()).resolves.toBe(true);
-      act(() => trackerOptions?.onArrival?.());
-
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('confirmed');
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAttested');
-      expect(trackerOptions?.active).toBe(false);
     });
 
-    it('ignores an attestation for another domain', async () => {
-      fetchXReserveAttestations.mockResolvedValue([{ remoteDomain: 10001 }]);
-      mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
+    it('reads Completed once the minted note is received', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ phase: 'received' })), loaded: true };
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-      await expect(trackerOptions?.poll()).resolves.toBe(false);
-    });
-
-    it('does not poll before the Sepolia receipt', () => {
-      mockRowState = { row: makeRow(usdcxInputs({ phase: 'submitting' })), loaded: true };
-      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
-
-      expect(trackerOptions?.active).toBe(false);
-    });
-
-    it('does not poll a row with no valid deposit hash', () => {
-      mockRowState = { row: makeRow(usdcxInputs({ evmTxHash: 'not-a-hash' })), loaded: true };
-      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
-
-      expect(trackerOptions?.active).toBe(false);
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('completed');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxReceived');
     });
   });
 
   const submittedPhases: IBridgedReceivePhase[] = ['submitting', 'failed', 'delivering', 'received'];
 
-  it.each(submittedPhases)('rounds a long quoted amount in the %s state instead of showing every digit', phase => {
-    mockRowState = {
-      row: makeRow(makeInputs({ phase, sourceAmount: '151.500000000000000001', outputAmount: '150.00' })),
-      loaded: true
-    };
+  // The deposit is what the wallet signed for, so it never reads less than left the account: 10.6512 reads 10.66,
+  // where down and half-up both read 10.65.
+  it.each(submittedPhases)('rounds a long Fast deposit up in the %s state instead of showing every digit', phase => {
+    mockRowState = { row: makeRow(makeInputs({ phase, sourceAmount: '10.6512' })), loaded: true };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
     const badge = screen.getByTestId('summary-badge');
-    expect(badge).toHaveTextContent('151.50 USDC');
-    expect(badge).not.toHaveTextContent('151.500000000000000001');
+    expect(badge.textContent).toMatch(/^10\.66 USDC → /);
+    expect(badge).not.toHaveTextContent('10.6512');
   });
 
   it('expands the decimals of a tiny amount instead of showing zero', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'delivering', sourceAmount: '0.000001234' })), loaded: true };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-    expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.0000012 USDC');
+    expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.0000013 USDC');
   });
 
-  it('rounds the Fast route deposit down, never half-up', () => {
-    mockRowState = { row: makeRow(makeInputs({ phase: 'delivering', sourceAmount: '10.6555' })), loaded: true };
+  it('shows the credited amount once received, never the quote', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received', outputAmount: '150.2', outputSymbol: 'USDC' }), {
+        amount: 150_123_456n
+      }),
+      loaded: true
+    };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-    expect(screen.getByTestId('summary-badge')).toHaveTextContent('10.65 USDC');
+    expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 USDC → 150.12 USDC');
   });
 
-  it('shows the Slow route amounts as typed, not rounded to two decimals', () => {
+  // 12.345 reads 12.34 rounded down and 12.35 rounded up, so only the exact stored amount passes.
+  it.each([
+    ['12.00', '12'],
+    ['12.345', '12.345']
+  ])(
+    'shows the stored "you receive" amount %s while in flight as %s, unpadded and unrounded',
+    (outputAmount, shown) => {
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'delivering', outputAmount, outputSymbol: 'USDC' })),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe(`12.5 USDC → ${shown} USDC`);
+    }
+  );
+
+  it('names the asset without a number once received when the delivered faucet has no known scale', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received', outputAmount: '150.2', outputSymbol: 'USDC' }), {
+        amount: 150_123_456n,
+        faucetId: 'unresolved-faucet'
+      }),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 USDC → USDC');
+  });
+
+  it('keeps six decimals of a credited ETH amount', () => {
+    mockAssetsMetadata = { 'miden-eth': { symbol: 'ETH', name: 'Ether', decimals: 18 } };
     mockRowState = {
       row: makeRow(
         makeInputs({
@@ -336,6 +356,26 @@ describe('EvmBridgeDepositStatus', () => {
           sourceSymbol: 'ETH',
           outputAmount: '0.015',
           outputSymbol: 'ETH',
+          phase: 'received'
+        }),
+        { amount: 15_123_456_789_000_000n, faucetId: 'miden-eth' }
+      ),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('0.015 ETH → 0.015123 ETH');
+  });
+
+  it('shows a Slow amount as typed, without a trailing separator', () => {
+    mockRowState = {
+      row: makeRow(
+        makeInputs({
+          provider: 'agglayer',
+          sourceAmount: '1.',
+          sourceSymbol: 'ETH',
+          outputAmount: '1.',
+          outputSymbol: 'ETH',
           phase: 'delivering'
         })
       ),
@@ -343,6 +383,111 @@ describe('EvmBridgeDepositStatus', () => {
     };
     render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
-    expect(screen.getByTestId('summary-badge')).toHaveTextContent('0.015 ETH → 0.015 ETH');
+    expect(screen.getByTestId('summary-badge').textContent).toBe('1 ETH → 1 ETH');
+  });
+
+  // Past ETH's six decimals: 0.0151235 reads 0.015123 rounded down and 0.015124 rounded up.
+  it('shows the Slow route amounts as typed, not rounded at the asset precision', () => {
+    mockRowState = {
+      row: makeRow(
+        makeInputs({
+          provider: 'agglayer',
+          sourceAmount: '0.0151235',
+          sourceSymbol: 'ETH',
+          outputAmount: '0.0151235',
+          outputSymbol: 'ETH',
+          phase: 'delivering'
+        })
+      ),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+    expect(screen.getByTestId('summary-badge').textContent).toBe('0.0151235 ETH → 0.0151235 ETH');
+  });
+
+  describe('testnet bridge USDC label', () => {
+    beforeEach(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAssetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', name: 'USDC', decimals: 6 } };
+    });
+
+    it('names both sides of a Fast deposit by the testnet label in flight', () => {
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'delivering', outputAmount: '12', outputSymbol: 'USDC' }), {
+          faucetId: TEST_MIDEN_USDC_FAUCET
+        }),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12 Test Epoch USDC');
+    });
+
+    it('names both sides of a Fast deposit by the testnet label once received', () => {
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'received', outputAmount: '150.2', outputSymbol: 'USDC' }), {
+          faucetId: TEST_MIDEN_USDC_FAUCET,
+          amount: 150_123_456n
+        }),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 150.12 Test Epoch USDC');
+    });
+
+    it('names a USDC source by the testnet label while the token read has not succeeded', () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+      mockRowState = {
+        row: makeRow(makeInputs({ phase: 'delivering', outputAmount: '12', outputSymbol: 'USDC' }), {
+          faucetId: TEST_MIDEN_USDC_FAUCET
+        }),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12 Test Epoch USDC');
+    });
+
+    it('names the source of a Slow USDC deposit by the testnet label, as its Review did', () => {
+      mockRowState = {
+        row: makeRow(
+          makeInputs({
+            provider: 'agglayer',
+            sourceAmount: '12.5',
+            sourceSymbol: 'USDC',
+            outputAmount: '12.5',
+            outputSymbol: 'USDC',
+            phase: 'delivering'
+          }),
+          { faucetId: '' }
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('12.5 Test Epoch USDC → 12.5 USDC');
+    });
+
+    it('keeps a Slow ETH deposit on ETH', () => {
+      mockRowState = {
+        row: makeRow(
+          makeInputs({
+            provider: 'agglayer',
+            sourceAmount: '0.015',
+            sourceSymbol: 'ETH',
+            outputAmount: '0.015',
+            outputSymbol: 'ETH',
+            phase: 'delivering'
+          }),
+          { faucetId: '' }
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('summary-badge').textContent).toBe('0.015 ETH → 0.015 ETH');
+    });
   });
 });

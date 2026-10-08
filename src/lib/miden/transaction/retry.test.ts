@@ -33,6 +33,9 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async (fn: () => unknown) => fn()
 }));
 
+// These rows hold no checkable entry, so the tap-time proof never runs; mocked so this suite never builds a client.
+jest.mock('./reconcile-unconfirmed', () => ({ checkEvidenceForRetry: jest.fn() }));
+
 // Real module underneath. The landed-verdict branch used to be asserted purely
 // through `expect(mockUpdateTransactionStatus).toHaveBeenCalledWith(...)`, which
 // is satisfied by a call that THROWS — and the real `updateTransactionStatus`
@@ -68,10 +71,13 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     // a low literal here stands in for "queued long ago".
     queuedSeq: 1,
     processingStartedAt: 1100,
+    attemptId: 'a1',
     completedAt: 1200,
     stage: 'sending',
     nextEligibleAt: 99_999,
     unauthorizedRetryUntil: 99_999,
+    requeueStreak: { arm: 'guardian-unreachable', count: 3 },
+    guardianBusy: true,
     error: 'Something broke',
     rawError: 'Error: something broke',
     displayMessage: 'Failed',
@@ -120,10 +126,9 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     expect(row.displayMessage).toBe('Completed earlier');
   });
 
-  it('resubmits (requeues) an execute the node cannot confirm — it replays identical requestBytes', async () => {
-    // `execute` is NOT a rebuilt-request type: a duplicate submit re-creates the
-    // IDENTICAL note, which the node rejects, so an unconfirmable outcome may
-    // still be replayed. (For send/swap it may not — see the backstop below.)
+  it('requeues an execute the node cannot confirm whose run left no entry: that run ended before its submit', async () => {
+    // A run that may have crossed its submit always leaves an entry (#1081), so a row with an attempt id and none
+    // is not in doubt. (A send or swap here may not be replayed: see the backstop below.)
     const row = failedRow({ type: 'execute', transactionId: 'abc123' });
     wireRow(row);
     mockVerifySendLanded.mockResolvedValue('unknown');
@@ -202,6 +207,20 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
+  it('offers Retry on an Unconfirmed row: it is the exit while no verdict exists (#1081)', () => {
+    expect(isRequeueableTransaction({ status: ITransactionStatus.Unconfirmed, type: 'send' })).toBe(true);
+    expect(
+      isRequeueableTransaction({ status: ITransactionStatus.Unconfirmed, type: 'send', restoredFromBackup: true })
+    ).toBe(false);
+  });
+
+  it('requeues an Unconfirmed row whose stage still matches (#1081)', async () => {
+    const row = failedRow({ type: 'consume', status: ITransactionStatus.Unconfirmed, stage: 'sending' });
+    wireRow(row);
+    await requeueFailedTransaction(row.id);
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
   it('applies the same guard to a swap (its PSWAP order would be created twice)', async () => {
     const row = failedRow({ type: 'swap', transactionId: undefined, requestBytes: undefined });
     wireRow(row);
@@ -217,7 +236,7 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     const row = failedRow({ type: 'send', transactionId: undefined, requestBytes: undefined });
     wireRow(row);
 
-    await requeueFailedTransaction('tx-1', { acknowledgeUnverifiedSend: true });
+    await requeueFailedTransaction('tx-1', { acknowledged: { attemptId: 'a1' } });
 
     expect(row.status).toBe(ITransactionStatus.Queued);
     // Retracted, not stepped over: a later failure on this row is judged on its
@@ -436,6 +455,7 @@ describe('requeueFailedTransaction', () => {
     // second, inverting the FIFO order the tie-break exists to impose.
     expect(row.queuedSeq).toBeGreaterThan(1);
     expect(row.processingStartedAt).toBeUndefined();
+    expect(row.attemptId).toBeUndefined();
     expect(row.completedAt).toBeUndefined();
     expect(row.stage).toBeUndefined();
     // Stale requeue-backoff must not delay an explicit user retry.
@@ -444,6 +464,10 @@ describe('requeueFailedTransaction', () => {
     // one automatic attempt at most before the arm concluded it had already run
     // out of time, on a retry the user asked for minutes or days later.
     expect(row.unauthorizedRetryUntil).toBeUndefined();
+    // Or the guardian backoff the failed attempts built (#1223).
+    expect(row.requeueStreak).toBeUndefined();
+    // Or the Guardian-busy mark, so the retried row does not open on a wait it is not in (#312).
+    expect(row.guardianBusy).toBeUndefined();
     expect(row.error).toBeUndefined();
     expect(row.rawError).toBeUndefined();
     expect(row.displayMessage).toBeUndefined();

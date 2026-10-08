@@ -248,6 +248,29 @@ describe('SearchInput — clear button & placeholder hint (#503)', () => {
     // must NOT match the bold weight of a real value
     expect(input.className).not.toContain('placeholder:font-bold');
   });
+
+  it('hides the placeholder while the field is focused, and keeps its text for when focus leaves', () => {
+    render(<SearchInput value="" onChange={jest.fn()} placeholder="Search for tokens" />);
+    const input = getInput();
+    expect(input).toHaveClass('placeholder:text-muted', 'focus:placeholder:text-transparent');
+
+    fireEvent.focus(input);
+    expect(input).toHaveAttribute('placeholder', 'Search for tokens');
+    fireEvent.blur(input);
+    expect(input).toHaveAttribute('placeholder', 'Search for tokens');
+  });
+
+  it('draws its clear action with the shared 44px button, the glyph where the 32px one had it', () => {
+    render(<SearchInput value="usdc" onChange={jest.fn()} />);
+    expect(screen.getByLabelText('clear')).toHaveClass(
+      'h-11',
+      'w-11',
+      'absolute',
+      'right-0',
+      'top-1/2',
+      '-translate-y-1/2'
+    );
+  });
 });
 
 describe('SearchInput — Escape', () => {

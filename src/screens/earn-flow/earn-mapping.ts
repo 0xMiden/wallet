@@ -50,8 +50,8 @@ export function usdFigureFormatter(
 /**
  * Display names per lender key. The only live lender today is Epoch's
  * "DUMMY_LENDING" stand-in — shown by its market-uid name ("Dummy Lending") on
- * USDC until real lenders exist (the whole earn flow is USDC-only, see
- * MIDEN_USDC_FAUCET).
+ * USDC until real lenders exist (the whole earn flow is USDC-only, in the
+ * collateral the bridge config names).
  */
 const VAULT_DISPLAY: Record<string, { protocol: string; asset: string }> = {
   DUMMY_LENDING: { protocol: 'Dummy Lending', asset: 'USDC' }
@@ -104,6 +104,7 @@ export function mapEarnPosition(position: LibEarnPosition): EarnPosition {
     yearlyEstimate: `${formatSignedUsd(yearlyUsd)} / yr`,
     withdrawTime: EARN_PLACEHOLDER,
     route: `Miden -> ${protocol} (${network})`,
+    stale: false,
     // No history endpoint yet — a flat, non-empty series keeps the area chart
     // well-defined (it takes min/max over the values).
     chartData: [
@@ -204,6 +205,7 @@ export function placeholderPosition(): EarnPosition {
     yearlyEstimate: EARN_PLACEHOLDER,
     withdrawTime: EARN_PLACEHOLDER,
     route: EARN_PLACEHOLDER,
+    stale: true,
     chartData: [
       { label: EARN_PLACEHOLDER, value: 0 },
       { label: EARN_PLACEHOLDER, value: 0 }

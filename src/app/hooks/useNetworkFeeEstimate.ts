@@ -1,4 +1,4 @@
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -25,7 +25,7 @@ import { useWalletStore } from 'lib/store';
 export function useNetworkFeeEstimate(): string | undefined {
   const baseFee = useVerificationBaseFee();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
 
   // Always the native asset: the fee is charged in it regardless of what is being sent.
   const feeMetadata = resolveDisplayMetadata(undefined, assetsMetadata, nativeFaucetId);

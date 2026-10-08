@@ -89,6 +89,14 @@ const typeAddress = (value: string) => {
   fireEvent.blur(field);
 };
 
+it('labels the address and name fields with the 16px section title, the page set wholly in Nunito', () => {
+  render(<NewContactPage />);
+
+  expect(screen.getByText('address')).toHaveClass('text-row-title', 'text-muted');
+  expect(screen.getByText('name')).toHaveClass('text-row-title', 'text-muted');
+  expect(screen.getByTestId('contact-new').querySelector('[data-slot="body"]')).toHaveClass('face-heading');
+});
+
 it('saves a 0x contact with its network and goes back', async () => {
   render(<NewContactPage />);
   expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
@@ -212,6 +220,24 @@ describe('TextField layout', () => {
     typeAddress('mtst1goodbob');
     expect(screen.queryByTestId('contact-paste')).not.toBeInTheDocument();
     expect(screen.queryByTestId('contact-scan')).not.toBeInTheDocument();
+  });
+
+  it('hands the address field from Paste and Scan to Clear as it fills, and back when cleared', () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    (isScanAvailable as jest.Mock).mockReturnValue(true);
+    render(<NewContactPage />);
+
+    expect(screen.getByTestId('contact-paste')).toBeInTheDocument();
+    expect(screen.getByTestId('contact-scan')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'clear' })).not.toBeInTheDocument();
+
+    typeAddress('mtst1goodbob');
+    expect(screen.queryByTestId('contact-paste')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('contact-scan')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(screen.getByTestId('address-book-address-input')).toHaveValue('');
+    expect(screen.getByTestId('contact-paste')).toBeInTheDocument();
   });
 
   it("shows an invalid address in the field's error slot, announced and tied to the field", () => {

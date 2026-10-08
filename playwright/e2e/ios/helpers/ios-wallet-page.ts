@@ -1,11 +1,12 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
+import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
-import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -43,9 +44,9 @@ interface IosWalletPageOpts {
   beforeCapture?: () => Promise<void>;
   /**
    * Waits until the app has asked for notification permission and the prompt is answered, tapping Allow the way
-   * the capture gate does. Resolves whether that happened in time.
+   * the capture gate does. Resolves how that ended, and why when the prompt was not answered.
    */
-  settleNotificationPrompt?: () => Promise<boolean>;
+  settleNotificationPrompt?: () => Promise<PromptSettlement>;
 }
 
 /**
@@ -72,7 +73,7 @@ export class IosWalletPage implements WalletPage {
   private cdp: CdpSession;
   private sim: SimulatorControl;
   private beforeCapture?: () => Promise<void>;
-  private settlePrompt?: () => Promise<boolean>;
+  private settlePrompt?: () => Promise<PromptSettlement>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
@@ -96,9 +97,15 @@ export class IosWalletPage implements WalletPage {
     await this.sim.screenshot(this.udid, opts.path);
   }
 
-  /** Whether the app asked for notification permission and the prompt was answered; false with no gate wired. */
-  async settleNotificationPrompt(): Promise<boolean> {
-    return (await this.settlePrompt?.()) ?? false;
+  /** Whether the app asked for notification permission and the prompt was answered, and why not when it was not. */
+  async settleNotificationPrompt(): Promise<PromptSettlement> {
+    return (
+      (await this.settlePrompt?.()) ?? {
+        answered: false,
+        reason: 'no-gate',
+        detail: 'no notification alert gate is wired to this wallet page'
+      }
+    );
   }
 
   async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {
@@ -159,6 +166,7 @@ export class IosWalletPage implements WalletPage {
     sourceSymbol: string;
     outputAmount?: string;
     outputSymbol?: string;
+    evmTxHash: string;
   }): Promise<string> {
     return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
   }
@@ -189,7 +197,7 @@ export class IosWalletPage implements WalletPage {
    * creates the row inside `handleConfirm` and never surfaces its txId to the
    * DOM, so the harness reads it back here after confirming the deposit.
    */
-  async latestBridgeReceive(provider?: 'epoch' | 'agglayer'): Promise<{
+  async latestBridgeReceive(provider?: 'epoch' | 'agglayer' | 'usdcx'): Promise<{
     id: string;
     amount?: string;
     faucetId: string;
@@ -226,8 +234,11 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  /** Open the bridge token drawer and pick ETH or USDC. */
-  async selectBridgeToken(symbol: 'ETH' | 'USDC'): Promise<void> {
+  /**
+   * Open the bridge token drawer and pick a source token: ETH, the bridge's own
+   * USDC (`USDC`, Fast or Slow), or Circle's USDC (`CIRCLE_USDC`, xReserve only).
+   */
+  async selectBridgeToken(symbol: 'ETH' | 'USDC' | 'CIRCLE_USDC'): Promise<void> {
     await this.click('[data-testid="send-token-selector"]');
     await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
     await this.click(`[data-testid="bridge-token-${symbol}"]`);
@@ -254,6 +265,15 @@ export class IosWalletPage implements WalletPage {
   async selectBridgeRouteFast(): Promise<void> {
     await this.clickWhenEnabled('[data-testid="bridge-route-fast"]', 30_000);
     await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 30_000);
+  }
+
+  /**
+   * Confirm the Circle xReserve route (USDC) and continue to review. The route
+   * step shows one card, already selected, so the step only confirms.
+   */
+  async confirmBridgeRouteUsdcx(): Promise<void> {
+    await this.waitFor('[data-testid="bridge-route-usdcx"]', { timeoutMs: 15_000 });
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
   }
 
   /** Confirm the deposit on the review step (runs handleConfirm → handleSlowBridge). */
@@ -693,7 +713,7 @@ export class IosWalletPage implements WalletPage {
     const tokenSymbol = params.tokenSymbol;
     if (tokenSymbol) {
       // Wait for the FUNDED token row specifically — balance sync can lag, and
-      // if only the 0-balance MIDEN row has rendered, the fallback would grab it
+      // if only the 0-balance USDCX row has rendered, the fallback would grab it
       // and the amount Confirm would never enable.
       await this.pollForSelector(`[data-testid="send-token-${tokenSymbol}"]`, 30_000);
     } else {
@@ -706,7 +726,7 @@ export class IosWalletPage implements WalletPage {
         `  if (want) { want.click(); return true; } ` +
         `} ` +
         `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
-        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-USDCX']; ` +
         `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
         `if (!pick) pick = rows[0]; ` +
         `if (!pick) return false; pick.click(); return true;`

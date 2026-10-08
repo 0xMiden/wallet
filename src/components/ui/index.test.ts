@@ -23,12 +23,14 @@ import { Button, ButtonVariant } from './Button';
 import { Card, CardButton } from './Card';
 import { CheckboxIndicator, CheckboxRow } from './Checkbox';
 import ChoiceCard, { ChoiceCardGroup } from './ChoiceCard';
+import { ClearFieldButton } from './ClearFieldButton';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { CopyLabel } from './CopyLabel';
 import { DappOrigin } from './DappOrigin';
 import { DetailCard, DetailRow } from './DetailCard';
 import { EmptyState } from './EmptyState';
+import { ErrorDetails } from './ErrorDetails';
 import { ErrorLine } from './ErrorLine';
 import { FactRow, IconCircle } from './FactRow';
 import { HeaderRule } from './HeaderRule';
@@ -105,6 +107,7 @@ describe('components/ui barrel', () => {
     TabHeaderAction,
     TabRootHeader,
     SearchInput,
+    ClearFieldButton,
     Sparkline,
     ActivityRow,
     EmptyState,
@@ -134,6 +137,7 @@ describe('components/ui barrel', () => {
     TextAction,
     SubPageLayout,
     ErrorLine,
+    ErrorDetails,
     SeedPhraseGrid,
     DappOrigin
   } as const;

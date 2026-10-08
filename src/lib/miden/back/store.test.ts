@@ -51,7 +51,9 @@ describe('back/store', () => {
         inited: true,
         vault: {} as any,
         status: WalletStatus.Ready,
-        accounts: [{ publicKey: 'pk', name: 'A', isPublic: true, type: 'on-chain' as any, hdIndex: 0 }],
+        accounts: [
+          { publicKey: 'pk', name: 'A', isPublic: true, type: 'on-chain' as any, hdIndex: 0, authScheme: 'ecdsa' }
+        ],
         networks: [],
         settings: null,
         currentAccount: null,
@@ -76,6 +78,7 @@ describe('back/store', () => {
             isPublic: true,
             type: WalletType.Guardian,
             hdIndex: 0,
+            authScheme: 'ecdsa',
             guardianEndpoint: 'https://guardian.openzeppelin.com',
             guardianOperatorCommitment: 'abc123',
             guardianSyncStatus: 'in-sync'
@@ -111,7 +114,14 @@ describe('back/store', () => {
   describe('accountsUpdated event', () => {
     it('keeps current account when currentAccount is not provided', () => {
       const mockVault = {} as any;
-      const currentAcc = { publicKey: 'pk1', name: 'Acc1', isPublic: true, type: 'on-chain' as any, hdIndex: 0 };
+      const currentAcc = {
+        publicKey: 'pk1',
+        name: 'Acc1',
+        isPublic: true,
+        type: 'on-chain' as any,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      };
       unlocked({
         vault: mockVault,
         accounts: [currentAcc],

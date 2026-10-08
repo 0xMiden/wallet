@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { DappActionsSheet } from './DappActionsSheet';
 
@@ -148,7 +148,25 @@ describe('DappActionsSheet', () => {
     expect(screen.queryByText('dappActionAddToMyDapps')).toBeNull();
   });
 
-  // The membership answer belongs to the session it was read for. Before it was keyed, a resolved
+  // The icon is half of the toggle, chosen by design: a plus to save, a filled check to un-save. The
+  // label alone does not pin it (#1086).
+  it('draws a plus on the add action and a filled check on the remove action', async () => {
+    const { unmount } = render(
+      <DappActionsSheet session={SESSION} open onOpenChange={jest.fn()} onReopen={jest.fn()} />
+    );
+    await act(async () => {});
+    const add = screen.getByRole('button', { name: 'dappActionAddToMyDapps' });
+    expect(within(add).getByTestId('icon-AddCircle')).toBeInTheDocument();
+    unmount();
+
+    mockGetRecentDapps.mockResolvedValueOnce([{ url: SESSION.url, name: 'Example', origin: SESSION.origin }]);
+    render(<DappActionsSheet session={SESSION} open onOpenChange={jest.fn()} onReopen={jest.fn()} />);
+    await act(async () => {});
+    const remove = screen.getByRole('button', { name: 'dappActionRemoveFromMyDapps' });
+    expect(within(remove).getByTestId('icon-CheckboxCircleFill')).toBeInTheDocument();
+  });
+
+  // The membership answer belongs to the URL it was read for. Before it was keyed, a resolved
   // `true` from one session was still on screen for the next one, so a web search inherited
   // "Remove" - and a tap there fired the haptic, closed the sheet and deleted nothing.
   it("does not carry one session's My-dApps answer over to the next", async () => {

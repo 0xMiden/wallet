@@ -5,13 +5,15 @@
  * `isProcessing = true` and THEN called `await getBrowser()` OUTSIDE
  * the try/finally. If `getBrowser()` rejected (which is exactly the
  * case the lazy `webextension-polyfill` load is defending against on
- * mobile / desktop builds), the function rejected with `isProcessing`
+ * desktop builds), the function rejected with `isProcessing`
  * stuck at true, wedging the processor permanently for the rest of
  * the app lifetime.
  *
  * The fix: move `getBrowser()` inside the try so the finally always
  * resets `isProcessing`. This file locks that behavior.
  */
+
+import { ITransactionStatus } from 'lib/miden/db/types';
 
 const mockAlarmsCreate = jest.fn();
 const mockAlarmsClear = jest.fn();
@@ -42,6 +44,9 @@ jest.mock('webextension-polyfill', () => mockPolyfill);
 const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
 const mockCancelStuckTransactions = jest.fn();
+const mockNextQueuedWakeDelayMs = jest.fn();
+const mockIsQueuedRowReady = jest.fn();
+const mockGuardianCandidateRelease = jest.fn();
 
 // Indirection so a test can simulate the Vite SW build's async-init window
 // (`safeGenerateTransactionsLoop` not yet a function) by setting this to
@@ -60,7 +65,15 @@ jest.mock('lib/miden/transaction', () => ({
     return mockSafeGenerateTransactionsLoopFn;
   },
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
-  cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args)
+  cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args),
+  nextQueuedWakeDelayMs: (...args: unknown[]) => mockNextQueuedWakeDelayMs(...args),
+  isQueuedRowReady: (...args: unknown[]) => mockIsQueuedRowReady(...args),
+  guardianCandidateRelease: (...args: unknown[]) => mockGuardianCandidateRelease(...args)
+}));
+
+const mockReconcileUnconfirmedTransactions = jest.fn();
+jest.mock('lib/miden/transaction/reconcile-unconfirmed', () => ({
+  reconcileUnconfirmedTransactions: (...args: unknown[]) => mockReconcileUnconfirmedTransactions(...args)
 }));
 
 const mockDbOpen = jest.fn();
@@ -68,9 +81,15 @@ jest.mock('lib/miden/repo', () => ({
   db: { open: (...args: unknown[]) => mockDbOpen(...args) }
 }));
 
+const mockIsExtension = jest.fn();
+jest.mock('lib/platform', () => ({
+  isExtension: (...args: unknown[]) => mockIsExtension(...args)
+}));
+
 const mockWithUnlocked = jest.fn();
 jest.mock('./store', () => ({
-  withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
+  withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn),
+  accountsUpdated: jest.fn()
 }));
 
 /**
@@ -93,10 +112,16 @@ jest.mock('./defaults', () => ({
 beforeEach(() => {
   jest.resetModules();
   jest.clearAllMocks();
+  mockWithUnlocked.mockReset();
   mockSafeGenerateTransactionsLoopFn = (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args);
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
   mockCancelStuckTransactions.mockResolvedValue(undefined);
+  mockNextQueuedWakeDelayMs.mockReturnValue(undefined);
+  mockIsQueuedRowReady.mockReturnValue(false);
+  // Extension-context by default: matches the pre-existing tests in this file, which assume `browser`
+  // resolves non-null (the default polyfill mock doesn't throw) and drive the service worker's own behavior.
+  mockIsExtension.mockReturnValue(true);
   mockDbOpen.mockResolvedValue(undefined);
   mockStorageGet.mockResolvedValue({});
   mockStorageSet.mockResolvedValue(undefined);
@@ -158,6 +183,10 @@ describe('startTransactionProcessing — happy path', () => {
 });
 
 describe('C5 regression: getBrowser / loop rejections do not wedge isProcessing', () => {
+  afterEach(() => {
+    mockAlarmsClear.mockReset();
+  });
+
   it('still resets isProcessing when the loop throws synchronously', async () => {
     mockSafeGenerateTransactionsLoop.mockImplementationOnce(() => {
       throw new Error('sync throw inside loop');
@@ -182,7 +211,7 @@ describe('C5 regression: getBrowser / loop rejections do not wedge isProcessing'
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
   });
 
-  it('still completes successfully when alarms.create throws (mobile / desktop — no alarms API)', async () => {
+  it('still completes successfully when alarms.create throws (desktop - no alarms API)', async () => {
     mockAlarmsCreate.mockImplementationOnce(() => {
       throw new Error('no alarms API');
     });
@@ -198,8 +227,9 @@ describe('C5 regression: getBrowser / loop rejections do not wedge isProcessing'
   });
 
   it('still completes when alarms.clear throws in the finally block', async () => {
-    mockAlarmsClear.mockImplementationOnce(() => {
-      throw new Error('clear denied');
+    // By name: a run also clears the queued-row wake when it starts, and that is not the clear under test.
+    mockAlarmsClear.mockImplementation((name: unknown) => {
+      if (name === 'miden-tx-processor') throw new Error('clear denied');
     });
     const mod = await import('./transaction-processor');
     await expect(mod.startTransactionProcessing()).resolves.toBeUndefined();
@@ -482,6 +512,32 @@ describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
   });
 });
 
+describe('vaultGuardianProvider.swapHotKey', () => {
+  const vaultSwapping = () => {
+    const swapHotKey = jest.fn(async () => ({ accounts: [], currentAccount: undefined }));
+    mockWithUnlocked.mockImplementation((fn: (ctx: unknown) => unknown) => fn({ vault: { swapHotKey } }));
+    return swapHotKey;
+  };
+
+  it('passes the expectation to the vault (#1233)', async () => {
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
+
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub', 'old-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', 'old-pub');
+  });
+
+  it('passes no expectation when the caller passes none (#1233)', async () => {
+    const swapHotKey = vaultSwapping();
+    const mod = await import('./transaction-processor');
+
+    await mod.vaultGuardianProvider.swapHotKey?.('acc', 'new-pub');
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc', 'new-pub', undefined);
+  });
+});
+
 describe('startTransactionProcessing — broadcast and retry loop', () => {
   it('broadcasts SyncCompleted after each loop iteration', async () => {
     mockGetAllUncompletedTransactions.mockResolvedValue([]);
@@ -529,7 +585,7 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     // Each of the two runs (the original pass and the kicked restart) creates
     // and clears its own keepalive alarm.
     expect(mockAlarmsCreate).toHaveBeenCalledTimes(2);
-    expect(mockAlarmsClear).toHaveBeenCalledTimes(2);
+    expect(mockAlarmsClear.mock.calls.filter(([name]) => name === 'miden-tx-processor')).toHaveLength(2);
   });
 
   it('runs no extra pass when nothing kicks during the loop', async () => {
@@ -613,5 +669,244 @@ describe('a kick after a run spent its budget on queued claims', () => {
     await jest.advanceTimersByTimeAsync(5000 * 200);
     await run;
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60 + 60);
+  });
+});
+
+// #1223: a run stops after 60 passes, and a row its guardian backed off can come due only after that. With the popup
+// closed nothing else restarts processing, so the run's end arms a one-shot alarm for the soonest Queued row.
+describe('a one-shot wake for rows still queued when a run ends (#1223)', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('arms the wake at the time the helper gives when the run ends at its pass cap', async () => {
+    jest.useFakeTimers();
+    const start = Date.now();
+    const nowSec = Math.floor(start / 1000);
+    const backedOff = {
+      id: 'claim',
+      status: ITransactionStatus.Queued,
+      initiatedAt: nowSec,
+      nextEligibleAt: nowSec + 600
+    };
+    mockGetAllUncompletedTransactions.mockResolvedValue([backedOff]);
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 60);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    expect(mockNextQueuedWakeDelayMs).toHaveBeenCalledWith([backedOff]);
+    expect(mockAlarmsCreate).toHaveBeenCalledWith('miden-tx-queued-wake', { when: start + 5000 * 60 + 90_000 });
+  });
+
+  it('starts processing when the wake fires', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-queued-wake' });
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start processing when the wake fires after the vault locked in the meantime', async () => {
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+
+    // Arm the wake while unlocked, the way a run ending with queued rows does.
+    await mod.startTransactionProcessing();
+    expect(mockAlarmsCreate).toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+    mockSafeGenerateTransactionsLoop.mockClear();
+
+    // The vault locks before the alarm fires.
+    lockedWithUnlocked();
+    listener({ name: 'miden-tx-queued-wake' });
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+  });
+
+  it('arms nothing when the run ends with no uncompleted rows', async () => {
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(mockNextQueuedWakeDelayMs).toHaveBeenCalledWith([]);
+    expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+  });
+
+  it('clears a pending wake before a run starts its first pass', async () => {
+    let clearedBeforeFirstPass = false;
+    mockSafeGenerateTransactionsLoop.mockImplementationOnce(async () => {
+      clearedBeforeFirstPass = mockAlarmsClear.mock.calls.some(([name]) => name === 'miden-tx-queued-wake');
+      return { success: true };
+    });
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(clearedBeforeFirstPass).toBe(true);
+  });
+
+  it('arms no wake while the vault is locked, since unlocking restarts processing (#924)', async () => {
+    lockedWithUnlocked();
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+  });
+
+  it('arms no wake off the extension (isExtension() false, mobile-shaped: polyfill mock still loads) (#1266)', async () => {
+    jest.useFakeTimers();
+    mockIsExtension.mockReturnValue(false);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const backedOff = {
+      id: 'claim',
+      status: ITransactionStatus.Queued,
+      initiatedAt: nowSec,
+      nextEligibleAt: nowSec + 600
+    };
+    mockGetAllUncompletedTransactions.mockResolvedValue([backedOff]);
+    mockNextQueuedWakeDelayMs.mockReturnValue(90_000);
+    const mod = await import('./transaction-processor');
+    const run = mod.startTransactionProcessing();
+    await jest.advanceTimersByTimeAsync(5000 * 60);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    expect(mockNextQueuedWakeDelayMs).not.toHaveBeenCalled();
+    expect(mockAlarmsCreate).not.toHaveBeenCalledWith('miden-tx-queued-wake', expect.anything());
+  });
+});
+
+// #1266: a pass that ran a row goes straight on to the next ready row; any other pass waits 5 s.
+describe('the wait between passes (#1266)', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const queuedRow = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    status: ITransactionStatus.Queued,
+    initiatedAt: Math.floor(Date.now() / 1000),
+    ...extra
+  });
+
+  const startRun = async () => {
+    const mod = await import('./transaction-processor');
+    let settled = false;
+    const run = mod.startTransactionProcessing().then(() => {
+      settled = true;
+    });
+    return { run, isSettled: () => settled };
+  };
+
+  it('starts the next pass at once after a processed pass while a queued row is ready', async () => {
+    jest.useFakeTimers();
+    const startSec = Math.floor(Date.now() / 1000);
+    const ready = queuedRow('ready');
+    mockSafeGenerateTransactionsLoop.mockResolvedValue('processed');
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([ready]).mockResolvedValueOnce([]);
+    mockIsQueuedRowReady.mockReturnValue(true);
+    const { run, isSettled } = await startRun();
+    // 0 ms: microtasks only, so a wait put back before the next pass fails this.
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    expect(mockIsQueuedRowReady).toHaveBeenCalledWith(ready, startSec);
+    expect(isSettled()).toBe(true);
+    await run;
+  });
+
+  it('waits 5 s after a processed pass when no queued row is ready', async () => {
+    jest.useFakeTimers();
+    const startSec = Math.floor(Date.now() / 1000);
+    const cooling = queuedRow('cooling', { nextEligibleAt: startSec + 600 });
+    mockSafeGenerateTransactionsLoop.mockResolvedValue('processed');
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([cooling]).mockResolvedValueOnce([]);
+    const { run } = await startRun();
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+    expect(mockIsQueuedRowReady).toHaveBeenCalledWith(cooling, startSec);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    await run;
+  });
+
+  it.each(['idle', 'failed', 'requeued'])(
+    'waits 5 s after a pass that returned %s, even while a queued row is ready',
+    async outcome => {
+      jest.useFakeTimers();
+      mockSafeGenerateTransactionsLoop.mockResolvedValue(outcome);
+      mockGetAllUncompletedTransactions.mockResolvedValueOnce([queuedRow('ready')]).mockResolvedValueOnce([]);
+      mockIsQueuedRowReady.mockReturnValue(true);
+      const { run } = await startRun();
+      await jest.advanceTimersByTimeAsync(4_999);
+      expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+      await run;
+    }
+  );
+
+  it('spends its 60 passes 5 s apart while the loop lock is held elsewhere and a row is ready', async () => {
+    jest.useFakeTimers();
+    mockSafeGenerateTransactionsLoop.mockResolvedValue('idle');
+    mockGetAllUncompletedTransactions.mockResolvedValue([queuedRow('ready')]);
+    mockIsQueuedRowReady.mockReturnValue(true);
+    const { run } = await startRun();
+    await jest.advanceTimersByTimeAsync(5000 * 59 - 1);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(59);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+    await jest.advanceTimersByTimeAsync(5000);
+    await run;
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(60);
+  });
+
+  it('mobile: still waits 5 s after a processed pass with a ready row (polyfill mock loads, isExtension() false)', async () => {
+    jest.useFakeTimers();
+    mockIsExtension.mockReturnValue(false);
+    const ready = queuedRow('ready');
+    mockSafeGenerateTransactionsLoop.mockResolvedValue('processed');
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([ready]).mockResolvedValueOnce([]);
+    mockIsQueuedRowReady.mockReturnValue(true);
+    const { run } = await startRun();
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    await run;
+  });
+
+  it('desktop: still waits 5 s after a processed pass with a ready row (alarms.create throws, isExtension() false)', async () => {
+    jest.useFakeTimers();
+    mockIsExtension.mockReturnValue(false);
+    mockAlarmsCreate.mockImplementationOnce(() => {
+      throw new Error('no alarms API');
+    });
+    const ready = queuedRow('ready');
+    mockSafeGenerateTransactionsLoop.mockResolvedValue('processed');
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([ready]).mockResolvedValueOnce([]);
+    mockIsQueuedRowReady.mockReturnValue(true);
+    const { run } = await startRun();
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+    await run;
+  });
+});
+
+describe('reconcileUnconfirmedInWorker (#1081)', () => {
+  it("runs the reconciler pass with a release built on the service worker's vault provider", async () => {
+    const release = { abandon: jest.fn() };
+    mockGuardianCandidateRelease.mockReturnValue(release);
+    mockReconcileUnconfirmedTransactions.mockResolvedValue(undefined);
+    const mod = await import('./transaction-processor');
+
+    await mod.reconcileUnconfirmedInWorker();
+
+    expect(mockGuardianCandidateRelease).toHaveBeenCalledWith(mod.vaultGuardianProvider);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledTimes(1);
+    expect(mockReconcileUnconfirmedTransactions).toHaveBeenCalledWith({ release });
   });
 });

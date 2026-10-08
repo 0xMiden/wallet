@@ -94,6 +94,9 @@ export type { TabRootHeaderProps, TabRootFilter } from './TabRootHeader';
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
 
+export { ClearFieldButton } from './ClearFieldButton';
+export type { ClearFieldButtonProps } from './ClearFieldButton';
+
 export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
 
@@ -140,4 +143,6 @@ export type { TextActionProps } from './TextAction';
 export { SubPageLayout } from './SubPageLayout';
 export type { SubPageLayoutProps } from './SubPageLayout';
 export { ErrorLine } from './ErrorLine';
+export { ErrorDetails } from './ErrorDetails';
+export type { ErrorDetailsProps } from './ErrorDetails';
 export { SeedPhraseGrid } from './SeedPhraseGrid';

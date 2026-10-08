@@ -9,14 +9,17 @@ import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { Button, ButtonVariant } from 'components/Button';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { Link } from 'lib/woozie';
 
+import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -46,11 +49,13 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     [entry]
   );
 
-  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
+  // An unconfirmed bridge or earn-withdraw row falls through to the plain not-confirmed row below
+  // (#1250 F-024), the same way HistoryView's list keeps it out of the bridge/earn layout.
+  if (!entry.guardianRecovered && !entry.isUnconfirmed && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
-  if (isEarnWithdrawEntry(entry)) {
+  if (!entry.isUnconfirmed && isEarnWithdrawEntry(entry)) {
     return <EarnWithdrawRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
@@ -59,12 +64,21 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   // leg while it is still pending or has failed (settled reads as the plain row).
   // Never on a cancelled or Miden-failed row: that failure is the real story.
   const settlement =
-    entry.txType === 'earn-deposit' && !entry.isCancelled && entry.transactionIcon !== 'FAILED'
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    !entry.isCancelled &&
+    entry.transactionIcon !== 'FAILED'
       ? earnDepositSettlementOf(entry)
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
-  const title = isFaucet ? t('faucetRequest') : entry.message;
+  const title = entry.guardianRecovered
+    ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+    : isFaucet
+      ? t('faucetRequest')
+      : entry.isUnconfirmed
+        ? t('notConfirmed')
+        : entry.message;
   return (
     <div
       className={classNames(
@@ -145,8 +159,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
-  const { inSymbol, outSymbol, outAmount, providerLabel, network, status } =
-    entry.txType === 'bridged-send' ? bridgeRowDisplay(entry) : bridgeInRowDisplay(entry);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const { inLabel, outLabel, outAmount, providerLabel, network, status } =
+    entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
 
   return (
     <div
@@ -167,7 +182,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
         <span className="text-ink font-medium truncate text-sm leading-none">
           {entry.bridgeProvider === 'usdcx'
             ? t('usdcxBurnTitle')
-            : t('bridgeRowTitle', { from: inSymbol, to: outSymbol })}
+            : t('bridgeRowTitle', { from: inLabel, to: outLabel })}
         </span>
         <span className="text-xs text-grey-500 truncate mt-1">
           {t('bridgeRowVia', { provider: providerLabel, network })}
@@ -177,10 +192,10 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
       <div className="flex flex-col items-end shrink-0 gap-1">
         {outAmount !== undefined && (
           <span className="text-sm font-medium leading-none text-ink">
-            {outAmount} {outSymbol}
+            {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={entry.bridgeProvider === 'usdcx' ? bridgeBadgeStatusOf(entry) : status} />
+        <StatusBadge status={isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status} />
       </div>
     </div>
   );

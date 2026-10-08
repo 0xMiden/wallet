@@ -189,11 +189,16 @@ class DAppConfirmationStore {
    * Resolve the pending confirmation for a session id. If sessionId is
    * undefined, resolves the legacy default slot (extension/desktop
    * single-session callers).
+   *
+   * With a `requestId`, resolves only while that request is still the one
+   * pending at the slot: a decision made on a request that has since been
+   * replaced must not settle its replacement. Without one, resolves whatever
+   * is pending (session close, the watchdog). Returns whether it resolved.
    */
-  resolveConfirmation(sessionId: string | undefined, result: DAppConfirmationResult): void {
+  resolveConfirmation(sessionId: string | undefined, result: DAppConfirmationResult, requestId?: string): boolean {
     const key = keyFor(sessionId);
     const entry = this.pending.get(key);
-    if (!entry) return;
+    if (!entry || (requestId !== undefined && entry.request.id !== requestId)) return false;
     this.pending.delete(key);
     // Denying is a completed decision for the user and a cancelled flow for
     // analysis: what this measures is approvals reached versus approvals given,
@@ -205,6 +210,7 @@ class DAppConfirmationStore {
     }
     entry.resolver(result);
     this.notifyListeners();
+    return true;
   }
 
   /**

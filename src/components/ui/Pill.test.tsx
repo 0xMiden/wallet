@@ -206,6 +206,7 @@ describe('variants', () => {
     ['warning', ['bg-pending-tint', 'text-pending-tint-ink', 'border-transparent']],
     ['negative', ['bg-negative-tint', 'text-negative-tint-ink', 'border-transparent']],
     ['inactive', ['bg-fill-pressed', 'text-ink', 'border-transparent']],
+    ['muted', ['bg-fill', 'text-muted', 'border-transparent']],
     ['plain', ['border-transparent']]
   ] as const)('gives the %s tone its colors', (tone, classes) => {
     render(
@@ -224,7 +225,8 @@ describe('variants', () => {
   it.each([
     ['xs', ['h-5', 'gap-1', 'px-2', 'text-badge', 'font-semibold'], ['-ml-0.5', 'h-3', 'w-3']],
     ['sm', ['h-6', 'gap-1', 'px-2', 'text-badge'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
-    ['md', ['h-8', 'gap-1.5', 'px-3', 'text-pill'], ['-ml-1', 'h-4', 'w-4']]
+    ['md', ['h-8', 'gap-1.5', 'px-3', 'text-pill'], ['-ml-1', 'h-4', 'w-4']],
+    ['tag', ['h-4.5', 'gap-1', 'px-1.5', 'text-tag'], ['-ml-0.5', 'h-3', 'w-3']]
   ] as const)('sizes the %s pill and its icon box', (size, pillClasses, iconClasses) => {
     render(
       <Pill data-testid="pill" size={size} icon={<svg data-testid="glyph" />}>
@@ -233,6 +235,16 @@ describe('variants', () => {
     );
     expect(screen.getByTestId('pill')).toHaveClass('rounded-full', 'border', ...pillClasses);
     expect(screen.getByTestId('glyph').parentElement).toHaveClass('shrink-0', ...iconClasses);
+  });
+
+  // tailwind-merge reads an unregistered `text-*` as a colour, so the muted ink would drop the label's type.
+  it('keeps the tag label type beside the muted ink', () => {
+    render(
+      <Pill data-testid="pill" size="tag" tone="muted">
+        Unverified
+      </Pill>
+    );
+    expect(screen.getByTestId('pill')).toHaveClass('text-tag', 'text-muted');
   });
 });
 
@@ -277,4 +289,62 @@ it('does not typecheck as both live and tappable - a live pill is never a button
     </Pill>
   );
   expect(element).toBeTruthy();
+});
+
+describe('trailingIcon', () => {
+  it('draws the trailing glyph after the label, sized like the leading one and pushed to the far end', () => {
+    render(
+      <Pill data-testid="pill" icon={<svg data-testid="lead" />} trailingIcon={<svg data-testid="trail" />}>
+        Testnet
+      </Pill>
+    );
+
+    const pill = screen.getByTestId('pill');
+    const trailBox = screen.getByTestId('trail').parentElement!;
+    expect(pill.lastElementChild).toBe(trailBox);
+    expect(trailBox).toHaveClass('ml-auto', 'shrink-0', 'h-4', 'w-4', '-mr-1');
+    expect(screen.getByTestId('lead').parentElement).toHaveClass('h-4', 'w-4', '-ml-1');
+  });
+
+  it.each([
+    ['xs', 'h-3', 'w-3', '-mr-0.5'],
+    ['sm', 'h-3.5', 'w-3.5', '-mr-0.5'],
+    ['tag', 'h-3', 'w-3', '-mr-0.5']
+  ] as const)('sizes the trailing glyph for %s', (size, h, w, mr) => {
+    render(
+      <Pill size={size} trailingIcon={<svg data-testid="trail" />}>
+        Testnet
+      </Pill>
+    );
+
+    expect(screen.getByTestId('trail').parentElement).toHaveClass(h, w, mr);
+  });
+
+  it('draws nothing after the label without one', () => {
+    render(<Pill data-testid="pill">Testnet</Pill>);
+
+    expect(screen.getByTestId('pill').children).toHaveLength(1);
+  });
+});
+
+describe('popup semantics', () => {
+  it('announces a tappable pill that opens a sheet, and whether it is open', () => {
+    render(
+      <Pill onClick={jest.fn()} aria-haspopup="dialog" aria-expanded={false}>
+        Testnet
+      </Pill>
+    );
+
+    const button = screen.getByRole('button', { name: 'Testnet' });
+    expect(button).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('leaves both off when the caller does not set them', () => {
+    render(<Pill onClick={jest.fn()}>Testnet</Pill>);
+
+    const button = screen.getByRole('button', { name: 'Testnet' });
+    expect(button).not.toHaveAttribute('aria-haspopup');
+    expect(button).not.toHaveAttribute('aria-expanded');
+  });
 });

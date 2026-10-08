@@ -2,6 +2,11 @@ import { THEME_STORAGE_KEY } from './constants';
 
 const APP_BG = 'var(--color-app-bg)';
 
+const mockSyncStatusBar = jest.fn();
+jest.mock('lib/mobile/status-bar', () => ({
+  syncStatusBar: (dark: boolean) => mockSyncStatusBar(dark)
+}));
+
 // theme.ts keeps module-level state (`mediaListenerAttached`) that must not
 // leak between the listener tests. `loadTheme()` re-requires the module inside
 // a fresh module registry so every caller gets a pristine copy where the
@@ -127,6 +132,20 @@ describe('lib/settings/theme', () => {
       const { applyTheme } = loadTheme();
       applyTheme('system');
       expect(hasDarkClass()).toBe(true);
+    });
+
+    it('syncs the native status bar to dark for a dark theme', () => {
+      const { applyTheme } = loadTheme();
+      applyTheme('dark');
+      expect(mockSyncStatusBar).toHaveBeenCalledTimes(1);
+      expect(mockSyncStatusBar).toHaveBeenCalledWith(true);
+    });
+
+    it('syncs the native status bar to light for a light theme', () => {
+      const { applyTheme } = loadTheme();
+      applyTheme('light');
+      expect(mockSyncStatusBar).toHaveBeenCalledTimes(1);
+      expect(mockSyncStatusBar).toHaveBeenCalledWith(false);
     });
   });
 

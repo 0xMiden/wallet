@@ -2,19 +2,16 @@ export const BRIDGE_ASSET_ABI = [
   // Human readable abi
   'function bridgeAsset(uint32 destinationNetwork,address destinationAddress,uint256 amount,address token,bool forceUpdateGlobalExitRoot,bytes calldata permitData)'
 ];
-// AggLayer rollupID of Miden Testnet (rollup 86; l2ChainID 402699011). This is
-// the `destinationNetwork` for EVM -> Miden deposits, not the EVM chain id.
-export const MIDEN_CHAIN_ID = 86;
+// When the testnet indexer renumbered Miden's exits from network 78 to the rollup id (86, `getAgglayerRollupId`), in
+// unix seconds like a row's `initiatedAt`. It serves nothing under 78 any more, so it gates only one thing: an unpinned
+// row initiated before this whose exit a search of its address's whole history missed is retired (#1325); a later row
+// never is. The issue's evidence dates the switch only to the day (the last network-78 claim is on 2026-09-08), so this
+// is the start of that day, UTC: a row from later that day is still polled rather than retired while it might settle.
+export const MIDEN_CHAIN_ID_RENUMBERED_AT = Date.parse('2026-09-08T00:00:00Z') / 1000;
 /**
- * Miden account that sends notes created by AggLayer bridge-ins.
- * Matching is intentionally disabled whenever this is empty so ordinary
- * incoming notes cannot be mistaken for bridge deliveries.
- */
-export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aqu8zjdwvcgkeug5a67kpwmnsymvmkg0_qr7qqq9wr6w';
-/**
- * Source symbol of the only asset that sender delivers. The sender is the
- * bridged-ETH faucet itself, so its notes can settle only a native ETH deposit
- * tracker, never an ERC-20 one with the same base-unit amount.
+ * Source symbol of the only asset the AggLayer delivery sender delivers. The sender
+ * is the bridged-ETH faucet itself, so its notes can settle only a native ETH
+ * deposit tracker, never an ERC-20 one with the same base-unit amount.
  */
 export const AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL = 'ETH';
 /**
@@ -29,13 +26,6 @@ export const TRNSK_SYMBOL = 'TRNSK';
  * `undefined`, the buy watcher matches the bridged note by its amount only.
  */
 export const AGGLAYER_TRNSK_FAUCET_ID: string | undefined = undefined;
-export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
-  ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
-]);
-
-// Agglayer bridge indexer. Query latest deposits for a destination address to
-// track when a (slow) bridge becomes claimable on the Miden side.
-export const AGGLAYER_BRIDGE_API = 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/bridges';
 
 export const AGGLAYER_BRIDGE_ABI = [
   {

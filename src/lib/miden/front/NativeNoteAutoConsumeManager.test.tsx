@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
@@ -18,9 +18,14 @@ jest.mock('../transaction', () => ({
 }));
 
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => 'native-faucet');
-jest.mock('lib/miden/assets', () => ({ getFaucetIdSetting: () => mockGetFaucetIdSetting() }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('lib/miden/assets', () => ({
+  getFaucetIdSetting: () =>
+    mockLegacyFeeIdentity === undefined ? mockGetFaucetIdSetting() : Promise.resolve(mockLegacyFeeIdentity)
+}));
 let mockBaseFee: number | null = 0;
 jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: () => mockGetFaucetIdSetting(),
   getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
@@ -38,8 +43,9 @@ let mockClaimable: unknown[] = [];
 jest.mock('./claimable-notes', () => ({ useClaimableNotes: () => ({ data: mockClaimable }) }));
 
 const mockSignTransaction = jest.fn();
+let mockCurrentAccount: { publicKey: string; requiresHotKeyRotation?: boolean } = { publicKey: 'pk-1' };
 jest.mock('./client', () => ({
-  useMidenContext: () => ({ currentAccount: { publicKey: 'pk-1' }, signTransaction: mockSignTransaction })
+  useMidenContext: () => ({ currentAccount: mockCurrentAccount, signTransaction: mockSignTransaction })
 }));
 
 jest.mock('./guardian-sync', () => ({ zustandProvider: { kind: 'zustand' } }));
@@ -67,8 +73,21 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockAutoConsume = true;
     mockDelegate = true;
     mockClaimable = [];
+    mockCurrentAccount = { publicKey: 'pk-1' };
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
+  });
+
+  it('fee identity: auto-consumes actual native notes and leaves the legacy display faucet manual', async () => {
+    mockLegacyFeeIdentity = 'legacy-B';
+    mockBaseFee = 7;
+    mockClaimable = [
+      note('actual-note', 'native-faucet', { amount: '1000000' }),
+      note('legacy-note', 'legacy-B', { amount: '1000000' })
+    ];
+    render(<NativeNoteAutoConsumeManager />);
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'actual-note' })]);
   });
 
   it('claims every eligible note in ONE transaction, paying one fee', async () => {
@@ -78,6 +97,20 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
     expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('leaves the native notes of a rotation-pending account to its rotation gate (#805)', async () => {
+    mockCurrentAccount = { publicKey: 'pk-1', requiresHotKeyRotation: true };
+    mockClaimable = [note('a')];
+
+    render(<NativeNoteAutoConsumeManager />);
+    // The first tick runs as the effect mounts; one macrotask is enough for it to reach the read.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+
+    expect(mockGetFaucetIdSetting).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
   it('never claims a native note that only the cached list has shown', async () => {
@@ -222,4 +255,9 @@ describe('NativeNoteAutoConsumeManager', () => {
     await new Promise(resolve => setTimeout(resolve, 20));
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
+  mockBaseFee = 0;
 });

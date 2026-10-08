@@ -201,7 +201,7 @@ describe('requestGuardianInfo', () => {
         guardianSyncStatus: 'in-sync'
       }
     ]);
-    mockResolveGuardianEndpoint.mockResolvedValue('https://guardian.openzeppelin.com');
+    mockResolveGuardianEndpoint.mockReturnValue('https://guardian.openzeppelin.com');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
       type: MidenDAppMessageType.GuardianInfoRequest,
@@ -262,7 +262,7 @@ describe('requestGuardianInfo', () => {
     mockFetchAccounts.mockResolvedValue([
       { publicKey: 'pk4', type: WalletType.Guardian, guardianSyncStatus: 'in-sync' }
     ]);
-    mockResolveGuardianEndpoint.mockResolvedValue('');
+    mockResolveGuardianEndpoint.mockReturnValue('');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
       type: MidenDAppMessageType.GuardianInfoRequest,
@@ -283,7 +283,7 @@ describe('requestGuardianInfo', () => {
     mockFetchAccounts.mockResolvedValue([
       { publicKey: 'pk5', type: WalletType.Guardian, guardianEndpoint: 'https://custom.example' }
     ]);
-    mockResolveGuardianEndpoint.mockResolvedValue('https://custom.example');
+    mockResolveGuardianEndpoint.mockReturnValue('https://custom.example');
     mockGuardianProviderFromEndpoint.mockReturnValueOnce('custom');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
@@ -304,7 +304,7 @@ describe('requestGuardianInfo', () => {
         guardianSyncStatus: 'needs-user-input'
       }
     ]);
-    mockResolveGuardianEndpoint.mockResolvedValue('https://guardian.openzeppelin.com');
+    mockResolveGuardianEndpoint.mockReturnValue('https://guardian.openzeppelin.com');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
       type: MidenDAppMessageType.GuardianInfoRequest,

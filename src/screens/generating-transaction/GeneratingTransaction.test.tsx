@@ -3,6 +3,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { ITransactionStatus } from 'lib/miden/db/types';
+import { REMOTE_PROVER_FAILED_ERROR, TRANSACTION_STUCK_ERROR } from 'lib/miden/transaction/constants';
 import { WalletType } from 'screens/onboarding/types';
 
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
@@ -72,8 +74,10 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ signTransaction: jest.fn() })
 }));
 
+const mockReconcileUnconfirmed = jest.fn(async () => {});
 jest.mock('lib/miden/front/guardian-sync', () => ({
-  zustandProvider: {}
+  zustandProvider: {},
+  reconcileUnconfirmedInApp: () => mockReconcileUnconfirmed()
 }));
 
 const getExplorerTxUrlMock = jest.fn<string | undefined, [string]>(() => undefined);
@@ -93,16 +97,20 @@ const safeGenerateTransactionsLoopMock = jest.fn();
 const requeueFailedTransactionMock = jest.fn();
 const requestSWTransactionProcessingMock = jest.fn();
 const isRequeueableTransactionMock = jest.fn((..._a: unknown[]) => true);
-const isUnverifiableSendRetryErrorMock = jest.fn((..._a: unknown[]) => false);
+const mockAcknowledgementOf = jest.fn((..._a: unknown[]): { attemptId: string | null } | null => null);
 jest.mock('lib/miden/activity', () => ({
   safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
   requeueFailedTransaction: (...a: any[]) => requeueFailedTransactionMock(...a),
   requestSWTransactionProcessing: (...a: any[]) => requestSWTransactionProcessingMock(...a),
   isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a),
-  isUnverifiableSendRetryError: (...a: any[]) => isUnverifiableSendRetryErrorMock(...a),
+  acknowledgementOf: (...a: any[]) => mockAcknowledgementOf(...a),
   // Real helper: the retry gate reads the provider off the row's `extraInputs`,
   // and an Epoch (Fast) bridged-send must not be offered a Retry.
-  bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf
+  bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf,
+  // Real predicate: which failed rows read as not confirmed is what the failure tests assert.
+  isUnconfirmedFailure: jest.requireActual('lib/miden/transaction/constants').isUnconfirmedFailure,
+  isOutcomeUnconfirmed: jest.requireActual('lib/miden/transaction/constants').isOutcomeUnconfirmed,
+  notConfirmedHintKey: jest.requireActual('lib/miden/transaction/verdict-rules').notConfirmedHintKey
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row
@@ -222,6 +230,52 @@ describe('GeneratingTransactionPage interval driver', () => {
     act(() => root.unmount());
     expect(clearIntervalSpy).toHaveBeenCalled();
   });
+
+  describe('the unconfirmed reconciler (#1081)', () => {
+    const platform: { isExtension: jest.Mock } = jest.requireMock('lib/platform');
+    const ticks = async (count: number) => {
+      const root = createRoot(document.createElement('div'));
+      await act(async () => {
+        root.render(<GeneratingTransactionPage txId="tx-1" />);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(count * 10_000);
+      });
+      act(() => root.unmount());
+    };
+
+    beforeEach(() => {
+      mockReconcileUnconfirmed.mockClear();
+      safeGenerateTransactionsLoopMock.mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      platform.isExtension.mockReturnValue(false);
+    });
+
+    it('fires on the page`s own tick while its row is Unconfirmed, since the sync tick skips this page', async () => {
+      mockRowState = { row: makeTx({ status: ITransactionStatus.Unconfirmed }), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).toHaveBeenCalledTimes(3);
+    });
+
+    it.each([
+      ['still being generated', ITransactionStatus.GeneratingTransaction],
+      ['Failed', ITransactionStatus.Failed],
+      ['Completed', ITransactionStatus.Completed]
+    ])('does not fire while its row is %s', async (_label, status) => {
+      mockRowState = { row: makeTx({ status }), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
+
+    it('does not fire on the extension, whose service worker reconciles after its own sync', async () => {
+      platform.isExtension.mockReturnValue(true);
+      mockRowState = { row: makeTx({ status: ITransactionStatus.Unconfirmed }), loaded: true };
+      await ticks(2);
+      expect(mockReconcileUnconfirmed).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('GeneratingTransactionPage container effects', () => {
@@ -250,8 +304,8 @@ describe('GeneratingTransactionPage container effects', () => {
     requestSWTransactionProcessingMock.mockClear();
     isRequeueableTransactionMock.mockReset();
     isRequeueableTransactionMock.mockReturnValue(true);
-    isUnverifiableSendRetryErrorMock.mockReset();
-    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
+    mockAcknowledgementOf.mockReset();
+    mockAcknowledgementOf.mockReturnValue(null);
     window.location.hash = '';
   });
 
@@ -353,7 +407,7 @@ describe('GeneratingTransactionPage container effects', () => {
     });
 
     // Plain Retry never acknowledges on the user's behalf.
-    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
+    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1', {});
     expect(requestSWTransactionProcessingMock).toHaveBeenCalled();
     // Requeue flips the watched row back in place — the screen must NOT navigate
     // (the key difference from HistoryDetails.handleRetry).
@@ -368,7 +422,7 @@ describe('GeneratingTransactionPage container effects', () => {
     isRequeueableTransactionMock.mockReturnValue(true);
     mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
     requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may already have reached the network'));
-    isUnverifiableSendRetryErrorMock.mockReturnValue(true);
+    mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
 
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
@@ -390,7 +444,7 @@ describe('GeneratingTransactionPage container effects', () => {
       findRetryAnyway()!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
-    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
     act(() => root.unmount());
   });
 
@@ -398,7 +452,7 @@ describe('GeneratingTransactionPage container effects', () => {
     isRequeueableTransactionMock.mockReturnValue(true);
     mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
     requeueFailedTransactionMock.mockRejectedValueOnce(new Error('row is gone'));
-    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
+    mockAcknowledgementOf.mockReturnValue(null);
 
     const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
     const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
@@ -407,6 +461,55 @@ describe('GeneratingTransactionPage container effects', () => {
     });
 
     expect(container.textContent).toContain('row is gone');
+    expect(
+      Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway'))
+    ).toBeUndefined();
+    act(() => root.unmount());
+  });
+
+  // The page watches the LIVE row: another surface may have run a newer attempt since the refusal
+  // rendered. The acknowledgement still answers the attempt the user was shown (#1081).
+  it('passes back the attempt the rendered refusal named, not the newer attempt on the live row', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'send', attemptId: 'a1' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may already have reached the network'));
+    mockAcknowledgementOf.mockReturnValue({ attemptId: 'a1' });
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    mockRowState = { row: makeTx({ status: 3, type: 'send', attemptId: 'a2' }), loaded: true };
+    await act(async () => {
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
+    });
+    const retryAnyway = Array.from(container.querySelectorAll('button')).find(b =>
+      b.textContent?.includes('retryAnyway')
+    );
+    requeueFailedTransactionMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      retryAnyway!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledged: { attemptId: 'a1' } });
+    act(() => root.unmount());
+  });
+
+  it('offers no "retry anyway" for the liveness refusal (#1081)', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'execute' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may still be finishing in the background'));
+    mockAcknowledgementOf.mockReturnValue(null);
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain('may still be finishing in the background');
     expect(
       Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway'))
     ).toBeUndefined();
@@ -476,6 +579,120 @@ describe('GeneratingTransactionPage container effects', () => {
       'syncing-guardian': 'pending'
     });
     act(() => root.unmount());
+  });
+
+  const stepStates = (container: HTMLElement) =>
+    Object.fromEntries(
+      Array.from(container.querySelectorAll('[data-transaction-step]')).map(el => [
+        el.getAttribute('data-transaction-step'),
+        el.getAttribute('data-state')
+      ])
+    );
+
+  // The same rule Activity and the rotation gate apply (#1250): a row whose outcome is unknown
+  // is not titled failed, and its classifier copy is not shown as the reason. Neither row holds an
+  // entry the reconciler can check, so the hint says the wallet is not checking it (#1081).
+  it.each([
+    ['a row that may have been submitted', { mayHaveSubmitted: true, error: REMOTE_PROVER_FAILED_ERROR }],
+    ['a row the reaper failed', { error: TRANSACTION_STUCK_ERROR }]
+  ])('reads %s as not confirmed, not failed', async (_label, fields) => {
+    mockRowState = { row: makeTx({ status: 3, stage: 'proving', ...fields }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+    expect(container.textContent).toContain('transactionUndeterminedHint');
+    expect(container.textContent).not.toContain('transactionFailed');
+    expect(container.textContent).not.toContain(fields.error);
+    expect(container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+    expect(container.querySelector('.bg-status-negative')).toBeNull();
+    expect(stepStates(container)).toEqual({
+      'guardian-approving': 'complete',
+      'generating-proof': 'pending',
+      submitting: 'pending',
+      'syncing-guardian': 'pending'
+    });
+    act(() => root.unmount());
+  });
+
+  it('keeps the failed title, row error, hero and step for a definite failure', async () => {
+    mockRowState = { row: makeTx({ status: 3, stage: 'proving', error: REMOTE_PROVER_FAILED_ERROR }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.querySelector('h2')?.textContent).toBe('transactionFailed');
+    expect(container.textContent).toContain(REMOTE_PROVER_FAILED_ERROR);
+    expect(container.textContent).not.toContain('transactionNotConfirmedHint');
+    expect(container.textContent).not.toContain('transactionUndeterminedHint');
+    expect(container.textContent).not.toContain('showFullError');
+    expect(container.querySelector('.size-16 > .bg-status-negative')).not.toBeNull();
+    expect(container.querySelector('.bg-status-pending')).toBeNull();
+    expect(stepStates(container)['generating-proof']).toBe('failed');
+    act(() => root.unmount());
+  });
+
+  it("keeps a not-confirmed row's own error one tap away behind Show full error", async () => {
+    mockRowState = { row: makeTx({ status: 3, mayHaveSubmitted: true, error: 'Error: 503' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(container.textContent).toContain('transactionUndeterminedHint');
+    expect(container.textContent).not.toContain('Error: 503');
+    const showFullError = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'showFullError');
+    expect(showFullError).toBeTruthy();
+    await act(async () => {
+      showFullError!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(container.textContent).toContain('Error: 503');
+    act(() => root.unmount());
+  });
+
+  describe('an Unconfirmed row (#1081)', () => {
+    const checkableEntry = {
+      attemptId: 'a1',
+      capturedAt: 1_700_000_000,
+      source: 'stage',
+      transactionId: '0x01',
+      initialCommitment: '0x02',
+      finalCommitment: '0x03',
+      initialNonce: '4',
+      outputNoteIds: ['0x05'],
+      nullifiers: [],
+      refBlock: 100,
+      refBlockCommitment: '0x06'
+    };
+    const unconfirmedRow = (entry: Record<string, unknown> = checkableEntry) =>
+      makeTx({
+        status: ITransactionStatus.Unconfirmed,
+        stage: 'submitting',
+        mayHaveSubmitted: true,
+        error: 'Error: 503',
+        submitEvidence: [entry]
+      });
+
+    it('stops the spinner and shows the not-confirmed header, its hint and Retry', async () => {
+      mockRowState = { row: unconfirmedRow(), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+      expect(container.textContent).toContain('transactionNotConfirmedHint');
+      expect(container.textContent).not.toContain('doNotCloseWindowAutoClose');
+      expect(container.querySelector('.size-16 > .bg-status-pending')).not.toBeNull();
+      expect(buttonLabelled(container, 'retry')).toBeTruthy();
+      act(() => root.unmount());
+    });
+
+    it('says the wallet is not checking it once its only entry is unresolvable', async () => {
+      mockRowState = { row: unconfirmedRow({ ...checkableEntry, verdict: 'unresolvable' }), loaded: true };
+
+      const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+      expect(container.querySelector('h2')?.textContent).toBe('notConfirmed');
+      expect(container.textContent).toContain('transactionUndeterminedHint');
+      expect(container.textContent).not.toContain('transactionNotConfirmedHint');
+      act(() => root.unmount());
+    });
   });
 
   it('picks the step set from the tracked tx account, not the current account', async () => {
@@ -640,7 +857,11 @@ describe('GeneratingTransaction stage + state rendering', () => {
         onDoneClick={() => {}}
         transactionComplete={true}
         activeType="switch-guardian"
-        activeTransaction={{ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never}
+        activeTransaction={
+          // Completed status: the flag is only ever written by the completion
+          // handler, and the verdict this screen consults keys on it.
+          { type: 'switch-guardian', status: 2, extraInputs: { commitUnconfirmed: true } } as never
+        }
       />
     );
     expect(container.textContent).toContain('transactionSubmittedUnconfirmedDescription');
@@ -698,6 +919,59 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  it('a Queued row waiting on a busy Guardian says so, and its first step waits instead of spinning (#312)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="creating-proposal"
+        activeType="send"
+        activeTransaction={
+          makeTx({ status: ITransactionStatus.Queued, stage: 'creating-proposal', guardianBusy: true }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['pending', 'pending', 'pending', 'pending']);
+    expect(rows[0]?.textContent).toContain('guardianBusyStep');
+    expect(container.querySelector('[data-transaction-step] [data-testid="flow-spinner"]')).toBeNull();
+    const helper = Array.from(container.querySelectorAll('p')).find(paragraph =>
+      paragraph.classList.contains('font-bold')
+    );
+    expect(helper?.textContent).toBe('guardianBusyDescription');
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toContain('guardianBusyDescription');
+    expect(container.textContent).not.toContain('generatingTransactionDescription');
+    act(() => root.unmount());
+  });
+
+  it('a row being processed shows the working step and the usual copy, whatever its busy mark says (#312)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="creating-proposal"
+        activeType="send"
+        activeTransaction={
+          makeTx({
+            status: ITransactionStatus.GeneratingTransaction,
+            stage: 'creating-proposal',
+            guardianBusy: true
+          }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['active', 'pending', 'pending', 'pending']);
+    expect(rows[0]?.textContent).toContain('transactionStepGuardianApproved');
+    expect(container.textContent).toContain('generatingTransactionDescription');
+    expect(container.textContent).not.toContain('guardianBusy');
+    act(() => root.unmount());
+  });
+
   it('non-guardian send shows only the generic proof + submit steps', async () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction
@@ -710,6 +984,39 @@ describe('GeneratingTransaction stage + state rendering', () => {
     const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
     expect(rows.map(r => r.getAttribute('data-transaction-step'))).toEqual(['generating-proof', 'submitting']);
     expect(rows.map(r => r.getAttribute('data-state'))).toEqual(['complete', 'active']);
+    act(() => root.unmount());
+  });
+
+  const stepsCardFor = async (activeType: 'earn-deposit' | 'send') => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        isGuardian={false}
+        activeStage="submitting"
+        activeType={activeType}
+      />
+    );
+    const card = container.querySelector('[data-transaction-step]')?.parentElement;
+    expect(card).toBeTruthy();
+    return { card: card!, root };
+  };
+
+  it("draws an earn-deposit row's steps on the outline surface, in the heading face", async () => {
+    const { card, root } = await stepsCardFor('earn-deposit');
+
+    expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'face-heading');
+    expect(card).not.toHaveClass('bg-fill');
+    act(() => root.unmount());
+  });
+
+  it("keeps a send row's steps on the fill card, in the default face", async () => {
+    const { card, root } = await stepsCardFor('send');
+
+    expect(card).toHaveClass('bg-fill');
+    expect(card).not.toHaveClass('bg-page');
+    expect(card).not.toHaveClass('border-hairline');
+    expect(card).not.toHaveClass('face-heading');
     act(() => root.unmount());
   });
 

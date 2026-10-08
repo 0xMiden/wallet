@@ -5,15 +5,12 @@ import { isExtension } from 'lib/platform';
 import { useMidenContext } from './client';
 
 /**
- * Module-scope one-shot latch for the AGE-INDEPENDENT cold-start sweep.
- *
- * It must be module scope, not a component ref: `failInterruptedTransactions`
- * fails EVERY `GeneratingTransaction` row regardless of age, which is only sound
- * on a genuine cold start. A component ref resets when the provider tree
- * remounts inside a live app process, and a second run would then kill a
- * transaction that is actively processing. A module binding lives exactly as long
- * as the JS realm — and off-extension a fresh realm IS a fresh app process — so it
- * gives the same guarantee the extension gets from `browser.runtime.onStartup`.
+ * Module-scope one-shot latch: a provider remount inside a live app process skips
+ * a second sweep and a second kick. A second sweep would still be safe, because
+ * `failInterruptedTransactions` spares this realm's rows by id
+ * (`markStartedInThisRealm`) and rows another realm of this session started by
+ * a stamp from `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL` past the sweep's
+ * clock; the latch only saves the redundant work.
  */
 let coldStartSweepDone = false;
 
@@ -52,7 +49,7 @@ export function OrphanedTransactionRecovery(): null {
 
   useEffect(() => {
     // `coldStartSweepDone` is module scope, so a provider remount inside a live
-    // app process cannot re-run the age-independent sweep (see its doc comment).
+    // app process skips the redundant sweep and kick (see its doc comment).
     if (isExtension() || coldStartSweepDone) return;
     coldStartSweepDone = true;
     let disposed = false;
@@ -65,11 +62,14 @@ export function OrphanedTransactionRecovery(): null {
         ] = await Promise.all([import('../transaction'), import('./guardian-sync')]);
         if (disposed) return;
 
-        // Fail every row still `GeneratingTransaction`, AGE-INDEPENDENTLY —
-        // exactly what the extension does from `browser.runtime.onStartup`
-        // (src/background.ts, issue #282). Off-extension this effect runs in a
-        // fresh JS realm, i.e. a fresh app process, so whatever was driving such a
-        // row died with the previous process and nothing will ever resume it.
+        // Fail every row an earlier app process left in `GeneratingTransaction`,
+        // AGE-INDEPENDENTLY, which is what the extension does from
+        // `browser.runtime.onStartup` (src/background.ts, issue #282). Whatever
+        // drove such a row died with that process. A row this realm already
+        // started (the unlock kick can start one first, #1202) is spared by id
+        // (`markStartedInThisRealm`), and a row another realm of this session
+        // started by a stamp from `SESSION_STARTED_AT` to `MAX_WAIT_BEFORE_CANCEL`
+        // past the sweep's clock.
         //
         // The age-gated `cancelStuckTransactions()` this replaces was an order of
         // magnitude too slow to unblock the queue: MAX_WAIT_BEFORE_CANCEL is 30
@@ -80,20 +80,25 @@ export function OrphanedTransactionRecovery(): null {
         //
         // Deliberately no auto-retry, for the same reason the SW sweep has none:
         // if `submit()` landed before the kill, the tx IS on chain. The row is
-        // marked Failed with "Interrupted — check your activity after it syncs",
-        // and `isRequeueableTransaction` keeps the REBUILT-REQUEST types (send and
-        // swap) out of the manual Retry path too, since replaying one of those
-        // builds a new note with a new serial and would move the funds twice.
-        // `consume`, `execute` and an Agglayer `bridged-send` stay retryable on
-        // purpose: each replays an identical request — a spent nullifier or the
-        // persisted `requestBytes` — which the node rejects rather than duplicates.
-        // See REBUILT_REQUEST_TYPES in lib/miden/transaction/retry.ts.
+        // marked Failed, and `requeueFailedTransaction` refuses a manual Retry on
+        // `send` or `swap` outright while a submit cannot be ruled out, since
+        // replaying one of those builds a new note with a new serial and would
+        // move the funds twice. `consume`, a nullifier-listing `execute`, and an
+        // Agglayer `bridged-send` stay retryable on purpose: each replays an
+        // identical request - a spent nullifier or the persisted `requestBytes` -
+        // which the node rejects rather than duplicates. An `execute` that lists
+        // none is refused the same way once it may have submitted
+        // (`executeMayHaveSubmitted`, #1081), and requeued otherwise. See
+        // REBUILT_REQUEST_TYPES in lib/miden/transaction/retry.ts.
         await failInterruptedTransactions();
         if (disposed) return;
 
-        // Only Queued rows can remain after that sweep, so the loop's in-progress
-        // guard no longer blocks it — drive the FIFO loop the same way the dApp
-        // and auto-consume flows do.
+        // Only Queued rows and this process's own in-flight rows can remain after
+        // that sweep, plus an earlier row stamped from `SESSION_STARTED_AT` to
+        // `MAX_WAIT_BEFORE_CANCEL` past the sweep's clock (stamped in the same
+        // second, or the clock stepped back across the restart), which falls to
+        // the age-gated reaper. Drive the FIFO loop the same way the dApp and
+        // auto-consume flows do.
         const uncompleted = await getAllUncompletedTransactions();
         if (disposed || uncompleted.length === 0) return;
         startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);

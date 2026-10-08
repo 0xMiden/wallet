@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { TokenLogo } from 'components/TokenLogo';
 import { AnimatedNumber } from 'components/ui/AnimatedNumber';
 import { AssetListItem } from 'components/ui/AssetListItem';
@@ -11,6 +12,8 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
 import { listedFiatValue } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -39,15 +42,22 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const { isHidden } = useHiddenTokens(publicKey);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredBalances = useMemo(() => {
-    if (!searchQuery.trim()) return balanceData;
+    // Hidden from Home, hidden here; the token's own page still sends it, preselected by id.
+    const visible = balanceData.filter(b => !isHidden(b.tokenId));
+    if (!searchQuery.trim()) return visible;
     const query = searchQuery.toLowerCase();
-    return balanceData.filter(
-      b => b.metadata.symbol.toLowerCase().includes(query) || b.metadata.name?.toLowerCase().includes(query)
+    return visible.filter(
+      b =>
+        b.metadata.symbol.toLowerCase().includes(query) ||
+        b.metadata.name?.toLowerCase().includes(query) ||
+        midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol).toLowerCase().includes(query)
     );
-  }, [balanceData, searchQuery]);
+  }, [balanceData, bridgeConfig, isHidden, searchQuery]);
 
   const onSelectToken = useCallback(
     (token: UIToken) => {
@@ -81,19 +91,18 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                 const fiatValue = listedFiatValue(tokenPrices, priceSymbol, b.balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(b.balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
+                const name = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.name || b.metadata.symbol);
+                const unit = midenTokenLabel(bridgeConfig, b.tokenId, b.metadata.symbol);
                 return (
                   <AssetListItem
                     key={b.tokenId}
-                    icon={<TokenLogo symbol={b.metadata.symbol} />}
-                    name={b.metadata.name || b.metadata.symbol}
+                    icon={<TokenLogo symbol={b.metadata.symbol} faucetId={b.tokenId} />}
+                    name={name}
                     amount={
                       scaleIsKnown ? (
-                        <AnimatedNumber
-                          value={b.balance}
-                          format={value => `${formatQuantity(value)} ${b.metadata.symbol}`}
-                        />
+                        <AnimatedNumber value={b.balance} format={value => `${formatQuantity(value)} ${unit}`} />
                       ) : (
-                        b.metadata.symbol
+                        unit
                       )
                     }
                     price={

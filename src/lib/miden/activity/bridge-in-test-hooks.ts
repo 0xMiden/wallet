@@ -1,7 +1,9 @@
 import * as Repo from 'lib/miden/repo';
 
 import { setAgglayerSenderForE2E } from './bridge-in';
+import { startBridgeReceiveSubmission } from './bridge-receive';
 import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransactionStatus } from '../db/types';
+import { updateBridgedReceivePhase } from '../transaction/complete';
 import { initiateBridgedReceiveTransaction } from '../transaction/initiate';
 
 /**
@@ -28,6 +30,8 @@ interface CreateBridgeReceiveArgs {
   sourceSymbol: string;
   outputAmount?: string;
   outputSymbol?: string;
+  /** The deposit's EVM hash; the row is moved to `delivering` with it, as the deposit screen does after its EVM tx. */
+  evmTxHash: string;
 }
 
 interface BridgeReceiveState {
@@ -63,8 +67,20 @@ interface LatestBridgeReceive {
 }
 
 export function installBridgeInTestHooks(): void {
-  globalThis.__TEST_CREATE_BRIDGE_RECEIVE__ = async (args: CreateBridgeReceiveArgs) =>
-    initiateBridgedReceiveTransaction({ ...args, amount: BigInt(args.amount) });
+  // Created and advanced inside the submission lock, as the deposit screen does: a `submitting` row with no hash and
+  // no live submission is failed as an orphan by the app-root reconciler.
+  globalThis.__TEST_CREATE_BRIDGE_RECEIVE__ = async ({ evmTxHash, ...args }: CreateBridgeReceiveArgs) => {
+    let advanced: Promise<void> | undefined;
+    const txId = await startBridgeReceiveSubmission(
+      () => initiateBridgedReceiveTransaction({ ...args, amount: BigInt(args.amount) }),
+      id => {
+        advanced = updateBridgedReceivePhase(id, 'delivering', { evmTxHash });
+        return advanced;
+      }
+    );
+    await advanced;
+    return txId;
+  };
 
   globalThis.__TEST_SET_AGGLAYER_SENDER__ = (senderAccountId: string) => {
     setAgglayerSenderForE2E(senderAccountId);
@@ -112,12 +128,12 @@ export function installBridgeInTestHooks(): void {
 
   // Return the newest `bridged-receive` row (optionally filtered by provider),
   // so the deposit-UI harness can find the row that the REAL `handleConfirm`
-  // created — it doesn't hand the txId back to the DOM — and then mint a
-  // matching-amount note for the AggLayer reconcile.
+  // created - it doesn't hand the txId back to the DOM - and then mint the
+  // scaled delivery for the AggLayer reconcile.
   globalThis.__TEST_LATEST_BRIDGE_RECEIVE__ = async (
     provider?: IBridgeProvider
   ): Promise<LatestBridgeReceive | null> => {
-    const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-receive').toArray();
+    const rows = await Repo.transactions.where('type').equals('bridged-receive').toArray();
     const filtered = provider
       ? rows.filter(row => (row.extraInputs as IBridgedReceiveExtraInputs | undefined)?.provider === provider)
       : rows;

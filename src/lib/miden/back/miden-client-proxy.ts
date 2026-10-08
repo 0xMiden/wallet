@@ -23,7 +23,13 @@ import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  getMidenClient,
+  getCurrentWasmLockHold,
+  assertWasmHoldCurrent,
+  withWasmClientLock,
+  type WasmLockHold
+} from 'lib/miden/sdk/miden-client';
 import type {
   AssertLive,
   InputNoteDetails,
@@ -32,6 +38,7 @@ import type {
 } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { markErrorBeforeSubmit } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -61,7 +68,20 @@ import {
   isCriticalOpInFlight,
   isOffscreenAvailable
 } from './offscreen-prover';
-import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
+import type {
+  ConsumeTransaction,
+  ITransactionStage,
+  SendTransaction,
+  StageDetail,
+  SubmitEvidenceFields,
+  SwapTransaction
+} from '../db/types';
+import {
+  GuardianHistoryDataError,
+  GuardianHistoryFeeLookupError,
+  GuardianHistoryFeeUnavailableError
+} from '../guardian/history-errors';
+import { guardianSummarySchema } from '../sdk/guardian-history';
 import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
 
@@ -91,8 +111,10 @@ const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
  * Callers need this to reason about what a JS-level timeout actually buys them. A
  * timeout that rejects out of a `withWasmClientLock` callback RELEASES the mutex
  * while the underlying call keeps running; that is harmless when the WASM lives in
- * another realm behind its own mutex, and a double borrow of the single-threaded
- * client when it does not.
+ * another realm behind its own mutex, or when the abandoned tail makes no WASM call
+ * after its first suspension except on objects the flow built itself from plain
+ * inputs (such as a signer key from a seed), never the client or any object a
+ * client call returned. Otherwise it is a double borrow of the single-threaded client.
  */
 export function runsWasmInThisRealm(): boolean {
   return !USE_OFFSCREEN_CLIENT || !isOffscreenAvailable();
@@ -333,13 +355,15 @@ type RawSignCallback = (publicKey: string, signingInputs: string) => Promise<Uin
 /**
  * A per-step stage stamp (PR #524).
  *
- * `opts.reliable === false` marks a stamp REPLAYED FROM THE OFFSCREEN REALM: it
+ * `detail.reliable === false` marks a stamp REPLAYED FROM THE OFFSCREEN REALM: it
  * crossed `chrome.runtime` fire-and-forget, so it carries no delivery or ordering
  * guarantee relative to the op's own reply. The stamp is still good enough to time
  * a step, but NOT to drive a control decision — see the funds-safety note in
- * `setTransactionStage`. An inline caller omits `opts` entirely.
+ * `setTransactionStage`. A replayed 'submitting' stamp's detail also carries the
+ * evidence the offscreen leaf read before its submit (#1081). An inline leaf passes
+ * its evidence the same way and omits `reliable`.
  */
-type StageCallback = (stage: ITransactionStage, opts?: { readonly reliable?: boolean }) => Promise<void> | void;
+type StageCallback = (stage: ITransactionStage, detail?: StageDetail) => Promise<void> | void;
 
 /**
  * op_id → the RAW `(publicKeyHex, signingInputsHex) => signatureBytes` callback
@@ -407,13 +431,16 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
   else {
     // Preserve the SDK's stable error code end-to-end (issue #260, funds-critical).
     // Re-attach it onto the rejection under `errorCode`, one of the two names
-    // `extractSdkErrorCode` reads. The rejection's MESSAGE also embeds the offscreen
-    // realm's verbatim error text, which is what lets the SW classify a round-tripped
+    // `extractSdkErrorCode` reads. That code - which the wallet's own
+    // `ApplyAfterSubmitError` sets - is what lets the SW classify a round-tripped
     // apply-after-submit failure (`isApplyAfterSubmitError`) identically to the
-    // flag-off inline path — marked Completed, NOT Failed → requeue → double-spend —
-    // even though web-sdk 0.16 attaches no code for that variant. Shared by all four
-    // writes via `dispatchOffscreenWrite`/this single choke point. A code-less failure
-    // (`undefined`) leaves the error untagged, exactly as before.
+    // flag-off inline path: its row takes its type's landed verdict and is never
+    // requeued into a second submit. The rejection's MESSAGE also embeds the offscreen
+    // realm's verbatim text, which the classifier reads as a fallback. The landed
+    // transaction's id and private output note count ride along as one `landed` object,
+    // the name `extractLanded` reads, so the row still records them (#1233).
+    // Shared by all five writes via `dispatchOffscreenWrite`/this single choke point. A
+    // code-less failure (`undefined`) leaves the error untagged, exactly as before.
     //
     // A lock-recovery eviction inside the offscreen realm is rebuilt as the same
     // TYPE it was thrown as (issue #775). It has to be: that error means "the op
@@ -432,8 +459,22 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
       op.reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
       return;
     }
+    if (resp.errorName === 'GuardianHistoryFeeUnavailableError') {
+      op.reject(new GuardianHistoryFeeUnavailableError());
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryFeeLookupError') {
+      op.reject(new GuardianHistoryFeeLookupError());
+      return;
+    }
+    if (resp.errorName === 'GuardianHistoryDataError') {
+      op.reject(new GuardianHistoryDataError(resp.error));
+      return;
+    }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
+    if (resp.errorLanded !== undefined) Object.assign(err, { landed: resp.errorLanded });
+    if (resp.errorBeforeSubmit === true) markErrorBeforeSubmit(err);
     op.reject(err);
   }
 }
@@ -522,7 +563,19 @@ async function dispatchOp(
   deadlineMs: number | null,
   critical: boolean
 ): Promise<string | null> {
-  await ensureOffscreenDocument();
+  // Both run before the op exists, so a failure here means it never ran: tagged, and nothing is registered whose
+  // deadline could later close the document under every write in flight (#1081).
+  try {
+    await ensureOffscreenDocument();
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
+  let argsB64: string[];
+  try {
+    argsB64 = args.map(encodeArg);
+  } catch (error) {
+    throw markErrorBeforeSubmit(error);
+  }
   return new Promise<string | null>((resolve, reject) => {
     // A whole-op WRITE (critical) does NOT arm its REAL deadline at dispatch: that
     // is armed at EXECUTION START via `markOpStarted` when the op wins the offscreen
@@ -553,7 +606,7 @@ async function dispatchOp(
       type: OFFSCREEN_CALL,
       op_id,
       method,
-      argsB64: args.map(encodeArg),
+      argsB64,
       deadline_ms: deadlineMs
     };
     // `sendMessage` may resolve with the response, resolve `undefined` (doc
@@ -732,7 +785,11 @@ export async function reloadOffscreenEndpointOverrides(): Promise<boolean> {
  *   - A throwing or rejecting `onStage` is SWALLOWED (logged only). The stamp is
  *     telemetry; a Dexie hiccup writing it must never fail a funds-moving write.
  */
-export function handleOffscreenStageEvent(op_id: string, stage: ITransactionStage): void {
+export function handleOffscreenStageEvent(
+  op_id: string,
+  stage: ITransactionStage,
+  evidence?: SubmitEvidenceFields
+): void {
   const onStage = opStageCallbacks.get(op_id);
   if (!onStage) return;
   try {
@@ -742,7 +799,7 @@ export function handleOffscreenStageEvent(op_id: string, stage: ITransactionStag
     // it may be dropped or reordered against the op's reply. It must therefore time
     // a step without authoring the control `stage` field that the guardian requeue
     // gates read (see `setTransactionStage`).
-    void Promise.resolve(onStage(stage, { reliable: false })).catch((err: unknown) => {
+    void Promise.resolve(onStage(stage, { reliable: false, evidence })).catch((err: unknown) => {
       console.warn(`[MidenClientProxy] stage stamp '${stage}' for op ${op_id} rejected; ignoring`, err);
     });
   } catch (err) {
@@ -812,11 +869,11 @@ type OffscreenSwapDto = {
  * balance for the whole (multi-second) op and block the reverse-IPC sign handler
  * that must run SW-side mid-op (design §7.1).
  *
- * `onStage` (optional) is the write's per-step stage stamp (PR #524). The two
- * pipelines that drive execute → prove → submit as distinct stages supply one — the
- * non-guardian send and the guardian leaf; the writes that hand the SDK one opaque
- * call (`consumeNoteId`, `swapTransaction`, `newTransaction`) have no boundaries to
- * stamp, so they leave it undefined and register nothing.
+ * `onStage` (optional) is the write's per-step stage stamp (PR #524). Every write
+ * that can cross its submit supplies one (#1081): the send, consume, swap and
+ * execute leaves and the guardian leaf. Its 'submitting' stamp carries the
+ * attempt's submit evidence, which `handleOffscreenStageEvent` forwards with
+ * `reliable: false`. A write called without one registers nothing.
  */
 async function dispatchOffscreenWrite(
   method: string,
@@ -1020,80 +1077,20 @@ export const midenClientProxy = {
   },
 
   /**
-   * Relay a just-created PRIVATE note to the recipient via the transport layer
-   * (issue #260, slice 7b).
+   * Relay a just-created PRIVATE note via the transport layer.
    *
-   * This MUST run on the SAME client that created the note, mirroring the
-   * `waitForTransactionCommit` companion above — and for a funds-critical reason:
-   * under 0.16 `MidenClientInterface.sendPrivateNote` calls
-   * `notes.sendPrivateOutput({ noteId })`, which resolves the note BY ID from the
-   * calling client's store as an APPLIED OUTPUT note and derives the recipient's
-   * forward-scan hint from that stored `expected_height` (the chain tip when the
-   * note's transaction was submitted). Under the flag the send ran offscreen, so
-   * the note is an output note of the OFFSCREEN client's store only; relaying on
-   * the dormant SW client rejects outright with the SDK's `No output note found for
-   * the given id` and the recipient — whose copy of these bytes may be the only one
-   * — silently never receives it.
-   *
-   * (Under 0.15 this call was `notes.sendPrivate(note, to)` and the hint was the
-   * client's live sync height, which is why the realm-pinning was originally argued
-   * from sync-height staleness. The requirement is the same; the reason is not.)
-   *
-   *   Flag off (default): BYTE-IDENTICAL to the former inline relay — the exact
-   *   `getMidenClient().sendPrivateNote(note, to)` under the WASM lock (the caller's
-   *   relay block used to hold this lock; it is taken here now, exactly as
-   *   `waitForTransactionCommit` does, so the relay+wait stay a coherent unit — each
-   *   proxy call owns its own lock rather than the caller wrapping both). The live
-   *   `Note` is passed straight through (never serialized on this path).
-   *
-   *   Flag on: forward to the offscreen doc. The live `Note` cannot cross
-   *   postMessage, so it crosses as `note.serialize()` bytes (`encodeArg`'s raw-bytes
-   *   tag, never JSON) and is re-hydrated offscreen via `Note.deserialize`; only its
-   *   ID is then used, because `notes.sendPrivateOutput` looks the note back up in
-   *   the offscreen store — which is exactly where the write that created it applied
-   *   it. Every relay today is for an output note of a transaction the SAME realm
-   *   just executed, proved, submitted and applied; a note this realm did not apply
-   *   (an imported one, or one whose client DB `lib/miden/reset.ts` has since
-   *   cleared) does not satisfy that precondition. The offscreen side discards the
-   *   void result.
-   *
-   * Dispatched as a `criticalOp` on a write-class deadline
-   * ({@link RELAY_DEADLINE_MS}), despite doing no prove or sign. That looks like a
-   * category error and is not: `criticalOp` marks ops that must not be torn down
-   * mid-flight because they are moving value, and this one is the only step that
-   * makes a landed private note reachable at all. Two concrete consequences, both
-   * load-bearing:
-   *
-   *   - The budget arms at EXECUTION START (`markOpStarted`) instead of dispatch, so
-   *     time spent queued behind other ops on the single offscreen WASM mutex is
-   *     off-budget. Under the previous non-critical 15s read deadline a busy realm
-   *     could spend the whole budget waiting for the mutex and abort the relay
-   *     before it issued a single request.
-   *   - A coincident cheap READ's deadline DOWNGRADES to a reject-without-kill
-   *     rather than tearing down the realm this relay is running in.
-   *
-   * The old comment justified the short deadline by arguing a kill was safe because
-   * "the SDK persists the relay payload to its durable outbox BEFORE transport".
-   * That is the wrong way round: Rust writes the outbox entry INSIDE the relay,
-   * after resolving the transport API, so an abort during the window this deadline
-   * governs — including one that lands before `sendPrivateOutput` has even resolved
-   * the note — queues nothing at all.
+   * Always the SW client. 0.17 `notes.sendPrivate` takes the live Note and a
+   * scan-after hint, so it does not need the offscreen store. Offscreen fetch
+   * to localnet NTS (`127.0.0.1:57292`) is CORS-blocked; the SW fetch is not.
    */
   async sendPrivateNote(note: Note, recipientAccountId: string): Promise<void> {
-    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await midenClient.sendPrivateNote(note, recipientAccountId);
-      });
-      return;
-    }
-    const op_id = newOpId();
-    incrementCriticalOp();
-    try {
-      await dispatchOp(op_id, 'sendPrivateNote', [note.serialize(), recipientAccountId], RELAY_DEADLINE_MS, true);
-    } finally {
-      decrementCriticalOp();
-    }
+    // Always the SW client. `notes.sendPrivate` takes the live Note, so it does
+    // not need the offscreen store. Offscreen fetch to 127.0.0.1:57292 is
+    // CORS-blocked even with host_permissions; the SW fetch already works.
+    await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      await midenClient.sendPrivateNote(note, recipientAccountId);
+    });
   },
 
   /**
@@ -1285,8 +1282,13 @@ export const midenClientProxy = {
   async getSyncHeight(opts?: { fresh?: boolean }): Promise<number> {
     const fresh = opts?.fresh ?? false;
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      const client = (await getMidenClient()).client;
-      return fresh ? (await client.sync()).blockNum() : client.getSyncHeight();
+      const hold = getCurrentWasmLockHold();
+      const client = await getMidenClient();
+      if (hold) assertWasmHoldCurrent(hold, 'reading synchronized height');
+      if (!fresh) return client.client.getSyncHeight();
+      const summary = await client.syncState();
+      if (hold) assertWasmHoldCurrent(hold, 'reading synchronized height summary');
+      return summary.blockNum();
     }
     const resultB64 = await this.call('getSyncHeight', [fresh], {
       deadlineMs: fresh ? SYNC_DEADLINE_MS : READ_DEADLINE_MS
@@ -1396,15 +1398,16 @@ export const midenClientProxy = {
    * would be lost to the dormant SW store).
    *
    * Flag off (default): BYTE-IDENTICAL — inline `(await getMidenClient()).
-   * importNoteBytes(bytes)` (caller owns the lock). Flag on: forward to the
+   * importNoteBytes(bytes, hold)` under the caller's lock, whose hold retires a
+   * trap the import catches. Flag on: forward to the
    * offscreen doc so the import hits the realm that owns the synced store. It is a
    * quick store op (no prove / sign — NOT a `criticalOp`); a wedge is reclaimed by
    * the read deadline. Returns the imported note's id / details commitment (the
    * `importAllNotes` caller discards it).
    */
-  async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
+  async importNoteBytes(noteBytes: Uint8Array, hold: WasmLockHold): Promise<string> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).importNoteBytes(noteBytes);
+      return (await getMidenClient()).importNoteBytes(noteBytes, hold);
     }
     const resultB64 = await this.call('importNoteBytes', [noteBytes], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) {
@@ -1424,9 +1427,34 @@ export const midenClientProxy = {
   },
 
   /** Pending-note recovery chunk: import proposal-embedded note bytes. */
+  async decodeGuardianHistory(encoded: string) {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async hold => (await getMidenClient()).decodeGuardianHistory(encoded, hold));
+    }
+    const result = await this.call('decodeGuardianHistory', [encoded], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian summary response');
+    const text = new TextDecoder().decode(b64ToBytes(result));
+    try {
+      return guardianSummarySchema.parse(JSON.parse(text));
+    } catch (cause) {
+      throw new GuardianHistoryDataError('Guardian summary fails its schema', { cause });
+    }
+  },
+
+  async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async hold => (await getMidenClient()).getGuardianResultCommitment(bytes, hold));
+    }
+    const result = await this.call('getGuardianResultCommitment', [bytesToB64(bytes)], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian commitment response');
+    return new TextDecoder().decode(b64ToBytes(result));
+  },
+
   async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes));
+      return withWasmClientLock(async hold =>
+        (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes, hold)
+      );
     }
     const encodedNotes = proposalNoteBytes.map(bytesToB64);
     const resultB64 = await this.call('importRecoveryNoteBytes', [encodedNotes], {
@@ -1482,7 +1510,7 @@ export const midenClientProxy = {
    *
    *   Flag OFF (default) / offscreen unavailable: the consume runs inline on the
    *   realm's one client under the WASM lock, `withWasmClientLock(() =>
-   *   getMidenClient().consumeNoteId(tx))`; the realm signer `Actions.init`
+   *   getMidenClient().consumeNoteId(tx, onStage))`; the realm signer `Actions.init`
    *   installed signs it, and the `signCallback` argument is unused (#878).
    *
    *   Flag ON: the whole execute→prove→submit→apply chain runs in the offscreen
@@ -1490,10 +1518,16 @@ export const midenClientProxy = {
    *   the reverse-IPC sign channel (which invokes THIS `signCallback` on the SW).
    *   The SW WASM lock is NOT held (design §7.1) — the offscreen doc's own mutex
    *   serializes the write.
+   *
+   * `onStage` rides both paths as it does on {@link sendTransaction} (#1081).
    */
-  async consumeNoteId(transaction: ConsumeTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+  async consumeNoteId(
+    transaction: ConsumeTransaction,
+    signCallback: RawSignCallback,
+    onStage?: StageCallback
+  ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction));
+      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction, onStage));
     }
     const dto: OffscreenConsumeDto = {
       accountId: transaction.accountId,
@@ -1501,7 +1535,7 @@ export const midenClientProxy = {
       noteIds: transaction.noteIds,
       delegateTransaction: transaction.delegateTransaction
     };
-    return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback);
+    return dispatchOffscreenWrite('consumeNoteId', [dto], signCallback, onStage);
   },
 
   /**
@@ -1515,7 +1549,7 @@ export const midenClientProxy = {
    * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
    * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
    * `amount` (BigInt → decimal string), `delegateTransaction`, and
-   * `extraInputs.recallBlocks` — no more. `completeSendTransaction` (SW-side)
+   * `extraInputs.recallBlocks`, no more. `completeSendTransaction` (SW-side)
    * consumes the round-tripped `TransactionResult` identically; any private-note
    * relay it does runs on the SW's own inline client (no further offscreen call).
    *
@@ -1559,9 +1593,13 @@ export const midenClientProxy = {
    * (BigInt → string). `completeSwapTransaction` consumes the round-tripped
    * `TransactionResult` identically (no further client call).
    */
-  async swapTransaction(transaction: SwapTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
+  async swapTransaction(
+    transaction: SwapTransaction,
+    signCallback: RawSignCallback,
+    onStage?: StageCallback
+  ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction));
+      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction, onStage));
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1573,7 +1611,7 @@ export const midenClientProxy = {
         requestedAmount: transaction.extraInputs.requestedAmount.toString()
       }
     };
-    return dispatchOffscreenWrite('swapTransaction', [dto], signCallback);
+    return dispatchOffscreenWrite('swapTransaction', [dto], signCallback, onStage);
   },
 
   /**
@@ -1591,14 +1629,20 @@ export const midenClientProxy = {
     accountId: string,
     requestBytes: Uint8Array,
     delegateTransaction: boolean | undefined,
-    signCallback: RawSignCallback
+    signCallback: RawSignCallback,
+    onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () =>
-        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction)
+        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction, onStage)
       );
     }
-    return dispatchOffscreenWrite('newTransaction', [accountId, requestBytes, delegateTransaction], signCallback);
+    return dispatchOffscreenWrite(
+      'newTransaction',
+      [accountId, requestBytes, delegateTransaction],
+      signCallback,
+      onStage
+    );
   }
 };
 

@@ -23,12 +23,14 @@ describe('StatusBadge', () => {
     ['pending', 'pending', 'pending'],
     ['inProgress', 'inProgress', 'pending'],
     ['confirmed', 'confirmed', 'positive'],
+    ['completed', 'completed', 'positive'],
     ['burnPending', 'usdcxBurnPending', 'pending'],
     ['burnConsuming', 'usdcxBurnConsuming', 'pending'],
     ['burnConfirmed', 'usdcxBurnConfirmed', 'positive'],
     ['burnDiscarded', 'usdcxBurnDiscarded', 'negative'],
     ['failed', 'failed', 'negative'],
     ['cancelled', 'cancelled', 'neutral'],
+    ['unconfirmed', 'notConfirmed', 'pending'],
     ['reclaimed', 'reclaimed', 'neutral'],
     ['claimed', 'accepted', 'positive'],
     ['redeeming', 'earnWithdrawStatusRedeeming', 'pending'],
@@ -41,6 +43,7 @@ describe('StatusBadge', () => {
     ['orderReclaimed', 'orderStatusReclaimed', 'neutral'],
     ['loading', 'loading', 'neutral'],
     ['unavailable', 'trackingUnavailable', 'neutral'],
+    ['guardianSwitchSubmitted', 'guardianSwitchSubmittedChip', 'pending'],
     ['online', 'online', 'positive'],
     ['offline', 'guardianOfflineLabel', 'negative'],
     ['needsAttention', 'guardianNeedsAttentionLabel', 'negative'],
@@ -55,7 +58,7 @@ describe('StatusBadge', () => {
   });
 
   it('covers every status in the table above', () => {
-    expect(STATUSES).toHaveLength(26);
+    expect(STATUSES).toHaveLength(29);
   });
 
   it.each(STATUSES)('labels %s with a key that exists in the English catalog', status => {

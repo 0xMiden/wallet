@@ -3,7 +3,9 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { TransactionSuccess } from './TransactionSuccess';
 
@@ -45,7 +47,8 @@ jest.mock('lib/miden/metadata', () => ({
 let mockNativeAssetId: string | null = null;
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: () => mockNativeAssetId
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetMetadataSync: () => (mockNativeAssetId === null ? null : mockMidenMeta)
 }));
 
 // Explicit, because `__mocks__/app/hooks/useMidenFaucetId.ts` is picked up
@@ -80,6 +83,17 @@ jest.mock('app/icons/v2', () => ({
 jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 
 const baseTransaction = (overrides: Partial<ITransaction> = {}): ITransaction =>
   ({
@@ -126,6 +140,25 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).not.toContain('Transaction ID');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
 
+    act(() => root.unmount());
+  });
+
+  it('names a send of the testnet bridge faucet by its label on the receipt', async () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockState.assetsMetadata = { [TEST_MIDEN_USDC_FAUCET]: { symbol: 'USDC', decimals: 6 } };
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          amount: 12345n,
+          faucetId: TEST_MIDEN_USDC_FAUCET,
+          secondaryAccountId: 'mtst1aprecipient_addr1234'
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('12345 Test Epoch USDC');
+    expect(container.textContent).not.toContain('12345 USDC');
     act(() => root.unmount());
   });
 
@@ -188,6 +221,7 @@ describe('TransactionSuccess', () => {
   });
 
   it('relabels the receipt for an accepted transfer: From, Total Accepted and Transfer IDs rows', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess
         transaction={baseTransaction({
@@ -293,7 +327,8 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  it('falls back to MIDEN symbol when the faucet has no metadata', async () => {
+  it('uses chain MIDEN metadata for a faucet-less receipt with an empty store', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 7n })} onDoneClick={() => {}} />
     );
@@ -358,6 +393,7 @@ describe('TransactionSuccess', () => {
   });
 
   it('renders a Fast route row for an epoch bridged send', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess
         transaction={baseTransaction({
@@ -487,13 +523,22 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  // A row with no faucet is about the native asset, so an empty store still
-  // shows the quantity — MIDEN's scale does not depend on what has been cached.
-  it('quantifies a faucet-less receipt from MIDEN metadata', async () => {
+  it('quantifies a faucet-less receipt from authoritative MIDEN metadata', async () => {
+    mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 3n })} onDoneClick={() => {}} />
     );
     expect(container.textContent).toContain('3 MIDEN');
+    act(() => root.unmount());
+  });
+
+  it('withholds a faucet-less receipt quantity before the native scale is resolved', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={baseTransaction({ amount: 3n })} onDoneClick={() => {}} />
+    );
+    expect(container.textContent).toContain('Payment Sent!');
+    expect(container.textContent).not.toContain('3');
+    expect(container.textContent).not.toContain('Total Paid');
     act(() => root.unmount());
   });
 
@@ -512,9 +557,7 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  // The native faucet is the case that must NOT be withheld: its scale is fixed,
-  // so an empty store is no reason to drop the amount.
-  it('quantifies a named native faucet even with an empty store', async () => {
+  it('quantifies a metadata-confirmed native faucet even with an empty store', async () => {
     mockState.assetsMetadata = {};
     mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(

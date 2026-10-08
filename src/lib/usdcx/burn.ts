@@ -7,6 +7,7 @@ import {
   NoteAssets,
   NoteAttachment,
   NoteAttachmentScheme,
+  NoteExecutionHint,
   NoteMetadata,
   NoteRecipient,
   NoteScript,
@@ -23,15 +24,16 @@ import { assertWasmHoldCurrent, WasmLockHold, withWasmClientLock } from 'lib/mid
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
 import { getRpcEndpoint } from 'lib/miden-chain/constants';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 
 import {
   USDCX_BURN_SCRIPT_ROOT,
   USDCX_BURN_TAG,
-  USDCX_FAUCET_ID_BECH32,
+  USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
   USDCX_MIN_BURN_SLOT,
   USDCX_WITHDRAWAL_DESTINATION
 } from './constant';
-import { encodeBurnWithdrawal, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
+import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 /** Caller owns the WASM lock. Returns plain data; no account/client objects escape the hold. */
 export async function readUsdcxMinimumBurn(hold: WasmLockHold): Promise<bigint> {
@@ -40,7 +42,7 @@ export async function readUsdcxMinimumBurn(hold: WasmLockHold): Promise<bigint> 
   }
   const rpc = new RpcClient(getRpcEndpoint());
   try {
-    const fetched = await rpc.getAccountDetails(accountRefToSdk(USDCX_FAUCET_ID_BECH32));
+    const fetched = await rpc.getAccountDetails(accountRefToSdk(requireUsdcxFaucetId()));
     assertWasmHoldCurrent(hold, 'before reading USDCx faucet storage');
     const storage = fetched.account()?.storage();
     const allowed = storage
@@ -56,20 +58,24 @@ export async function readUsdcxMinimumBurn(hold: WasmLockHold): Promise<bigint> 
   }
 }
 
-/** Caller owns the WASM lock. Mirrors miden-usdcx's XReserveBurnNote factory. */
+/** Caller owns the WASM lock. Mirrors the `XReserveBurnNote` factory of miden-usdcx 0.17.1. */
 export function buildUsdcxBurnRequest(sender: string, amount: bigint, destinationAddress: string) {
   if (NoteScript.burn().root().toHex() !== USDCX_BURN_SCRIPT_ROOT) {
     throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
   }
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
-  const asset = new FungibleAsset(accountRefToSdk(USDCX_FAUCET_ID_BECH32), amount);
+  const asset = new FungibleAsset(accountRefToSdk(requireUsdcxFaucetId()), amount);
   const storage = new NoteStorage(new FeltArray([...asset.vaultKey().toFelts(), ...asset.intoWord().toFelts()]));
   const recipient = NoteRecipient.fromScript(NoteScript.burn(), storage);
   const metadata = new NoteMetadata(accountRefToSdk(sender), NoteType.Public, new NoteTag(USDCX_BURN_TAG));
   const payload = encodeBurnWithdrawal(destinationAddress, USDCX_WITHDRAWAL_DESTINATION.domain);
   const words = [0, 4, 8].map(i => new Word(new BigUint64Array(payload.slice(i, i + 4))));
-  const withdrawal = NoteAttachment.fromWords(new NoteAttachmentScheme(6), words);
-  const routing = new NetworkAccountTarget(accountRefToSdk(USDCX_FAUCET_ID_BECH32)).toAttachment();
+  const withdrawal = NoteAttachment.fromWords(new NoteAttachmentScheme(USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME), words);
+  // The factory routes with the `Always` hint; the note id commits to the attachment.
+  const routing = new NetworkAccountTarget(
+    accountRefToSdk(requireUsdcxFaucetId()),
+    NoteExecutionHint.always()
+  ).toAttachment();
   const note = Note.withAttachments(new NoteAssets([asset]), metadata, recipient, [routing, withdrawal]);
   // NoteArray takes ownership. Capture identity before transferring the note.
   const burnNoteId = note.id().toString();
@@ -90,6 +96,8 @@ export async function initiateUsdcxBurn(args: {
 }): Promise<string> {
   const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
     args;
+  // Resolve the native asset before the hold, so the checks below read a known faucet id.
+  await getNativeAssetId();
   const built = await withWasmClientLock(async hold => {
     validateUsdcxWithdrawal(faucetId, destinationChainId, amount);
     const minimum = await readUsdcxMinimumBurn(hold);
@@ -97,7 +105,7 @@ export async function initiateUsdcxBurn(args: {
     if (amount < minimum) throw new UsdcxBurnError('usdcxBelowMinimumBurn');
     return {
       ...buildUsdcxBurnRequest(senderPublicKey, amount, destinationAddress),
-      faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(USDCX_FAUCET_ID_BECH32))
+      faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(requireUsdcxFaucetId()))
     };
   });
   return initiateBridgedSendTransaction(
@@ -111,6 +119,7 @@ export async function initiateUsdcxBurn(args: {
     true,
     undefined,
     spendingLimitAuthorization,
+    undefined,
     {
       noteId: built.burnNoteId,
       destinationDomain: USDCX_WITHDRAWAL_DESTINATION.domain,

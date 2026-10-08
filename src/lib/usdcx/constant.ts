@@ -1,10 +1,16 @@
-import type { Address, Hex } from 'viem';
+import type { Address, Chain, Hex } from 'viem';
 import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, sepolia } from 'viem/chains';
 
 import { ARC_TESTNET } from 'lib/walletconnect/config';
 
+// E2E-only: the bridge-in harness runs the deposit on a local Anvil fork of Sepolia. Arc's USDC calls
+// chain precompiles that Anvil does not have, so an Arc fork reverts every transfer; Sepolia's USDC
+// is a plain ERC-20 and its xReserve is the same contract at the same address. Inert in production:
+// the flag is baked in only by the e2e build, and only when `MIDEN_E2E_TEST` is also on.
+const E2E_USDCX_CHAIN = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.MIDEN_E2E_USDCX_CHAIN ?? '').trim() : '';
+
 /** USDCx uses Arc Testnet; ERC-20 USDC has 6 decimals, unlike native gas USDC (18). */
-export const USDCX_CHAIN = ARC_TESTNET;
+export const USDCX_CHAIN: Chain = E2E_USDCX_CHAIN === 'sepolia' ? sepolia : ARC_TESTNET;
 /** Circle's direct-deposit contracts, keyed by EVM chain id (not Circle domain). */
 export const XRESERVE_ADDRESS = new Map<number, Address>([
   [ARC_TESTNET.id, '0x008888878f94C0d87defdf0B07f46B93C1934442'],
@@ -67,14 +73,18 @@ export const USDCX_MIDEN_REMOTE_DOMAIN = 10007;
 /** Arc deposits target Miden and the connected Miden account. */
 export const USDCX_REMOTE_DOMAIN = USDCX_MIDEN_REMOTE_DOMAIN;
 
-/** The single USDCx faucet. Currently the self-controlled testnet deployment. */
-export const USDCX_FAUCET_ID_BECH32 = 'mtst1ap50kfl4v7nmlufupa2akrh345e0hfke';
+// The USDCx faucet is the chain's native asset: read its id through `requireUsdcxFaucetId` (`./withdrawal`).
 export const USDCX_SYMBOL = 'USDCx';
 export const USDCX_DECIMALS = 6;
 
-/** BURN root recorded by the faucet deployment; checked against the running SDK before sending. */
-export const USDCX_BURN_SCRIPT_ROOT = '0x1106bde3e27e3ba82096917427fe798c54ce0bb5997a145d8e8157fe22b70935';
+/**
+ * The stock burn script root of the Miden 0.17.1 standards, which the USDCx faucet allow-lists;
+ * checked against the running SDK before sending, so an SDK on another protocol line sends nothing.
+ */
+export const USDCX_BURN_SCRIPT_ROOT = '0x3d951250cb118282a37b8ee9395f3e3b3c30fab4dbe8c6b0093acfeed3ba04af';
 export const USDCX_BURN_TAG = 0x4255524e;
+/** The withdrawal attachment's scheme: `StandardNoteAttachment::UsdcxBurn` in the 0.17.1 standards. */
+export const USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME = 5;
 export const USDCX_MIN_BURN_SLOT = 'miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount';
 /** Circle domains are not EVM chain ids or Miden remote-domain ids. */
 export const USDCX_WITHDRAWAL_DESTINATION = { chainId: USDCX_CHAIN.id, domain: 26 };
@@ -132,6 +142,19 @@ export const ERC20_APPROVE_ABI = [
       { name: 'amount', type: 'uint256' }
     ],
     outputs: [{ name: '', type: 'bool' }]
+  }
+] as const;
+
+export const ERC20_ALLOWANCE_ABI = [
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' }
+    ],
+    outputs: [{ name: '', type: 'uint256' }]
   }
 ] as const;
 

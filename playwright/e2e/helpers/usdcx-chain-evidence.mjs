@@ -30,10 +30,11 @@ if (noteId) {
   assert.equal(note.metadata().tag().asU32(), 0x4255524e);
   assert.equal(note.script().root().toHex(), sdk.NoteScript.burn().root().toHex());
   assert.equal(note.attachments().length, 2);
-  // EVM 0x1111…1111, padded to bytes32, eight little-endian u32s, domain 0.
-  const payload = [0n, 0n, 0n, 0n, ...Array(5).fill(286331153n), 0n, 0n, 0n];
+  // The miden-usdcx 0.17 layout: [domain, 0, 0, 0] with Arc's Circle domain 26, then EVM
+  // 0x1111…1111 padded to bytes32 as eight little-endian u32s. Scheme 5 is UsdcxBurn.
+  const payload = [26n, 0n, 0n, 0n, 0n, 0n, 0n, ...Array(5).fill(286331153n)];
   const withdrawal = sdk.NoteAttachment.fromWords(
-    new sdk.NoteAttachmentScheme(6),
+    new sdk.NoteAttachmentScheme(5),
     [0, 4, 8].map(i => new sdk.Word(new BigUint64Array(payload.slice(i, i + 4))))
   );
   const asset = new sdk.FungibleAsset(faucet, 1_000_000n);
@@ -44,7 +45,7 @@ if (noteId) {
     new sdk.NoteAssets([asset]),
     note.metadata(),
     new sdk.NoteRecipient(note.recipient().serialNum(), sdk.NoteScript.burn(), expectedStorage),
-    [new sdk.NetworkAccountTarget(faucet).toAttachment(), withdrawal]
+    [new sdk.NetworkAccountTarget(faucet, sdk.NoteExecutionHint.always()).toAttachment(), withdrawal]
   );
   assert.deepEqual(note.serialize(), expected.serialize(), 'canonical asset, storage, schemes and attachment payloads');
   const status = await rpc.getNetworkNoteStatus(sdk.NoteId.fromHex(noteId));

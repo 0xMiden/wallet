@@ -1,4 +1,5 @@
 import * as Actions from 'lib/miden/back/actions';
+import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
@@ -49,17 +50,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
 
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(
-        req.password,
-        req.mnemonic,
-        req.walletAccounts,
-        req.formatVersion,
-        req.importedAccounts
-      );
+      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts, req.importedAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };
 
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
+      // Claims requeued while the vault was locked have nothing else to restart them off the extension (#1202).
+      startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.UnlockResponse };
 
     case WalletMessageType.LockRequest:
@@ -221,7 +218,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
     }
 
     case WalletMessageType.SwapHotKeyRequest: {
-      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey, req.expectedHotPubKey);
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };
@@ -231,6 +228,17 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
         type: WalletMessageType.SetGuardianEndpointResponse
+      };
+    }
+
+    case WalletMessageType.RevertGuardianEndpointRequest: {
+      return {
+        type: WalletMessageType.RevertGuardianEndpointResponse,
+        outcome: await Actions.revertGuardianEndpointAfterDiscard(
+          req.accountPublicKey,
+          req.discardedEndpoint,
+          req.revertTo
+        )
       };
     }
 

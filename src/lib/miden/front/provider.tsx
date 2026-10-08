@@ -11,6 +11,7 @@ import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
+  getEffectiveFeeFaucetId,
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl,
@@ -21,6 +22,7 @@ import { NETWORK_STORAGE_ID } from 'lib/miden-chain/networks-config';
 import { isExtension, isMobile } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
+import { followEffectiveNetwork } from 'lib/remote-config/runtime';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
@@ -115,7 +117,11 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       // side panel, where ensureSdkWasmReady resolves instantly) captured the
       // build-default RPC before the override loaded and cached the wrong
       // network's native faucet id, so balances showed a mismatched token.
-      if (!cancelled) primeNativeAssetId();
+      if (!cancelled) {
+        primeNativeAssetId();
+        // The override can change the effective network, so the bridge config readers follow it.
+        followEffectiveNetwork();
+      }
       await ensureSdkWasmReady();
       await preloaded;
       if (!cancelled) setReady(true);
@@ -167,6 +173,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       rpcUrl: getEffectiveRpcUrl(),
       noteTransportUrl: getEffectiveNoteTransportUrl(),
       prover: getEffectiveProverUrl(),
+      feeFaucetId: getEffectiveFeeFaucetId(),
       autoSyncInterval: 0,
       // Mirror the backend MidenClientInterface decision: on mobile we hand
       // the SDK a CallbackProver routed through the native Rust prover via

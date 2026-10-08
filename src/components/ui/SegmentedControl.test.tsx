@@ -294,6 +294,48 @@ describe('SegmentedControl — keyboard', () => {
     expect(document.querySelector('[data-slot="motion-highlight"]')).toBeNull();
   });
 
+  // #1086: a disabled item is not the answer while another can be chosen, so the radio, the bubble
+  // and the tab stop all leave it.
+  it('reports no selection when the value names a disabled item', () => {
+    const list = items.map(item => (item.id === 'pending' ? { ...item, disabled: true } : item));
+    render(<SegmentedControl items={list} value="pending" onChange={jest.fn()} aria-label="Filters" />);
+
+    expect(screen.queryByRole('radio', { checked: true })).toBeNull();
+    expect(document.querySelector('[data-slot="motion-highlight"]')).toBeNull();
+    expect(getRadio('All')).toHaveAttribute('tabindex', '0');
+  });
+
+  // Both callers that disable items disable every one (read-only Developer Settings, a swap being
+  // submitted): the control is disabled as a whole and still shows its value.
+  it('keeps showing the value when every item is disabled', () => {
+    const list = items.map(item => ({ ...item, disabled: true }));
+    render(<SegmentedControl items={list} value="sent" onChange={jest.fn()} aria-label="Filters" />);
+
+    expect(getRadio('Sent')).toHaveAttribute('aria-checked', 'true');
+    expect(bubbleIn(getRadio('Sent'))).not.toBeNull();
+    screen.getAllByRole('radio').forEach(radio => expect(radio).toHaveAttribute('tabindex', '-1'));
+  });
+
+  // #1086: with nothing focused and no choosable item selected, either arrow lands on the FIRST
+  // enabled item, and any other key still falls through.
+  it('starts either arrow walk at the first enabled item when the value names none', () => {
+    const list = items.map(item => (item.id === 'received' ? { ...item, disabled: true } : item));
+    const onChange = jest.fn();
+    render(<SegmentedControl items={list} value="received" onChange={onChange} aria-label="Filters" />);
+    const group = screen.getByRole('radiogroup');
+
+    expect(fireEvent.keyDown(group, { key: 'a' })).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(group, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenLastCalledWith('all');
+
+    getRadio('All').blur();
+    fireEvent.keyDown(group, { key: 'ArrowLeft' });
+    expect(onChange).toHaveBeenLastCalledWith('all');
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
   it('moves focus and selection with the arrows, wrapping, with one haptic per move', () => {
     const onChange = jest.fn();
     render(<Owner onChange={onChange} />);
@@ -347,20 +389,27 @@ describe('SegmentedControl — layouts', () => {
     renderControl();
 
     const group = screen.getByRole('radiogroup');
-    expect(group).toHaveClass('overflow-x-auto', 'no-scrollbar');
+    expect(group).toHaveClass('flex', 'overflow-x-auto', 'no-scrollbar');
     expect(group).toHaveAttribute('data-layout-scroll', 'true');
     expect(getRadio('All')).toHaveClass('shrink-0');
     expect(getRadio('All')).not.toHaveClass('flex-1');
   });
 
-  it('fill: equal-width items across the full width, no scrolling', () => {
+  it('fill: a full-width grid of equal columns, no scrolling', () => {
     renderControl({ layout: 'fill' });
 
     const group = screen.getByRole('radiogroup');
-    expect(group).toHaveClass('w-full');
+    expect(group).toHaveClass('grid', 'w-full', 'grid-flow-col', 'auto-cols-fr');
+    expect(group).not.toHaveClass('flex');
     expect(group).not.toHaveClass('overflow-x-auto');
     expect(group).toHaveAttribute('data-layout-scroll', 'false');
-    expect(getRadio('All')).toHaveClass('flex-1', 'min-w-0');
+  });
+
+  it('fill: items take their grid column, not a flex share', () => {
+    renderControl({ layout: 'fill' });
+
+    expect(getRadio('All')).toHaveClass('min-w-0');
+    expect(getRadio('All')).not.toHaveClass('flex-1');
   });
 
   it('sizes: sm is 32px, md (default) is 40px', () => {

@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { getFaucetIdSetting } from 'lib/miden/assets';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -30,6 +29,10 @@ import { ConsumableNote } from '../types';
 export function NativeNoteAutoConsumeManager(): null {
   const { currentAccount, signTransaction } = useMidenContext();
   const publicKey = currentAccount?.publicKey;
+  // The rotation gate claims a rotation-pending account's native notes itself (#805).
+  // Narrower than consumeServiceFor's check (flag AND no hotPublicKey) -- deliberate:
+  // the only cost is one auto-claim delayed a sync lap, never a wrong consume.
+  const rotationPending = currentAccount?.requiresHotKeyRotation === true;
   // Inert on the extension — the SW owns that path and the effect below bails on
   // isExtension() — so we avoid the hook's wasted 3s chrome.storage poll there.
   const { data: claimableNotes } = useClaimableNotes(publicKey ?? '', !isExtension());
@@ -40,7 +43,7 @@ export function NativeNoteAutoConsumeManager(): null {
   notesRef.current = claimableNotes;
 
   useEffect(() => {
-    if (!publicKey || isExtension()) return;
+    if (!publicKey || isExtension() || rotationPending) return;
     let disposed = false;
 
     const tick = async () => {
@@ -49,7 +52,7 @@ export function NativeNoteAutoConsumeManager(): null {
       if (!notes || notes.length === 0) return;
       running.current = true;
       try {
-        const nativeFaucetId = await getFaucetIdSetting();
+        const nativeFaucetId = await getNativeAssetId();
         if (disposed || !nativeFaucetId) return;
         // A claim worth no more than its own fee makes the balance go DOWN. This runs
         // unattended, so the wallet must not collect on the user's behalf at a loss, nor
@@ -117,7 +120,7 @@ export function NativeNoteAutoConsumeManager(): null {
       disposed = true;
       clearInterval(timer);
     };
-  }, [publicKey, signTransaction]);
+  }, [publicKey, rotationPending, signTransaction]);
 
   return null;
 }

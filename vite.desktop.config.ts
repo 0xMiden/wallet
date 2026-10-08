@@ -112,6 +112,11 @@ export default defineConfig({
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
     'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'false'),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    // Bridge config E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
+    // Explore catalog E2E source; see vite.extension.config.ts.
+    'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
+    'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.
@@ -119,17 +124,9 @@ export default defineConfig({
     'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
-    'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
-    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
-      process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
-    ),
-    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
-      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
-    ),
-    'process.env.EPOCH_POSITIONS_URL': JSON.stringify(
-      process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
-    ),
+    'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
     // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
     // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
     // every config that bundles either module — an un-defined `process.env.X` read

@@ -18,7 +18,13 @@ import Earn from './Earn';
 jest.mock('screens/earn-flow/components', () => ({
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewardsUsd} />
-  )
+  ),
+  EarnAssetMark: ({ asset, network }: { asset: string; network: string }) => (
+    <span data-testid="earn-asset-mark" data-asset={asset} data-network={network} />
+  ),
+  earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
+  EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
+    `${subject.asset} on ${subject.network}`
 }));
 jest.mock('screens/earn-flow/ProviderLogo', () => ({
   ProviderLogo: ({ protocol, className }: { protocol: string; className?: string }) => (
@@ -94,14 +100,19 @@ describe('Earn page', () => {
     expect(panel).toHaveAttribute('data-total-rewards', String(summary.totalRewardsUsd));
   });
 
-  it('opens with the tab-root title, the page\u2019s one h1, like Send and Receive', () => {
+  it('names the page for assistive tech only, and opens on the summary', () => {
     render(<Earn />);
 
     const title = screen.getByTestId('earn-title');
     expect(title.tagName).toBe('H1');
     expect(title).toHaveTextContent('earnTitle');
-    // The same type style Send's "Send to" and Swap's "You Pay" take.
-    expect(title).toHaveClass('text-title-tab', 'text-ink');
+    // No visible title: "Total earned" is the pane's first line, as Receive opens on its code.
+    expect(title).toHaveClass('sr-only');
+    expect(title).not.toHaveClass('text-title-tab');
+    // The summary follows straight on, with no gap above it of its own.
+    const content = title.nextElementSibling as HTMLElement;
+    expect(content).toContainElement(screen.getByTestId('earn-summary-panel'));
+    expect(content.className).not.toMatch(/\bpt-/);
 
     // One `h1` on the page: the section titles under it are `h2`s.
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
@@ -156,11 +167,11 @@ describe('Earn page', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
   });
 
-  it('keeps the failure said, and the summary gone, while a retry is loading', () => {
-    // SWR keeps the error until a load succeeds and reports the retry as isLoading: the failed state
-    // must not lift and flash "$0" back.
+  it('keeps the failure said, and the summary gone, while a retry is out', () => {
+    // The hook keeps the error through a retry and reports it as not loading: the failed state must not
+    // lift and flash "$0" back.
     const refetch = jest.fn();
-    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: true, error: 'boom', refetch });
+    mockUseEarnPositions.mockReturnValue({ summary, positions: [], vaults, isLoading: false, error: 'boom', refetch });
     render(<Earn />);
     expect(screen.queryByTestId('earn-positions-empty')).toBeNull();
     expect(screen.getByRole('alert')).toHaveTextContent('earnPositionsLoadError');
@@ -216,6 +227,8 @@ describe('Earn page', () => {
 
     const empty = screen.getByTestId('earn-positions-empty');
     expect(empty).toHaveClass('border-dashed');
+    // The compact empty state: the slot stays small until a position fills it.
+    expect(empty).toHaveClass('text-center', 'py-4');
     expect(empty).toHaveTextContent('earnNoActivePositionsTitle');
     expect(empty).toHaveTextContent('earnNoActivePositionsBody');
     expect(positionsSection().querySelector('.overflow-x-auto')).toBeNull();
@@ -236,17 +249,53 @@ describe('Earn page', () => {
       expect(card).not.toHaveClass('bg-fill');
     });
 
+    // Each card names its position as the page it opens does: the protocol over its asset on its
+    // network, never the old "{protocol} • {asset}" join.
+    positions.forEach((position, index) => {
+      const card = cards[index]!;
+      expect(card).not.toHaveTextContent(`${position.protocol} • ${position.asset}`);
+      expect(within(card).getByText(position.protocol)).toHaveClass('text-row-title');
+      expect(within(card).getByText(`${position.asset} on ${position.network}`)).toHaveClass('text-muted');
+    });
+
     const first = positions[0]!;
     const firstCard = cards[0]!;
-    // Protocol + asset are joined by a bullet in a single node.
-    expect(firstCard).toHaveTextContent(`${first.protocol} • ${first.asset}`);
     expect(firstCard).toHaveTextContent(`earnPositionsApy:${first.apy}`);
     expect(firstCard).toHaveTextContent(first.amount);
-    expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
+    // No rewards/age line: neither has a source yet, and it only ever drew placeholder dashes.
+    expect(firstCard).not.toHaveTextContent(`${first.rewards} • ${first.age}`);
 
-    // ProviderLogo probe receives the position's protocol.
-    const logo = within(firstCard).getByTestId('provider-logo');
-    expect(logo).toHaveAttribute('data-protocol', first.protocol);
+    // The asset's mark, badged with its network, leads the row.
+    const mark = within(firstCard).getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', first.asset);
+    expect(mark).toHaveAttribute('data-network', first.network);
+  });
+
+  it('sets each position row in the heading face', () => {
+    render(<Earn />);
+
+    positions.forEach(position => {
+      const card = screen.getByTestId(`earn-position-card-${position.id}`);
+      const row = within(card).getByTestId('earn-asset-mark').parentElement;
+      expect(row).toHaveClass('face-heading', 'flex', 'items-center');
+      expect(row).toContainElement(within(card).getByText(position.amount));
+    });
+  });
+
+  it('spans a lone position across the row, and keeps several at their own width to scroll', () => {
+    const { unmount } = render(<Earn />);
+    expect(positions.length).toBeGreaterThan(1);
+    positions.forEach(position => {
+      const card = screen.getByTestId(`earn-position-card-${position.id}`);
+      expect(card).toHaveClass('shrink-0');
+      expect(card).not.toHaveClass('w-full');
+    });
+    unmount();
+
+    const lone = positions[0]!;
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, positions: [lone] });
+    render(<Earn />);
+    expect(screen.getByTestId(`earn-position-card-${lone.id}`)).toHaveClass('w-full', 'shrink-0');
   });
 
   it('uses theme-aware text colors for position and vault labels', () => {
@@ -255,9 +304,7 @@ describe('Earn page', () => {
     const positionCard = within(positionsSection())
       .getAllByRole('button')
       .find(button => button.textContent !== 'earnSeeAll')!;
-    expect(within(positionCard).getByText(`${positions[0]!.protocol} • ${positions[0]!.asset}`)).toHaveClass(
-      'text-ink'
-    );
+    expect(within(positionCard).getByText(positions[0]!.protocol)).toHaveClass('text-ink');
     expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-ink');
 
     const vaultRow = within(vaultsSection()).getAllByRole('button')[0]!;

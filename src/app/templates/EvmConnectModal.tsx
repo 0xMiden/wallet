@@ -42,8 +42,8 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="evm-connect-body">
             <DrawerHeader>
               <DrawerTitle>{t('connectEvmWallet')}</DrawerTitle>
-              <DrawerDescription>{t('connectEvmWalletDescription')}</DrawerDescription>
             </DrawerHeader>
+            <DrawerDescription>{t('connectEvmWalletDescription')}</DrawerDescription>
 
             <div className="flex flex-col gap-4 px-4">
               {/* Shown before the WalletConnect handshake (#875): the bridge only

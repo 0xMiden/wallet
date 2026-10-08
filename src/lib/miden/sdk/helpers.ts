@@ -4,7 +4,10 @@ import {
   Address,
   Felt,
   FungibleAsset,
+  MidenClient,
   Note,
+  NoteAndArgs,
+  NoteAndArgsArray,
   NoteArray,
   NoteAssets,
   NoteAttachment,
@@ -115,28 +118,6 @@ export function accountRefToSdk(accountRef: string): AccountId {
 }
 
 /**
- * Canonicalize a faucet id - hex, bech32, or a composite `<address>_<suffix>` - to the bare
- * bech32 form the token-metadata cache and `fetchTokenMetadata`'s RPC parse (`Address.fromBech32`)
- * both key on, the same form `getBech32AddressFromAccountId` already produces for every OTHER
- * faucet id this codebase caches under (`app/confirm/decode.ts`'s `toAmounts`,
- * `completeConsumeTransaction`).
- *
- * A caller that already folded several spellings of one faucet into a single canonical key -
- * `netOutflowByFaucet`, keyed by this file's own `canonicalWalletAccountId` (hex) - hands that hex
- * string straight to a spends list otherwise, and `fetchTokenMetadata` only ever checks a
- * bech32-keyed cache and parses with `Address.fromBech32`: a miss on both. Falls back to the raw
- * id when it can't be parsed, so an id `fetchTokenMetadata` itself cannot resolve either surfaces
- * as its own lookup failure rather than a swallowed one here.
- */
-export function canonicalFaucetBech32Id(faucetId: string): string {
-  try {
-    return getBech32AddressFromAccountId(accountRefToSdk(faucetId));
-  } catch {
-    return faucetId;
-  }
-}
-
-/**
  * Builds the fungible asset for an outgoing note from the sender's held vault
  * key, falling back to a freshly constructed asset when the faucet isn't in
  * the vault (surfacing the missing-asset error during execution).
@@ -238,6 +219,37 @@ export function randomFeeSalt(): Word {
 }
 
 /**
+ * Starts a request that `account` will execute, carrying the fee auth args it needs.
+ *
+ * Since protocol 0.17 a multisig, which every guardian account is, resolves THREE words of auth
+ * args (`[bound_block, approval_expiration, 0, 0] || SALT || CONVERSION_INFO`) at any base fee.
+ * A bare `withFeeConversionSalt` commits two, so the auth procedure ran the advice stack dry
+ * (`advice stack read failed`) at the proposal's first execution. The SDK's fee-aware builder
+ * commits the full preimage for a multisig, bound to the store's sync height, and returns an
+ * untouched builder for any other account, which miden-client then settles by itself. The salt
+ * is serialized with the request, so persisted bytes reproduce the co-signed summary.
+ *
+ * `approvalExpirationDelta` (multisig only) expires the approvers' signatures that many blocks after the bound
+ * block, so the transaction must be included by `bound_block + delta` wherever it executes (#1081). It is bound by the
+ * summary, so it is the one expiration a tip execution cannot move past the proposal's own block.
+ *
+ * `feeSalt` is consumed (moved into WASM). Call inside the WASM client lock.
+ */
+export function feeAwareRequestBuilder(
+  client: MidenClient,
+  account: string,
+  feeSalt: Word,
+  approvalExpirationDelta?: number
+): Promise<TransactionRequestBuilder> {
+  return client.feeAwareTransactionRequestBuilder(
+    account,
+    approvalExpirationDelta === undefined
+      ? { feeConversionSalt: feeSalt }
+      : { feeConversionSalt: feeSalt, approvalExpirationDelta }
+  );
+}
+
+/**
  * The single request builder for every P2ID/P2IDE wallet send: resolves the
  * outgoing asset from the sender's vault (callback flag included, see
  * `resolveHeldFungibleAsset`) and wraps it in a P2ID note — P2IDE when a
@@ -269,8 +281,9 @@ export function buildSendTransactionRequest(
   faucetRef: string,
   amount: bigint,
   noteType: NoteType,
+  expirationDelta: number,
   reclaimAfter?: number,
-  feeSalt?: Word
+  baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
   const asset = resolveHeldFungibleAsset(senderAccount, faucetRef, amount);
   const assets = new NoteAssets([asset]);
@@ -278,25 +291,27 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-  // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and rate from the AUTH ARGS
-  // and aborts without them. Declaring the salt is all this has to do: miden-client
-  // derives the native 1/1 conversion info from the execution reference header -- for a
-  // proposal, its chain anchor -- and commits `hash(CONVERSION_INFO || SALT)` into the
-  // auth arg itself. The salt survives serialization, so a request handed to GUARDIAN and
-  // rebuilt by a co-signer commits the same word.
-  //
-  // This built the commitment by hand until guardian 0.17.0-rc.3. A guarded multisig
-  // assembled from locally compiled MASM carried procedure roots miden-client could not
-  // match, and it will not commit for an account it cannot classify; setting the auth arg
-  // directly bypassed classification. Guardian now builds those accounts from the upstream
-  // component, so the client classifies them and owns this. Accounts deployed BEFORE that
-  // change still cannot be classified, and a declared salt against one is a hard
-  // `FeeConversionInfoUnsupported` -- hence the drain-and-upgrade note on that release.
-  if (feeSalt !== undefined) {
-    builder = builder.withFeeConversionSalt(feeSalt);
-  }
-  return builder.build();
+  // `baseBuilder` is where a request that has to declare its fee auth starts: a guarded
+  // (multisig) sender's comes from `feeAwareRequestBuilder`. Without one, miden-client
+  // commits the native conversion info itself, which is all an ordinary account needs.
+  // The delta is relative to each execution's reference block, so bytes cached and replayed on Retry stay valid per
+  // attempt; the reconciler reads the resulting expiration off the proof, never from this number (#1081).
+  return (baseBuilder ?? new TransactionRequestBuilder())
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta)
+    .build();
+}
+
+/**
+ * The consume request the wallet executes, with an expiration delta (#1081). `newConsumeTransactionRequest` returns a
+ * finished request, which has no expiration setter, so this builds the same request: the multisig client's own
+ * consume shape (input notes as `(note, null)` pairs) without a salt. Its account argument only decides whether fee
+ * conversion info is committed, and for a single-sig account miden-client commits it under its fixed default salt.
+ * `scripts/consume-request-equivalence.mjs` is the proof the two serialize identically apart from the delta.
+ */
+export function buildConsumeTransactionRequest(notes: Note[], expirationDelta: number): TransactionRequest {
+  const pairs = new NoteAndArgsArray(notes.map(note => new NoteAndArgs(note, null)));
+  return new TransactionRequestBuilder().withInputNotes(pairs).withExpirationDelta(expirationDelta).build();
 }
 
 /**
@@ -340,7 +355,8 @@ export function buildPswapCreateRequest(
   reference: TransactionRequest,
   offeredFaucetRef: string,
   offeredAmount: bigint,
-  feeSalt?: Word
+  expirationDelta: number,
+  baseBuilder?: TransactionRequestBuilder
 ): TransactionRequest {
   const referenceNote = reference.expectedOutputOwnNotes()[0];
   if (!referenceNote) {
@@ -355,12 +371,10 @@ export function buildPswapCreateRequest(
     referenceNote.recipient(),
     referenceNote.attachments()
   );
-  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-  // The salt this request declares; miden-client commits the conversion info from it.
-  // Attached here rather than to the finished request: the SDK exposes no auth-arg
-  // setter on `TransactionRequest`, only on the builder.
-  if (feeSalt !== undefined) {
-    builder = builder.withFeeConversionSalt(feeSalt);
-  }
-  return builder.build();
+  // Fee auth rides on the builder the request starts from (see `buildSendTransactionRequest`):
+  // the SDK exposes no auth-arg setter on a finished `TransactionRequest`.
+  return (baseBuilder ?? new TransactionRequestBuilder())
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withExpirationDelta(expirationDelta)
+    .build();
 }

@@ -7,9 +7,12 @@ import { useTranslation } from 'react-i18next';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { Button, ButtonVariant } from 'components/Button';
 import { WaveDots } from 'components/ui';
+import { ErrorLine } from 'components/ui/ErrorLine';
 import { resolveTransition, tabBarMotion, useTabBarMotion } from 'lib/animation';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
@@ -72,6 +75,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const reduceMotion = useReducedMotion();
   const motionTokens = useTabBarMotion();
   // Each press turns the arrow another half turn and lifts the two sides past each other, so the
@@ -79,14 +83,14 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   // feels like a press there.
   const [flips, setFlips] = useState(0);
   const flipTransition = resolveTransition(reduceMotion, tabBarMotion.highlight);
-  const sideMotion = (from: number) => ({
-    key: flips,
+  // Each side's key names the side (0 pay, 1 receive) as well as the flip: the two are siblings,
+  // and a key they shared left every earlier pair mounted on a flip, stacking the forms down the page.
+  const sideMotion = (side: 0 | 1, from: number) => ({
+    key: `${side}-${flips}`,
     initial: flips === 0 ? false : { y: from, opacity: 0 },
     animate: { y: 0, opacity: 1 },
     transition: flipTransition
   });
-  // Each side is titled like a tab root's page title, the same weight as Send's "Send to".
-  const fieldLabel = (text: string) => <span className="text-title-tab text-ink">{text}</span>;
   // The CTA carries the state of the quote: ask for an amount, wait for the number, then review.
   const offerAmountValue = Number(offerAmount);
   const awaitingAmount = !(offerAmountValue > 0);
@@ -122,19 +126,30 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       }
     >
       <div className="flex flex-col gap-5">
-        <motion.div {...sideMotion(-24)} data-testid="swap-pay-side">
+        <motion.div {...sideMotion(0, -24)} data-testid="swap-pay-side">
           <SelectAmount
             embedded
-            label={fieldLabel(t('youPay'))}
+            // The amount field's own caption, as on Earn's "Deposit Amount", and no rule under a typed
+            // amount.
+            label={t('youPay')}
+            showAmountDivider={false}
             accent="swap"
             token={swapTokenToUIToken(offerToken, offerBalance)}
+            tokenLabel={midenTokenLabel(bridgeConfig, offerToken.faucetId, offerToken.symbol)}
             logoSymbol={offerToken.logoSymbol}
             amount={offerAmount}
             isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
             error={offerAmountError}
+            // The fee shortfall keeps the amount red but says so under the token.
+            hideErrorText={feeAssetMissing}
             onAmountChange={onOfferAmountChange}
             onSelectToken={onSelectOfferToken}
           />
+          {feeAssetMissing && (
+            <ErrorLine role="note" data-testid="swap-fee-notice" className="mt-3">
+              {t('insufficientFeeAssetShort')}
+            </ErrorLine>
+          )}
         </motion.div>
 
         <div className="flex items-center gap-3">
@@ -165,15 +180,17 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
         </div>
 
-        <motion.div {...sideMotion(24)} data-testid="swap-receive-side">
+        <motion.div {...sideMotion(1, 24)} data-testid="swap-receive-side">
           <SelectAmount
             embedded
             // "You Receive" is the swap output — the user's balance of that token
             // isn't the spendable amount here, so no available-balance helper.
             showBalanceHelper={false}
-            label={fieldLabel(t('youReceive'))}
+            label={t('youReceive')}
+            showAmountDivider={false}
             accent="swap"
             token={swapTokenToUIToken(requestToken)}
+            tokenLabel={midenTokenLabel(bridgeConfig, requestToken.faucetId, requestToken.symbol)}
             logoSymbol={requestToken.logoSymbol}
             amount={requestAmount}
             isValidAmount={Number(requestAmount) > 0}

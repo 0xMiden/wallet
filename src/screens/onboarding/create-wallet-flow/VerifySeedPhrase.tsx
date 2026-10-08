@@ -10,6 +10,7 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Pill } from 'components/ui/Pill';
 import { SubPageSection } from 'components/ui/SubPageLayout';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
@@ -33,6 +34,8 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
+  // The words are the recovery phrase: render them only once the screen is protected from capture.
+  const isGuardReady = useScreenshotGuard();
   const shuffledWords = useMemo(() => shuffle(seedPhrase), [seedPhrase]);
   const [firstSelectedWordIndex, setFirstSelectedWord] = useState<number | null>(null);
   const [secondSelectedWordIndex, setSecondSelectedWord] = useState<number | null>(null);
@@ -107,29 +110,30 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
       </p>
 
       <article className="grid grid-cols-3 gap-x-2 gap-y-4 pt-2">
-        {shuffledWords.map((word, index) => {
-          const order =
-            index === firstSelectedWordIndex ? t('first') : index === secondSelectedWordIndex ? t('last') : null;
-          return (
-            <div className="relative" key={`seed-word-${index}`}>
-              {/* Which pick this word is, tagged over its corner. */}
-              {order && (
-                <Pill size="xs" tone="inverse" className="pointer-events-none absolute -top-2.5 left-1 z-10">
-                  {order}
+        {isGuardReady &&
+          shuffledWords.map((word, index) => {
+            const order =
+              index === firstSelectedWordIndex ? t('first') : index === secondSelectedWordIndex ? t('last') : null;
+            return (
+              <div className="relative" key={`seed-word-${index}`}>
+                {/* Which pick this word is, tagged over its corner. */}
+                {order && (
+                  <Pill size="xs" tone="inverse" className="pointer-events-none absolute -top-2.5 left-1 z-10">
+                    {order}
+                  </Pill>
+                )}
+                <Pill
+                  className="w-full justify-center"
+                  tone={order ? 'selected' : 'word'}
+                  selected={order !== null}
+                  onClick={() => onSelectWord(index)}
+                  data-testid={`verify-quiz-word-${index}`}
+                >
+                  {word}
                 </Pill>
-              )}
-              <Pill
-                className="w-full justify-center"
-                tone={order ? 'selected' : 'word'}
-                selected={order !== null}
-                onClick={() => onSelectWord(index)}
-                data-testid={`verify-quiz-word-${index}`}
-              >
-                {word}
-              </Pill>
-            </div>
-          );
-        })}
+              </div>
+            );
+          })}
       </article>
 
       {isHardwareSecurityAvailable && (

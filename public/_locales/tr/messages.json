@@ -87,6 +87,63 @@
     "message": "USDCx faucet adresindeki yakma politikası okunamıyor. Tekrar denemek için incelemeyi yeniden açın.",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
   },
+  "activityFetchingHistoryAndNotes": {
+    "message": "İşlem geçmişinizi ve notes adresini alma",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Takas",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Köprüden Çıkış",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Mevduat kazanın",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian değiştirildi",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Cihaz anahtarı değiştirildi",
+    "englishSource": "Device key rotated"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Hesap güvence altında",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Yürütüldü",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryProgress": {
+    "message": "$operator$ adresinden geçmiş veriler geri yüklendi. $count$ adresindeki işlemler geri yüklendi.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryFailed": {
+    "message": "İşlem geçmişinin kurtarılması, ağın veya bir Guardian operatörünün bunu sağlayamaması nedeniyle durduruldu. Kurtarma işlemi otomatik olarak yeniden denenmeyecektir.",
+    "englishSource": "Transaction history recovery stopped because the network or a Guardian operator cannot provide it. Recovery will not retry automatically."
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ İşlemler geri yüklendi. Bazı Guardian kaynakları okunamadı. Cüzdanın kilidini bir sonraki sefer açtığınızda kurtarma işlemi yeniden denenecektir.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Yük",
     "englishSource": "Payload"
@@ -267,18 +324,6 @@
   "unlockBrandName": {
     "message": "Ekmek",
     "englishSource": "Bread"
-  },
-  "earnPositionHeaderTitle": {
-    "message": "$protocol$'im • $asset$ pozisyonum",
-    "englishSource": "My $protocol$ • $asset$ position",
-    "placeholders": {
-      "protocol": {
-        "content": "$1"
-      },
-      "asset": {
-        "content": "$2"
-      }
-    }
   },
   "earnAssetOnNetwork": {
     "message": "$asset$ $network$ adresinde",
@@ -462,8 +507,8 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Toplam Kazanılan Ödüller",
-    "englishSource": "Total Earned Rewards"
+    "message": "Toplam kazanç",
+    "englishSource": "Total earned"
   },
   "earnEarningBlendedApy": {
     "message": "$apy$'lık karma APY elde etmek",
@@ -528,8 +573,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Öne Çıkan Kasalar",
-    "englishSource": "Featured Vaults"
+    "message": "Kullanılabilir Kasalar",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -566,34 +611,6 @@
   "createAccount": {
     "message": "Hesap Oluştur",
     "englishSource": "Create Account"
-  },
-  "importAccount": {
-    "message": "Hesabı içe aktar",
-    "englishSource": "Import account"
-  },
-  "accountName": {
-    "message": "Hesap adı",
-    "englishSource": "Account name"
-  },
-  "accountNameInputPlaceholder": {
-    "message": "örn. Birikim",
-    "englishSource": "e.g. Savings"
-  },
-  "accountNameInputInvalid": {
-    "message": "1 ile 16 karakter kullanın ve boşluk veya kısa çizgiyle başlamayın.",
-    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
-  },
-  "privateKeyInputDescription": {
-    "message": "İçe aktarmak istediğiniz hesabın özel anahtarı.",
-    "englishSource": "The private key of the account you want to import."
-  },
-  "privateKeyInputPlaceholder": {
-    "message": "örn. APrivateKey1zkp...",
-    "englishSource": "e.g. APrivateKey1zkp..."
-  },
-  "privateKeyClipboardNotCleared": {
-    "message": "Özel anahtarınız panodan kaldırılamadı. Devam etmeden önce panoyu kendiniz temizleyin.",
-    "englishSource": "Your private key could not be removed from the clipboard. Clear it yourself before you continue."
   },
   "settings": {
     "message": "Ayarlar",
@@ -688,6 +705,22 @@
   "cancelled": {
     "message": "İptal edildi",
     "englishSource": "Cancelled"
+  },
+  "notConfirmed": {
+    "message": "Onaylanmadı",
+    "englishSource": "Not confirmed"
+  },
+  "transactionNotConfirmedHint": {
+    "message": "Cüzdan, işlemin gerçekleşip gerçekleşmediğini doğrulayamadı. İşlem hâlâ tamamlanabilir, bu nedenle tekrar denemeden önce cüzdanın senkronizasyonu tamamlandıktan sonra kontrol edin.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "Cüzdan, işlemin başarılı olup olmadığını belirleyemedi ve bunu kontrol etmiyor. Tekrar denemeden önce cüzdanı kontrol edin.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "Bu işlem bir yedekten geri yüklendi, bu nedenle cüzdan işlemin başarılı olup olmadığını kontrol edemez veya yeniden deneme yapamaz. Tekrar etmeden önce cüzdanı kontrol edin.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Hatanın tamamını göster",
@@ -860,15 +893,6 @@
     "message": "Anladığım kadarıyla bu anahtarın değiştirilmesi veya iptal edilmesi mümkün değil.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "Bu eski cüzdan dosyasında bulunmayan içe aktarılmış hesaplar: $importedCount$. Bunları özel anahtar yedeklerinden ayrı ayrı geri yükleyin.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Hesap Adını Düzenle",
     "englishSource": "Edit Account Name"
@@ -956,6 +980,14 @@
   "transactionStepSyncingGuardian": {
     "message": "Guardian ile senkronizasyon",
     "englishSource": "Syncing with Guardian"
+  },
+  "guardianBusyStep": {
+    "message": "Guardian'ınızı bekliyorsunuz",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Guardian'ınız hala önceki işleminizi tamamlamaktadır. Bu işlem otomatik olarak devam eder.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ sn",
@@ -2159,9 +2191,9 @@
     "message": "Kabul edilecek transferleriniz var",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ bekliyor",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ bekliyor · incelemek için dokunun",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -2169,12 +2201,12 @@
     }
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Geri alma ifadesini doğrulayın",
-    "englishSource": "Verify your recovery phrase"
+    "message": "Cüzdanınızı yedekleyin",
+    "englishSource": "Back up your wallet"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Bu cüzdanı daha sonra geri yükleyebilmeniz için kurtarma ifadesini bir yere yazın ve ilk ve son kelimelerini ezberlediğinizden emin olun.",
-    "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
+    "message": "Bu cüzdanı yeni bir cihazda geri yükleyebilmek için geri alma ifadenizi kaydedin.",
+    "englishSource": "Save your recovery phrase so you can restore this wallet on a new device."
   },
   "hotKeyHardwareErrorPromptTitle": {
     "message": "Güvenli imzalama özelliği kullanılamıyor",
@@ -2361,10 +2393,6 @@
     "message": "Cüzdanınızı dışa aktarırken belirlediğiniz şifreyi girin. Bu, dosyanın şifresini çözecek ve erişimi geri yükleyecektir.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "İçe Aktarmaya Devam Et",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "Cüzdanınızı nasıl korumak istediğinizi seçin",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2441,6 +2469,50 @@
     "message": "Bu cihazda biyometrik kilit açma özelliği mevcut değildir.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
+  "biometricNotEnrolledWork": {
+    "message": "Burada kullanmak için Ayarlar'dan iş yerinde Parmak İzi veya Yüz Tanıma Kilidi özelliğini etkinleştirin.",
+    "englishSource": "Set up Fingerprint or Face Unlock for work in Settings to use it here."
+  },
+  "biometricNotEnrolled": {
+    "message": "Biyometrik kilit açma özelliğini kullanmak için Ayarlar'dan parmak izi veya yüz tanıma ayarını yapın.",
+    "englishSource": "Set up a fingerprint or face in Settings to use biometric unlock."
+  },
+  "biometricStrongNotEnrolledWork": {
+    "message": "İş için ayarlanan yüz veya parmak izi kilit açma özelliği, bir cüzdanı korumak için yeterince güvenli değildir. Burada kullanmak için Ayarlar'dan İş için Parmak İzi özelliğini ayarlayın.",
+    "englishSource": "The face or fingerprint unlock set up for work isn't secure enough to protect a wallet. Set up Fingerprint for work in Settings to use it here."
+  },
+  "biometricStrongNotEnrolled": {
+    "message": "Bu cihazda ayarlanan yüz veya parmak izi kilit açma özelliği, bir cüzdanı korumak için yeterince güvenli değildir. Biyometrik kilit açma özelliğini kullanmak için Ayarlar'dan bir parmak izi kaydedin.",
+    "englishSource": "The face or fingerprint unlock set up on this device isn't secure enough to protect a wallet. Set up a fingerprint in Settings to use biometric unlock."
+  },
+  "biometricNotStrong": {
+    "message": "Bu cihazın biyometrik özellikleri bir cüzdanı koruyamaz. Bunun yerine bir şifre kullanın.",
+    "englishSource": "This device's biometrics can't protect a wallet. Use a passcode instead."
+  },
+  "biometricHardwareUnavailable": {
+    "message": "Biyometrik sensör şu anda kullanılamıyor. Lütfen tekrar deneyin veya bir şifre kullanın.",
+    "englishSource": "The biometric sensor isn't available right now. Try again, or use a passcode."
+  },
+  "biometricUnavailableIOS": {
+    "message": "Face ID veya Touch ID kullanılamıyor. Bu uygulama için kapalıysa, Ayarlar'dan açın veya bir şifre kullanın.",
+    "englishSource": "Face ID or Touch ID isn't available. If it's turned off for this app, turn it on in Settings, or use a passcode."
+  },
+  "biometricSecurityUpdate": {
+    "message": "Biyometrik kilit açma özelliğini kullanmak için en son güvenlik güncellemesini yükleyin.",
+    "englishSource": "Install the latest security update to use biometric unlock."
+  },
+  "biometricPasscodeNotSet": {
+    "message": "Biyometrik kilit açma özelliğini kullanmak için Ayarlar'dan bir cihaz şifresi belirleyin.",
+    "englishSource": "Set a device passcode in Settings to use biometric unlock."
+  },
+  "biometricLockedOut": {
+    "message": "Çok fazla deneme yapıldıktan sonra biyometrik kilit açma özelliği devre dışı kalır. Cihazınızın kilidini açın, ardından tekrar deneyin.",
+    "englishSource": "Biometric unlock is locked after too many attempts. Unlock your device, then try again."
+  },
+  "openSettings": {
+    "message": "Ayarlar'ı açın",
+    "englishSource": "Open Settings"
+  },
   "chooseYourGuardian": {
     "message": "Guardian'ınızı seçin",
     "englishSource": "Choose your Guardian"
@@ -2481,31 +2553,6 @@
     "message": "Guardian, hesap durumunuzu saklar ve geri almanıza yardımcı olur. Bunu, size yedekleme sağlayan bir sunucu olarak düşünün; ancak bu sunucu, fonlarınıza asla erişemez.",
     "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
   },
-  "meetGuardianFastestOf": {
-    "message": "$operators$ arasından şu anda en hızlı operatör",
-    "englishSource": "Fastest operator right now, out of $operators$",
-    "placeholders": {
-      "operators": {
-        "content": "$1"
-      }
-    }
-  },
-  "meetGuardianOnlyOperator": {
-    "message": "Bu ağdaki operatör",
-    "englishSource": "The operator on this network"
-  },
-  "meetGuardianCannotMoveFunds": {
-    "message": "Guardian, fonlarınızı kendi başına hareket ettiremez",
-    "englishSource": "The Guardian can't move your funds on its own"
-  },
-  "meetGuardianBacksUpState": {
-    "message": "Guardian, hesap durumunuzu yedekler",
-    "englishSource": "The Guardian backs up your account state"
-  },
-  "meetGuardianCanSwitch": {
-    "message": "Kurtarma ifadenizle başka bir Guardian operatörüne geçebilirsiniz",
-    "englishSource": "You can switch Guardians with your recovery phrase"
-  },
   "meetGuardianChecking": {
     "message": "Hangi operatörün en hızlı yanıt verdiğini kontrol ediyorum…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2517,30 +2564,6 @@
   "meetGuardianFullyPrivateInstead": {
     "message": "Bunun yerine tamamen özel bir hesap açmayı tercih ederim",
     "englishSource": "I'd rather make a fully private account instead"
-  },
-  "chooseDifferentGuardian": {
-    "message": "Farklı bir Guardian seçin",
-    "englishSource": "Choose a different Guardian"
-  },
-  "guardianBioGeneric": {
-    "message": "Miden'de bağımsız bir Guardian operatörü.",
-    "englishSource": "An independent Guardian operator on Miden."
-  },
-  "guardianBioOpenZeppelin": {
-    "message": "OpenZeppelin, Ethereum için yaygın olarak kullanılan akıllı sözleşme kütüphanelerinin arkasındaki bir blockchain güvenlik şirketidir.",
-    "englishSource": "OpenZeppelin is a blockchain security firm behind widely used smart contract libraries for Ethereum."
-  },
-  "guardianBioGateway": {
-    "message": "Gateway.fm, ağlar ve rollup'lar için blockchain altyapısı kurar ve işletir.",
-    "englishSource": "Gateway.fm builds and operates blockchain infrastructure for networks and rollups."
-  },
-  "guardianBioLambdaClass": {
-    "message": "LambdaClass, gelişmiş kriptografi ve blockchain altyapısı geliştiren bir mühendislik firmasıdır.",
-    "englishSource": "LambdaClass is an engineering firm building advanced cryptography and blockchain infrastructure."
-  },
-  "guardianBioKoda": {
-    "message": "Korea Digital Asset (KODA), Güney Kore’de faaliyet gösteren ve düzenlemelere tabi bir dijital varlık saklama kuruluşudur.",
-    "englishSource": "Korea Digital Asset (KODA) is a regulated digital asset custodian in South Korea."
   },
   "learnMoreAboutGuardian": {
     "message": "Guardian hakkında daha fazla bilgi edinin",
@@ -2585,6 +2608,19 @@
   "meetGuardianYourGuardian": {
     "message": "Guardian'ınız",
     "englishSource": "Your Guardian"
+  },
+  "meetGuardianChange": {
+    "message": "Değiştir",
+    "englishSource": "Change"
+  },
+  "meetGuardianSummary": {
+    "message": "$name$ hesabınızı yedekler. Paranızı asla taşıyamaz ve istediğiniz zaman değiştirebilirsiniz.",
+    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "guardianInfoDescription": {
     "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
@@ -2709,6 +2745,18 @@
   "creatingYourWallet": {
     "message": "Cüzdanınız oluşturuluyor…",
     "englishSource": "Creating your wallet…"
+  },
+  "restoringYourWallet": {
+    "message": "Cüzdanınızı geri yükleme…",
+    "englishSource": "Restoring your wallet…"
+  },
+  "settingUpYourWallet": {
+    "message": "Cüzdanınızı kurmak…",
+    "englishSource": "Setting up your wallet…"
+  },
+  "finishRestoringOnOpen": {
+    "message": "Cüzdanınızı açarak geri yükleme işlemini tamamlayın.",
+    "englishSource": "Open your wallet to finish restoring it."
   },
   "enterPassword": {
     "message": "Şifreyi girin",
@@ -2962,6 +3010,18 @@
     "message": "Guardian’ınızı başarıyla değiştirdiniz!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian değiştirildi",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian değişikliği gönderildi",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "Gönderildi",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "Şu anda neler değişiyor",
     "englishSource": "What changes now"
@@ -2981,6 +3041,22 @@
   "guardianSwitchUnconfirmedBody": {
     "message": "Değişiklik gönderildi, ancak bu cihaz zincirde gerçekleştiğini doğrulayamadı. Cüzdan bunu sizin için doğrulayamaz — Guardian ayarlarınız da bu işlemin Etkinlik kaydı da her durumda yeni Guardian'ı gösterecek. Daha sonraki bir işlem ortak imzalanamadığı için reddedilirse değişikliği yeniden çalıştırın.",
     "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchLocalStateNotSavedTitle": {
+    "message": "Henüz bu cihaza kaydedilmemiştir.",
+    "englishSource": "Not saved on this device yet."
+  },
+  "guardianSwitchLocalStateNotSavedBody": {
+    "message": "Guardian değişikliği ağa ulaştı, ancak bu cihaz henüz hesabınızın yeni durumunu kaydedemedi. Cüzdan arka planda denemeye devam eder ve başarılı olana kadar bu cihazdan yapılan işlemler gerçekleştirilemeyebilir. Guardian değişikliğini tekrar yapmanıza gerek yoktur.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state yet. The wallet keeps trying in the background, and until it succeeds, transactions from this device may not go through. You don't need to run the Guardian switch again."
+  },
+  "guardianSwitchLocalStateUnrecoverableTitle": {
+    "message": "Bu cihaza kaydedilmemiştir.",
+    "englishSource": "Not saved on this device."
+  },
+  "guardianSwitchLocalStateUnrecoverableBody": {
+    "message": "Guardian değişikliği ağa ulaştı, ancak bu cihaz hesabınızın yeni durumunu kaydedemedi ve kendi başına kurtaramaz. Guardian değişikliğini tekrar yapmayın. Destek ekibiyle iletişime geçin.",
+    "englishSource": "The Guardian switch reached the network, but this device couldn't save your account's new state and can't recover it by itself. Don't run the Guardian switch again. Contact support."
   },
   "guardianSwitchUnconfirmedEndpointNotSaved": {
     "message": "Bu cihaz yeni Guardian'ın adresini de kaydedemedi, bu yüzden hâlâ öncekini gösteriyor. Cüzdan adresi yeniden girmenizi isteyecek — bu istem yeni bir değişiklik başlatmaz.",
@@ -3079,12 +3155,73 @@
     "englishSource": "Everyday key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Günlük anahtarınızı değiştirirken bir sorun oluştu.",
-    "englishSource": "Something went wrong while rotating your everyday key."
+    "message": "Günlük anahtarınızı değiştirirken bir sorun oluştu. Paranız güvende; şimdi yeniden deneyebilirsiniz.",
+    "englishSource": "Something went wrong while rotating your everyday key. Your funds are safe, and you can retry now."
+  },
+  "hotKeyRotationUnconfirmedTitle": {
+    "message": "Günlük anahtar rotasyonu doğrulanmadı",
+    "englishSource": "Everyday key rotation not confirmed"
+  },
+  "hotKeyRotationUnconfirmedBody": {
+    "message": "Cüzdan, değiştirme işleminin gerçekleşip gerçekleşmediğini doğrulayamadı. Ağ ücreti ödenmiş olsa da paranız güvende. Yeniden denemeden önce cüzdanın senkronize olması için bir dakika bekleyin.",
+    "englishSource": "The wallet could not confirm whether the rotation went through. Your funds are safe, though its network fee may have been paid. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationRetry": {
     "message": "Tekrar dene",
     "englishSource": "Retry"
+  },
+  "hotKeyRotationFundingTitle": {
+    "message": "Günlük anahtarınızı etkinleştirmek için USDCX'i ekleyin",
+    "englishSource": "Add USDCX to activate your everyday key"
+  },
+  "hotKeyRotationFundingBody": {
+    "message": "Günlük anahtarınızı etkinleştirmek bir işlemdir ve her işlemde USDCX cinsinden küçük bir ağ ücreti ödenir. Aşağıdaki bu hesabın adresine USDCX gönderin. Cüzdan bunu alır ve anahtarınızı otomatik olarak etkinleştirir.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
+  },
+  "hotKeyRotationFundingMinimum": {
+    "message": "En az $amount$ USDCX gönderin.",
+    "englishSource": "Send at least $amount$ USDCX.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "hotKeyRotationFundingAddressLabel": {
+    "message": "Hesap adresiniz",
+    "englishSource": "Your account address"
+  },
+  "hotKeyRotationFundingWaiting": {
+    "message": "USDCX'in gelmesini bekliyorum…",
+    "englishSource": "Waiting for USDCX to arrive…"
+  },
+  "hotKeyRotationFundingTooSmall": {
+    "message": "Aldığınız USDCX, ağ ücretini ödemek için yetersizdir. Biraz daha gönderin.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
+  },
+  "hotKeyRotationFundingClaiming": {
+    "message": "USDCX alındı. Talep ediliyor…",
+    "englishSource": "USDCX received. Claiming it…"
+  },
+  "hotKeyRotationFundingActivating": {
+    "message": "Günlük anahtarınızı etkinleştirme…",
+    "englishSource": "Activating your everyday key…"
+  },
+  "hotKeyRotationFundingClaimFailed": {
+    "message": "Aldığınız USDCX talep edilememiştir.",
+    "englishSource": "The USDCX you received could not be claimed."
+  },
+  "hotKeyRotationFundingClaimUnconfirmed": {
+    "message": "Cüzdan, aldığınız USDCX'in talep edilip edilmediğini doğrulayamadı. Tekrar denemeden önce cüzdanın senkronize olması için bir dakika bekleyin.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
+  },
+  "hotKeyRotationFundingClaimRetry": {
+    "message": "Tekrar deneyin",
+    "englishSource": "Try again"
+  },
+  "hotKeyRotationFundingCheckAgain": {
+    "message": "Tekrar kontrol edin",
+    "englishSource": "Check again"
   },
   "guardianChangedTitle": {
     "message": "Guardian değiştirildi",
@@ -3105,6 +3242,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Bu hesabın henüz doğrulama yapılabilecek bir zincir üstü Guardian'ı yok.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "Adres doğrulanırken Guardian'ınız değişti. Lütfen tekrar deneyin.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian erişilemez",
@@ -3236,24 +3377,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "USDCX'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla USDCX alın.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "Ağ ücretini ödemek için USDCX'e ihtiyacınız var. Devam etmek için biraz USDCX alın.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
+  },
+  "insufficientFeeAssetShort": {
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Tutar, bakiyeden az olmalıdır",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN transferlerini otomatik kabul et",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "USDCX transferlerini otomatik kabul et",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Gelen MIDEN transferlerini bakiyenize otomatik olarak kabul eder — Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "Gelen USDCX transferlerini bakiyenize otomatik olarak kabul eder - Kabul Et'e dokunmakla aynıdır. Kendiniz Kabul Et'e dokunmaktan daha sık kabul etmez ve daha fazla ücrete mal olmaz.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Cüzdan dosyanız oluşturuluyor…",
@@ -3686,6 +3831,30 @@
     "message": "Yavaş",
     "englishSource": "Slow"
   },
+  "unavailable": {
+    "message": "Kullanılamıyor",
+    "englishSource": "Unavailable"
+  },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Geçici olarak kullanılamıyor",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
+  "agglayerCheckingToken": {
+    "message": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
+    "englishSource": "Checking whether this token supports the Slow route…"
+  },
+  "agglayerTokenUnsupported": {
+    "message": "Bu token, Slow rotasını desteklemez.",
+    "englishSource": "This token does not support the Slow route."
+  },
+  "agglayerTokenCheckFailed": {
+    "message": "Bu jetonu doğrulayamadım. Geri dönün ve tekrar deneyin.",
+    "englishSource": "Could not check this token. Go back and try again."
+  },
   "seconds": {
     "message": "Saniye",
     "englishSource": "Seconds"
@@ -3903,17 +4072,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Araçlar",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Sosyal",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Oyunlar",
@@ -3930,14 +4091,6 @@
   "exploreCategoriesLabel": {
     "message": "Kategoriler",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Öne çıkan",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Yardımcı araçlar",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Aç",
@@ -3966,10 +4119,6 @@
   "exploreNoResultsDescription": {
     "message": "Başka bir ad deneyin veya bir dApp’in URL’sini yapıştırın.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Takas için testnet token’ı alın",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Küçült",
@@ -4133,6 +4282,14 @@
     "message": "Parmak izi",
     "englishSource": "Fingerprint"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "faceUnlock": {
+    "message": "Yüz tanıma",
+    "englishSource": "Face unlock"
+  },
   "cameraPermissionDenied": {
     "message": "Kamera izni reddedildi",
     "englishSource": "Camera permission denied"
@@ -4200,6 +4357,14 @@
   "transactionFailedNotificationBody": {
     "message": "Bir işlem tamamlanamadı. İncelemek için cüzdanı açın.",
     "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
+  "transactionNotConfirmedNotificationTitle": {
+    "message": "İşlem onaylanmadı",
+    "englishSource": "Transaction not confirmed"
+  },
+  "transactionNotConfirmedNotificationBody": {
+    "message": "Cüzdan, bir işlemin gerçekleşip gerçekleşmediğini doğrulayamadı. Tekrar denemeden önce cüzdanı açın.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Kabul etmek için buraya dokunun",
@@ -4317,6 +4482,10 @@
   "tokenInfo": {
     "message": "Token bilgileri",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "Açıklama",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "Değiştirilebilir",
@@ -4545,6 +4714,10 @@
     "message": "Paylaş",
     "englishSource": "Share"
   },
+  "receiveShareCaption": {
+    "message": "Adresinizi gönderin",
+    "englishSource": "Send your address"
+  },
   "copy": {
     "message": "Kopyala",
     "englishSource": "Copy"
@@ -4622,8 +4795,8 @@
     "englishSource": "~30 sec"
   },
   "slowArrival": {
-    "message": "~6 saat",
-    "englishSource": "~6 hours"
+    "message": "~30 dakika",
+    "englishSource": "~30 mins"
   },
   "youAreDepositing": {
     "message": "Para yatırıyorsunuz",
@@ -4638,7 +4811,7 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Cüzdanınızda isteği onaylayın ve kaynak ağ bunu onaylarken bu ekranı açık tutun.",
+    "message": "Cüzdanınızda talebi onaylayın ve kaynak ağ bunu onaylarken bu ekranı açık tutun.",
     "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
@@ -4741,6 +4914,10 @@
     "message": "Circle, bu yatırımı onayladı. USDCx, kısa süre içinde Miden'de basılacaktır.",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "USDCx, Miden'de basıldı ve cüzdanınıza aktarıldı.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "Köprü $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
@@ -4804,6 +4981,18 @@
   "unverified": {
     "message": "doğrulanmamış",
     "englishSource": "unverified"
+  },
+  "unverifiedToken": {
+    "message": "Doğrulanmamış",
+    "englishSource": "Unverified"
+  },
+  "unverifiedTokenDescription": {
+    "message": "Bu token, Miden’in doğrulanmış token listesinde yer almıyor. Herkes istediği isimle bir token oluşturabilir, bu yüzden güvenmeden önce faucet adresindeki kimliğini kontrol edin.",
+    "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "Doğrulanmamış token",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "Simülasyon yoluyla doğrulanamadı. Aşağıdaki tutarlar, site tarafından beyan edilen tutarlardır.",
@@ -4969,9 +5158,17 @@
     "message": "guardian'a özel URL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "faucet'daki hesap kimliği",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "İlk katılımda 'Veli yok' seçeneğine izin ver",
     "englishSource": "Allow 'No guardian' option in onboarding"
+  },
+  "devNominalUnquotedPrice": {
+    "message": "Tırnak işareti kullanılmayan tokenlerin değerini 1 $ olarak belirleyin (sadece test ağları için)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
   },
   "devEndpointChecking": {
     "message": "Kontrol ediliyor…",
@@ -4989,6 +5186,10 @@
     "message": "Kaydet ve devam et",
     "englishSource": "Save & continue"
   },
+  "devEndpointSaveFailed": {
+    "message": "Bu uç noktalar kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "These endpoints could not be saved. Try again."
+  },
   "devEndpointResetDefaults": {
     "message": "Varsayılan ayarlara sıfırla",
     "englishSource": "Reset to defaults"
@@ -4996,6 +5197,10 @@
   "devEndpointResetAndReonboard": {
     "message": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
     "englishSource": "Reset to defaults & re-onboard"
+  },
+  "resetDidNotFinish": {
+    "message": "Sıfırlama işlemi tamamlanmadı. Lütfen tekrar deneyin.",
+    "englishSource": "The reset did not finish. Try again."
   },
   "devEndpointsRow": {
     "message": "Ağ uç noktaları",
@@ -5185,6 +5390,38 @@
     "message": "Şu anda değil",
     "englishSource": "Not now"
   },
+  "helpImproveWalletSubtitle": {
+    "message": "Share usage data so we can fix what's breaking.",
+    "englishSource": "Share usage data so we can fix what's breaking."
+  },
+  "helpImproveWalletSharedTitle": {
+    "message": "Only what helps us fix bugs",
+    "englishSource": "Only what helps us fix bugs"
+  },
+  "helpImproveWalletSharedDescription": {
+    "message": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending.",
+    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform. If the app crashes, a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending."
+  },
+  "helpImproveWalletPrivateTitle": {
+    "message": "Your wallet stays private",
+    "englishSource": "Your wallet stays private"
+  },
+  "helpImproveWalletPrivateDescription": {
+    "message": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents.",
+    "englishSource": "Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents."
+  },
+  "helpImproveWalletNoTrackingTitle": {
+    "message": "No ads, no tracking",
+    "englishSource": "No ads, no tracking"
+  },
+  "helpImproveWalletNoTrackingDescription": {
+    "message": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers.",
+    "englishSource": "No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers."
+  },
+  "helpImproveWalletChangeAnyTime": {
+    "message": "You can change this any time in Settings.",
+    "englishSource": "You can change this any time in Settings."
+  },
   "activityAcceptTransfer": {
     "message": "Aktarımı Kabul Et",
     "englishSource": "Accept Transfer"
@@ -5283,14 +5520,18 @@
       }
     }
   },
-  "networkModeStripLabel": {
-    "message": "$network$ — bu ağ hakkında",
-    "englishSource": "$network$ — about this network",
+  "networkModeSheetTitle": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
+  },
+  "networkModePillNoValue": {
+    "message": "Tokenların gerçek bir değeri yok",
+    "englishSource": "Tokens have no real value"
   },
   "activityRestoreTransfers": {
     "message": "Geri Yükle",
@@ -5518,8 +5759,41 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
+  },
+  "spendingLimitCurrent": {
+    "message": "Current limit: $amount$ a day",
+    "englishSource": "Current limit: $amount$ a day",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "spendingLimitNone": {
+    "message": "No limit set",
+    "englishSource": "No limit set"
+  },
+  "spendingLimitPresets": {
+    "message": "Suggested limits",
+    "englishSource": "Suggested limits"
+  },
+  "spendingLimitHowItWorks": {
+    "message": "How limits work",
+    "englishSource": "How limits work"
+  },
+  "spendingLimitStoredOnDevice": {
+    "message": "Stored on this device",
+    "englishSource": "Stored on this device"
+  },
+  "spendingLimitLocalSafetyCheck": {
+    "message": "A local safety check",
+    "englishSource": "A local safety check"
+  },
+  "spendingLimitPricedAssetsOnly": {
+    "message": "Priced assets only",
+    "englishSource": "Priced assets only"
   },
   "spendingLimitPriceUnavailable": {
     "message": "This transaction's value cannot be checked right now. Authenticate to send it anyway.",
@@ -5603,12 +5877,8 @@
     }
   },
   "couldNotCheckUnlockMethod": {
-    "message": "Bu cüzdanın kilit açma yöntemini kontrol edemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
-    "englishSource": "Couldn't check this wallet's unlock method. Check your connection and try again."
-  },
-  "checkingUnlockMethodSlow": {
-    "message": "Bu cüzdanın kilit açma yöntemini kontrol etmek normalden daha uzun sürüyor. Tekrar denemek için geri dönün ve bu sayfayı yeniden açın.",
-    "englishSource": "Checking this wallet's unlock method is taking longer than usual. To try again, go back and reopen this page."
+    "message": "Bu cüzdanın kilit açma yöntemini kontrol edilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Couldn't check this wallet's unlock method. Try again."
   },
   "receiveQrColorAction": {
     "message": "QR kodu rengini değiştir",
@@ -5723,5 +5993,155 @@
   "revealRecoveryPhrase": {
     "message": "Kurtarma ifadesini göster",
     "englishSource": "Reveal recovery phrase"
+  },
+  "hideToken": {
+    "message": "Token'ı gizle",
+    "englishSource": "Hide token"
+  },
+  "unhideToken": {
+    "message": "Token'ı görünür hale getir",
+    "englishSource": "Unhide token"
+  },
+  "tokenHiddenNotice": {
+    "message": "Ana Sayfadan Gizlenmiş. Cüzdanınızda kalır ve transferleri hâlâ talep edilebilir.",
+    "englishSource": "Hidden from Home. It stays in your wallet and its transfers can still be claimed."
+  },
+  "hiddenAssets": {
+    "message": "Gizli varlıklar",
+    "englishSource": "Hidden assets"
+  },
+  "hiddenAssetsCount": {
+    "message": "Gizli varlıklar ($count$)",
+    "englishSource": "Hidden assets ($count$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unhide": {
+    "message": "Gizlemeyi kaldır",
+    "englishSource": "Unhide"
+  },
+  "unhideTokenLabel": {
+    "message": "$name$'i görünür hale getirin",
+    "englishSource": "Unhide $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "hiddenTokensError": {
+    "message": "Gizli token'lar güncellenemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not update hidden tokens. Please try again."
+  },
+  "hiddenTokensUnreadable": {
+    "message": "Gizli token'lar yüklenemedi.",
+    "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "Gönderiminizi onaylayın",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "Değiş tokuş işleminizi onaylayın",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "Bu işlemi onaylayın",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "Para yatırma işleminizi onaylayın",
+    "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Token ayrıntılarını düzenle",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Token ayrıntıları",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Ad",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Sembol",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Ondalık sayılar",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Kaydet",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucet'ın değerlerine sıfırla",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Düzenlendi",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1 ila $max$ karakterden oluşan bir ad girin.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1 ila $max$ karakterden oluşan bir sembol girin.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0 ile $max$ arasında bir tam sayı girin.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Bu değerler yalnızca bu cüzdanın token'ı gösterme şeklini değiştirir. faucet kendi değerlerini korur. Gönderdiğiniz tutarlar, burada ayarladığınız ondalık basamakları kullanır.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Token ayrıntılarını kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH, Miden Testnet'te takas işlemleri için kullanılan bir test tokenidir. ETH değildir ve üretim cüzdanında mevcut olmayacaktır.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "Takas, Miden Testnet üzerindeki bir akıllı sözleşme aracılığıyla gerçekleştirilir.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Değişimin gerçekleştiği yer",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "$token$ hakkında",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
   }
 }

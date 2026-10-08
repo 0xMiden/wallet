@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,8 @@ import { formatBigInt } from 'lib/i18n/numbers';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticLight } from 'lib/mobile/haptics';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isActivityRead, markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { truncateAddress } from 'utils/string';
 
@@ -26,12 +28,17 @@ export interface PendingActivityItem {
   status: PendingActivityStatus;
   txId?: string;
   claimedAt?: number;
+  /** A claiming item whose row is Unconfirmed or Failed and still holds its notes: it offers its row's Retry, #1081. */
+  held?: boolean;
+  /** The refusal its last Retry met, shown in place of the hint. */
+  retryError?: string;
 }
 
 interface PendingActivityCardProps {
   item: PendingActivityItem;
   onAccept: (note: ClaimableNoteWithMetadata) => void;
   onReject?: (note: ClaimableNoteWithMetadata) => void;
+  onRetryHeld?: (item: PendingActivityItem) => void;
 }
 
 function formatDateTime(unixSeconds: number): string {
@@ -55,12 +62,13 @@ function formatDateTime(unixSeconds: number): string {
 // same component as every other settled transaction and carrying that component's own navigation
 // to the transaction page. `ActivityPendingHistory` drops a `claimed` item from the card list and
 // `History` stops standing its consume row down, so the two swap cleanly with nothing in between.
-export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivityCardProps) => {
+export const PendingActivityCard = ({ item, onAccept, onReject, onRetryHeld }: PendingActivityCardProps) => {
   const { t } = useTranslation();
   const { note, status } = item;
   const transition = useMotion(springs.standard);
   const reveal = usePreset('reveal');
   const readState = useActivityReadState();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   // An incoming transfer stays unread until it is accepted or declined, whichever comes first —
   // a decision, not a glance, is what settles it. `receivedAt` can be absent, and an unusable
   // timestamp never falls under the high-water mark, so such a note simply stays unread until
@@ -71,10 +79,12 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
   const [expanded, setExpanded] = useState(false);
   const sender = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
   const amount = hasKnownScale(note.metadata) ? formatBigInt(BigInt(note.amount), note.metadata.decimals) : undefined;
-  const amountLabel = amount === undefined ? note.metadata.symbol : `${amount} ${note.metadata.symbol}`;
+  const tokenLabel = midenTokenLabel(bridgeConfig, note.faucetId, note.metadata.symbol);
+  const amountLabel = amount === undefined ? tokenLabel : `${amount} ${tokenLabel}`;
   // A note served from the cache waits for the live read before it can be accepted.
   const canAccept = (status === 'pending' || status === 'failed') && note.fromCache !== true;
-  const busy = status === 'claiming' || status === 'checking';
+  const held = status === 'claiming' && item.held === true;
+  const busy = (status === 'claiming' && !held) || status === 'checking';
   // The section renders only after a tap, so it always moves on the preset except while a claim is
   // in flight: the status walks checking -> claiming -> gone, and a height tween across that is the
   // flicker. Read on every render, so a claim landing mid-tween drops the rest of it.
@@ -86,7 +96,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
       actionLabel = t('activityCheckingTransfer');
       break;
     case 'claiming':
-      actionLabel = t('activityAcceptingTransfer');
+      actionLabel = held ? t('retry') : t('activityAcceptingTransfer');
       break;
     case 'failed':
       actionLabel = t('retry');
@@ -98,7 +108,18 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
 
   // The hint belongs to the folded section, which only an open note has. The tone carries the
   // failure; the words say it too, so the block is never colour alone.
-  const hint = status === 'failed' ? t('noteClaimFailedRetry') : t('activityNotYetAccepted');
+  // A held claim awaits its verdict and may already have gone through, and its only action is Retry, so it says it
+  // is not confirmed rather than inviting a review (#1081).
+  let hint = t('activityNotYetAccepted');
+  if (item.retryError !== undefined) hint = item.retryError;
+  else if (held) hint = t('transactionNotConfirmedHint');
+  else if (status === 'failed') hint = t('noteClaimFailedRetry');
+  const negative = status === 'failed' || item.retryError !== undefined;
+
+  // A refusal's message lives in the folded section, so it opens with it (#1081).
+  useEffect(() => {
+    if (item.retryError !== undefined) setExpanded(true);
+  }, [item.retryError]);
 
   const rows: Array<{ key: string; label: string; value: string }> = [
     { key: 'from', label: t('from'), value: sender },
@@ -119,7 +140,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
       subtitle={`${t('from')}: ${sender}`}
       amount={{
         value: amount === undefined ? '' : `+${amount}`,
-        symbol: note.metadata.symbol,
+        symbol: tokenLabel,
         direction: 'positive'
       }}
       status="pending"
@@ -182,7 +203,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               <dl className="border-t border-hairline divide-y divide-hairline text-sm">
                 {rows.map(row => (
                   <div key={row.key} className="flex items-center justify-between gap-3 px-3 py-3">
-                    <dt className="text-text-secondary-token">{row.label}</dt>
+                    <dt className="font-heading text-text-secondary-token">{row.label}</dt>
                     <dd className="min-w-0 truncate text-right font-heading font-bold text-text-primary-token">
                       {row.value}
                     </dd>
@@ -198,8 +219,8 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               <div className="px-4 py-3">
                 <Notice
                   data-testid="pending-activity-hint"
-                  tone={status === 'failed' ? 'negative' : 'neutral'}
-                  role={status === 'failed' ? 'alert' : 'status'}
+                  tone={negative ? 'negative' : 'neutral'}
+                  role={negative ? 'alert' : 'status'}
                   title={hint}
                 >
                   {note.recallableAtMs === undefined
@@ -225,12 +246,14 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
             for what is present when that `AnimatePresence` FIRST mounts. Switching the Activity
             filter renders a different list, so every card remounted and the width tween replayed
             from zero on each tab change, reflowing the whole footer. */}
-        <div className="flex gap-2.5 px-4 pb-3">
+        {/* The actions run edge to edge along the card's foot, square-cornered, under a hairline:
+            the card's own rounded clip shapes the outer corners. */}
+        <div className="flex border-t border-hairline">
           {onReject && status !== 'claiming' && (
             <Button
-              variant={ButtonVariant.Secondary}
+              variant={ButtonVariant.Ghost}
               size="sm"
-              className="w-2/5 whitespace-nowrap"
+              className="h-12 w-2/5 whitespace-nowrap rounded-none border-0"
               title={t('activityRejectTransfer')}
               disabled={!canAccept}
               onClick={() => onReject(note)}
@@ -241,16 +264,17 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               NOT `disabled`, which would grey the one action in progress. */}
           <Button
             size="sm"
-            className="min-w-0 flex-1"
+            className="h-12 min-w-0 flex-1 rounded-none"
             title={actionLabel}
-            disabled={!canAccept && status !== 'claiming'}
-            isLoading={status === 'claiming'}
+            disabled={!canAccept && !held && status !== 'claiming'}
+            isLoading={status === 'claiming' && !held}
             aria-busy={busy}
             onClick={() => {
               // Accepting IS the decision, so the transfer is read from here on even though no
               // detail page was opened.
               markActivityRead(unreadKey, note.receivedAt ?? Number.NaN);
-              onAccept(note);
+              if (held) onRetryHeld?.(item);
+              else onAccept(note);
             }}
           />
         </div>

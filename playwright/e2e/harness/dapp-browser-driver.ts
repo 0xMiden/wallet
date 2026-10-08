@@ -20,6 +20,25 @@ import { expect } from '@playwright/test';
 
 import { fixtureDapp, GENERATION_COLORS, GENERATION_MARKER_PX, type DappFixtureServer } from './dapp-fixture-server';
 import { describeStats, measureVerticalOffsetCss, sampleRegion, type Rect } from './dapp-visual';
+import { resolveWalletNetwork } from './extension-network';
+import devnetCatalog from '../../../src/lib/explore-config/snapshot/devnet.json';
+import testnetCatalog from '../../../src/lib/explore-config/snapshot/testnet.json';
+
+const BUNDLED_CATALOGS: Record<string, { sections: Array<{ kind: string; itemIds: string[] }> }> = {
+  devnet: devnetCatalog,
+  testnet: testnetCatalog
+};
+
+/**
+ * How many curated grid rows an E2E build draws for the network the suite runs on: one per distinct app the bundled
+ * catalog's list sections name, since such a build reads no other catalog and a featured section draws cards instead.
+ */
+export function bundledGridCardCount(): number {
+  const network = resolveWalletNetwork(process.env.E2E_NETWORK);
+  const catalog = BUNDLED_CATALOGS[network];
+  if (!catalog) throw new Error(`no bundled Explore catalog for ${network}`);
+  return new Set(catalog.sections.filter(section => section.kind === 'list').flatMap(section => section.itemIds)).size;
+}
 
 /** The slice of a mobile page object this driver needs. */
 export interface DappDriverTarget {
@@ -230,6 +249,19 @@ export class DappBrowserDriver {
       `return Array.prototype.map.call(document.querySelectorAll('[data-testid="dapp-grid-card"]'), function (el) {` +
         `  return el.getAttribute('data-dapp-url') || '';` +
         `});`
+    );
+  }
+
+  /**
+   * The curated grid's card URLs once at least `min` cards render. The grid draws the bundled
+   * catalog's rows only once the network's floor has been read, so the wait covers that read as
+   * well as a network switch replacing those rows while the step reads them.
+   */
+  async waitForGridCards(min: number): Promise<string[]> {
+    return this.pollUntil(
+      `at least ${min} curated grid cards`,
+      () => this.gridCardUrls(),
+      urls => urls.length >= min
     );
   }
 

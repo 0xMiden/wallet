@@ -2,20 +2,29 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
+import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { PendingActivityItem } from './PendingActivityCard';
 
 const mockAccept = jest.fn();
 const mockAcceptMany = jest.fn();
+const mockRetryHeld = jest.fn();
 const mockHide = jest.fn();
 const mockRestore = jest.fn();
 const mockConfirm = jest.fn();
 const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => ({
   note: {
     id,
-    faucetId: 'faucet',
+    faucetId: MIDEN_USDC_FAUCET,
     amount: '1000000',
     senderAddress: id,
     isBeingClaimed: false,
@@ -26,7 +35,22 @@ const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => 
 }));
 // Items the claims hook returns. A test that changes statuses between renders swaps in a new array,
 // the way the hook publishes a change, so the memoized list sees it.
-const mockState = { items: mockItems };
+const mockState = { items: mockItems, isLoadingNotes: false, isLoadingHistory: false };
+let mockRecovery: GuardianNoteRecoveryProgress | null = null;
+let mockRecoveryPending: boolean | undefined = true;
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+jest.mock('lib/wallet-prompts', () => ({
+  ...jest.requireActual('lib/wallet-prompts'),
+  useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
+}));
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
@@ -40,9 +64,11 @@ jest.mock('react-i18next', () => ({
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
     items: mockState.items,
+    isLoadingNotes: mockState.isLoadingNotes,
     accept: mockAccept,
     acceptMany: mockAcceptMany,
-    account: { publicKey: 'account' }
+    retryHeld: mockRetryHeld,
+    account: { publicKey: 'account', guardianNoteRecoveryPending: mockRecoveryPending }
   })
 }));
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
@@ -73,9 +99,9 @@ jest.mock('lib/i18n/numbers', () => ({
   getAdaptiveDecimalPlaces: () => 3,
   usdFormatterFor: () => (value: number) => `$${value.toFixed(2)}`
 }));
-// Every fixture note is 1 TOK (1000000 at 6 decimals) and TOK is priced at $2, so the row's
-// total is $2 per LISTED transfer - the arithmetic the assertions below count on.
-const mockTokenPrices = { TOK: { price: 2, priceChange24h: 0 } };
+// Every fixture note is 1 TOK (1000000 at 6 decimals) from the Earn collateral faucet, priced under
+// USDC at $2, so the row's total is $2 per LISTED transfer - the arithmetic the assertions below count on.
+const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 } };
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
@@ -84,6 +110,7 @@ const mockHistoryRenders: Array<{
   drawnPendingItems?: PendingActivityItem[];
   renderPendingItem: unknown;
   filter?: string;
+  hideLoadingSpinner?: boolean;
 }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
@@ -91,14 +118,21 @@ jest.mock('./History', () => ({
     pendingItems,
     drawnPendingItems,
     renderPendingItem,
-    filter
+    filter,
+    onLoadingChange,
+    hideLoadingSpinner
   }: {
     pendingItems: PendingActivityItem[];
     drawnPendingItems?: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
+    onLoadingChange: (loading: boolean) => void;
     filter?: string;
+    hideLoadingSpinner?: boolean;
   }) => {
-    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter });
+    jest.requireActual<typeof import('react')>('react').useEffect(() => {
+      onLoadingChange(mockState.isLoadingHistory);
+    }, [onLoadingChange, mockState.isLoadingHistory]);
+    mockHistoryRenders.push({ pendingItems, drawnPendingItems, renderPendingItem, filter, hideLoadingSpinner });
     return (
       <div data-testid="timeline">
         {(drawnPendingItems ?? pendingItems).map(item => (
@@ -139,8 +173,13 @@ beforeEach(() => {
     item.status = 'pending';
   });
   mockState.items = mockItems;
+  mockState.isLoadingNotes = false;
+  mockState.isLoadingHistory = false;
+  mockRecovery = null;
+  mockRecoveryPending = true;
   mockHidden.ids = new Set();
   mockHistoryRenders.length = 0;
+  mockBridgeSnapshot = undefined;
   mockConfirm.mockResolvedValue(true);
 });
 
@@ -150,6 +189,55 @@ function expandCard(noteId: string): HTMLElement {
   fireEvent.click(within(card).getByRole('button', { expanded: false }));
   return card;
 }
+
+it('hides the list spinner under its own progress bar', () => {
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(mockHistoryRenders.at(-1)?.hideLoadingSpinner).toBe(true);
+});
+
+it('uses one progress bar for notes, history rows, and Guardian recovery', () => {
+  const view = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockState.isLoadingNotes = true;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('progressbar')).toHaveAccessibleName('activityFetchingHistoryAndNotes');
+  expect(screen.getByRole('status')).toHaveTextContent('activityFetchingHistoryAndNotes');
+
+  mockState.isLoadingNotes = false;
+  mockState.isLoadingHistory = true;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getAllByRole('progressbar')).toHaveLength(1);
+
+  mockState.isLoadingHistory = false;
+  mockRecovery = { accountId: 'account', step: 'history' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'public' };
+  view.rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByRole('progressbar')).toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'history-partial' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockRecovery = { accountId: 'account', step: 'history-failed' };
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+  mockRecovery = null;
+  view.rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  view.unmount();
+});
+
+it('shows no recovery progress for an account whose recovery flag is not set', () => {
+  mockRecoveryPending = undefined;
+  mockRecovery = { accountId: 'account', step: 'history' };
+  render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+});
 
 it('requires confirmation before hiding a transfer', async () => {
   mockHidden.ids = new Set(['third']);
@@ -255,6 +343,22 @@ it('shows Accept All on the pending tab and claims every listed note that can be
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
 });
 
+it('marks every transfer Accept All takes as read with one write', () => {
+  localStorage.clear();
+  resetActivityReadState();
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const setItem = jest.spyOn(Storage.prototype, 'setItem');
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+
+    const writes = setItem.mock.calls.filter(([key]) => key === ACTIVITY_READ_STORAGE_KEY);
+    expect(writes).toHaveLength(1);
+    expect(Object.keys(JSON.parse(writes[0]?.[1] ?? '{}').ids)).toEqual(['note:first', 'note:second', 'note:third']);
+  } finally {
+    setItem.mockRestore();
+  }
+});
+
 it('puts Accept All in the actions row above the list, and leaves the navbar alone', () => {
   render(<ActivityPendingHistory search="" filter="pending" />);
   const button = screen.getByTestId('pending-row-accept-all');
@@ -298,7 +402,7 @@ it('leads the row with what Accept All is about to accept, in both states', () =
 
 it('shows no total when any waiting transfer has no price, never a $1 figure for it', () => {
   mockState.items = mockItems.map((item, index) =>
-    index === 2 ? { ...item, note: { ...item.note, metadata: { ...item.note.metadata, symbol: 'OTHER' } } } : item
+    index === 2 ? { ...item, note: { ...item.note, faucetId: 'other-faucet' } } : item
   );
   render(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.getByText('activityPendingWaiting:3')).toBeInTheDocument();
@@ -380,6 +484,19 @@ it('folds the details of a transfer waiting on a decision, and drops the card on
   delete claimed.txId;
 });
 
+it("hands a held claim's Retry to the claims hook (#1081)", () => {
+  const [first, ...rest] = mockItems;
+  if (!first) throw new Error('Missing note fixture');
+  const held: PendingActivityItem = { ...first, status: 'claiming', txId: 'tx-held', held: true };
+  mockState.items = [held, ...rest];
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]');
+  if (!(card instanceof HTMLElement)) throw new Error('Missing card first');
+  fireEvent.click(within(card).getByRole('button', { name: 'retry' }));
+  expect(mockRetryHeld).toHaveBeenCalledWith(held);
+  expect(mockAccept).not.toHaveBeenCalled();
+});
+
 it('lists only unclaimed notes under the pending filter', () => {
   const [, , claimed] = mockItems;
   if (!claimed) throw new Error('Missing note fixtures');
@@ -436,6 +553,8 @@ it('offers Restore under the Pending filter while declined transfers can still b
   expect(restoreButton.className).not.toMatch(/\btext-xs\b|\bpy-2\b/);
   fireEvent.click(restoreButton);
   expect(mockRestore).toHaveBeenCalledTimes(1);
+  // The declines the row counted, not 'gone', which no loaded transfer stands for.
+  expect(mockRestore).toHaveBeenCalledWith(['first', 'second']);
 });
 
 it('does not offer Restore when every declined transfer is gone or already claimed', () => {
@@ -480,4 +599,27 @@ it('draws each pending transfer as an outlined card on the page', () => {
   expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'overflow-hidden');
   expect(card).not.toHaveClass('bg-fill');
   expect(card).not.toHaveClass('bg-white');
+});
+
+describe('a search for the name a transfer is shown under', () => {
+  const listedIds = () =>
+    Array.from(screen.getByTestId('timeline').querySelectorAll('[data-pending-note-id]')).map(el =>
+      el.getAttribute('data-pending-note-id')
+    );
+
+  it('keeps the card of the bridged USDC faucet when the label is searched', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+
+  it('keeps the card once the bridge config lands after the search is typed', () => {
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual([]);
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
 });

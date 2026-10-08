@@ -2,17 +2,24 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { deserializeError, serializeError } from 'lib/intercom/helpers';
+import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
-import { USDCX_FAUCET_ID_BECH32 } from 'lib/usdcx/constant';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
@@ -31,17 +38,18 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockBalanceData: any[] | undefined;
 let mockTokensMeta: any[] = [];
 let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
-let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
+let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: string } = {
   amount: undefined,
   loading: false,
-  error: null
+  error: null,
+  symbol: 'USDC'
 };
 let mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
 jest.mock('lib/usdcx/burn', () => ({ initiateUsdcxBurn: jest.fn(async () => 'burn-tx') }));
 jest.mock('lib/usdcx/use-burn-preflight', () => ({ useBurnPreflight: () => mockBurnPreflight }));
 
 const mockWalletStoreState = {
-  tokenPrices: { MDN: { price: 2 } } as Record<string, { price: number }>,
+  tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
   readSpendingLimit: jest.fn()
@@ -65,8 +73,21 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
 // stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => 'https://rpc.review.example',
   getTestNetworkNameKey: () => 'testnet'
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -86,7 +107,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 });
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    // The recall note's only parameter is the amount it names; every other key reads as itself.
+    t: (key: string, params?: { amount?: string }) =>
+      key === 'recallReturnsNote' && params?.amount ? `${key} ${params.amount}` : key
+  })
 }));
 
 jest.mock('app/env', () => ({
@@ -160,7 +185,9 @@ jest.mock('components/ui/DetailCard', () => ({
     </div>
   )
 }));
-jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span data-testid="token-logo" /> }));
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: ({ faucetId }: { faucetId?: string }) => <span data-testid="token-logo" data-faucet-id={faucetId} />
+}));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
   Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
@@ -174,12 +201,16 @@ jest.mock('lib/biometric', () => ({
   confirmSensitiveAction: jest.fn()
 }));
 
-jest.mock('lib/agglayer/b2agg', () => ({
-  initiateB2AggBridge: jest.fn()
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
 }));
 
-jest.mock('lib/agglayer/b2agg/constant', () => ({
-  EVM_AGGLAYER_NETWORK_ID: 11155111
+jest.mock('lib/agglayer/allowed-faucets', () => ({
+  isAgglayerFaucetAllowed: jest.fn()
+}));
+
+jest.mock('lib/agglayer/b2agg', () => ({
+  initiateB2AggBridge: jest.fn()
 }));
 
 jest.mock('lib/epoch', () => ({
@@ -207,8 +238,9 @@ jest.mock('lib/miden/front/client', () => ({
   useMidenContext: () => ({ signTransaction: jest.fn() })
 }));
 
+// Distinct, so an assertion on it fails for any other provider.
 jest.mock('lib/miden/front/guardian-sync', () => ({
-  zustandProvider: {}
+  zustandProvider: { provider: 'zustand' }
 }));
 
 jest.mock('lib/miden/types', () => ({
@@ -219,7 +251,17 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a === b
 }));
 
+// USDCx is the chain's native asset, so the faucet the review accepts is the discovered one.
+const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
+  getNativeAssetIdSync: () => 'mtst1usdcxnative'
+}));
+
 jest.mock('lib/miden-chain/constants', () => ({
+  // The real network names and default: the network banner's pill pulls in the icon set, which reads
+  // both at import.
+  ...jest.requireActual('lib/miden-chain/constants'),
   ensureSdkWasmReady: jest.fn(),
   getRpcEndpoint: jest.fn(() => 'https://rpc.example')
 }));
@@ -334,9 +376,9 @@ const UNSCALED_TOKEN = {
   fiatPrice: 0
 };
 
-const setValidRoute = () => {
-  mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
-  mockBalanceData = [VALID_TOKEN];
+const setValidRoute = (tokenId = VALID_TOKEN.tokenId) => {
+  mockSearch = `amount=5&to=0xrecipient&tokenId=${tokenId}`;
+  mockBalanceData = [{ ...VALID_TOKEN, tokenId }];
 };
 
 const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
@@ -361,6 +403,7 @@ beforeEach(() => {
   stringToBigIntMock.mockReturnValue(12345n);
   initiateMock.mockResolvedValue('tx-abc');
   initiateB2AggBridgeMock.mockResolvedValue('tx-bridge');
+  jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);
   bridgeEpochSendMock.mockResolvedValue({ txId: 'tx-epoch' });
   dateTimeToRecallBlocksMock.mockReturnValue(999);
   isExtensionMock.mockReturnValue(false);
@@ -384,7 +427,7 @@ beforeEach(() => {
   mockBalanceData = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
-  mockEpochQuote = { amount: undefined, loading: false, error: null };
+  mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -534,15 +577,15 @@ describe('ReviewTransaction — rendering', () => {
       await flush();
 
       const hero = within(screen.getByTestId('review-amount'));
-      expect(hero.getByText('5 IETH')).toBeInTheDocument();
+      expect(hero.getByText('5 Test iETH')).toBeInTheDocument();
       expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     } finally {
-      mockWalletStoreState.tokenPrices = { MDN: { price: 2 } };
+      mockWalletStoreState.tokenPrices = { USDC: { price: 2 } };
     }
   });
 
   it('renders header, hero and detail rows, seeding the 7-day expiration', async () => {
-    setValidRoute();
+    setValidRoute(MIDEN_USDC_FAUCET);
     render(<ReviewTransaction />);
     await flush();
 
@@ -555,6 +598,7 @@ describe('ReviewTransaction — rendering', () => {
     // scoping to it is what proves they render together, not just somewhere on the page.
     const hero = within(screen.getByTestId('review-amount'));
     expect(hero.getByText('5 MDN')).toBeInTheDocument();
+    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', MIDEN_USDC_FAUCET);
     // The fiat subtitle renders under the hero value once the token's price is known.
     expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     // Recipient row value.
@@ -564,7 +608,7 @@ describe('ReviewTransaction — rendering', () => {
     // label + reclaim note both present.
     // The reclaim reassurance is one caption under the card, not a note in the expiration row.
     await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
-    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote');
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 MDN');
     expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
@@ -653,7 +697,7 @@ describe('ReviewTransaction — rendering', () => {
 
   it('renders the fast bridge route loading state from the Epoch quote', async () => {
     mockDetectedChain = 'ethereum';
-    mockEpochQuote = { amount: '4.8', loading: true, error: null };
+    mockEpochQuote = { amount: '4.8', loading: true, error: null, symbol: 'USDC' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
     mockBalanceData = [VALID_TOKEN];
 
@@ -662,6 +706,97 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
     expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
+  });
+
+  // What arrives is the quote at most, so "you receive" rounds it down.
+  it('rounds the Fast route quote down in "you receive", never up', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 10.65 USDC')).toBeInTheDocument();
+  });
+
+  it('names the output token the quote names in "you receive"', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'USDC.e' };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 2 USDC.e')).toBeInTheDocument();
+  });
+
+  // 12.3450 separates the kinds: down reads 12.34 and up 12.35, so only an exact 12.345 is typed.
+  // Agglayer carries the bridgeable token 1:1, so the line names the sent token, never the Fast route's USDC.
+  it('shows the Slow route "you receive" as typed, in the sent token, without its trailing zero', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=12.3450&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByText('≈ 12.345 MDN')).toBeInTheDocument();
+    expect(screen.queryByText(/12\.345 (USDC|Test Epoch USDC)/)).not.toBeInTheDocument();
+  });
+
+  describe('testnet bridge USDC label', () => {
+    beforeEach(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    });
+
+    it('names the Fast route output by the testnet label in "you receive"', async () => {
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
+    });
+
+    it('names the Fast route output by the testnet label while the token read has not succeeded', async () => {
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+      mockDetectedChain = 'ethereum';
+      mockEpochQuote = { amount: '10.655599', loading: false, error: null, symbol: 'USDC' };
+      mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+      mockBalanceData = [VALID_TOKEN];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
+    });
+
+    it('names a send of the bridge faucet by the testnet label in the hero', async () => {
+      setValidRoute(MIDEN_USDC_FAUCET);
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(within(screen.getByTestId('review-amount')).getByText('5 Test Epoch USDC')).toBeInTheDocument();
+    });
+
+    it('names a send of the bridge faucet by the testnet label in the recall note', async () => {
+      setValidRoute(MIDEN_USDC_FAUCET);
+      mockBalanceData = [{ ...VALID_TOKEN, tokenId: MIDEN_USDC_FAUCET, metadata: { symbol: 'USDC', decimals: 6 } }];
+
+      render(<ReviewTransaction />);
+      await flush();
+
+      await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+      expect(screen.getByTestId('review-recall-note').textContent).toContain('5 Test Epoch USDC');
+    });
   });
 });
 
@@ -735,7 +870,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
@@ -846,13 +981,13 @@ describe('ReviewTransaction — onSubmit', () => {
 
   it('opens the unvalued challenge from a rejection that actually crossed the intercom port', async () => {
     // Unlike the raw-object rejections above (the in-process shape mobile/desktop reject with),
-    // this is what the extension's popup <-> SW port actually delivers: the real `serializeError`
-    // followed by the real `deserializeError`, round-tripping a price-unavailable refusal through
+    // this is what the extension's popup <-> SW port actually delivers: the real `serializeInternalError`
+    // followed by the real `deserializeInternalError`, round-tripping a price-unavailable refusal through
     // the intercom wire format rather than assuming it survives untouched.
     setValidRoute();
     initiateMock.mockRejectedValue(
-      deserializeError(
-        serializeError({
+      deserializeInternalError(
+        serializeInternalError({
           message: 'No current price is available for MDN',
           code: 'SPENDING_LIMIT_PRICE_UNAVAILABLE',
           symbol: 'MDN'
@@ -917,14 +1052,47 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
+    expect(isAgglayerFaucetAllowed).toHaveBeenCalledWith('tok1', 'https://rpc.review.example');
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 12345n,
         faucetId: 'tok1',
         destinationAddress: '0xrecipient',
-        senderPublicKey: 'pubkey-1'
+        senderPublicKey: 'pubkey-1',
+        guardianProvider: zustandProvider
       })
     );
+    // The bridge build reads the destination network from the config; the review passes none.
+    expect(initiateB2AggBridgeMock.mock.calls[0]![0]).not.toHaveProperty('destinationNetwork');
+    expect(initiateB2AggBridgeMock.mock.calls[0]?.[0].guardianProvider).toBe(zustandProvider);
+  });
+
+  it('refuses a Slow bridge-out of a token the registry does not list (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(false);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('agglayerTokenUnsupported');
+  });
+
+  it('refuses a Slow bridge-out when the registry cannot be read (#1276)', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    jest.mocked(isAgglayerFaucetAllowed).mockRejectedValue(new Error('registry down'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('registry down');
   });
 
   it('uses strict authentication before building an Agglayer bridge request', async () => {
@@ -1044,7 +1212,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
       { faucetId: 'tok1', amount: 12345n }
     ]);
-    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', expect.any(Function));
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1194,6 +1362,28 @@ describe('ReviewTransaction — onSubmit', () => {
     confirmMock.mockResolvedValue(true);
     await clickSubmit();
     expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms with the shared hardware-only protector probe', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(confirmMock).toHaveBeenCalledWith('confirmSendReason', probeHardwareProtector);
+  });
+
+  it("shows the review screen's own error, and sends nothing, when the protector probe rejects", async () => {
+    setValidRoute();
+    confirmMock.mockRejectedValue(new Error('protector check failed'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('protector check failed');
   });
 
   it('logs and resets when transaction creation throws', async () => {

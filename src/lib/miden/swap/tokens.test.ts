@@ -1,35 +1,52 @@
+import {
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import { isCoveredSymbol } from 'lib/prices/usd';
 
+import { bridgePriceAllowlist } from './bridge-price-allowlist';
 import {
+  canonicalFaucetId,
   deriveRequestAmount,
   getDefaultSwapPair,
   getSwapTokenByFaucetId,
+  getSwapEta,
   getSwapTokens,
   getSwapTokenBySymbol,
   normalizedFaucetId,
   priceSymbolFor,
+  strictPriceSymbolFor,
   TOKEN_IBTC,
   TOKEN_IETH,
   TOKEN_IMIDEN,
   TOKEN_IUSDT,
   tokenQuote,
+  _allowlistedPriceSymbolsForTest,
   _resetNormalizedFaucetIdsForTest,
   _setSwapTokensForTest,
   SWAP_TOKEN_DECIMALS,
   SWAP_TOKENS
 } from './tokens';
 
+// The bridged price entries: the testnet config's by default (the manual mock's answer), and others a test sets.
+jest.mock('./bridge-price-allowlist', () => ({ bridgePriceAllowlist: jest.fn() }));
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: jest.fn(),
-  getNativeAssetMetadataSync: jest.fn()
+  getNativeAssetMetadataSync: jest.fn(),
+  getSdkSyncedNativeAssetIdSync: jest.fn()
 }));
 
-// Balances key a faucet by the SDK's bech32 form of its id; make that form visibly different.
+// Balances key a faucet by the SDK's bech32 form of its id, whose prefix names the network; make that
+// form visibly different. As the SDK's re-encode does, an id in any network's form re-encodes under
+// the current network, so an id already in the current form maps to itself.
+const mockFakeBech32 = (id: unknown): string => `${getEffectiveNetworkName()}:${String(id).replace(/^\w+:/, '')}`;
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => id,
-  getBech32AddressFromAccountId: jest.fn((id: string) => `bech32:${id}`)
+  accountRefToSdk: (id: string) => id,
+  getBech32AddressFromAccountId: jest.fn((id: string) => mockFakeBech32(id))
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -41,7 +58,14 @@ const mockNetworkName = jest.mocked(getEffectiveNetworkName);
 
 beforeEach(() => {
   _resetNormalizedFaucetIdsForTest();
-  mockToBech32.mockReset().mockImplementation((id: any) => `bech32:${id}`);
+  jest
+    .mocked(bridgePriceAllowlist)
+    .mockReset()
+    .mockImplementation(
+      jest.requireActual<typeof import('./__mocks__/bridge-price-allowlist')>('./__mocks__/bridge-price-allowlist')
+        .bridgePriceAllowlist
+    );
+  mockToBech32.mockReset().mockImplementation(mockFakeBech32);
   mockNetworkName.mockReturnValue('testnet' as any);
 });
 
@@ -90,6 +114,11 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokens().filter(token => token.faucetId === TOKEN_IMIDEN.faucetId)).toHaveLength(1);
   });
 
+  it('withholds the native swap entry until its scale is authoritative', () => {
+    mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
+    expect(getSwapTokens()).toEqual(SWAP_TOKENS);
+  });
+
   it('override replaces the registry for all readers', () => {
     const t = { symbol: 'SWPA', faucetId: 'mtst1local', decimals: SWAP_TOKEN_DECIMALS, logoSymbol: 'MIDEN' };
     mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
@@ -110,31 +139,120 @@ describe('swap token price symbols', () => {
     expect(TOKEN_IUSDT.priceSymbol).toBeUndefined();
     expect(TOKEN_IMIDEN.priceSymbol).toBeUndefined();
   });
+
+  // #1131: a registry token whose priceSymbol the feed does not quote would make the spending cap
+  // refuse every spend of that faucet and leave display surfaces with no price for it; this
+  // catches it at CI time.
+  it('quotes every allowlisted price symbol, including ETH, BTC and USDC', () => {
+    mockGetNativeAssetIdSync.mockReturnValue(null);
+
+    const symbols = _allowlistedPriceSymbolsForTest();
+
+    expect(symbols).toEqual(expect.arrayContaining(['ETH', 'BTC', 'USDC']));
+    symbols.forEach(symbol => expect(isCoveredSymbol(symbol)).toBe(true));
+  });
 });
 
 describe('priceSymbolFor', () => {
   beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
 
-  it('prices IETH and IBTC as ETH and BTC under either id encoding', () => {
-    expect(priceSymbolFor(TOKEN_IETH.faucetId, 'IETH')).toBe('ETH');
-    expect(priceSymbolFor(`bech32:${TOKEN_IETH.faucetId}`, 'IETH')).toBe('ETH');
-    expect(priceSymbolFor(TOKEN_IBTC.faucetId, 'IBTC')).toBe('BTC');
-    expect(priceSymbolFor(`bech32:${TOKEN_IBTC.faucetId}`, 'IBTC')).toBe('BTC');
+  // #1131: every faucet the wallet knows stands for a quoted asset resolves a price symbol, so none of
+  // them silently drops out of spending-limit coverage.
+  it.each([
+    ['IETH', TOKEN_IETH.faucetId, 'ETH'],
+    ['IBTC', TOKEN_IBTC.faucetId, 'BTC'],
+    ['the Earn collateral USDC', MIDEN_USDC_FAUCET, 'USDC'],
+    ['the Agglayer-bridged ETH', MIDEN_AGGLAYER_FAUCET_ID, 'ETH']
+  ])('prices %s under either id encoding', (_name, faucetId, priceSymbol) => {
+    expect(priceSymbolFor(faucetId, 'ANY')).toBe(priceSymbol);
+    expect(priceSymbolFor(`testnet:${faucetId}`, 'ANY')).toBe(priceSymbol);
   });
 
-  it('leaves IUSDT, IMIDEN and a non-swap token on their own symbol', () => {
-    expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBe('IUSDT');
-    expect(priceSymbolFor(`bech32:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBe('IMIDEN');
-    expect(priceSymbolFor('mtst1other', 'ETH')).toBe('ETH');
-    // Matched by faucet id only: a faucet that merely calls itself IETH is not the registry token.
-    expect(priceSymbolFor('mtst1other', 'IETH')).toBe('IETH');
-    expect(priceSymbolFor('mtst1other', 'IBTC')).toBe('IBTC');
+  it('matches a faucet spelled in another encoding than the allowlist entry (hex against bech32)', () => {
+    // Both spellings canonicalize to one id, the way the SDK maps a hex id and its bech32 form.
+    mockToBech32.mockImplementation((id: any) =>
+      id === '0xiethhex' || id === TOKEN_IETH.faucetId ? 'canonical-ieth' : `bech32:${id}`
+    );
+    expect(priceSymbolFor('0xiethhex', 'IETH')).toBe('ETH');
   });
 
-  it('converts each registry id once across calls', () => {
-    priceSymbolFor('mtst1other', 'ETH');
-    priceSymbolFor('mtst1another', 'BTC');
-    expect(mockToBech32).toHaveBeenCalledTimes(getSwapTokens().length);
+  it('prices the bridged faucets the bridge config names, and no compiled one', () => {
+    jest.mocked(bridgePriceAllowlist).mockReturnValueOnce([{ faucetId: '0xe2ecollateral', priceSymbol: 'USDC' }]);
+    expect(priceSymbolFor('0xe2ecollateral', 'USDC')).toBe('USDC');
+    jest.mocked(bridgePriceAllowlist).mockReturnValueOnce([]);
+    expect(priceSymbolFor(MIDEN_USDC_FAUCET, 'USDC')).toBeUndefined();
+    jest.mocked(bridgePriceAllowlist).mockReturnValueOnce([]);
+    expect(priceSymbolFor(MIDEN_AGGLAYER_FAUCET_ID, 'ETH')).toBeUndefined();
+  });
+
+  it('gives no price symbol to any other faucet, whatever symbol it gives itself', () => {
+    expect(priceSymbolFor('mtst1other', 'USDC')).toBeUndefined();
+    expect(priceSymbolFor('mtst1other', 'ETH')).toBeUndefined();
+    expect(priceSymbolFor('mtst1other', 'BTC')).toBeUndefined();
+    expect(priceSymbolFor('mtst1other', 'IETH')).toBeUndefined();
+    expect(priceSymbolFor(TOKEN_IUSDT.faucetId, 'IUSDT')).toBeUndefined();
+    expect(priceSymbolFor(`testnet:${TOKEN_IMIDEN.faucetId}`, 'IMIDEN')).toBeUndefined();
+  });
+
+  it('prices the E2E fixture symbol TST by symbol only in an E2E build', () => {
+    const previous = process.env.MIDEN_E2E_TEST;
+    try {
+      process.env.MIDEN_E2E_TEST = 'true';
+      expect(priceSymbolFor('mtst1fixture', 'TST')).toBe('TST');
+      expect(priceSymbolFor('mtst1fixture', 'USDC')).toBeUndefined();
+      delete process.env.MIDEN_E2E_TEST;
+      expect(priceSymbolFor('mtst1fixture', 'TST')).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = previous;
+    }
+  });
+});
+
+describe('strictPriceSymbolFor', () => {
+  beforeEach(() => mockGetNativeAssetIdSync.mockReturnValue(null));
+  const parseError = new Error('cannot parse the USDC entry');
+  const usdcEntryFailsToParse = () =>
+    mockToBech32.mockImplementation((id: any) => {
+      if (id === MIDEN_USDC_FAUCET) throw parseError;
+      return mockFakeBech32(id);
+    });
+
+  it('prices a canonical IETH id at ETH', () => {
+    expect(strictPriceSymbolFor(canonicalFaucetId(TOKEN_IETH.faucetId), 'IETH')).toBe('ETH');
+  });
+
+  // #1131 F-006: the cap canonicalizes a spend before its metadata await; a network switch during
+  // that await must not leave the spend spelled for the old network while the entries re-encode.
+  it('matches an id canonicalized before a network switch against the entries as the new network spells them', () => {
+    const spend = canonicalFaucetId(TOKEN_IETH.faucetId);
+    mockNetworkName.mockReturnValue('devnet' as any);
+    expect(strictPriceSymbolFor(spend, 'IETH')).toBe(TOKEN_IETH.priceSymbol);
+  });
+
+  it('throws when an allowlist entry it compares cannot be parsed, rather than missing the match', () => {
+    usdcEntryFailsToParse();
+    expect(() => strictPriceSymbolFor(`testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toThrow(parseError);
+  });
+
+  // #1131 F-009: the spend side must throw on an id it cannot parse the same way an entry does -
+  // a lenient fallback there would count an unidentifiable spend as an uncovered $0 instead of
+  // refusing it.
+  it('throws when the spend id itself cannot be parsed, rather than matching nothing', () => {
+    const spendId = '0xspendonly';
+    const spendParseError = new Error('cannot parse the spend id');
+    mockToBech32.mockImplementation((id: any) => {
+      if (id === spendId) throw spendParseError;
+      return mockFakeBech32(id);
+    });
+    expect(() => strictPriceSymbolFor(spendId, 'IETH')).toThrow(spendParseError);
+  });
+
+  it('leaves the display match lenient: the same entry failure gives no price instead of throwing', () => {
+    usdcEntryFailsToParse();
+    const usdc = { price: 1, change24h: 0, percentageChange24h: 0 };
+    expect(priceSymbolFor(`testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
+    expect(tokenQuote({ USDC: usdc }, `testnet:${MIDEN_USDC_FAUCET}`, 'USDC')).toBeUndefined();
   });
 });
 
@@ -150,9 +268,9 @@ describe('tokenQuote', () => {
     });
   });
 
-  it('quotes an unregistered or unknown faucet under its own symbol', () => {
-    expect(tokenQuote({ ETH: eth }, 'mtst1other', 'ETH')).toEqual(eth);
-    expect(tokenQuote({ ETH: eth }, undefined, 'ETH')).toEqual(eth);
+  it('gives no quote to an unknown faucet, or to a token without a faucet id, whatever its symbol', () => {
+    expect(tokenQuote({ ETH: eth }, 'mtst1other', 'ETH')).toBeUndefined();
+    expect(tokenQuote({ ETH: eth }, undefined, 'ETH')).toBeUndefined();
     expect(tokenQuote({ ETH: eth }, undefined, 'IETH')).toBeUndefined();
   });
 
@@ -163,10 +281,27 @@ describe('tokenQuote', () => {
   });
 });
 
+describe('canonicalFaucetId', () => {
+  it("returns the SDK's form of an id", () => {
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+  });
+
+  it('throws when the SDK cannot parse the id, and caches nothing', () => {
+    const parseError = new Error('wasm not ready');
+    mockToBech32.mockImplementationOnce(() => {
+      throw parseError;
+    });
+    expect(() => canonicalFaucetId(TOKEN_IETH.faucetId)).toThrow(parseError);
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+    expect(canonicalFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+    expect(mockToBech32).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('normalizedFaucetId', () => {
   it('converts an id once per network', () => {
-    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
-    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
     expect(mockToBech32).toHaveBeenCalledTimes(1);
   });
 
@@ -185,7 +320,7 @@ describe('normalizedFaucetId', () => {
       throw new Error('wasm not ready');
     });
     expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(TOKEN_IETH.faucetId);
-    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`bech32:${TOKEN_IETH.faucetId}`);
+    expect(normalizedFaucetId(TOKEN_IETH.faucetId)).toBe(`testnet:${TOKEN_IETH.faucetId}`);
   });
 });
 
@@ -266,5 +401,93 @@ describe('getDefaultSwapPair', () => {
     expect(warm.offer.symbol).toBe(cold.offer.symbol);
     expect(warm.request.symbol).toBe(cold.request.symbol);
     expect(warm.offer.symbol).not.toBe(warm.request.symbol);
+  });
+});
+
+describe('getSwapEta', () => {
+  const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+
+  afterEach(() => {
+    jest.useRealTimers();
+    if (originalFetch) Object.defineProperty(globalThis, 'fetch', originalFetch);
+    else Reflect.deleteProperty(globalThis, 'fetch');
+  });
+
+  it('bounds the quote body read too, rejecting once the 10 s timeout passes', async () => {
+    jest.useFakeTimers();
+    // Headers arrive, then a body that ends only when the request's signal aborts, as a real stream does.
+    let signal: AbortSignal | undefined;
+    const fetchMock = jest.fn(async (_url: string, init: RequestInit) => {
+      const given = init.signal ?? undefined;
+      signal = given;
+      const json = () =>
+        new Promise((_resolve, reject) => given?.addEventListener('abort', () => reject(given.reason)));
+      return { ok: true, status: 200, json };
+    });
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
+    const quote: { outcome: unknown } = { outcome: 'pending' };
+    void getSwapEta(TOKEN_IMIDEN, 1n, TOKEN_IUSDT, 0n).then(
+      () => {
+        quote.outcome = 'resolved';
+      },
+      (error: unknown) => {
+        quote.outcome = error;
+      }
+    );
+
+    await jest.advanceTimersByTimeAsync(9_999);
+    expect(quote.outcome).toBe('pending');
+    await jest.advanceTimersByTimeAsync(1);
+
+    expect(quote.outcome).toBe(signal?.reason);
+  });
+});
+
+describe('SDK-confirmed native stablecoin pricing', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue('testnet:0xfee');
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+  });
+  it('prices the confirmed native faucet through either canonical spelling', () => {
+    expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+  });
+  it('does not price a copied symbol or an arbitrary configured native override', () => {
+    expect(tokenQuote({}, 'other-faucet', 'USDCX')).toBeUndefined();
+    mockGetNativeAssetIdSync.mockReturnValue('override-faucet');
+    expect(tokenQuote({}, 'override-faucet', 'USDCX')).toBeUndefined();
+  });
+  it('quotes the native USDCX unit independently of scale and respects a different chain symbol', () => {
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: true });
+    expect(tokenQuote({}, '0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+    expect(tokenQuote({}, '0xfee', 'MIDEN')).toBeUndefined();
+  });
+});
+
+describe('SDK-confirmed provisional native unit pricing', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue('testnet:0xfee');
+    mockGetNativeAssetMetadataSync.mockReturnValue(null);
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+  });
+  it('quotes the provisional native USDCX unit at one dollar before its scale resolves', () => {
+    expect(priceSymbolFor('0xfee', 'USDCX')).toBe('USDCX');
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(getSwapTokens().some(token => token.faucetId === 'testnet:0xfee')).toBe(false);
+  });
+  it('does not quote a copied symbol, missing SDK proof or an unsynced override', () => {
+    expect(tokenQuote({}, 'other-faucet', 'USDCX')).toBeUndefined();
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue(null);
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
+    jest.requireMock('lib/miden-chain/native-asset').getSdkSyncedNativeAssetIdSync.mockReturnValue('0xfee');
+    mockGetNativeAssetIdSync.mockReturnValue('override-faucet');
+    expect(tokenQuote({}, 'override-faucet', 'USDCX')).toBeUndefined();
+  });
+  it('stops the default USDCX quote when authoritative chain metadata identifies MIDEN', () => {
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+    expect(tokenQuote({}, 'testnet:0xfee', 'USDCX')).toBeUndefined();
   });
 });

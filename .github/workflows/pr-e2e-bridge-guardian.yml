@@ -19,10 +19,14 @@ jobs:
   # the spec's beforeAll) and the local guardian co-signer (--profile guardian).
   bridge-guardian-e2e:
     name: bridge-guardian-e2e (chrome)
-    # 2 vCPUs: the referenced pr-e2e-earn.yml figures are per-consume LATENCY, not a
-    # suite wall clock, so they do not establish a core count. Kept at 2x because this
-    # suite measured green here; the cold-build ceiling below is NOT derived from it.
-    runs-on: warp-ubuntu-latest-arm64-2x
+    # Full suite only when the base is main or next; bridge-guardian-e2e-gate
+    # below reports the required name under the same rule (#1071).
+    if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'
+    # x64-8x. The suite was green on arm64-2x when it installed the published SDK.
+    # A linked web-sdk build compiles miden-client-web on the runner, and the 2x ARM
+    # runner was cancelled three times in that crate at about 30 min. The same build
+    # finishes in about 10 min on the 8x runner guardian lifecycle uses.
+    runs-on: warp-ubuntu-latest-x64-8x
     # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
     # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
@@ -36,10 +40,11 @@ jobs:
       MIDEN_NTX_AUTH: e2e-ntx-secret
       # Baked into the app bundle at BUILD time (vite defines). The guardian
       # bridge spec starts the matching hermetic doubles at RUN time on these
-      # exact ports: the fake Epoch allocator (quote / miden-recipient / compact)
-      # on :8548, and a local Anvil (Compact stub) the one EVM read hits on :8545.
-      # No positions catalog is needed — bridge-out drives the Send UI, not /earn.
-      EPOCH_ALLOCATOR_URL: http://127.0.0.1:8548
+      # exact ports: the config document (playwright/e2e/fixtures/hermetic-bridge.ts)
+      # on :8550, which points the wallet at the fake Epoch allocator (:8548), and a
+      # local Anvil (Compact and USDC stubs) the EVM reads hit on :8545. No positions
+      # catalog is needed: bridge-out drives the Send UI, not /earn.
+      MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
       GUARDIAN_URL: http://localhost:3000
     steps:
@@ -57,8 +62,8 @@ jobs:
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -68,30 +73,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
           if [ "${{ runner.arch }}" = X64 ]; then
             namespace=miden-e2e-cargo-v2
           else
             namespace=miden-e2e-cargo-v3-${{ runner.arch }}
           fi
-          echo "key=$namespace-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           key: ${{ steps.cargo_cache_key.outputs.key }}
       # These suites drive a real extension build, so they need the same unreleased
       # dependencies the compile surfaces do: the fee APIs from the linked web-sdk PR and
@@ -208,16 +201,26 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml down -v || true
 
-  # Stable required-check name: passes iff bridge-guardian-e2e succeeded. Mark
-  # THIS "required" in branch protection so the name stays stable across renames.
+  # The gate runs only under the same FULL condition that names it and that
+  # decides the work (#1071), so on a stacked pull request it is skipped and
+  # reports no required name; a push, or a close and reopen, is what gets a
+  # retargeted pull request its required names from its own pull_request run.
+  # A by-hand workflow_dispatch run reports the required name on the branch
+  # head, against published packages, with no linked-PR injection: the inject
+  # actions exit on any event but pull_request. Branch protection accepts
+  # that check for a pull request at the same commit, which is the spec's
+  # by-hand escape hatch.
   bridge-guardian-e2e-gate:
-    name: bridge-guardian-e2e-gate
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'bridge-guardian-e2e-gate' || 'bridge-guardian-e2e-gate (stacked)' }}
     needs: [bridge-guardian-e2e]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') }}
     runs-on: ubuntu-slim
     steps:
-      - run: |
-          R="${{ needs.bridge-guardian-e2e.result }}"
-          if [ "$R" != "success" ]; then
-            echo "bridge-guardian-e2e $R"; exit 1; fi
-          echo "bridge-guardian-e2e $R"
+      # Data comes in through env:, not inline ${{ }} in the shell below, so the
+      # gate's own logic is plain, unambiguous bash with nothing to interpolate.
+      - env:
+          RESULT: ${{ needs.bridge-guardian-e2e.result }}
+        run: |
+          set -euo pipefail
+          [ "$RESULT" = success ] || { echo "bridge-guardian-e2e $RESULT"; exit 1; }
+          echo "bridge-guardian-e2e $RESULT"

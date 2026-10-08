@@ -217,10 +217,17 @@ describe('BackUpSeedPhraseScreen', () => {
   });
 
   describe('words visibility toggle', () => {
+    // The mask is the span that blurs a word, found by its slot rather than by the class under test.
+    const wordMasks = () =>
+      screen.getAllByTestId(/^seed-word-\d+$/).map(chip => chip.querySelector('[data-slot="word-mask"]'));
+
     it('starts hidden: words are blurred and the toggle shows the "show" affordance', () => {
       renderComponent();
-      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
-      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-sm');
+      // A plain filter value, since the composed blur-sm draws nothing on a Chrome 113 WebView.
+      for (const mask of wordMasks()) {
+        expect(mask).toHaveClass('[filter:blur(8px)]');
+        expect(mask).not.toHaveClass('blur-sm');
+      }
 
       const toggle = screen.getByTestId('btn-show');
       expect(toggle).toHaveAttribute('data-icon', 'ICON_EYE');
@@ -228,8 +235,7 @@ describe('BackUpSeedPhraseScreen', () => {
 
     it('respects reduced motion on the blur transition', () => {
       renderComponent();
-      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
-      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('motion-reduce:transition-none');
+      expect(wordMasks()[0]).toHaveClass('motion-reduce:transition-none');
     });
 
     it('reveals the words and flips the toggle label/icon when clicked', () => {
@@ -237,8 +243,10 @@ describe('BackUpSeedPhraseScreen', () => {
 
       fireEvent.click(screen.getByTestId('btn-show'));
 
-      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
-      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-none');
+      for (const mask of wordMasks()) {
+        expect(mask).toHaveClass('[filter:none]');
+        expect(mask).not.toHaveClass('[filter:blur(8px)]');
+      }
 
       const toggle = screen.getByTestId('btn-hide');
       expect(toggle).toHaveAttribute('data-icon', 'ICON_EYE_OFF');
@@ -250,8 +258,7 @@ describe('BackUpSeedPhraseScreen', () => {
       fireEvent.click(screen.getByTestId('btn-show'));
       fireEvent.click(screen.getByTestId('btn-hide'));
 
-      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
-      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-sm');
+      expect(wordMasks()[0]).toHaveClass('[filter:blur(8px)]');
       expect(screen.getByTestId('btn-show')).toBeInTheDocument();
     });
   });

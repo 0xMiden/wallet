@@ -5,6 +5,7 @@ import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
+import type { TokenMetadataOverride, TokenMetadataOverrides } from 'lib/miden/metadata/overrides';
 import type {
   SpendingLimitAssessment,
   SpendingLimitConfiguration,
@@ -48,13 +49,21 @@ export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
+  /**
+   * The display faucet id each account's last landed read built its MIDEN row for. No override
+   * rewrites that row: the reader built it as the native token's, not from that faucet's record.
+   */
+  balancesDisplayFaucetId: Record<string, string>;
 }
 
 /**
  * Assets metadata (previously TokensMetadataProvider)
  */
 export interface AssetsSlice {
+  /** The metadata each screen shows: the faucet's values with the user's override applied. */
   assetsMetadata: Record<string, AssetMetadata>;
+  /** The display values the user set, by faucet id. Loaded from storage by `TokensMetadataProvider`. */
+  tokenMetadataOverrides: TokenMetadataOverrides;
 }
 
 /**
@@ -154,8 +163,7 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     walletAccounts: WalletAccount[],
-    formatVersion?: number,
-    importedAccounts?: ImportedAccountBackup[]
+    importedAccounts: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 
@@ -195,8 +203,18 @@ export interface WalletActions {
   signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Conditional rollback after the node discards a rotation. Refused unless the
+   * account still names `discardedEndpoint`, so a rollback carrying old evidence
+   * cannot overwrite a binding something authoritative has since moved.
+   */
+  revertGuardianEndpointAfterDiscard: (
+    accountPublicKey: string,
+    discardedEndpoint: string,
+    revertTo: string
+  ) => Promise<'reverted' | 'superseded' | 'stale'>;
   setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
@@ -244,8 +262,18 @@ export interface BalanceActions {
 }
 
 export interface AssetActions {
+  /** Takes the faucet's metadata. The store applies the user's overrides before it shows it. */
   setAssetsMetadata: (metadata: Record<string, AssetMetadata>) => void;
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;
+  /**
+   * Sets the user's display values of a token, and stores them. The screens change at once.
+   * Rejects, and puts back the previous values, when the write fails. Rejects for the native token.
+   */
+  setTokenMetadataOverride: (faucetId: string, override: TokenMetadataOverride) => Promise<void>;
+  /** Removes the user's display values of a token, so the faucet's values show again. Rejects when the write fails. */
+  clearTokenMetadataOverride: (faucetId: string) => Promise<void>;
+  /** Replaces the overrides map with the stored one, and applies it again. */
+  hydrateTokenMetadataOverrides: (overrides: TokenMetadataOverrides) => void;
 }
 
 /**

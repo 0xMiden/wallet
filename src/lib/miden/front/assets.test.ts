@@ -7,11 +7,24 @@ _g.__assetsTest = {
 
 const mockSetAssetsMetadata = jest.fn();
 const mockFetchAssetMetadata = jest.fn();
-const walletStoreState = {
+const mockHydrateTokenMetadataOverrides = jest.fn();
+const mockOverridesListeners = new Set<() => void>();
+const mockWalletStoreState = {
+  tokenPrices: {},
+  balances: {},
   assetsMetadata: {} as Record<string, any>,
+  tokenMetadataOverrides: {} as Record<string, unknown>,
   setAssetsMetadata: mockSetAssetsMetadata,
-  fetchAssetMetadata: mockFetchAssetMetadata
+  fetchAssetMetadata: mockFetchAssetMetadata,
+  hydrateTokenMetadataOverrides: mockHydrateTokenMetadataOverrides
 };
+
+let mockActualNativeId = 'miden-faucet-id';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockActualNativeId,
+  getNativeAssetMetadataSync: jest.fn(() => ({ symbol: 'MIDEN', decimals: 6 })),
+  onNativeAssetChanged: jest.fn(() => () => {})
+}));
 
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
@@ -30,11 +43,24 @@ jest.mock('lib/platform/storage-adapter', () => ({
 }));
 
 jest.mock('lib/store', () => ({
-  useWalletStore: jest.fn()
-}));
-
-jest.mock('lib/swr', () => ({
-  useRetryableSWR: jest.fn(() => ({ data: null, mutate: jest.fn() }))
+  useWalletStore: Object.assign(jest.fn(), {
+    getState: () => mockWalletStoreState,
+    // As subscribeWithSelector on the overrides: the listener hears each hydrate.
+    subscribe: (_select: unknown, listener: () => void) => {
+      mockOverridesListeners.add(listener);
+      return () => {
+        mockOverridesListeners.delete(listener);
+      };
+    },
+    setState: jest.fn((update: (state: typeof mockWalletStoreState) => Partial<typeof mockWalletStoreState>) =>
+      Object.assign(mockWalletStoreState, update(mockWalletStoreState))
+    )
+  }),
+  // As the store's accessor: an entry no override made is the faucet's record.
+  faucetMetadataOf: (faucetId: string) =>
+    mockWalletStoreState.tokenMetadataOverrides[faucetId] === undefined
+      ? mockWalletStoreState.assetsMetadata[faucetId]
+      : undefined
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -44,10 +70,25 @@ jest.mock('lib/miden/front', () => ({
   },
   fetchTokenMetadata: jest.fn(),
   onStorageChanged: jest.fn(() => () => {}),
-  usePassiveStorage: jest.fn(() => [{}, jest.fn()]),
   isMidenAsset: (slug: string | object) => slug === 'miden',
-  MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden', thumbnailUri: '' }
+  MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
 }));
+
+// The shape check has its own tests. Here it is a mock, so each test can control it.
+const mockEnsureTokensMetadataSchema = jest.fn();
+jest.mock('lib/miden/metadata/storage', () => ({
+  ...jest.requireActual('lib/miden/metadata/storage'),
+  ensureTokensMetadataSchema: (...args: Parameters<typeof ensureTokensMetadataSchema>) =>
+    mockEnsureTokensMetadataSchema(...args)
+}));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case publishes.
+let mockBridgeSnapshot: import('lib/remote-config/runtime').BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 
 jest.mock('app/hooks/useGasToken', () => ({
   useGasToken: () => ({ metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' } })
@@ -62,9 +103,15 @@ import React from 'react';
 
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 
-import { fetchTokenMetadata, onStorageChanged, usePassiveStorage } from 'lib/miden/front';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import { fetchFromStorage, fetchTokenMetadata, onStorageChanged, putToStorage } from 'lib/miden/front';
+import { TOKENS_METADATA_OVERRIDES_STORAGE_KEY } from 'lib/miden/metadata/overrides';
+import type { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { useWalletStore } from 'lib/store';
-import { useRetryableSWR } from 'lib/swr';
 
 import {
   ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
@@ -75,25 +122,36 @@ import {
   useAllAssetMetadata,
   useAllTokensBaseMetadata,
   useAssetMetadata,
-  useDetailedAssetMetadata,
   useGetTokenMetadata,
   useTokensMetadata
 } from './assets';
 
 const mockUseWalletStore = useWalletStore as unknown as jest.Mock;
-const mockUseRetryableSWR = useRetryableSWR as jest.Mock;
 const mockFetchTokenMetadata = fetchTokenMetadata as jest.Mock;
 const mockOnStorageChanged = onStorageChanged as jest.Mock;
-const mockUsePassiveStorage = usePassiveStorage as jest.Mock;
 
 beforeEach(() => {
   for (const k of Object.keys(_g.__assetsTest.storage)) delete _g.__assetsTest.storage[k];
   jest.clearAllMocks();
-  walletStoreState.assetsMetadata = {};
-  mockUseWalletStore.mockImplementation((selector: any) => selector(walletStoreState));
-  mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
+  mockActualNativeId = 'miden-faucet-id';
+  jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('miden-faucet-id');
+  jest
+    .requireMock('lib/miden-chain/native-asset')
+    .getNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+  mockFetchTokenMetadata.mockReset();
+  mockSetAssetsMetadata.mockReset();
+
+  mockWalletStoreState.assetsMetadata = {};
+  mockWalletStoreState.tokenMetadataOverrides = {};
+  mockUseWalletStore.mockImplementation((selector: any) => selector(mockWalletStoreState));
   mockOnStorageChanged.mockReturnValue(() => {});
-  mockUsePassiveStorage.mockReturnValue([{}, jest.fn()]);
+  mockEnsureTokensMetadataSchema.mockReset().mockResolvedValue(undefined);
+  mockBridgeSnapshot = undefined;
+  // As the store's action: the overrides it is given become the ones it holds.
+  mockHydrateTokenMetadataOverrides.mockImplementation((overrides: Record<string, unknown>) => {
+    mockWalletStoreState.tokenMetadataOverrides = overrides;
+    mockOverridesListeners.forEach(listener => listener());
+  });
 });
 
 describe('setTokensBaseMetadata', () => {
@@ -133,6 +191,94 @@ describe('getTokensBaseMetadata', () => {
   it('uses the empty default when nothing is stored', async () => {
     expect(await getTokensBaseMetadata('any')).toBeUndefined();
   });
+
+  it("applies the user override to the stored record on the faucet's scale, and the record stays as the faucet gave it", async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = {
+      'asset-1': { decimals: 6, symbol: 'A1', name: 'Asset 1', description: 'From the faucet' }
+    };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'asset-1': { name: 'Mine', symbol: 'MINE', decimals: 2 }
+    };
+
+    expect(await getTokensBaseMetadata('asset-1')).toStrictEqual({
+      decimals: 6,
+      symbol: 'MINE',
+      name: 'Mine',
+      description: 'From the faucet'
+    });
+    expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]['asset-1'].symbol).toBe('A1');
+  });
+
+  it('applies an override with no stored record to the unknown-token placeholder', async () => {
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'asset-x': { name: 'Mine', symbol: 'MN', decimals: 9 }
+    };
+
+    expect(await getTokensBaseMetadata('asset-x')).toEqual({
+      name: 'Mine',
+      symbol: 'MN',
+      decimals: 9,
+      scaleIsUnknown: false,
+      scaleFromOverride: true
+    });
+  });
+
+  it('never applies an override to the native token', async () => {
+    const native = { decimals: 6, symbol: 'MIDEN', name: 'Miden' };
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'miden-faucet-id': native };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'miden-faucet-id': { name: 'Fake', symbol: 'FAKE', decimals: 18 }
+    };
+
+    expect(await getTokensBaseMetadata('miden-faucet-id')).toEqual(native);
+  });
+});
+
+describe('the cache schema check before a direct read', () => {
+  // A record of schema 1, which the check clears.
+  const oldShapeRecord = { decimals: 6, symbol: 'TOK', name: 'TOK', shouldPreferSymbol: true };
+  const clearingCheck = async () => {
+    delete _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY];
+  };
+
+  it('runs before getTokensBaseMetadata reads the cache', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': oldShapeRecord };
+    mockEnsureTokensMetadataSchema.mockImplementation(clearingCheck);
+
+    const result = await getTokensBaseMetadata('asset-1');
+
+    expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledWith(fetchFromStorage, putToStorage);
+    expect(result).toBeUndefined();
+  });
+
+  it('runs before useAllAssetMetadata reads the cache', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': oldShapeRecord };
+    mockEnsureTokensMetadataSchema.mockImplementation(clearingCheck);
+
+    const result = await useAllAssetMetadata();
+
+    expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledWith(fetchFromStorage, putToStorage);
+    expect(result).toEqual({});
+  });
+
+  it('still reads the cache when the check fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const record = { decimals: 6, symbol: 'A1', name: 'Asset 1' };
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': record };
+    mockEnsureTokensMetadataSchema.mockRejectedValue(new Error('storage unavailable'));
+
+    try {
+      const one = await getTokensBaseMetadata('asset-1');
+      const all = await useAllAssetMetadata();
+
+      expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledTimes(2);
+      expect(one).toEqual(record);
+      expect(all).toEqual({ 'asset-1': record });
+      expect(warn).toHaveBeenCalledWith('Token metadata cache check failed', expect.any(Error));
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('useAllAssetMetadata (async helper)', () => {
@@ -150,17 +296,19 @@ describe('useAllAssetMetadata (async helper)', () => {
 
 describe('metadata hooks and provider', () => {
   const baseMetadata = { decimals: 8, symbol: 'TOK', name: 'Token' };
-  const detailedMetadata = { decimals: 8, symbol: 'TOK', name: 'Token', description: 'Detailed token' };
+  const describedMetadata = { decimals: 8, symbol: 'TOK', name: 'Token', description: 'A described token' };
 
   it('returns gas token metadata for the configured miden faucet', () => {
     const { result } = renderHook(() => useAssetMetadata('miden', 'miden-faucet-id'));
 
-    expect(result.current).toEqual({ decimals: 6, symbol: 'MIDEN', name: 'Miden' });
+    expect(result.current).toEqual(
+      expect.objectContaining({ decimals: 6, symbol: 'MIDEN', name: 'Miden', scaleIsUnknown: false })
+    );
     expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
   });
 
   it('returns cached metadata for a known token asset', () => {
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
 
@@ -170,24 +318,87 @@ describe('metadata hooks and provider', () => {
   });
 
   it('auto-fetches and persists metadata for a missing non-miden asset', async () => {
-    mockFetchTokenMetadata.mockResolvedValue({
-      base: baseMetadata,
-      detailed: detailedMetadata
-    });
+    mockFetchTokenMetadata.mockResolvedValue(describedMetadata);
 
     renderHook(() => useAssetMetadata('token', 'asset-missing'));
 
     await waitFor(() => {
-      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-missing': baseMetadata });
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-missing': describedMetadata });
     });
 
     await waitFor(() => {
-      expect(_g.__assetsTest.storage['detailed_asset_metadata_asset-missing']).toEqual(detailedMetadata);
+      expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]).toEqual({
+        'asset-missing': describedMetadata
+      });
     });
   });
 
-  it('syncs initial token metadata into the wallet store', async () => {
-    mockUsePassiveStorage.mockReturnValue([{ 'asset-1': baseMetadata }, jest.fn()]);
+  it('auto-fetches the metadata of a faucet whose store entry only an override made', async () => {
+    const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+    // What the store holds for a faucet with no record: the placeholder with the override on top.
+    mockWalletStoreState.assetsMetadata = {
+      'asset-overridden': { name: 'Mine', symbol: 'MN', decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
+    };
+    mockWalletStoreState.tokenMetadataOverrides = { 'asset-overridden': override };
+    mockFetchTokenMetadata.mockResolvedValue(describedMetadata);
+
+    const { result } = renderHook(() => useAssetMetadata('token', 'asset-overridden'));
+
+    expect(result.current).toMatchObject({ symbol: 'MN', decimals: 3 });
+    await waitFor(() => {
+      expect(mockFetchTokenMetadata).toHaveBeenCalledWith('asset-overridden');
+    });
+    await waitFor(() => {
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-overridden': describedMetadata });
+    });
+  });
+
+  it('fetches missing foreign legacy display metadata and exposes its known scale', async () => {
+    mockActualNativeId = 'actual-A';
+    jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
+    jest
+      .requireMock('lib/miden-chain/native-asset')
+      .getNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+    const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
+    mockFetchTokenMetadata.mockResolvedValue(legacyMetadata);
+    mockSetAssetsMetadata.mockImplementation(metadata => Object.assign(mockWalletStoreState.assetsMetadata, metadata));
+    const { result, rerender } = renderHook(() => useAssetMetadata('miden', 'legacy-B'));
+    await waitFor(() => expect(mockFetchTokenMetadata).toHaveBeenCalledWith('legacy-B'));
+    await waitFor(() =>
+      expect(_g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY]?.['legacy-B']).toEqual(legacyMetadata)
+    );
+    rerender();
+    expect(result.current).toEqual(legacyMetadata);
+    expect(result.current?.scaleIsUnknown).not.toBe(true);
+  });
+
+  it.each([false, true])(
+    'uses actual native chain metadata under a foreign legacy display override, cached=%s',
+    cached => {
+      mockActualNativeId = 'actual-A';
+      jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
+      jest
+        .requireMock('lib/miden-chain/native-asset')
+        .getNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+      if (cached) mockWalletStoreState.assetsMetadata['actual-A'] = { symbol: 'MIDEN', name: 'Miden', decimals: 8 };
+      const { result } = renderHook(() => useAssetMetadata('token', 'actual-A'));
+      expect(result.current).toMatchObject({ symbol: 'USDCX', decimals: 6, scaleIsUnknown: false });
+      expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preserves cached foreign legacy display metadata without fetching it', () => {
+    mockActualNativeId = 'actual-A';
+    jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
+    const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
+    mockWalletStoreState.assetsMetadata['legacy-B'] = legacyMetadata;
+    const { result } = renderHook(() => useAssetMetadata('miden', 'legacy-B'));
+    expect(result.current).toEqual(legacyMetadata);
+    expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
+  });
+
+  it('syncs initial token metadata into the wallet store after the cache shape check', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': baseMetadata };
 
     render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
 
@@ -195,12 +406,72 @@ describe('metadata hooks and provider', () => {
     await waitFor(() => {
       expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-1': baseMetadata });
     });
+    expect(mockEnsureTokensMetadataSchema).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not sync an old-shape cache that the shape check clears', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': { ...baseMetadata, name: 'TOK' } };
+    let finishCheck: () => void = () => {};
+    mockEnsureTokensMetadataSchema.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishCheck = () => {
+            _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = {};
+            resolve();
+          };
+        })
+    );
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+    await waitFor(() => expect(mockEnsureTokensMetadataSchema).toHaveBeenCalled());
+    await act(async () => {
+      finishCheck();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(mockSetAssetsMetadata).not.toHaveBeenCalledWith(
+      expect.objectContaining({ 'asset-1': expect.objectContaining({ name: 'TOK' }) })
+    );
+  });
+
+  it('keeps the chain metadata of the native token ahead of a stored copy', async () => {
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = {
+      'asset-1': baseMetadata,
+      'miden-faucet-id': { symbol: 'OLD', name: 'Old', decimals: 8 }
+    };
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    await waitFor(() => {
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith(expect.objectContaining({ 'asset-1': baseMetadata }));
+    });
+    const nativeWrites = mockSetAssetsMetadata.mock.calls
+      .map(([metadata]) => metadata['miden-faucet-id'])
+      .filter(metadata => metadata !== undefined);
+    expect(nativeWrites[nativeWrites.length - 1]).toMatchObject({
+      symbol: 'MIDEN',
+      decimals: 6,
+      scaleIsUnknown: false
+    });
+  });
+
+  it('still syncs the stored metadata when the shape check fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    _g.__assetsTest.storage[ALL_TOKENS_BASE_METADATA_STORAGE_KEY] = { 'asset-1': baseMetadata };
+    mockEnsureTokensMetadataSchema.mockRejectedValue(new Error('storage unavailable'));
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    await waitFor(() => {
+      expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-1': baseMetadata });
+    });
+    warn.mockRestore();
   });
 
   it('listens for storage changes and cleans up the listener', () => {
     const cleanup = jest.fn();
     mockOnStorageChanged.mockImplementation((_key: string, callback: (value: any) => void) => {
-      callback({ 'asset-2': detailedMetadata });
+      callback({ 'asset-2': describedMetadata });
       return cleanup;
     });
 
@@ -209,50 +480,171 @@ describe('metadata hooks and provider', () => {
     );
 
     expect(mockOnStorageChanged).toHaveBeenCalledWith(ALL_TOKENS_BASE_METADATA_STORAGE_KEY, expect.any(Function));
-    expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-2': detailedMetadata });
+    expect(mockSetAssetsMetadata).toHaveBeenCalledWith({ 'asset-2': describedMetadata });
 
     unmount();
 
     expect(cleanup).toHaveBeenCalled();
   });
 
+  it('loads the stored overrides into the store on mount', async () => {
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = {
+      'asset-1': { name: 'Mine', symbol: 'MINE' },
+      // Storage is not typed: a record without a valid name and symbol is dropped.
+      'asset-2': { decimals: 99 },
+      'asset-3': { symbol: 'ONLY' }
+    };
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    await waitFor(() => {
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith({ 'asset-1': { name: 'Mine', symbol: 'MINE' } });
+    });
+  });
+
+  it('applies an override change from another page, and an empty map when storage is wiped', () => {
+    const listeners: Record<string, (value: unknown) => void> = {};
+    mockOnStorageChanged.mockImplementation((key: string, callback: (value: unknown) => void) => {
+      listeners[key] = callback;
+      return () => {};
+    });
+
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    act(() =>
+      listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!({ 'asset-3': { name: 'Mine', symbol: 'MN', decimals: 4 } })
+    );
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({
+      'asset-3': { name: 'Mine', symbol: 'MN', decimals: 4 }
+    });
+
+    act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!(undefined));
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenLastCalledWith({});
+  });
+
+  it('applies the overrides again when the bridge config changes which overridden faucet the wallet names (#477)', async () => {
+    const overrides = {
+      [TEST_MIDEN_USDC_FAUCET]: { name: 'Mine', symbol: 'MINE' },
+      'asset-1': { name: 'One', symbol: 'ONE' }
+    };
+    _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = overrides;
+    const { unmount } = render(
+      React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child'))
+    );
+    await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(overrides));
+    mockHydrateTokenMetadataOverrides.mockClear();
+
+    // Still loading: no overridden faucet changes status.
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).not.toHaveBeenCalled();
+
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(overrides);
+
+    // A poll that only moves lastFetch leaves the store alone.
+    const assetsMetadata = mockWalletStoreState.assetsMetadata;
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, lastFetch: { at: 1, ok: true } };
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+    expect(mockWalletStoreState.assetsMetadata).toBe(assetsMetadata);
+
+    // Unmounted, the provider hears no publish, even one that changes a faucet's status, and no store change.
+    unmount();
+    expect(mockOverridesListeners.size).toBe(0);
+    mockBridgeSnapshot = undefined;
+    act(() => publishMockBridgeSnapshot());
+    expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the re-apply compares against the overrides the store holds (#477)', () => {
+    const usdcOverride = { [TEST_MIDEN_USDC_FAUCET]: { name: 'Mine', symbol: 'MINE' } };
+    const renderProvider = () =>
+      render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
+
+    // The config names the faucet from the start, while the store holds no override yet.
+    beforeEach(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    });
+
+    it('applies again once when a publish stops naming a faucet whose override the mount read loaded', async () => {
+      _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = usdcOverride;
+      renderProvider();
+      await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride));
+      mockHydrateTokenMetadataOverrides.mockClear();
+
+      mockBridgeSnapshot = undefined;
+      act(() => publishMockBridgeSnapshot());
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride);
+    });
+
+    it('applies again once when a publish stops naming a faucet whose override a storage change loaded', async () => {
+      const listeners: Record<string, (value: unknown) => void> = {};
+      mockOnStorageChanged.mockImplementation((key: string, callback: (value: unknown) => void) => {
+        listeners[key] = callback;
+        return () => {};
+      });
+      renderProvider();
+      await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith({}));
+      act(() => listeners[TOKENS_METADATA_OVERRIDES_STORAGE_KEY]!(usdcOverride));
+      mockHydrateTokenMetadataOverrides.mockClear();
+
+      mockBridgeSnapshot = undefined;
+      act(() => publishMockBridgeSnapshot());
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledTimes(1);
+      expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride);
+    });
+
+    it('applies nothing again on a poll that only moves lastFetch once the overrides have loaded', async () => {
+      _g.__assetsTest.storage[TOKENS_METADATA_OVERRIDES_STORAGE_KEY] = usdcOverride;
+      renderProvider();
+      await waitFor(() => expect(mockHydrateTokenMetadataOverrides).toHaveBeenCalledWith(usdcOverride));
+      mockHydrateTokenMetadataOverrides.mockClear();
+
+      mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, lastFetch: { at: 1, ok: true } };
+      act(() => publishMockBridgeSnapshot());
+      expect(mockHydrateTokenMetadataOverrides).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns a metadata lookup callback that handles miden and token assets', () => {
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
 
     const { result } = renderHook(() => useGetTokenMetadata());
 
-    expect(result.current('miden', 'miden-faucet-id')).toEqual({ decimals: 6, symbol: 'MIDEN', name: 'Miden' });
+    expect(result.current('miden', 'miden-faucet-id')).toEqual(
+      expect.objectContaining({ decimals: 6, symbol: 'MIDEN', name: 'Miden', scaleIsUnknown: false })
+    );
     expect(result.current('token', 'asset-1')).toEqual(baseMetadata);
   });
 
-  it('returns detailed metadata when available and subscribes to storage changes', () => {
-    const mutate = jest.fn();
-    walletStoreState.assetsMetadata = {
-      'asset-1': baseMetadata
-    };
-    mockUseRetryableSWR.mockReturnValue({ data: detailedMetadata, mutate });
-
-    const { result } = renderHook(() => useDetailedAssetMetadata('token', 'asset-1'));
-
-    expect(result.current).toEqual(detailedMetadata);
-    expect(mockOnStorageChanged).toHaveBeenCalledWith('detailed_asset_metadata_asset-1', mutate);
-  });
-
-  it('falls back to base metadata when detailed metadata is missing', () => {
-    walletStoreState.assetsMetadata = {
-      'asset-1': baseMetadata
-    };
-    mockUseRetryableSWR.mockReturnValue({ data: null, mutate: jest.fn() });
-
-    const { result } = renderHook(() => useDetailedAssetMetadata('token', 'asset-1'));
-
-    expect(result.current).toEqual(baseMetadata);
-  });
+  it.each([false, true])(
+    'looks up actual native chain metadata with a divergent legacy selector, cached=%s',
+    cached => {
+      mockActualNativeId = 'actual-A';
+      jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
+      jest
+        .requireMock('lib/miden-chain/native-asset')
+        .getNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+      if (cached) mockWalletStoreState.assetsMetadata['actual-A'] = { symbol: 'MIDEN', name: 'Miden', decimals: 8 };
+      const legacyMetadata = { symbol: 'LEGACY', name: 'Legacy', decimals: 2 };
+      mockWalletStoreState.assetsMetadata['legacy-B'] = legacyMetadata;
+      const { result } = renderHook(() => useGetTokenMetadata());
+      expect(result.current('token', 'actual-A')).toMatchObject({
+        symbol: 'USDCX',
+        decimals: 6,
+        scaleIsUnknown: false
+      });
+      expect(result.current('miden', 'legacy-B')).toEqual(legacyMetadata);
+    }
+  );
 
   it('returns all base metadata from the wallet store', () => {
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
 
@@ -263,21 +655,15 @@ describe('metadata hooks and provider', () => {
 
   it('returns token metadata helpers backed by a ref and persistence', async () => {
     const nextMetadata = { decimals: 9, symbol: 'NEXT', name: 'Next token' };
-    walletStoreState.assetsMetadata = {
+    mockWalletStoreState.assetsMetadata = {
       'asset-1': baseMetadata
     };
-    mockFetchTokenMetadata.mockResolvedValue({
-      base: nextMetadata,
-      detailed: { ...nextMetadata, description: 'Detailed next token' }
-    });
+    mockFetchTokenMetadata.mockResolvedValue(nextMetadata);
 
     const { result } = renderHook(() => useTokensMetadata());
 
     expect(result.current.allTokensBaseMetadataRef.current).toEqual({ 'asset-1': baseMetadata });
-    await expect(result.current.fetchMetadata('asset-next')).resolves.toEqual({
-      base: nextMetadata,
-      detailed: { ...nextMetadata, description: 'Detailed next token' }
-    });
+    await expect(result.current.fetchMetadata('asset-next')).resolves.toEqual(nextMetadata);
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('asset-next');
 
     await act(async () => {
@@ -317,9 +703,50 @@ describe('searchAssets', () => {
     expect(result.some(r => r.id === 'id-eth')).toBe(true);
   });
 
+  it.each([false, true])(
+    'searches actual native chain metadata under a divergent legacy selector, cached=%s',
+    cached => {
+      mockActualNativeId = 'actual-A';
+      jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
+      jest
+        .requireMock('lib/miden-chain/native-asset')
+        .getNativeAssetMetadataSync.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+      const candidates = [
+        { slug: 'token', id: 'actual-A' },
+        { slug: 'token', id: 'foreign-C' }
+      ];
+      const metadata = {
+        'foreign-C': { symbol: 'USDCX', name: 'USDCX', decimals: 2 },
+        ...(cached ? { 'actual-A': { symbol: 'MIDEN', name: 'Miden', decimals: 8 } } : {})
+      };
+      expect(searchAssets('USDCX', candidates, metadata)[0]).toEqual(candidates[0]);
+    }
+  );
+
+  it('searches cached foreign legacy display metadata without native substitution', () => {
+    mockActualNativeId = 'actual-A';
+    const candidates = [{ slug: 'miden', id: 'legacy-B' }];
+    expect(
+      searchAssets('LEGACY', candidates, { 'legacy-B': { symbol: 'LEGACY', name: 'Legacy', decimals: 2 } })
+    ).toEqual(candidates);
+  });
+
   it('handles miden asset via MIDEN_METADATA', () => {
     const midenAssets = [{ slug: 'miden', id: 'miden-id' }];
     const result = searchAssets('Miden', midenAssets, {});
     expect(result).toEqual([{ slug: 'miden', id: 'miden-id' }]);
   });
+});
+
+it('labels fresh actual native metadata as USDCX without trusting a provisional scale', () => {
+  mockActualNativeId = 'actual-A';
+  jest.requireMock('app/hooks/useMidenFaucetId').default.mockReturnValue('legacy-B');
+  const chainMetadata = jest.requireMock('lib/miden-chain/native-asset').getNativeAssetMetadataSync;
+  chainMetadata.mockReturnValue(null);
+  const { result, rerender } = renderHook(() => useAssetMetadata('token', 'actual-A'));
+  expect(result.current).toMatchObject({ symbol: 'USDCX', name: 'USDCX', decimals: 6, scaleIsUnknown: true });
+  expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
+  chainMetadata.mockReturnValue({ symbol: 'USDCX', decimals: 6 });
+  rerender();
+  expect(result.current).toMatchObject({ symbol: 'USDCX', name: 'USDCX', decimals: 6, scaleIsUnknown: false });
 });

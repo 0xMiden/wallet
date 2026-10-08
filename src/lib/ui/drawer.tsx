@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
 import { IconName } from 'app/icons/v2';
+import { HeaderRule } from 'components/ui/HeaderRule';
 import { IconButton } from 'components/ui/IconButton';
 import { sheetMotionVars } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
@@ -111,19 +112,30 @@ function DrawerContent({
   overlayClassName,
   children,
   hideHandle = true,
+  forceMount,
   style,
   ...props
 }: DrawerContentProps) {
+  const { open } = useContext(DrawerContext);
+  // Once dismissed, the sheet and its `fixed inset-0` overlay stay mounted through the 500ms exit and
+  // would swallow the tap aimed at what they uncover, so they stop taking pointer events. It must be an
+  // inline style spread last: Radix writes inline `pointer-events: auto` on the overlay and on the
+  // content's dismissable layer, and an inline declaration outranks any class.
+  const inertWhileClosing = open ? undefined : ({ pointerEvents: 'none' } as const);
+
   return (
-    <VaulDrawer.Portal>
+    <VaulDrawer.Portal forceMount={forceMount}>
       {/* A plain scrim, one token in both themes: dimming the page is the whole job, and a frosted
           blur over it only smears whatever is underneath. */}
-      <VaulDrawer.Overlay style={sheetMotionVars} className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)} />
+      <VaulDrawer.Overlay
+        style={{ ...sheetMotionVars, ...inertWhileClosing }}
+        className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)}
+      />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
         // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
-        style={{ ...sheetMotionVars, ...style }}
+        style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the
@@ -150,22 +162,25 @@ function DrawerContent({
 }
 
 /**
- * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` (optionally
- * over a `DrawerDescription`) and the 32px circular close on the right, on the 16px sheet margin.
- * No rule under it — separation inside a sheet comes from the `fill` groups below, not from a
- * divider across the top (design-system.md, "Elevation"). The close reads `onClose` from the drawer
+ * The one sheet header, used by every drawer in the app: a left-aligned `DrawerTitle` and the 32px
+ * circular close on the right, on the 16px sheet margin, then the `HeaderRule` a page header ends
+ * with, so a sheet opens the way a tab root does: its title at the tab title's size. A `DrawerDescription` goes under the header, not
+ * in it: the row centres the close on its content, so a paragraph beside it pushed the close off
+ * the title's line. The close reads `onClose` from the drawer
  * context, so the handle-less default needs no extra wiring.
  */
 function DrawerHeader({ className, children }: { className?: string; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const { onClose } = useContext(DrawerContext);
   return (
-    <div
-      data-slot="drawer-header"
-      className={cn('flex w-full shrink-0 items-center justify-between gap-3 px-4 pt-5 pb-4', className)}
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-      <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
+    <div data-slot="drawer-header" className={cn('w-full shrink-0 px-4 pt-5 pb-3', className)}>
+      <div className="flex items-center justify-between gap-3 pb-2">
+        {/* A title in the header takes the tab title's size; a `DrawerTitle` outside it (an
+            `AlertSheet`'s question) keeps its own. */}
+        <div className="flex min-w-0 flex-col gap-0.5 [&>[data-slot=drawer-title]]:text-title-tab">{children}</div>
+        <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
+      </div>
+      <HeaderRule />
     </div>
   );
 }
@@ -190,7 +205,7 @@ function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLPar
   return (
     <VaulDrawer.Description
       data-slot="drawer-description"
-      className={cn('text-body-sm text-muted', className)}
+      className={cn('px-4 pb-2 text-caption-heading text-muted', className)}
       {...props}
     />
   );

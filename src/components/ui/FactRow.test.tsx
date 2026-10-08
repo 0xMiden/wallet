@@ -84,7 +84,7 @@ describe('IconCircle', () => {
     const circle = screen.getByText('*');
     expect(circle).toHaveAttribute('aria-hidden', 'true');
     expect(circle).toHaveAttribute('data-slot', 'icon');
-    expect(circle).toHaveClass('h-8', 'w-8', 'rounded-full', 'bg-fill', '[&>svg]:h-4', '[&>svg]:w-4');
+    expect(circle).toHaveClass('h-8', 'w-8', 'rounded-full', 'bg-fill', 'text-ink', '[&>svg]:h-4', '[&>svg]:w-4');
   });
 
   it('draws the small size as a 20px disc that leaves the glyph its own size', () => {
@@ -96,11 +96,12 @@ describe('IconCircle', () => {
     expect(circle.className).not.toContain('[&>svg]:h-4');
   });
 
-  it("takes a caller's tint in place of the fill", () => {
+  it("takes a caller's tint in place of the fill and its colour in place of ink", () => {
     render(<IconCircle className="bg-positive-tint text-positive-tint-ink">*</IconCircle>);
 
     const circle = screen.getByText('*');
     expect(circle).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
     expect(circle).not.toHaveClass('bg-fill');
+    expect(circle).not.toHaveClass('text-ink');
   });
 });

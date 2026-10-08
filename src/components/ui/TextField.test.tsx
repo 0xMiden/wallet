@@ -2,7 +2,7 @@ import React, { createRef, useState } from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import TextFieldDefault, { SECRET_REVEAL_MS, TextField } from './TextField';
+import TextFieldDefault, { SECRET_REVEAL_MS, TextField, type TextFieldProps } from './TextField';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
@@ -27,6 +27,19 @@ describe('TextField — exports & defaults', () => {
 });
 
 describe('TextField — label association', () => {
+  it('draws a 13px muted label by default', () => {
+    render(<TextField label="Address" value="" onChange={jest.fn()} />);
+    expect(screen.getByText('Address')).toHaveClass('text-label', 'text-muted');
+  });
+
+  it('draws the label as the 16px section title with labelSize="md", still associated to the field', () => {
+    render(<TextField label="Address" labelSize="md" value="" onChange={jest.fn()} />);
+    const label = screen.getByText('Address');
+    expect(label).toHaveClass('text-row-title', 'text-muted');
+    expect(label).not.toHaveClass('text-label');
+    expect(screen.getByLabelText('Address').tagName).toBe('INPUT');
+  });
+
   it('associates the label with the field via htmlFor/id, so it is queryable by accessible name', () => {
     render(<TextField label="Address" value="" onChange={jest.fn()} />);
     const field = screen.getByLabelText('Address');
@@ -117,6 +130,13 @@ describe('TextField — hint and error', () => {
     expect(message).toHaveTextContent('Invalid address');
     expect(message.className).toContain('text-negative-ink');
     expect(message.getAttribute('role')).toBe('alert');
+  });
+
+  // Guardian and RPC failures carry long unbreakable strings (endpoint URLs, hashes). Unwrapped they
+  // run past the fixed-width popup and are clipped, hiding the reason (#454).
+  it('wraps a long error instead of letting it overflow', () => {
+    render(<TextField value="" onChange={jest.fn()} error="Invalid address" />);
+    expect(screen.getByRole('alert')).toHaveClass('wrap-break-word');
   });
 
   it('rings the field negative and sets aria-invalid while there is an error', () => {
@@ -299,6 +319,13 @@ describe('TextField — secret', () => {
     fireEvent.change(field, { target: { value: '' } });
     fireEvent.blur(field);
     expect(cover()).toBeNull();
+  });
+
+  it('frosts the cover with a plain 8px blur, prefixed and not, so older WebViews still blur the secret', () => {
+    render(<TextField secret value="my private key" onChange={jest.fn()} />);
+
+    expect(cover()).toHaveClass('[backdrop-filter:blur(8px)]', '[-webkit-backdrop-filter:blur(8px)]');
+    expect(cover()).not.toHaveClass('backdrop-blur-sm');
   });
 
   describe('once revealed', () => {
@@ -510,5 +537,132 @@ describe('TextField — secret', () => {
   it('leaves an ordinary field uncovered', () => {
     render(<TextField value="not a secret" onChange={jest.fn()} />);
     expect(cover()).toBeNull();
+  });
+});
+
+describe('TextField: placeholder on focus (#503)', () => {
+  it('hides the placeholder while focused, on a single-line and a multi-line field', () => {
+    const { rerender } = render(<TextField value="" onChange={jest.fn()} placeholder="Enter address" />);
+    expect(screen.getByRole('textbox')).toHaveClass('placeholder:text-muted', 'focus:placeholder:text-transparent');
+
+    rerender(<TextField multiline value="" onChange={jest.fn()} placeholder="Enter address" />);
+    expect(screen.getByRole('textbox')).toHaveClass('placeholder:text-muted', 'focus:placeholder:text-transparent');
+  });
+
+  it('keeps the placeholder text itself across focus and blur', () => {
+    render(<TextField value="" onChange={jest.fn()} placeholder="Enter address" />);
+    const field = screen.getByRole('textbox');
+    fireEvent.focus(field);
+    expect(field).toHaveAttribute('placeholder', 'Enter address');
+    fireEvent.blur(field);
+    expect(field).toHaveAttribute('placeholder', 'Enter address');
+  });
+});
+
+describe('TextField: clear action (#503)', () => {
+  const clearButton = () => screen.queryByRole('button', { name: 'clear' });
+
+  const Controlled = ({
+    initial,
+    multiline,
+    onValue
+  }: {
+    initial: string;
+    multiline?: boolean;
+    onValue: (value: string) => void;
+  }) => {
+    const [value, setValue] = useState(initial);
+    return (
+      <TextField
+        multiline={multiline}
+        value={value}
+        onChange={event => {
+          onValue(event.target.value);
+          setValue(event.target.value);
+        }}
+      />
+    );
+  };
+
+  it('shows one clear button only while the field holds a value', () => {
+    const { rerender } = render(<TextField value="" onChange={jest.fn()} />);
+    expect(clearButton()).toBeNull();
+
+    rerender(<TextField value="alice" onChange={jest.fn()} />);
+    expect(screen.getAllByRole('button', { name: 'clear' })).toHaveLength(1);
+  });
+
+  const exceptions: Array<[string, Partial<TextFieldProps>]> = [
+    ['a trailing action', { trailing: <span>.json</span> }],
+    ['a password', { type: 'password' }],
+    ['a secret', { secret: true }],
+    ['a disabled field', { disabled: true }],
+    ['a read-only field', { readOnly: true }],
+    ['an opted-out field', { clearable: false }]
+  ];
+
+  it.each(exceptions)('offers no clear action on %s', (_label, props) => {
+    render(<TextField value="alice" onChange={jest.fn()} {...props} />);
+    expect(clearButton()).toBeNull();
+  });
+
+  it('sits in a single-line pill after the input, its glyph on the text edge', () => {
+    render(<TextField value="alice" onChange={jest.fn()} />);
+    const clear = screen.getByRole('button', { name: 'clear' });
+    expect(screen.getByRole('textbox').parentElement).toContainElement(clear);
+    expect(clear).toHaveClass('-mr-3', 'ml-1');
+    expect(clear).not.toHaveClass('absolute');
+  });
+
+  it("clears a controlled field through the owner's onChange and keeps focus in it", () => {
+    const onValue = jest.fn();
+    render(<Controlled initial="alice" onValue={onValue} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(onValue).toHaveBeenCalledWith('');
+    expect(screen.getByRole('textbox')).toHaveValue('');
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    expect(clearButton()).toBeNull();
+  });
+
+  it('clears a multi-line field the same way, the button floating clear of its text', () => {
+    const onValue = jest.fn();
+    render(<Controlled multiline initial="mtst1qy35" onValue={onValue} />);
+    const field = screen.getByRole('textbox');
+    expect(field.tagName).toBe('TEXTAREA');
+    expect(field).toHaveClass('pr-7');
+    expect(screen.getByRole('button', { name: 'clear' })).toHaveClass('absolute', 'right-1', 'top-0.5');
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(onValue).toHaveBeenCalledWith('');
+    expect(field).toHaveValue('');
+    expect(field).toHaveFocus();
+    expect(field).not.toHaveClass('pr-7');
+  });
+
+  it('empties an uncontrolled field whose owner reads it from the DOM, as a register()ed one does', () => {
+    const ref = createRef<HTMLInputElement | HTMLTextAreaElement>();
+    const onChange = jest.fn();
+    // EditMidenFaucetId's shape: the owner's onChange ignores the event and reads the ref on submit.
+    render(<TextField ref={ref} defaultValue="0xfaucet" onChange={() => onChange()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(ref.current?.value).toBe('');
+    expect(clearButton()).toBeNull();
+  });
+
+  it('shows what the owner renders when it refuses the empty value', () => {
+    const onChange = jest.fn();
+    render(<TextField value="alice" onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('textbox')).toHaveValue('alice');
+    expect(clearButton()).not.toBeNull();
   });
 });

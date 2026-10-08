@@ -2,6 +2,7 @@ import {
   AdviceMap,
   FeltArray,
   Poseidon2,
+  RpcClient,
   Signature,
   Word,
   type Felt,
@@ -16,24 +17,31 @@ import {
   isLikelyNetworkError
 } from '@openzeppelin/miden-multisig-client';
 
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
-import { registerGuardianOrigin } from './native-http';
-import { checkEndpointCommitment } from './operator-map';
-import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs } from './serialize';
+import { registerGuardianOrigin, withGuardianProbe } from './native-http';
+import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
+import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
-import { sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { accountRefToSdk, sameWalletAccountId } from '../sdk/helpers';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  withWasmClientLock,
+  type WasmClientLockOptions
+} from '../sdk/miden-client';
+import { isKilledPipeline } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { syncBeforeVerdict } from '../sync-lock';
 
 /**
  * Direct on-chain guardian rotation — the fallback for when the OUTGOING
@@ -69,17 +77,6 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
  * parking the row forever rather than to hit a latency target.
  */
 const DIRECT_REGISTER_TIMEOUT_MS = 30_000;
-
-/**
- * Ceiling on the NEW guardian's unauthenticated `GET /pubkey` — the one network
- * call the direct switch makes BEFORE it signs anything.
- *
- * Same budget as the `/configure` write above, and generous for the same reason:
- * it exists to stop a silent endpoint from parking a non-requeueable row, not to
- * hit a latency target. There is no retry loop behind it — a failure here fails
- * the rotation before any state changed, which is the safe direction.
- */
-const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -176,8 +173,9 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
   // The two are classified together on purpose: `WasmClientPoisonedError` keeps
   // foreign text off its message precisely so text heuristics can't reach it,
   // so it does NOT match today, and this pins that asymmetry shut rather than
-  // leaving it to the wording of a message.
-  if (isOperationAbortedError(err) || isWasmClientPoisonedError(err)) return false;
+  // leaving it to the wording of a message. Read at any depth: a caller's wrapper
+  // can carry the same `abort` token in its own message (#1313).
+  if (isKilledPipeline(err)) return false;
 
   // A numeric `status` means the guardian ANSWERED, so the answer decides and
   // the message is never consulted: any 5xx counts as effectively down (a
@@ -287,10 +285,8 @@ const ecdsaSignatureAdviceEntry = (
  * are folded into the request's advice map. The result flows through the same
  * execute → prove → submit leaf as a proposal-built request.
  *
- * Since protocol 0.16 the signed summary binds the reference block commitment,
- * so the returned `chainAnchorB64` MUST be supplied to the executing
- * `executeRequest` — an unanchored execution at a later sync height derives a
- * different summary and the hot/cold signatures no longer verify.
+ * The anchor names the block the auth args bind; the rebuilt request declares
+ * that block so both signatures verify when the final leaf executes at the tip.
  *
  * Only the NEW guardian is contacted (its `getPubkey` is unauthenticated), to
  * fetch the pubkey commitment the on-chain rotation installs.
@@ -307,25 +303,27 @@ export const createDirectSwitchGuardianRequest = async (
     );
   }
 
-  registerGuardianOrigin(newGuardianEndpoint);
-  // Bounded, like every other guardian call on this path. `GuardianHttpClient`
-  // uses bare `fetch` with no `AbortSignal`, so an endpoint that accepts the
-  // connection and then goes silent produces no error at all — and this is the
-  // FIRST network call of the fallback, reached precisely because a guardian just
-  // failed to answer. Unbounded, a silent NEW endpoint parks the row at
-  // `signing-locally` forever while holding the per-account guardian lock, and
-  // `switch-guardian` is in no requeue set and has no user Retry, so nothing ever
-  // frees it. The coordinated arms wrap their outgoing-guardian calls in
-  // `withOutgoingGuardianDeadline` for the same reason; this one had nothing.
-  const { commitment, pubkey } = await withTimeout(
-    new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa'),
-    NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
-    `New guardian ${newGuardianEndpoint} pubkey`
-  );
-  // Validate before it becomes MASM: this value is unchecked wire data and the
-  // SDK splices it into transaction-script SOURCE. See
-  // `assertGuardianKeyCommitment`.
-  const newGuardianPubkey = assertGuardianKeyCommitment(commitment, newGuardianEndpoint);
+  // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
+  const { commitment, pubkey, newGuardianPubkey } = await withGuardianProbe(newGuardianEndpoint, async () => {
+    // Bounded, like every other guardian call on this path, and more tightly than
+    // the fetch boundary's GUARDIAN_REQUEST_TIMEOUT_MS. `GuardianHttpClient` passes
+    // no `AbortSignal`, so an endpoint that accepts the connection and then goes
+    // silent produces no error until that cut-off, and this is the FIRST network
+    // call of the fallback, reached precisely because a guardian just failed to
+    // answer. A silent NEW endpoint parks the row at `signing-locally` while holding
+    // the per-account guardian lock, and `switch-guardian` is in no requeue set and
+    // has no user Retry. The coordinated arms wrap their outgoing-guardian calls in
+    // `withOutgoingGuardianDeadline` for the same reason.
+    const answer = await withTimeout(
+      new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa'),
+      NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
+      `New guardian ${newGuardianEndpoint} pubkey`
+    );
+    // Validate before it becomes MASM: this value is unchecked wire data and the
+    // SDK splices it into transaction-script SOURCE. See
+    // `assertGuardianKeyCommitment`.
+    return { ...answer, newGuardianPubkey: assertGuardianKeyCommitment(answer.commitment, newGuardianEndpoint) };
+  });
   // The commitment is the ONLY field that reaches the chain, and both device keys
   // are about to sign an account update installing it — so a well-formed response
   // whose commitment does not belong to the key the operator actually signs with
@@ -366,37 +364,51 @@ export const createDirectSwitchGuardianRequest = async (
   // proxy sync freshens the offscreen client while the local client that
   // `buildUpdateGuardianTransactionRequest`/`executeForSummary` run on stays
   // dormant, so the hot/cold signatures would bind a summary derived from
-  // stale state and the anchored execution would fail as unauthorized —
+  // stale state and execution would fail as unauthorized -
   // precisely in the dead-old-guardian recovery this path exists for.
-  const built = await withWasmClientLock(async () => {
+  //
+  // An eviction abandons this callback rather than cancelling it, and the mutex
+  // (with the client) passes to a successor, so each await that can park is
+  // followed by an ownership re-check before the next WASM call. Every transition
+  // here is pre-sign and pre-submit: stopping costs the user a retry.
+  const built = await withWasmClientLock(async hold => {
     const midenClient = await getMidenClient();
+    assertWasmHoldCurrent(hold, 'direct-request: after the client build');
     await midenClient.syncState();
+    assertWasmHoldCurrent(hold, 'direct-request: after the state sync');
     const account = await midenClient.getAccount(walletAccount.publicKey);
     if (!account) {
       throw new Error(`Guardian account ${walletAccount.publicKey} not found in local client`);
     }
+    assertWasmHoldCurrent(hold, 'direct-request: after the account read');
     const accountIdHex = account.id().toString();
     const { commitment: hotCommitment } = await getSignerDetailsFromAccount(account, false);
     const { commitment: coldCommitment } = await getSignerDetailsFromAccount(account, true);
+    assertWasmHoldCurrent(hold, 'direct-request: after the signer reads');
     const webClient = midenClient.client;
-    // Without `feeFaucetId` the builder commits no fee conversion info and
-    // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING on any chain whose
-    // verification base fee is non-zero. This path arrived with the offline-rotation
-    // work after the fee paths were swept, so it was never given the option.
+    // `accountId` is what the builder commits the multisig auth args for; left
+    // unset, `boundBlockNum` binds the sync height, which is the block the
+    // summary's anchor below names.
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: getEffectiveRpcUrl()
+      accountId: accountIdHex,
+      signatureScheme: 'ecdsa'
     });
-    const { summary, anchor } = await executeForSummary(webClient, accountIdHex, request, getEffectiveRpcUrl());
+    assertWasmHoldCurrent(hold, 'direct-request: after the request build');
+    const { summary, anchor } = await executeForSummary(webClient, accountIdHex, request);
     // `freeChainAnchor` in a `finally`, like every other anchor site (#784): the
     // anchor carries a partial blockchain, so it must not leak if the
     // serialization below throws, and wasm-bindgen's `free()` has no
     // null-pointer guard — on a disposed module it throws, and a bare `free()`
     // in this position would surface that instead of the successful build.
     try {
+      // Inside the try, as in index.ts's replace-hot-key build, so an eviction
+      // still releases the anchor (`freeChainAnchor` swallows a disposed-object failure).
+      assertWasmHoldCurrent(hold, 'direct-request: after the summary execution');
       return {
         hotCommitment,
         coldCommitment,
+        accountIdHex,
+        boundBlockNum: anchor.blockNum(),
         saltHex: salt.toHex(),
         txCommitmentHex: summary.toCommitment().toHex(),
         chainAnchorB64: chainAnchorToBase64(anchor)
@@ -406,13 +418,11 @@ export const createDirectSwitchGuardianRequest = async (
     }
   });
 
-  // Hot and cold must be DISTINCT on-chain signers. `getSignerDetailsFromAccount`
-  // resolves cold as `commitments[1] ?? commitments[0]`, so an account carrying a
-  // single signer commitment yields the hot one twice — the two advice entries
-  // would then collide on one Poseidon2 key (it is derived from the signer
-  // commitment), the map would hold ONE signature, and the threshold-2
-  // `update_guardian` would fail on-chain as unauthorized. Say so here instead,
-  // where the reason is still available.
+  // Hot and cold must be DISTINCT on-chain signers: if index 0 and index 1 ever
+  // resolve to the same commitment, the two advice entries would collide on one
+  // Poseidon2 key (it is derived from the signer commitment), the map would hold
+  // ONE signature, and the threshold-2 `update_guardian` would fail on-chain as
+  // unauthorized. Say so here instead, where the reason is still available.
   if (built.hotCommitment === built.coldCommitment) {
     throw new Error(
       `Guardian account ${walletAccount.publicKey} resolves the same on-chain signer commitment for hot and cold; ` +
@@ -474,25 +484,50 @@ export const createDirectSwitchGuardianRequest = async (
   // waited — the next `extendAdviceMap` borrows a freed pointer. Everything
   // that crosses the two lock scopes is a plain hex string (`built`) precisely
   // so it survives a client replacement.
-  const request = await withWasmClientLock(async () => {
+  const request = await withWasmClientLock(async hold => {
     const webClient = (await getMidenClient()).client;
+    assertWasmHoldCurrent(hold, 'direct-request: after the rebuild client build');
     const signatureAdviceMap = new AdviceMap();
     const hotEntry = ecdsaSignatureAdviceEntry(built.hotCommitment, built.txCommitmentHex, hotSignature);
     const coldEntry = ecdsaSignatureAdviceEntry(built.coldCommitment, built.txCommitmentHex, coldSignature);
     signatureAdviceMap.insert(hotEntry.key, new FeltArray(hotEntry.values));
     signatureAdviceMap.insert(coldEntry.key, new FeltArray(coldEntry.values));
-    // Same fee-conversion-info requirement as the build above; the rebuild must
-    // reproduce the SAME auth args or the summary will not match what was signed.
+    // The rebuild must reproduce the SAME auth args or the summary will not match
+    // what was signed, and they bind a block: a sync while the vault signed moves
+    // the default, so the build's bound block is pinned explicitly.
     const { request: rebuilt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
+      accountId: built.accountIdHex,
+      boundBlockNum: built.boundBlockNum,
       salt: Word.fromHex(ensureHexPrefix(built.saltHex)),
       signatureAdviceMap,
-      signatureScheme: 'ecdsa',
-      midenRpcEndpoint: getEffectiveRpcUrl()
+      signatureScheme: 'ecdsa'
     });
     return rebuilt;
   });
   return { request, chainAnchorB64: built.chainAnchorB64 };
 };
+
+/**
+ * The raw node-authoritative read behind `didDirectSwitchLand` - THROWS on
+ * failure instead of folding it into `undefined`, for callers that must tell
+ * "no verdict" apart from "could not look" (the pending-rotation recheck feeds
+ * a sync fuse with exactly that distinction). The timer-driven caller passes
+ * the sync ceiling plus a label, per the bounded-hold discipline (#777).
+ *
+ * `transactionId` is the ON-CHAIN hash, not a local Dexie row id: the read
+ * matches `tx.id().toHex()`, so a row id can only ever answer `'not-found'`.
+ */
+export const readDirectSwitchCommitState = async (transactionId: string, lockOptions?: WasmClientLockOptions) =>
+  withWasmClientLock(async hold => {
+    await midenClientProxy.syncState();
+    // `syncState()` is a long parking await, and an eviction hands the mutex to
+    // a successor while THIS callback keeps running - so the commit-state read
+    // below would be a second borrow of a client somebody else is already
+    // inside. The timer-driven caller (the pending-rotation recheck) makes that
+    // reachable on a schedule rather than once per rotation.
+    assertWasmHoldCurrent(hold, 'direct-switch commit-state read, after the state sync');
+    return midenClientProxy.getTransactionCommitState(transactionId);
+  }, lockOptions);
 
 /**
  * Ask the NODE whether a submitted direct rotation actually took effect.
@@ -507,10 +542,12 @@ export const createDirectSwitchGuardianRequest = async (
  * then has to decide whether to persist the new endpoint. Guessing is not
  * survivable in one of the two directions: persisting the endpoint for a rotation
  * that never landed points the vault at an operator with NO on-chain authority
- * over the account, and nothing detects it afterwards — the drift reconciler
- * compares the on-chain commitment against its own cached baseline, and in
- * exactly this case those two agree (both still name the old operator), so it
- * returns `in-sync` without ever looking at the stored endpoint. Post-commit
+ * over the account, and the drift reconciler does not detect it - it compares
+ * the on-chain commitment against its own cached baseline, and in exactly this
+ * case those two agree (both still name the old operator), so it returns
+ * `in-sync` without ever looking at the stored endpoint. That is why the
+ * pending-rotation recheck reverts the endpoint itself on a `discarded`
+ * verdict rather than leaving the repair to drift. Post-commit
  * registration also succeeds against the new operator, so every subsequent sync
  * is healthy and the account looks fine right up until a transaction needs a
  * co-signature the chain will not accept.
@@ -522,19 +559,43 @@ export const createDirectSwitchGuardianRequest = async (
  * transaction's account delta into the LOCAL store; the rotation's whole effect
  * is one storage slot, so the local account already names the new operator
  * before this function runs. Guardian accounts are private storage mode, so
- * there is no public account state to compare against either — the chain holds a
- * commitment to the account, not its guardian slot. A commitment read would
+ * there is no public account state to compare against either: the chain holds a
+ * commitment to the account, not its guardian slot. A LOCAL account read would
  * therefore be the wallet reading back its own optimistic write and reporting it
- * as chain confirmation. The transaction RECORD is the thing the node has an
- * opinion about, and `getTransactionCommitState` is the same authority
- * `verifySendLanded` uses for the equivalent double-send question.
+ * as chain confirmation. The node's committed commitment is not that read: equal to
+ * the executed transaction's final commitment it confirms a commit
+ * (`readChainAccountCommitment`), but it cannot show a discard. The transaction
+ * RECORD is the thing the node has an opinion about, and `getTransactionCommitState`
+ * is the same authority `verifySendLanded` uses for the equivalent double-send question.
+ *
+ * The coordinated structural commit wait (`waitForStructuralCommit`) reads it too, and
+ * the same reasons hold there: the leaf's apply already wrote the local account, and a
+ * pending or unknown record is no verdict.
+ *
+ * TWO HOLDS, as `verifySendLanded` takes: a best-effort sync at the sync ceiling, labelled,
+ * then the record read in a default hold of its own, since it is a local store read. The sync
+ * and its eviction rule are `syncBeforeVerdict`'s (no read after a watchdog eviction). After
+ * any other failed sync the last-synced record is still read: 'committed' and 'discarded' are
+ * final rulings, so a stale record can only turn a verdict into no verdict, never into a wrong one.
  */
 export const didDirectSwitchLand = async (transactionId: string): Promise<boolean | undefined> => {
+  if (
+    !(await syncBeforeVerdict('guardian-verdict-sync', `reading the node-side state of transaction ${transactionId}`))
+  ) {
+    return undefined;
+  }
+  return readLastSyncedVerdict(transactionId);
+};
+
+/**
+ * The record read `didDirectSwitchLand` makes after its sync, in a default hold of its own, and the same
+ * verdict (#1233). It never syncs: a landed write's poll reads through it each round, the realm's own
+ * sync keeps the record current, and a sync per round could rebuild a client against a node that just
+ * parked.
+ */
+export const readLastSyncedVerdict = async (transactionId: string): Promise<boolean | undefined> => {
   try {
-    const state = await withWasmClientLock(async () => {
-      await midenClientProxy.syncState();
-      return midenClientProxy.getTransactionCommitState(transactionId);
-    });
+    const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(transactionId));
     if (state === 'committed') return true;
     if (state === 'discarded') return false;
     // 'pending' — submitted and still awaiting a block, so it may yet land — and
@@ -542,13 +603,90 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
     // explicitly NOT evidence of not-landing — are both non-verdicts.
     return undefined;
   } catch (error) {
-    // A failure here is not a verdict — say so, rather than letting a broken read
-    // masquerade as "did not land" and fail a rotation that may well have
-    // committed.
+    // POISON IS NOT A NON-VERDICT, it is a statement about the caller. Folded to
+    // `undefined` like any other read failure, an eviction of this node read
+    // reached the completion path as the W1 "submitted, commit unconfirmed"
+    // residue - so an abandoned pipeline went on to persist the endpoint and mark
+    // the row Completed, and the `generateTransaction` poison handler whose whole
+    // job is to NOT finalize an abandoned pipeline never saw it. Same rule, same
+    // file: `asPreflight` rethrows poison unwrapped for exactly this reason.
+    if (isWasmClientPoisonedError(error)) throw error;
+    // Any other failure here is not a verdict - say so, rather than letting a
+    // broken read masquerade as "did not land" and fail a rotation that may well
+    // have committed.
     console.warn('Could not read the node-side state of the direct switch transaction:', error);
     return undefined;
   }
 };
+
+/** The longest one landed commitment read may take, whatever time its caller has left. */
+const LANDED_COMMITMENT_READ_TIMEOUT_MS = 15_000;
+
+/**
+ * The node's commitment to the account's current state, as hex (#1233), or `undefined` when the read
+ * failed, which is no verdict. One attempt, bounded by `timeoutMs` and at most 15 s, so a caller polling
+ * under a deadline passes the time it has left. Takes no WASM client lock: the RpcClient is standalone,
+ * and every SDK object is built inside the attempt.
+ */
+export const readChainAccountCommitment = async (accountId: string, timeoutMs: number): Promise<string | undefined> => {
+  try {
+    await ensureSdkWasmReady();
+    const proof = await withRpcTimeout(
+      () => new RpcClient(getRpcEndpoint()).getAccountProof(accountRefToSdk(accountId)),
+      'landed account commitment',
+      { timeoutMs: Math.min(timeoutMs, LANDED_COMMITMENT_READ_TIMEOUT_MS), retries: 0 }
+    );
+    return proof.accountCommitment().toHex();
+  } catch (error) {
+    console.warn(`Could not read the node-side commitment of account ${accountId}:`, error);
+    return undefined;
+  }
+};
+
+export const GUARDIAN_SWITCH_DISCARDED = 'GuardianSwitchDiscardedError';
+
+/**
+ * The node discarded a landed switch whose local apply failed (#1233), so the switch did not happen.
+ * Thrown out of completion for its caller to fail the row, as the direct path fails its own discard.
+ * `strandedEndpoint` is the new guardian's endpoint when it could not be taken back off the account,
+ * so the Failed row says the stored endpoint still names it.
+ */
+export class GuardianSwitchDiscardedError extends Error {
+  constructor(transactionId: string, strandedEndpoint?: string) {
+    super(
+      `Guardian switch ${transactionId} did not land: the node discarded it.` +
+        (strandedEndpoint === undefined
+          ? ''
+          : ` The stored guardian endpoint still names the new guardian (${strandedEndpoint}) and could not be ` +
+            'set back to the previous one.')
+    );
+    this.name = GUARDIAN_SWITCH_DISCARDED;
+  }
+}
+
+/** Name-based, so it survives module mocking and structured-clone boundaries. */
+export const isGuardianSwitchDiscardedError = (error: unknown): boolean =>
+  error instanceof Error && error.name === GUARDIAN_SWITCH_DISCARDED;
+
+export const GUARDIAN_WRITE_DISCARDED = 'GuardianWriteDiscardedError';
+
+/**
+ * The node discarded a rotation, a threshold update or a switch, so it never lands, and
+ * `cancelTransaction` records that on the row (#1233).
+ */
+export class GuardianWriteDiscardedError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = GUARDIAN_WRITE_DISCARDED;
+  }
+}
+
+/**
+ * Name-based, like its sibling, and true for the landed switch reconcile's
+ * {@link GuardianSwitchDiscardedError} too.
+ */
+export const isGuardianWriteDiscardedError = (error: unknown): boolean =>
+  error instanceof Error && (error.name === GUARDIAN_WRITE_DISCARDED || error.name === GUARDIAN_SWITCH_DISCARDED);
 
 /**
  * Marks a failure that happened BEFORE any `/configure` was issued — a local
@@ -567,15 +705,29 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
 export const GUARDIAN_REGISTRATION_PREFLIGHT = 'GuardianRegistrationPreflightError';
 
 export class GuardianRegistrationPreflightError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  /** What the new operator answered to the key-commitment check, on the refusal that check raised. */
+  readonly endpointCheck?: EndpointCommitmentCheck;
+
+  constructor(message: string, options?: ErrorOptions, endpointCheck?: EndpointCommitmentCheck) {
     super(message, options);
     this.name = GUARDIAN_REGISTRATION_PREFLIGHT;
+    this.endpointCheck = endpointCheck;
   }
 }
 
 /** Name-based, so it survives module mocking and structured-clone boundaries. */
 export const isGuardianRegistrationPreflightError = (error: unknown): boolean =>
   error instanceof Error && error.name === GUARDIAN_REGISTRATION_PREFLIGHT;
+
+/**
+ * The refusal of a new operator that answered `/pubkey` with a key other than the one the local state
+ * names. Name-based, like its sibling.
+ */
+export const isGuardianKeyMismatchRefusal = (error: unknown): boolean =>
+  error instanceof Error &&
+  error.name === GUARDIAN_REGISTRATION_PREFLIGHT &&
+  'endpointCheck' in error &&
+  error.endpointCheck === 'mismatch';
 
 /**
  * Tag EVERYTHING raised before the first `/configure` as preflight, rather than
@@ -590,11 +742,21 @@ export const isGuardianRegistrationPreflightError = (error: unknown): boolean =>
  * disabled the repair for the session. The invariant is positional, not
  * per-site: no request has been sent yet, so nothing thrown here can be
  * evidence about the operator. `cause` keeps the original for the log.
+ *
+ * ONE EXCEPTION, and it is not about the operator either. A poison error says
+ * the realm's WASM client was taken away mid-call - a fact the CALLER has to act
+ * on, because its next step is another hold on a client somebody else now owns.
+ * Rewrapping it as a preflight error tells that caller the opposite of what it
+ * needs: "refused before contacting the operator, refund and carry on". The
+ * refund is right; carrying on is not, and the wrapper is what erased the
+ * difference. Kill classifiers read this class by name (`isWasmClientPoisoned-
+ * Error`), so it has to survive the rethrow intact.
  */
 const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
   try {
     return await operation();
   } catch (error) {
+    if (isWasmClientPoisonedError(error)) throw error;
     if (isGuardianRegistrationPreflightError(error)) throw error;
     const detail = error instanceof Error ? error.message : String(error);
     throw new GuardianRegistrationPreflightError(`Could not prepare the guardian registration: ${detail}`, {
@@ -612,15 +774,41 @@ const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
  * account, derive the cosigner allowlist from that SAME fresh account (never a
  * cached set), then `configure` on the new guardian with retry/backoff.
  *
- * Throws `GuardianRegistrationPreflightError` when it refuses before contacting
- * the operator; the three call sites (`complete.ts`, the direct-switch pipeline,
- * and the missing-registration self-heal) all treat that as a refund rather than
- * a spent attempt.
+ * Throws `GuardianRegistrationPreflightError` when it refuses before the
+ * `/configure` - which is not the same as before touching the operator at all,
+ * since the commitment check ahead of it does a `/pubkey`. Two production
+ * callers, and they treat it differently on purpose: the missing-registration
+ * self-heal refunds the attempt rather than spending it, while the completion
+ * path (`complete.ts`) has no budget to refund and books every throw here as
+ * `registerFailed`, leaving the repair to that same self-heal.
  */
 export const finalizeDirectGuardianSwitch = async (
   accountId: string,
   newGuardianEndpoint: string,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  // Same shape, and the same reason, as `readDirectSwitchCommitState` above: the
+  // preflight hold is bounded and labeled by the TIMER-DRIVEN caller, while the
+  // completion path keeps the default ceiling. Both callers reach the same hold,
+  // but only one of them re-enters it every three seconds for as long as the
+  // operator stays unreachable, which is what the sync ceiling is calibrated for.
+  lockOptions?: WasmClientLockOptions,
+  /**
+   * Fired ONCE, immediately before the first `/configure` leaves this device.
+   *
+   * The same affordance, for the same reason, as
+   * `MultisigService.reRegisterCurrentStateOnGuardian`'s callback of this name.
+   * A caller on a bounded budget has to know which side of the POST a failure
+   * came from, and the ERROR cannot tell it: `asPreflight` deliberately rethrows
+   * a `WasmClientPoisonedError` unwrapped, so an eviction of the preflight's
+   * `syncState()` - strictly pre-POST - arrives looking exactly like an eviction
+   * that landed with a `/configure` in flight. The caller that guessed "charged"
+   * spent a budget only a successful registration refunds, on an operator that
+   * was never asked for anything.
+   *
+   * Not called at all when this function throws before the loop below, which is
+   * precisely the signal: no call, no request, refund.
+   */
+  onBeforeRegister?: () => void
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -632,9 +820,29 @@ export const finalizeDirectGuardianSwitch = async (
 
   const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, guardianCommitment } =
     await asPreflight(() =>
-      withWasmClientLock(async () => {
+      withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
+        // Same parking-await rule as `readDirectSwitchCommitState`, and this is
+        // the more dangerous of the two: an eviction during the sync releases the
+        // mutex, and the reads below would then serialize an account handle out
+        // of a client a successor already owns - a blob this function POSTs to
+        // the operator as the account's authoritative state and its new signer
+        // allowlist. The self-heal reaches here from the 3 s loop, so it is a
+        // scheduled exposure, not a once-per-rotation one.
+        assertWasmHoldCurrent(hold, 'guardian register preflight, after the state sync');
         const account = await midenClientProxy.getAccount(walletAccount.publicKey);
+        // AND AGAIN AFTER THE ACCOUNT READ, which is a parking await of its own.
+        // Guarding only the sync above covered the first of the two and left the
+        // whole payload derivation - `AccountInspector.fromAccount`,
+        // `account.serialize()`, the guardian-slot read - running on a handle
+        // borrowed from a client an eviction may already have handed to a
+        // successor. That is the same one-guard-per-hold mistake
+        // `reRegisterCurrentStateOnGuardian` fixed by re-checking after BOTH of
+        // its awaits, and the stakes here are the highest in the change: these
+        // bytes are POSTed to the operator as the account's authoritative state
+        // and its new signer allowlist. Still strictly pre-write, so failing
+        // here costs a refunded attempt and nothing else.
+        assertWasmHoldCurrent(hold, 'guardian register preflight, after the account read');
         if (!account) {
           throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
         }
@@ -651,7 +859,7 @@ export const finalizeDirectGuardianSwitch = async (
           // feeds is about those bytes.
           guardianCommitment: getGuardianCommitmentFromAccount(account)
         };
-      })
+      }, lockOptions)
     );
 
   // `AccountInspector.fromAccount` swallows per-slot read failures, so a set
@@ -742,7 +950,9 @@ export const finalizeDirectGuardianSwitch = async (
     throw new GuardianRegistrationPreflightError(
       `Refusing to register on ${newGuardianEndpoint}: it did not confirm the guardian key this account's state ` +
         `names (${endpointHoldsGuardianKey}), so that state may have moved to a different operator since the caller ` +
-        `checked`
+        `checked`,
+      undefined,
+      endpointHoldsGuardianKey
     );
   }
 
@@ -752,19 +962,25 @@ export const finalizeDirectGuardianSwitch = async (
     new WalletSigner(ensureHexPrefix(hotPublicKey), ensureHexPrefix(deviceHotCommitment), guardianProvider.signWord)
   );
 
+  // THE BOUNDARY. Everything above is preflight - local reads, the allowlist and
+  // hot-signer guards, the operator probe - and every one of them refunds. From
+  // here on a request can be in flight, so a failure may have landed and the
+  // caller must count it.
+  onBeforeRegister?.();
+
   let lastError: unknown;
   for (let attempt = 1; attempt <= GUARDIAN_RETRY_MAX_ATTEMPTS; attempt++) {
     try {
       // Bounded, for the same reason every call to the OUTGOING guardian is
-      // (`withOutgoingGuardianDeadline`): `GuardianHttpClient` calls bare `fetch`
-      // with no `AbortSignal`, so an operator that accepts the connection and
-      // then goes silent produces no error at all. The retry budget below bounds
-      // REJECTIONS and never advances on silence, and this call sits PAST the
-      // on-chain commit — so an unbounded wait here parks the row before its
-      // terminal status write, leaving the rotation screen spinning forever and
-      // never recording `registerFailed`, the very flag whose self-heal exists to
-      // finish this registration later. A deadline converts silence into an
-      // attempt failure the loop can consume.
+      // (`withOutgoingGuardianDeadline`): `GuardianHttpClient` passes no
+      // `AbortSignal`, so an operator that accepts the connection and then goes
+      // silent produces no error until the fetch boundary cuts the request off at
+      // GUARDIAN_REQUEST_TIMEOUT_MS. This call sits PAST the on-chain commit, so
+      // every attempt spent in silence holds the row before its terminal status
+      // write, with the rotation screen spinning and `registerFailed`, the very
+      // flag whose self-heal exists to finish this registration later, unrecorded.
+      // The tighter deadline converts silence into an attempt failure the loop can
+      // consume sooner.
       const response = await withTimeout(
         guardian.configure({
           accountId: accountIdHex,

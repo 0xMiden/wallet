@@ -78,45 +78,49 @@ describe('AssetListItem', () => {
     });
   });
 
-  describe('delta rendering and color', () => {
+  describe('delta rendering', () => {
+    /** The Pill around a figure: its label slot's parent, or null when the figure is not in a pill. */
+    const pillAround = (text: string) =>
+      screen.getByText(text).closest('[data-slot="pill-label"]')?.parentElement ?? null;
+
     it('omits the delta when absent', () => {
       renderItem();
 
       expect(screen.queryByText('+2.5%')).toBeNull();
     });
 
-    it('applies the positive color for an explicit positive direction', () => {
+    it('draws the move as a tinted pill', () => {
       renderItem({ delta: { value: '+2.5%', direction: 'positive' } });
 
-      expect(screen.getByText('+2.5%').className).toContain('text-positive-tint-ink');
+      const pill = pillAround('+2.5%');
+      expect(pill).not.toBeNull();
+      expect(pill).toHaveClass('h-5', 'text-badge', 'mt-0.5', 'bg-positive-tint', 'text-positive-tint-ink');
+      // The pill carries the colour alone: no caption ink around it to argue with its tint.
+      expect(pill!.parentElement!.className).not.toMatch(/\btext-/);
     });
 
-    it('defaults to the positive color when direction is undefined', () => {
-      renderItem({ delta: { value: '+1.0%' } });
+    it.each([
+      ['negative', '-3.1%', ['bg-negative-tint', 'text-negative-tint-ink']],
+      ['neutral', '0.0%', ['bg-fill', 'text-muted']],
+      [undefined, '+1.0%', ['bg-positive-tint', 'text-positive-tint-ink']]
+    ] as const)('tints the pill by the direction: %s', (direction, value, classes) => {
+      renderItem({ delta: { value, direction } });
 
-      expect(screen.getByText('+1.0%').className).toContain('text-positive-tint-ink');
-    });
-
-    it('applies the negative color for a negative direction', () => {
-      renderItem({ delta: { value: '-3.1%', direction: 'negative' } });
-
-      expect(screen.getByText('-3.1%').className).toContain('text-negative-tint-ink');
-    });
-
-    it('applies the tertiary color for a neutral direction', () => {
-      renderItem({ delta: { value: '0.0%', direction: 'neutral' } });
-
-      expect(screen.getByText('0.0%').className).toContain('text-text-tertiary-token');
+      expect(pillAround(value)).toHaveClass(...classes);
     });
   });
 
   it('truncates a long name before it pushes the price or the check out of the row', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', name: 'A very long token name' });
 
-    const nameColumn = screen.getByText('A very long token name').parentElement!;
-    expect(nameColumn).toHaveClass('min-w-0');
-    expect(nameColumn).not.toHaveClass('shrink-0');
-    const leading = nameColumn.parentElement!;
+    const nameRow = screen.getByText('A very long token name').parentElement!;
+    expect(nameRow).toHaveClass('min-w-0');
+    expect(nameRow).not.toHaveClass('shrink-0');
+    // The name row sits inside the name+amount stack, which sits inside the leading group; each must
+    // be allowed to shrink, or the one above it cannot.
+    const stack = nameRow.parentElement!;
+    expect(stack).toHaveClass('min-w-0');
+    const leading = stack.parentElement!;
     expect(leading).toHaveClass('min-w-0', 'flex-1');
     const trailing = screen.getByText('$2.50').closest('[data-slot="trailing"]');
     expect(trailing).toHaveClass('shrink-0');
@@ -126,6 +130,24 @@ describe('AssetListItem', () => {
     renderItem({ onClick: jest.fn(), selected: true, price: '$2.50', amount: '123456789.12345678 AVERYLONGSYMBOL' });
 
     expect(screen.getByText('123456789.12345678 AVERYLONGSYMBOL')).toHaveClass('truncate');
+  });
+
+  describe('badge rendering', () => {
+    it('renders a badge right after the name, outside the truncating name element, in a wrapper that never shrinks', () => {
+      renderItem({ name: 'A very long token name', badge: <span data-testid="badge">B</span> });
+
+      const name = screen.getByText('A very long token name');
+      const wrapper = screen.getByTestId('badge').parentElement!;
+      expect(name).not.toContainElement(wrapper);
+      expect(name.nextElementSibling).toBe(wrapper);
+      expect(wrapper).toHaveClass('shrink-0');
+    });
+
+    it('leaves the name alone in its row when no badge is given', () => {
+      renderItem();
+
+      expect(screen.getByText('Miden').parentElement!.children).toHaveLength(1);
+    });
   });
 
   describe('selection', () => {

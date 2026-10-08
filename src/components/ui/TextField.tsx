@@ -17,7 +17,10 @@ import { useTranslation } from 'react-i18next';
 // every screen, and the barrel's module graph evaluates ahead of a suite's own module
 // mock factories — Developer settings reads `MIDEN_NETWORK_NAME` out of one of them.
 import { ReactComponent as EyeOffIcon } from 'app/icons/v2/eye-off.svg';
+import { clearFieldValue } from 'lib/ui/clear-field';
 import { cn } from 'lib/ui/util';
+
+import { ClearFieldButton } from './ClearFieldButton';
 
 /** The element a `TextField` ref resolves to — an `<input>` or a `<textarea>`, chosen by `multiline`. */
 export type TextFieldElement = HTMLInputElement | HTMLTextAreaElement;
@@ -39,6 +42,8 @@ export interface TextFieldProps extends SharedFieldAttrs {
   onBlur?: (event: React.FocusEvent<TextFieldElement>) => void;
   /** 13px bold `muted` label above the field, associated to it via `htmlFor`/`id`. */
   label?: ReactNode;
+  /** `md` draws the label as the 16px section label (`text-row-title`, Nunito) instead of the 13px one. */
+  labelSize?: 'sm' | 'md';
   /** Helper copy below the field. Hidden while `error` is set. */
   hint?: ReactNode;
   /** Error copy below the field: switches the field to a `negative` ring and renders as `role="alert"`. */
@@ -57,6 +62,11 @@ export interface TextFieldProps extends SharedFieldAttrs {
    * is on screen only while someone is deliberately looking at it.
    */
   secret?: boolean;
+  /**
+   * `false` keeps the clear button off a field that would otherwise offer it. A field offers one
+   * while it holds a value it can edit, unless it has a `trailing` action, is a password or is `secret`.
+   */
+  clearable?: boolean;
   containerClassName?: string;
   'data-testid'?: string;
 }
@@ -84,7 +94,7 @@ const SecretCover: React.FC<{ multiline: boolean; onReveal: () => void }> = ({ m
       onClick={onReveal}
       className={cn(
         'absolute inset-0 flex cursor-text flex-col items-center justify-center gap-1',
-        'bg-page/60 backdrop-blur-sm',
+        'bg-page/60 [backdrop-filter:blur(8px)] [-webkit-backdrop-filter:blur(8px)]',
         multiline ? 'rounded-lg-token' : 'rounded-full'
       )}
     >
@@ -124,6 +134,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       defaultValue,
       onChange,
       label,
+      labelSize = 'sm',
       hint,
       error,
       errorTestId,
@@ -131,6 +142,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       trailing,
       leading,
       secret,
+      clearable = true,
       containerClassName,
       className,
       id,
@@ -168,6 +180,9 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? '');
     const hasValue = value !== undefined ? value !== '' : uncontrolledValue !== '';
     const covered = Boolean(secret) && hasValue && !focused;
+    // One trailing action per field, and none that erases a password or key material in one tap.
+    const showClear =
+      clearable && hasValue && !trailing && type !== 'password' && !secret && !rest.disabled && !rest.readOnly;
 
     // A revealed secret gives itself back: after half a minute, or the moment the window goes
     // away (a screenshot, a task switch, another app on top). A mobile app switch can hide the
@@ -239,10 +254,14 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       [onBlur]
     );
 
+    const clearField = useCallback(() => clearFieldValue(fieldRef.current), []);
+
     const fieldClassName = cn(
       // 16px minimum: anything smaller makes iOS zoom the page on focus.
       'w-full min-w-0 resize-none bg-transparent text-body text-ink outline-none',
-      'placeholder:text-muted',
+      'placeholder:text-muted focus:placeholder:text-transparent',
+      // The multi-line clear button floats over the end of the first line.
+      multiline && showClear && 'pr-7',
       className
     );
 
@@ -253,7 +272,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     return (
       <div className={cn('flex w-full flex-col gap-1.5', containerClassName)}>
         {label && (
-          <label htmlFor={fieldId} className="text-label text-muted">
+          <label htmlFor={fieldId} className={cn(labelSize === 'md' ? 'text-row-title' : 'text-label', 'text-muted')}>
             {label}
           </label>
         )}
@@ -304,11 +323,20 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
 
           {trailingSlot}
 
+          {showClear && (
+            <ClearFieldButton onClear={clearField} className={multiline ? 'absolute right-1 top-0.5' : '-mr-3 ml-1'} />
+          )}
+
           {covered && <SecretCover multiline={Boolean(multiline)} onReveal={() => fieldRef.current?.focus()} />}
         </div>
 
         {error ? (
-          <p id={errorId} role="alert" data-testid={errorTestId} className="text-caption text-negative-ink">
+          <p
+            id={errorId}
+            role="alert"
+            data-testid={errorTestId}
+            className="text-caption wrap-break-word text-negative-ink"
+          >
             {error}
           </p>
         ) : hint ? (

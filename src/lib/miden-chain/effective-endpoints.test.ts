@@ -17,9 +17,10 @@ import {
 } from './effective-endpoints';
 
 const mockKvStore: Record<string, unknown> = {};
-// Per-test toggle so a single test can simulate a storage-provider failure
+// Per-test toggles so a single test can simulate a storage-provider failure
 // without a second jest.mock for the whole file.
 let mockThrows = false;
+let mockWriteThrows = false;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
     get: async (keys: string[]) => {
@@ -29,9 +30,11 @@ jest.mock('lib/platform/storage-adapter', () => ({
       return out;
     },
     set: async (obj: Record<string, unknown>) => {
+      if (mockWriteThrows) throw new Error('storage write failed');
       Object.assign(mockKvStore, obj);
     },
     remove: async (keys: string[]) => {
+      if (mockWriteThrows) throw new Error('storage write failed');
       for (const k of keys) delete mockKvStore[k];
     }
   }),
@@ -59,8 +62,10 @@ function loadModule(): typeof import('./effective-endpoints') {
 beforeEach(() => {
   for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
   mockThrows = false;
+  mockWriteThrows = false;
   delete process.env.MIDEN_E2E_TEST;
   delete process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES;
+  delete process.env.MIDEN_FEE_FAUCET_ID;
 });
 
 describe('effective-endpoints resolver', () => {
@@ -218,8 +223,8 @@ describe('effective-endpoints resolver', () => {
 
     it('is keyed by the effective (overridden) network, not the build network, when no custom guardian URL is set', async () => {
       // The bug this guards against: an endpoint override with no custom guardian URL
-      // and no stored GUARDIAN_URL_STORAGE_KEY must fall back to the OVERRIDDEN
-      // network's guardian, not the build's DEFAULT_NETWORK guardian.
+      // must fall back to the OVERRIDDEN network's guardian, not the build's
+      // DEFAULT_NETWORK guardian.
       const m = loadModule();
       const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
       override.guardianUrl = '';
@@ -259,6 +264,52 @@ describe('effective-endpoints resolver', () => {
       const m = loadModule();
       await expect(m.loadEndpointOverrides()).resolves.toBeUndefined();
       expect(m.getActiveOverride()).toBeNull();
+    });
+
+    // The SW and offscreen realms re-read after a Save; when that read fails, the realm keeps the
+    // override it had instead of falling back to build defaults.
+    it('keeps a loaded override when a later read fails', async () => {
+      const m = loadModule();
+      const saved = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      await m.applyEndpointOverride(saved);
+
+      mockThrows = true;
+      await m.loadEndpointOverrides();
+      expect(m.getActiveOverride()).toBe(saved);
+    });
+  });
+
+  // Developer Settings tells the user a rejected write was not saved, so the session must not
+  // switch to endpoints that a restart would drop.
+  describe('a rejected storage write', () => {
+    const savedA = (m: typeof import('./effective-endpoints')) => {
+      const a = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      a.rpcUrl = 'https://a.example/rpc';
+      return a;
+    };
+
+    it('keeps the previous override when applying a new one fails', async () => {
+      const m = loadModule();
+      const a = savedA(m);
+      await m.applyEndpointOverride(a);
+
+      mockWriteThrows = true;
+      await expect(m.applyEndpointOverride({ ...a, rpcUrl: 'https://b.example/rpc' })).rejects.toThrow(
+        'storage write failed'
+      );
+      expect(m.getActiveOverride()).toBe(a);
+      expect(m.getEffectiveRpcUrl()).toBe('https://a.example/rpc');
+    });
+
+    it('keeps the override when clearing it fails', async () => {
+      const m = loadModule();
+      const a = savedA(m);
+      await m.applyEndpointOverride(a);
+
+      mockWriteThrows = true;
+      await expect(m.clearEndpointOverride()).rejects.toThrow('storage write failed');
+      expect(m.getActiveOverride()).toBe(a);
+      expect(m.getEffectiveRpcUrl()).toBe('https://a.example/rpc');
     });
   });
 
@@ -308,6 +359,49 @@ describe('getEffectiveAllowNoGuardian', () => {
 
   it('buildDefaultOverrideFor includes allowNoGuardian:false', () => {
     expect(buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET).allowNoGuardian).toBe(false);
+  });
+});
+
+describe('getEffectiveFeeFaucetId', () => {
+  it('is unset when nothing is configured', () => {
+    const m = loadModule();
+    expect(m.getEffectiveFeeFaucetId()).toBeUndefined();
+  });
+
+  it('reads MIDEN_FEE_FAUCET_ID from the environment', () => {
+    process.env.MIDEN_FEE_FAUCET_ID = '0xenvfaucet';
+    const m = loadModule();
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xenvfaucet');
+  });
+
+  it('prefers the E2E injector over an override', async () => {
+    const m = loadModule();
+    const override = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+    override.feeFaucetId = '0xoverride';
+    await m.applyEndpointOverride(override);
+    await m.setFeeFaucetIdForTest('0xe2e');
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xe2e');
+    await m.setFeeFaucetIdForTest(undefined);
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xoverride');
+  });
+
+  it('persists the injector into storage so other realms can load it', async () => {
+    const m = loadModule();
+    await m.setFeeFaucetIdForTest('0xe2e');
+    expect(mockKvStore[m.FEE_FAUCET_STORAGE_KEY]).toBe('0xe2e');
+    const other = loadModule();
+    await other.loadEndpointOverrides();
+    expect(other.getEffectiveFeeFaucetId()).toBe('0xe2e');
+  });
+
+  it('loads a stored override that includes feeFaucetId', async () => {
+    const m = loadModule();
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = {
+      ...m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      feeFaucetId: '0xstored'
+    };
+    await m.loadEndpointOverrides();
+    expect(m.getEffectiveFeeFaucetId()).toBe('0xstored');
   });
 });
 

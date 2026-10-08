@@ -11,8 +11,17 @@ import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
+
+let mockNativeAssetId = 'miden-faucet-id';
+let mockNativeMetadata = { symbol: 'MIDEN', decimals: 8 };
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  getNativeAssetMetadataSync: () => mockNativeMetadata,
+  getSdkSyncedNativeAssetIdSync: () => mockNativeAssetId
+}));
 
 // Mock dependencies
 const mockGetAccount = jest.fn();
@@ -77,12 +86,18 @@ const mockFetchTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata', () => ({
   MIDEN_METADATA: { name: 'Miden', symbol: 'MIDEN', decimals: 8 },
   DEFAULT_TOKEN_METADATA: { name: 'Unknown', symbol: 'Unknown', decimals: 6 },
-  fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args),
-  getAssetUrl: jest.fn((path: string) => `/${path}`)
+  fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args)
 }));
 
 jest.mock('../../miden/front/assets', () => ({
   setTokensBaseMetadata: jest.fn()
+}));
+
+// The stored overrides are the input under test. The apply logic is the real one.
+const mockGetTokenMetadataOverrides = jest.fn();
+jest.mock('lib/miden/metadata/overrides', () => ({
+  ...jest.requireActual('lib/miden/metadata/overrides'),
+  getTokenMetadataOverrides: () => mockGetTokenMetadataOverrides()
 }));
 
 describe('fetchBalances', () => {
@@ -92,6 +107,7 @@ describe('fetchBalances', () => {
     mockGetAccount.mockReset();
     mockSyncState.mockReset();
     mockFetchTokenMetadata.mockReset();
+    mockGetTokenMetadataOverrides.mockReset().mockResolvedValue({});
     // Process-wide rate limit — without this a faucet that failed in one case
     // stays in backoff and silently skips the fetch in the next.
     __resetUnresolvedFaucetsForTest();
@@ -263,7 +279,7 @@ describe('fetchBalances', () => {
     expect(result[0]).toEqual({
       tokenId: 'miden-faucet-id',
       tokenSlug: 'MIDEN',
-      metadata: MIDEN_METADATA,
+      metadata: expect.objectContaining(MIDEN_METADATA),
       // MIDEN is not on the price feed: no price, never a $1 guess.
       fiatPrice: 0,
       balance: 0,
@@ -397,6 +413,145 @@ describe('fetchBalances', () => {
     getBech32AddressFromAccountId.mockImplementation((id: string) => `bech32-${id}`);
   });
 
+  describe('the user override of a token', () => {
+    const customMetadata = { name: 'Custom', symbol: 'CST', decimals: 8 };
+
+    it("scales the balance by the faucet's decimals and shows the overridden name and symbol", async () => {
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-custom-faucet': { name: 'Mine', symbol: 'MN', decimals: 6 }
+      });
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '150000000' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', { 'bech32-custom-faucet': customMetadata }))!;
+
+      // 150000000 base units at the faucet's 8 decimals: a stored decimals value never rescales a known scale.
+      const row = result.find(entry => entry.tokenId === 'bech32-custom-faucet')!;
+      expect(row).toMatchObject({ tokenSlug: 'MN', balance: 1.5 });
+      expect(row.metadata).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
+    });
+
+    it('applies the override over a fetched record, and stores the record as the faucet gave it', async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-custom-faucet': { name: 'Mine', symbol: 'MN', decimals: 2 }
+      });
+      mockFetchTokenMetadata.mockResolvedValueOnce(customMetadata);
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '500000000' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', {}))!;
+
+      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({
+        tokenSlug: 'MN',
+        balance: 5,
+        metadata: { name: 'Mine', symbol: 'MN', decimals: 8 }
+      });
+      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'bech32-custom-faucet': customMetadata });
+    });
+
+    it('gives a quantity to a token whose faucet could not be read, once the user states its decimals', async () => {
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-unknown-faucet': { name: 'Mine', symbol: 'MN', decimals: 3 }
+      });
+      mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'unknown-faucet', amount: () => ({ toString: () => '2000' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', {}))!;
+
+      expect(result.find(row => row.tokenId === 'bech32-unknown-faucet')).toMatchObject({
+        balance: 2,
+        metadata: { decimals: 3, scaleIsUnknown: false, scaleFromOverride: true }
+      });
+    });
+
+    it('fetches the metadata of a faucet whose store entry only an override made, and persists its record', async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      const override = { name: 'Mine', symbol: 'MN', decimals: 3 };
+      __resetFaucetAssetsMetadataForTest();
+      useWalletStore.setState({ assetsMetadata: {}, tokenMetadataOverrides: {}, balances: {}, tokenPrices: {} });
+      // The provider's hydration of a stored override for a faucet with no record: the placeholder with the override on top.
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ 'bech32-fresh-faucet': override });
+      mockGetTokenMetadataOverrides.mockResolvedValue({ 'bech32-fresh-faucet': override });
+      mockFetchTokenMetadata.mockResolvedValueOnce(customMetadata);
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'fresh-faucet', amount: () => ({ toString: () => '150000000' }) }]
+        })
+      });
+
+      await useWalletStore.getState().fetchBalances('my-address', useWalletStore.getState().assetsMetadata);
+
+      expect(mockFetchTokenMetadata).toHaveBeenCalledWith('bech32-fresh-faucet');
+      expect(setTokensBaseMetadata).toHaveBeenCalledWith({ 'bech32-fresh-faucet': customMetadata });
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata['bech32-fresh-faucet']).toStrictEqual({ name: 'Mine', symbol: 'MN', decimals: 8 });
+      expect(state.balances['my-address']!.find(row => row.tokenId === 'bech32-fresh-faucet')).toMatchObject({
+        tokenSlug: 'MN',
+        balance: 1.5
+      });
+    });
+
+    it('reports the display faucet setting it read, once', async () => {
+      const onDisplayFaucetId = jest.fn();
+      mockGetAccount.mockResolvedValueOnce({ vault: () => ({ fungibleAssets: () => [] }) });
+
+      await fetchBalances('my-address', {}, { onDisplayFaucetId });
+
+      expect(onDisplayFaucetId.mock.calls).toEqual([['miden-faucet-id']]);
+    });
+
+    it('reports each faucet whose row it built with an override, and only those', async () => {
+      const onOverrideApplied = jest.fn();
+      mockGetTokenMetadataOverrides.mockResolvedValue({
+        'bech32-custom-faucet': { name: 'Mine', symbol: 'MN' },
+        'miden-faucet-id': { name: 'Fake', symbol: 'FAKE' }
+      });
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [
+            { faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '100000000' }) },
+            { faucetId: () => 'plain-faucet', amount: () => ({ toString: () => '100000000' }) }
+          ]
+        })
+      });
+
+      await fetchBalances(
+        'my-address',
+        { 'bech32-custom-faucet': customMetadata, 'bech32-plain-faucet': customMetadata },
+        { onOverrideApplied }
+      );
+
+      expect(onOverrideApplied.mock.calls).toEqual([['bech32-custom-faucet']]);
+    });
+
+    it('reads the balances without overrides when the overrides cannot be read', async () => {
+      mockGetTokenMetadataOverrides.mockRejectedValue(new Error('storage unavailable'));
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'custom-faucet', amount: () => ({ toString: () => '100000000' }) }]
+        })
+      });
+
+      const result = (await fetchBalances('my-address', { 'bech32-custom-faucet': customMetadata }))!;
+
+      expect(result.find(row => row.tokenId === 'bech32-custom-faucet')).toMatchObject({
+        tokenSlug: 'CST',
+        balance: 1
+      });
+    });
+  });
+
   it('shows unknown tokens with default metadata when fetch fails', async () => {
     const mockAssets = [
       {
@@ -441,20 +596,9 @@ describe('fetchBalances', () => {
 
     // Mock fetchTokenMetadata to return metadata for the new faucet
     mockFetchTokenMetadata.mockResolvedValueOnce({
-      base: {
-        decimals: 6,
-        symbol: 'NEW',
-        name: 'NEW',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      },
-      detailed: {
-        decimals: 6,
-        symbol: 'NEW',
-        name: 'NEW',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      }
+      decimals: 6,
+      symbol: 'NEW',
+      name: 'NEW'
     });
 
     await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
@@ -489,20 +633,9 @@ describe('fetchBalances', () => {
 
     // Mock fetchTokenMetadata to return metadata (simulates RPC fetch)
     mockFetchTokenMetadata.mockResolvedValueOnce({
-      base: {
-        decimals: 8,
-        symbol: 'FETCHED',
-        name: 'FETCHED',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      },
-      detailed: {
-        decimals: 8,
-        symbol: 'FETCHED',
-        name: 'FETCHED',
-        shouldPreferSymbol: true,
-        thumbnailUri: '/misc/token-logos/default.svg'
-      }
+      decimals: 8,
+      symbol: 'FETCHED',
+      name: 'FETCHED'
     });
 
     await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
@@ -621,6 +754,82 @@ describe('fetchBalances', () => {
     // Should NOT call syncState - that happens separately via AutoSync
     expect(mockSyncState).not.toHaveBeenCalled();
   });
+  describe('a read the store lands builds each row from the faucet record', () => {
+    const LEGACY = 'legacy-faucet';
+    const legacyRecord = { name: 'Legacy', symbol: 'LEGACY', decimals: 2 };
+    const vaultOf = (...entries: [string, string][]) => ({
+      vault: () => ({
+        fungibleAssets: () =>
+          entries.map(([faucetId, amount]) => ({
+            faucetId: () => faucetId,
+            amount: () => ({ toString: () => amount })
+          }))
+      })
+    });
+
+    beforeEach(() => {
+      __resetFaucetAssetsMetadataForTest();
+      useWalletStore.setState({
+        assetsMetadata: {},
+        tokenMetadataOverrides: {},
+        balances: {},
+        tokenPrices: {},
+        balancesDisplayFaucetId: {}
+      });
+    });
+
+    afterEach(() => {
+      mockNativeAssetId = 'miden-faucet-id';
+      jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue('miden-faucet-id');
+    });
+
+    it('shows the placeholder for an unresolved faucet whose override was cleared while the read was held', async () => {
+      const UNRESOLVED = 'bech32-unresolved-faucet';
+      // A failed lookup puts the faucet in backoff, so the held read does not fetch it again.
+      mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
+      mockGetAccount.mockResolvedValueOnce(vaultOf(['unresolved-faucet', '2000000']));
+      await fetchBalances('priming-address', {});
+      useWalletStore
+        .getState()
+        .hydrateTokenMetadataOverrides({ [UNRESOLVED]: { name: 'Mine', symbol: 'MN', decimals: 3 } });
+      let releaseAccount: () => void = () => {};
+      mockGetAccount.mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseAccount = () => resolve(vaultOf(['unresolved-faucet', '2000000']));
+          })
+      );
+      const read = useWalletStore.getState().fetchBalances('my-address', useWalletStore.getState().assetsMetadata);
+
+      await useWalletStore.getState().clearTokenMetadataOverride(UNRESOLVED);
+      mockGetTokenMetadataOverrides.mockResolvedValue({});
+      releaseAccount();
+      await read;
+
+      const landed = useWalletStore.getState().balances['my-address']!.find(row => row.tokenId === UNRESOLVED)!;
+      expect(landed.tokenSlug).toBe('Unknown');
+      expect(landed.balance).toBe(2);
+      expect(mockFetchTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    it('builds the display row of a legacy faucet setting from its record, not the entry its override made', async () => {
+      mockNativeAssetId = 'bech32-native-faucet';
+      jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue(LEGACY);
+      // The store holds the record; the storage cache does not.
+      useWalletStore.getState().setAssetsMetadata({ [LEGACY]: legacyRecord });
+      useWalletStore.getState().hydrateTokenMetadataOverrides({ [LEGACY]: { name: 'Mine', symbol: 'MINE' } });
+      mockGetAccount.mockResolvedValueOnce(vaultOf());
+
+      await useWalletStore.getState().fetchBalances('my-address', useWalletStore.getState().assetsMetadata);
+      const displayRow = () => useWalletStore.getState().balances['my-address']!.find(row => row.tokenId === LEGACY)!;
+
+      expect(displayRow().tokenSlug).toBe('LEGACY');
+      await useWalletStore.getState().clearTokenMetadataOverride(LEGACY);
+      expect(displayRow().tokenSlug).toBe('LEGACY');
+      expect(displayRow().metadata).toMatchObject(legacyRecord);
+    });
+  });
+
   // Neither storing the guess nor re-asking every few seconds is acceptable: the
   // first answers the question forever with a wrong number, the second turns an
   // unreadable faucet into a permanent RPC drip on a list that refreshes every
@@ -656,7 +865,7 @@ describe('fetchBalances', () => {
       getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
       const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
       const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
-      mockFetchTokenMetadata.mockResolvedValue({ base: placeholder, detailed: placeholder });
+      mockFetchTokenMetadata.mockResolvedValue(placeholder);
 
       accountWithBadFaucet();
       const result = (await fetchBalances('my-address', {}, {}))!;
@@ -684,5 +893,109 @@ describe('fetchBalances', () => {
       expect(row).toBeDefined();
       expect(row!.metadata.symbol).toBe('Unknown');
     });
+  });
+});
+
+describe('actual native balance with a separate legacy display selection', () => {
+  const actual = 'bech32-native-A';
+  const legacy = 'legacy-B';
+  const foreign = 'bech32-foreign';
+  beforeEach(() => {
+    jest
+      .requireMock('lib/miden/sdk/helpers')
+      .getBech32AddressFromAccountId.mockReset()
+      .mockImplementation((id: string) => `bech32-${id}`);
+    mockGetAccount.mockReset();
+    mockFetchTokenMetadata.mockReset();
+    mockNativeAssetId = actual;
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue(legacy);
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => 'native-A', amount: () => ({ toString: () => '1000000' }) },
+          { faucetId: () => 'foreign', amount: () => ({ toString: () => '200000000' }) }
+        ]
+      })
+    });
+  });
+  afterEach(() => {
+    mockNativeAssetId = 'miden-faucet-id';
+    mockNativeMetadata = { symbol: 'MIDEN', decimals: 8 };
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue('miden-faucet-id');
+  });
+  it.each([legacy, actual, undefined])('uses actual native metadata with legacy selection %s', async selection => {
+    jest.requireMock('lib/miden/assets').getFaucetIdSetting.mockReturnValue(selection);
+    const balances = (await fetchBalances(
+      'native-account',
+      {
+        [actual]: { symbol: 'MIDEN', name: 'Miden', decimals: 8 },
+        [legacy]: { symbol: 'LEGACY', name: 'Legacy', decimals: 2 },
+        [foreign]: { symbol: 'FOREIGN', name: 'Foreign', decimals: 8 }
+      },
+      { tokenPrices: {} }
+    ))!;
+    const native = balances.find(row => row.tokenId === actual)!;
+    expect(native.balance).toBe(1);
+    expect(native.metadata).toMatchObject({ symbol: 'USDCX', decimals: 6 });
+    expect(native.fiatPrice * native.balance).toBe(1);
+    expect(balances.find(row => row.tokenId === foreign)).toMatchObject({ balance: 2, tokenSlug: 'FOREIGN' });
+    expect(
+      balances.filter(row => row.tokenId === legacy).map(({ balance, tokenSlug }) => ({ balance, tokenSlug }))
+    ).toEqual(selection === legacy ? [{ balance: 0, tokenSlug: 'LEGACY' }] : []);
+  });
+  it('fetches uncached legacy display metadata without fetching or pricing it as the actual native asset', async () => {
+    jest
+      .requireMock('lib/miden/sdk/helpers')
+      .getBech32AddressFromAccountId.mockImplementation((id: string) => (id === legacy ? legacy : `bech32-${id}`));
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({
+        fungibleAssets: () => [
+          { faucetId: () => 'native-A', amount: () => ({ toString: () => '1000000' }) },
+          { faucetId: () => legacy, amount: () => ({ toString: () => '125' }) }
+        ]
+      })
+    });
+    const legacyMetadata = { symbol: 'USDCX', name: 'Legacy', decimals: 2 };
+    mockFetchTokenMetadata.mockResolvedValue(legacyMetadata);
+    const setAssetsMetadata = jest.fn();
+    const balances = (await fetchBalances(
+      'native-legacy-cache-miss',
+      {
+        [actual]: { symbol: 'MIDEN', name: 'Miden', decimals: 8 }
+      },
+      { tokenPrices: {}, setAssetsMetadata }
+    ))!;
+    expect(mockFetchTokenMetadata.mock.calls).toEqual([[legacy]]);
+    expect(setAssetsMetadata).toHaveBeenCalledWith({ [legacy]: legacyMetadata });
+    expect(balances.find(row => row.tokenId === legacy)).toMatchObject({
+      balance: 1.25,
+      metadata: legacyMetadata,
+      tokenSlug: 'USDCX',
+      fiatPrice: 0
+    });
+    expect(balances.find(row => row.tokenId === legacy)!.metadata.scaleIsUnknown).not.toBe(true);
+    expect(balances.find(row => row.tokenId === actual)).toMatchObject({
+      balance: 1,
+      metadata: { symbol: 'USDCX', decimals: 6 },
+      fiatPrice: 1
+    });
+  });
+
+  it('preserves native eight-decimal scale against cached six-decimal metadata', async () => {
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => 'native-A', amount: () => ({ toString: () => '100000000' }) }]
+      })
+    });
+    const native = (await fetchBalances(
+      'native-account',
+      { [actual]: { symbol: 'USDCX', name: 'USDCX', decimals: 6 } },
+      { tokenPrices: {} }
+    ))!.find(row => row.tokenId === actual)!;
+    expect(native.balance).toBe(1);
+    expect(native.metadata.decimals).toBe(8);
+    expect(native.fiatPrice).toBe(1);
   });
 });

@@ -340,12 +340,15 @@ jobs:
       - name: Build Chrome extension (devnet)
         run: yarn test:e2e:blockchain:build
 
+      - name: Verify fresh Guardian onboarding and public funding (devnet)
+        run: xvfb-run -a yarn test:e2e:guardian:run guardian-onboarding-create.spec.ts --output=test-results/playwright/onboarding
+
       - name: Run Guardian E2E (devnet)
         id: e2e
         # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
         # devnet's — so a failure here is a real failure of the branch, not the
         # protocol mismatch that made this non-fatal when it also ran on main.
-        run: xvfb-run -a yarn test:e2e:guardian:run
+        run: xvfb-run -a yarn test:e2e:guardian:run --grep-invert 'I create a wallet from scratch and it works' --output=test-results/playwright/guardian
 
       - name: Upload artifacts
         if: always()
@@ -415,8 +418,11 @@ jobs:
       - name: Build Chrome extension (testnet)
         run: yarn test:e2e:blockchain:build
 
+      - name: Verify fresh Guardian onboarding and public funding (testnet)
+        run: xvfb-run -a yarn test:e2e:guardian:run guardian-onboarding-create.spec.ts --output=test-results/playwright/onboarding
+
       - name: Run Guardian E2E (testnet)
-        run: xvfb-run -a yarn test:e2e:guardian:run
+        run: xvfb-run -a yarn test:e2e:guardian:run --grep-invert 'I create a wallet from scratch and it works' --output=test-results/playwright/guardian
 
       - name: Upload artifacts
         if: always()

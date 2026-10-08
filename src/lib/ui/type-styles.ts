@@ -20,6 +20,7 @@ export const TYPE_STYLES = [
   'action',
   'pill',
   'badge',
+  'tag',
   'body',
   'body-strong',
   'explainer',

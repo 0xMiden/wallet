@@ -33,6 +33,10 @@ function makeDeps(overrides: Partial<UsdcxDepositDeps> = {}) {
       calls.push('isRemoteDomainRegistered');
       return true;
     }),
+    readAllowance: jest.fn(async () => {
+      calls.push('readAllowance');
+      return 0n;
+    }),
     waitForReceipt: jest.fn(async (hash: string) => {
       calls.push(`receipt:${hash === APPROVE_HASH ? 'approve' : 'deposit'}`);
     }),
@@ -69,6 +73,7 @@ describe('runUsdcxDeposit', () => {
 
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
+      'readAllowance',
       'approve',
       'receipt:approve',
       'depositToRemote',
@@ -80,6 +85,38 @@ describe('runUsdcxDeposit', () => {
     expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1.5', RECIPIENT));
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: DEPOSIT_HASH });
+  });
+
+  it('reads the allowance xReserve has', async () => {
+    const { deps } = makeDeps();
+
+    await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
+
+    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(5042002));
+  });
+
+  // 1.5 USDC is 1_500_000 base units: an allowance equal to it, or more than it, covers the deposit.
+  it.each([1_500_000n, 5_000_000n])('skips the approval when the allowance is %s', async allowance => {
+    const { deps, calls } = makeDeps({ readAllowance: jest.fn(async () => allowance) });
+
+    await expect(runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(DEPOSIT_HASH);
+
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(calls).toEqual([
+      'isRemoteDomainRegistered',
+      'depositToRemote',
+      'phase:submitting',
+      'receipt:deposit',
+      'phase:delivering'
+    ]);
+  });
+
+  it('approves the full amount when the allowance is less than the deposit', async () => {
+    const { deps } = makeDeps({ readAllowance: jest.fn(async () => 1_499_999n) });
+
+    await runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(5042002), 1_500_000n);
   });
 
   it('checks the remote domain with the configured value', async () => {

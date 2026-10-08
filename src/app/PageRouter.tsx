@@ -9,13 +9,12 @@ import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import HelpImproveWalletPrompt from 'app/pages/HelpImproveWallet';
-import ImportAccount from 'app/pages/ImportAccount';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
@@ -268,14 +267,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/import-account',
-    onlyReady(() => (
-      <FullScreenPage entrance="slide">
-        <ImportAccount />
-      </FullScreenPage>
-    ))
-  ],
-  [
     '/rotate-guardian',
     onlyReady(() => (
       <FullScreenPage>
@@ -293,15 +284,11 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/bridge/deposit',
-    onlyReady(() =>
-      isBridgeDepositEnabled() ? (
-        <FullScreenPage>
-          <BridgeDeposit />
-        </FullScreenPage>
-      ) : (
-        <Woozie.Redirect to="/receive" />
-      )
-    )
+    onlyReady(() => (
+      <FullScreenPage>
+        <BridgeDeposit />
+      </FullScreenPage>
+    ))
   ],
   [
     '/history-details/:transactionId',
@@ -540,8 +527,8 @@ const PageRouter: FC = () => {
       </MobilePageLayers>
     );
 
-  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout), not in a banner
-  // above every page; the page takes the full height.
+  // The wallet names its test network in a pill above Home's balance card (NetworkModePill), not in
+  // a banner above every page; the page takes the full height.
   return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
 };
 

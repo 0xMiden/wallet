@@ -7,9 +7,10 @@ import { cn } from 'lib/ui/util';
 
 /**
  * Height and type scale. `xs` (20px) is the compact status badge in dense rows; `sm` (24px) is the
- * status pill in detail headers; `md` (32px) is every other chip, badge and action.
+ * status pill in detail headers; `md` (32px) is every other chip, badge and action; `tag` (18px, a
+ * step under `xs`) is a mark after a row's name, such as a token's Unverified tag.
  */
-export type PillSize = 'xs' | 'sm' | 'md';
+export type PillSize = 'xs' | 'sm' | 'md' | 'tag';
 
 /**
  * What the pill says about its content:
@@ -19,6 +20,8 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink.
  * - `inactive`: a status that is neither good nor bad (cancelled, reclaimed, unavailable),
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
+ * - `muted`: a quiet mark that says nothing good or bad (a flat 24h move, an Unverified tag),
+ *   `fill` with `muted`.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  * - `inverse` - on a coloured surface: a darker well of that surface with its
  *   white ink, so it suits every card color and never brings a status hue of its own.
@@ -33,6 +36,7 @@ export type PillTone =
   | 'warning'
   | 'negative'
   | 'inactive'
+  | 'muted'
   | 'plain'
   | 'page'
   | 'inverse';
@@ -63,6 +67,8 @@ export type PillProps = PillBehaviourProps & {
   children: React.ReactNode;
   /** Leading glyph, sized by the pill. */
   icon?: React.ReactNode;
+  /** Trailing glyph, sized like `icon`; on a pill wider than its content it sits at the far end. */
+  trailingIcon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
   /**
@@ -76,6 +82,9 @@ export type PillProps = PillBehaviourProps & {
   disabled?: boolean;
   className?: string;
   'aria-label'?: string;
+  /** For a tappable pill that opens a sheet or menu. */
+  'aria-haspopup'?: 'dialog' | 'menu';
+  'aria-expanded'?: boolean;
   'data-testid'?: string;
 };
 
@@ -86,7 +95,8 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       // Semibold: at 20px the bold face reads heavier than the row title beside it.
       xs: 'h-5 gap-1 px-2 text-badge font-semibold',
       sm: 'h-6 gap-1 px-2 text-badge',
-      md: 'h-8 gap-1.5 px-3 text-pill'
+      md: 'h-8 gap-1.5 px-3 text-pill',
+      tag: 'h-4.5 gap-1 px-1.5 text-tag'
     } satisfies Record<PillSize, string>,
     tone: {
       neutral: 'border-transparent bg-fill text-ink',
@@ -100,6 +110,7 @@ const pillVariants = cva('relative inline-flex max-w-full items-center rounded-f
       warning: 'border-transparent bg-pending-tint text-pending-tint-ink',
       negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
       inactive: 'border-transparent bg-fill-pressed text-ink',
+      muted: 'border-transparent bg-fill text-muted',
       plain: 'border-transparent',
       // A pill sitting INSIDE a `fill` element — the Paste and Scan pills in a text field, a tag
       // over a card's artwork — so it takes the page's surface to stand off the one under it.
@@ -122,11 +133,28 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
     size: {
       xs: '-ml-0.5 h-3 w-3',
       sm: '-ml-0.5 h-3.5 w-3.5',
-      md: '-ml-1 h-4 w-4'
+      md: '-ml-1 h-4 w-4',
+      tag: '-ml-0.5 h-3 w-3'
     } satisfies Record<PillSize, string>
   },
   defaultVariants: { size: 'md' }
 });
+
+/** The trailing glyph's box: `pillIconVariants` mirrored, pushed to the far end of a stretched pill. */
+const pillTrailingIconVariants = cva(
+  'ml-auto flex shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
+  {
+    variants: {
+      size: {
+        xs: '-mr-0.5 h-3 w-3',
+        sm: '-mr-0.5 h-3.5 w-3.5',
+        md: '-mr-1 h-4 w-4',
+        tag: '-mr-0.5 h-3 w-3'
+      } satisfies Record<PillSize, string>
+    },
+    defaultVariants: { size: 'md' }
+  }
+);
 
 /**
  * The app's pill: one height, padding and type scale for every chip, badge, label and small
@@ -139,6 +167,7 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
 export const Pill: React.FC<PillProps> = ({
   children,
   icon,
+  trailingIcon,
   size = 'md',
   tone = 'neutral',
   onClick,
@@ -148,6 +177,8 @@ export const Pill: React.FC<PillProps> = ({
   className,
   live,
   'aria-label': ariaLabel,
+  'aria-haspopup': ariaHasPopup,
+  'aria-expanded': ariaExpanded,
   'data-testid': dataTestId
 }) => {
   // `cn` (tailwind-merge), not `clsx`: a caller's own border/background/text utility in
@@ -165,7 +196,14 @@ export const Pill: React.FC<PillProps> = ({
   const content = (
     <>
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
-      <span className="min-w-0 truncate">{children}</span>
+      <span data-slot="pill-label" className="min-w-0 truncate">
+        {children}
+      </span>
+      {trailingIcon && (
+        <span data-slot="pill-trailing" className={pillTrailingIconVariants({ size })}>
+          {trailingIcon}
+        </span>
+      )}
     </>
   );
 
@@ -195,6 +233,8 @@ export const Pill: React.FC<PillProps> = ({
       disabled={disabled}
       aria-pressed={selected}
       aria-label={ariaLabel}
+      aria-haspopup={ariaHasPopup}
+      aria-expanded={ariaExpanded}
       data-testid={dataTestId}
       className={classes}
     >

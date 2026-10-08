@@ -13,12 +13,15 @@ export type Status =
   | 'pending'
   | 'inProgress'
   | 'confirmed'
+  // A USDCx deposit whose minted note the wallet received
+  | 'completed'
   | 'burnPending'
   | 'burnConsuming'
   | 'burnConfirmed'
   | 'burnDiscarded'
   | 'failed'
   | 'cancelled'
+  | 'unconfirmed'
   | 'reclaimed'
   // A pending transfer the wallet has claimed
   | 'claimed'
@@ -35,6 +38,8 @@ export type Status =
   | 'orderReclaimed'
   | 'loading'
   | 'unavailable'
+  // A guardian switch whose commit was submitted but never confirmed
+  | 'guardianSwitchSubmitted'
   // The guardian's connection
   | 'online'
   | 'offline'
@@ -67,12 +72,14 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   pending: { labelKey: 'pending', tone: 'pending' },
   inProgress: { labelKey: 'inProgress', tone: 'pending' },
   confirmed: { labelKey: 'confirmed', tone: 'positive' },
+  completed: { labelKey: 'completed', tone: 'positive' },
   burnPending: { labelKey: 'usdcxBurnPending', tone: 'pending' },
   burnConsuming: { labelKey: 'usdcxBurnConsuming', tone: 'pending' },
   burnConfirmed: { labelKey: 'usdcxBurnConfirmed', tone: 'positive' },
   burnDiscarded: { labelKey: 'usdcxBurnDiscarded', tone: 'negative' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
+  unconfirmed: { labelKey: 'notConfirmed', tone: 'pending' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },
   claimed: { labelKey: 'accepted', tone: 'positive' },
   redeeming: { labelKey: 'earnWithdrawStatusRedeeming', tone: 'pending' },
@@ -86,6 +93,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   orderReclaimed: { labelKey: 'orderStatusReclaimed', tone: 'neutral' },
   loading: { labelKey: 'loading', tone: 'neutral' },
   unavailable: { labelKey: 'trackingUnavailable', tone: 'neutral' },
+  guardianSwitchSubmitted: { labelKey: 'guardianSwitchSubmittedChip', tone: 'pending' },
   online: { labelKey: 'online', tone: 'positive' },
   offline: { labelKey: 'guardianOfflineLabel', tone: 'negative' },
   needsAttention: { labelKey: 'guardianNeedsAttentionLabel', tone: 'negative' },

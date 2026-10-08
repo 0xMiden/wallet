@@ -51,7 +51,10 @@ jest.mock('lib/onramp/transak-webview', () => ({
   openTransakWidget: (input: WidgetInput) => mockOpenWidget(input)
 }));
 
-const mockInitiateBuy = jest.fn<Promise<string>, [string, { orderId: string; fiatAmount: string; tokenSymbol: string }]>();
+const mockInitiateBuy = jest.fn<
+  Promise<string>,
+  [string, { orderId: string; fiatAmount: string; tokenSymbol: string }]
+>();
 jest.mock('lib/miden/activity', () => ({
   initiateBuyTransaction: (accountId: string, input: { orderId: string; fiatAmount: string; tokenSymbol: string }) =>
     mockInitiateBuy(accountId, input)
@@ -91,11 +94,13 @@ describe('Cash amount entry', () => {
   it('enters cents, ignores repeated decimal points and excess precision, and deletes', () => {
     render(<Cash action="buy" />);
     press('0', '0', '1', '2', 'decimal', 'decimal', '3', '4', '5');
-    expect(screen.getByLabelText('cashPayAmount')).toHaveValue('$12.34');
+    // The field draws the `$` beside the input, so the value stays bare digits.
+    expect(screen.getByLabelText('cashPayAmount')).toHaveValue('12.34');
+    expect(screen.getByText('$')).toBeInTheDocument();
     press('delete', 'delete', 'delete', 'delete', 'delete', 'delete');
     expect(screen.getByLabelText('cashPayAmount')).toHaveValue('');
     press('decimal', '5');
-    expect(screen.getByLabelText('cashPayAmount')).toHaveValue('$0.5');
+    expect(screen.getByLabelText('cashPayAmount')).toHaveValue('0.5');
   });
 
   it('titles the page by its action and sells with USDCx precision', () => {
@@ -117,15 +122,15 @@ describe('Cash amount entry', () => {
     const input = screen.getByLabelText('cashPayAmount');
     expect(input).toHaveAttribute('inputmode', 'none');
     fireEvent.change(input, { target: { value: '24.50' } });
-    expect(input).toHaveValue('$24.50');
+    expect(input).toHaveValue('24.50');
     press('delete');
-    expect(input).toHaveValue('$24.5');
+    expect(input).toHaveValue('24.5');
   });
 
   it('bounds integer length', () => {
     render(<Cash action="buy" />);
     press(...Array.from({ length: 15 }, () => '9'));
-    expect(screen.getByLabelText('cashPayAmount')).toHaveValue('$99999999999999');
+    expect(screen.getByLabelText('cashPayAmount')).toHaveValue('99999999999999');
   });
 
   it('requires a positive amount, opens provider selection, and keeps the draft on back', async () => {
@@ -143,7 +148,7 @@ describe('Cash amount entry', () => {
     expect(stripe).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('radio', { name: 'Transak' })).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByTestId('flow-back'));
-    await waitFor(() => expect(screen.getByTestId('cash-amount')).toHaveValue('$0.01'));
+    await waitFor(() => expect(screen.getByTestId('cash-amount')).toHaveValue('0.01'));
   });
 
   it('carries the sell amount into the preview and handles mobile back one step at a time', async () => {
@@ -331,7 +336,7 @@ describe('Cash provider checkout', () => {
     expect(screen.queryByRole('radio', { name: 'Transak' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('cash-checkout-continue')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('flow-back'));
-    await waitFor(() => expect(screen.getByTestId('cash-amount')).toHaveValue('$12.5'));
+    await waitFor(() => expect(screen.getByTestId('cash-amount')).toHaveValue('12.5'));
     view.unmount();
   });
 

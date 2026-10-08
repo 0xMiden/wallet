@@ -1,7 +1,9 @@
 import SignClient from '@walletconnect/sign-client';
 import { buildApprovedNamespaces } from '@walletconnect/utils';
-import { createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
+import { type Chain, createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+
+import { resolveCounterpartyEnv } from './wc-counterparty-env';
 
 /**
  * Headless WalletConnect v2 counterparty "wallet" for the bridge-IN iOS harness.
@@ -13,20 +15,25 @@ import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
  * requests — signing + broadcasting to a LOCAL Anvil. The WalletConnect handshake
  * + signing are 100% real; only the chain (Anvil) and the URI delivery are local.
  *
- * Pairing rides the public relay (relay.walletconnect.org) with the app's
- * project id, so it is NOT hermetic on the connection layer (by design — the same
- * external dependency class as bridge-out's hosted services).
+ * Pairing rides the public relay (relay.walletconnect.org), using the
+ * counterparty's own project id when WC_COUNTERPARTY_PROJECT_ID is set, else
+ * config.ts's resolution of the test process's own env - so it is NOT hermetic
+ * on the connection layer (by design - the same external dependency class as
+ * bridge-out's hosted services).
  */
 
-const RELAY_URL = process.env.WC_RELAY_URL ?? 'wss://relay.walletconnect.org';
 // The counterparty authenticates its OWN relay connection, independent of the
-// app's — WC peers don't need to share a projectId. Prefer a dedicated one
+// app's - WC peers don't need to share a projectId. Prefer a dedicated one
 // (WC_COUNTERPARTY_PROJECT_ID) so CI can halve per-projectId relay load and cut
-// the chance of tripping the free-tier rate limit that connection bursts hit.
-const PROJECT_ID =
-  process.env.WC_COUNTERPARTY_PROJECT_ID ?? process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67';
-const ANVIL_RPC = process.env.E2E_EVM_RPC_URL ?? 'http://127.0.0.1:8545';
+// the chance of tripping the rate limit that connection bursts hit; the trimmed,
+// empty-as-unset resolution (and the RELAY_URL / ANVIL_RPC defaults) live in
+// wc-counterparty-env.ts.
+const { relayUrl: RELAY_URL, projectId: PROJECT_ID, anvilRpc: ANVIL_RPC } = resolveCounterpartyEnv();
 const CHAIN_ID = 11155111;
+// The app proposes every chain in SUPPORTED_CHAINS (src/lib/walletconnect/config.ts), so the session
+// approves Arc Testnet too. Every request is still signed for and broadcast to the one local Anvil.
+const ARC_TESTNET_CHAIN_ID = 5042002;
+const SESSION_CHAIN_IDS = [CHAIN_ID, ARC_TESTNET_CHAIN_ID];
 // Anvil's first deterministic dev account (pre-funded with 10000 ETH).
 const DEFAULT_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
@@ -44,10 +51,22 @@ export interface WcRequestLog {
   error?: string;
 }
 
+export interface WcCounterpartyOptions {
+  privateKey?: `0x${string}`;
+  rpcUrl?: string;
+  /**
+   * The chain id of the node at `rpcUrl`, which every transaction is signed for.
+   * Defaults to the local Anvil's (Sepolia's id). A live run against Arc Testnet
+   * passes Arc's id with Arc's RPC URL.
+   */
+  chainId?: number;
+}
+
 export class WcCounterparty {
   readonly account: PrivateKeyAccount;
   private client!: Awaited<ReturnType<typeof SignClient.init>>;
   private wallet: WalletClient;
+  private readonly chain: Chain;
   private topic?: string;
   private connectedResolve!: () => void;
   /** Resolves once a session is approved (the app reports connected). */
@@ -55,12 +74,22 @@ export class WcCounterparty {
   /** Every session_request handled, for assertions. */
   readonly requests: WcRequestLog[] = [];
 
-  constructor(opts: { privateKey?: `0x${string}`; rpcUrl?: string } = {}) {
+  constructor(opts: WcCounterpartyOptions = {}) {
     this.account = privateKeyToAccount(opts.privateKey ?? (DEFAULT_KEY as `0x${string}`));
+    const rpcUrl = opts.rpcUrl ?? ANVIL_RPC;
+    this.chain =
+      opts.chainId === undefined
+        ? anvilChain
+        : defineChain({
+            id: opts.chainId,
+            name: `counterparty-${opts.chainId}`,
+            nativeCurrency: { name: 'Native', symbol: 'NATIVE', decimals: 18 },
+            rpcUrls: { default: { http: [rpcUrl] } }
+          });
     this.wallet = createWalletClient({
       account: this.account,
-      chain: anvilChain,
-      transport: http(opts.rpcUrl ?? ANVIL_RPC)
+      chain: this.chain,
+      transport: http(rpcUrl)
     });
     this.connected = new Promise<void>(res => {
       this.connectedResolve = res;
@@ -90,7 +119,7 @@ export class WcCounterparty {
           proposal: proposal.params,
           supportedNamespaces: {
             eip155: {
-              chains: [`eip155:${CHAIN_ID}`],
+              chains: SESSION_CHAIN_IDS.map(id => `eip155:${id}`),
               methods: [
                 'eth_sendTransaction',
                 'personal_sign',
@@ -99,7 +128,7 @@ export class WcCounterparty {
                 'eth_signTypedData_v4'
               ],
               events: ['chainChanged', 'accountsChanged'],
-              accounts: [`eip155:${CHAIN_ID}:${this.account.address}`]
+              accounts: SESSION_CHAIN_IDS.map(id => `eip155:${id}:${this.account.address}`)
             }
           }
         });
@@ -127,10 +156,10 @@ export class WcCounterparty {
    * The public relay rate-limits connection bursts and its subscribe can time out
    * ("Subscribing to <topic> failed, please try again"), which can hit the URI
    * fetch OR the pair/approve step. Retrying only the URI fetch (as the specs did
-   * inline) left the subscribe timeout fatal — the cause of the intermittent
+   * inline) left the subscribe timeout fatal - the cause of the intermittent
    * Bridge-IN E2E failures. A dedicated `WC_COUNTERPARTY_PROJECT_ID` (see the note
-   * at the top of this file) halves per-projectId relay load and is the durable
-   * infra-side fix; this keeps the handshake resilient in the meantime.
+   * at the top of this file) is optional per-projectId load relief, never the
+   * fix; this retry is what keeps the handshake resilient.
    */
   async connectWithRetry(
     getUri: () => Promise<string>,
@@ -193,7 +222,7 @@ export class WcCounterparty {
         if (!tx) throw new Error('eth_sendTransaction: missing tx params');
         result = await this.wallet.sendTransaction({
           account: this.account,
-          chain: anvilChain,
+          chain: this.chain,
           to: tx.to as `0x${string}`,
           data: (tx.data as `0x${string}`) ?? undefined,
           value: tx.value ? BigInt(tx.value) : undefined,

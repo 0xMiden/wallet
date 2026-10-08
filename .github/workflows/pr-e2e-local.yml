@@ -1,15 +1,26 @@
 name: Local E2E (Chrome)
 on:
   pull_request:
+  workflow_dispatch: {}
 concurrency:
   group: local-e2e-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
+  # Name and work read the same base value (#1071): only a pull request based on
+  # main or next gets the full suite and this required name; a stacked pull
+  # request reports a name no branch requires, which can never satisfy a check
+  # on that commit, so a retarget with no push leaves the required name missing
+  # until a push, or a close and reopen, runs the pull request's own event for
+  # real. A by-hand workflow_dispatch run reports the required name on the
+  # branch head (not the merge ref), against published packages, with no
+  # linked-PR injection: the inject actions exit on any event but pull_request.
+  # Branch protection accepts that check for a pull request at the same
+  # commit, which is the spec's by-hand escape hatch.
   chrome-local:
-    # Required-check name: keep this exact string.
-    name: local-e2e (chrome)
+    name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}
     # The full suite imports the published Linux napi module, which has no ARM64
     # build. 8 vCPU, not 2: on x64-2x this job was still past 40m with specs
     # running (14.5m setup, then 25m+ of serial local proves). Pre-#950 8x
@@ -33,12 +44,10 @@ jobs:
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
-      # One job, 500ms blocks: the deleted fast-blocks matrix existed so
-      # send-private saw a block in the commit-relay window. That cadence now
-      # lives here, and the rest of the suite spends less wall clock waiting
-      # on 3s blocks. run-local-node patches start-test-node.sh from this env.
-      MIDEN_NODE_BLOCK_INTERVAL: 500ms
-      MIDEN_NODE_BATCH_INTERVAL: 500ms
+      # No block-interval override, so the node runs start-test-node.sh's 3s default. Since 0.17 a
+      # transaction expires 20 blocks after its reference block, and at the 500ms this job used
+      # that is 10s, less than a CLI or in-browser proof plus sync lag: the node accepted mints
+      # and consumes, then dropped them from the mempool, and the accounts rolled back.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,8 +59,8 @@ jobs:
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
-      # jobs. Keyed on what actually determines those binaries — the rustc pin,
-      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # jobs. Keyed on what actually determines those binaries - the rustc pin
+      # and the pinned miden-client-cli rev - NOT on all of
       # package.json, which changes on most PRs for unrelated reasons and used to
       # bust this cache every time.
       - name: Compute shared cargo cache key
@@ -61,30 +70,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # Only the note-transport pins from versions.env: that file also holds
-          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
-          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
-          # Hashing the whole file meant bumping either one threw away ~8 min of
-          # cargo work — the same defect this key was already narrowed once to
-          # fix when it hashed all of package.json.
-          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
-          # Guard: an empty match would hash to a constant, silently pinning the
-          # key and letting a note-transport bump reuse a stale binary.
-          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
-          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
           if [ "${{ runner.arch }}" = X64 ]; then
             namespace=miden-e2e-cargo-v2
           else
             namespace=miden-e2e-cargo-v3-${{ runner.arch }}
           fi
-          echo "key=$namespace-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo (cli + note-transport)
+          echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli)
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
             ~/.cargo/registry
-            ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}

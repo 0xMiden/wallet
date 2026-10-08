@@ -111,17 +111,103 @@ function parseMidenClientFromCargoLock(lock) {
 }
 
 /**
- * Version of `name` in a Cargo.lock, or `undefined` when the crate is absent.
+ * Version of `name` in a Cargo.lock, or `undefined` when the crate is absent
+ * or its version on the transaction-kernel chain is ambiguous.
  * Anchored on the exact `name = "<crate>"` line so `miden-core` never matches
  * `miden-core-lib` (and `miden-client` never matches `miden-client-web`).
+ *
+ * A lock can list one crate twice. web-sdk v0.17.0-rc.5 does: `strip-masp-debug`
+ * depends on miden-core 0.33.0, that block comes first, and `miden-prover` 0.35.0
+ * depends on miden-core 0.35.0. The first block is not the procedure-root version.
+ * A duplicated name is resolved by walking dependencies from `miden-client`, then
+ * `miden-tx`, then `miden-prover`, and keeping the version that walk reaches.
+ * Overlap with any other copy is not enough: a kernel still on 0.33 would pass
+ * if an unrelated tool had pulled 0.35.
  */
 function parseCrateFromCargoLock(lock, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(
-    `\\[\\[package\\]\\]\\s*\\r?\\nname = "${escaped}"\\s*\\r?\\nversion = "([0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"`
+    `\\[\\[package\\]\\]\\s*\\r?\\nname = "${escaped}"\\s*\\r?\\nversion = "([0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"`,
+    'g'
   );
-  const m = lock.match(re);
-  return m ? m[1] : undefined;
+  const versions = [];
+  for (let m = re.exec(lock); m; m = re.exec(lock)) versions.push(m[1]);
+  if (versions.length === 0) return undefined;
+  if (versions.length === 1) return versions[0];
+  const packages = parseLockPackages(lock);
+  for (const root of ['miden-client', 'miden-tx', 'miden-prover']) {
+    const reached = versionsReachableFrom(packages, root).get(name);
+    if (reached?.size === 1) return [...reached][0];
+  }
+  return undefined;
+}
+
+/** `{ name, version }` from one Cargo.lock dependency spec. */
+function parseLockDep(spec) {
+  const bare = spec.replace(/\s+\([^)]*\)$/, '');
+  const tokens = bare.split(/\s+/).filter(Boolean);
+  const versionAt = tokens.findIndex(token => /^\d+\.\d+\.\d+/.test(token));
+  if (tokens.length >= 3 && versionAt === 2) return { name: tokens[1], version: tokens[2] };
+  if (tokens.length >= 2 && versionAt === 1) return { name: tokens[0], version: tokens[1] };
+  return { name: tokens[0], version: null };
+}
+
+function parseLockPackages(lock) {
+  const pkgs = [];
+  const re = /\[\[package\]\]\r?\n([\s\S]*?)(?=\r?\n\[\[|\s*$)/g;
+  for (let m = re.exec(lock); m; m = re.exec(lock)) {
+    const body = m[1];
+    const name = body.match(/^name = "([^"]+)"\r?\n/)?.[1];
+    const version = body.match(/^version = "([^"]+)"\r?\n/m)?.[1];
+    if (!name || !version) continue;
+    const deps = [];
+    const depBlock = body.match(/^dependencies = \[([\s\S]*?)\]/m);
+    if (depBlock) {
+      for (const spec of depBlock[1].matchAll(/"([^"]+)"/g)) deps.push(parseLockDep(spec[1]));
+    }
+    pkgs.push({ name, version, deps });
+  }
+  return pkgs;
+}
+
+/**
+ * Versions reached by following `rootName`'s dependency edges. An unversioned
+ * edge is followed only when that name has exactly one package; a versioned
+ * edge follows that package alone. A second copy that nothing on this chain
+ * names stays out of the set.
+ */
+function versionsReachableFrom(packages, rootName) {
+  const byKey = new Map();
+  const byName = new Map();
+  for (const pkg of packages) {
+    byKey.set(`${pkg.name}\0${pkg.version}`, pkg);
+    const list = byName.get(pkg.name) ?? [];
+    list.push(pkg);
+    byName.set(pkg.name, list);
+  }
+  const reached = new Map();
+  const seen = new Set();
+  const queue = [...(byName.get(rootName) ?? [])];
+  while (queue.length) {
+    const pkg = queue.shift();
+    const id = `${pkg.name}\0${pkg.version}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const vers = reached.get(pkg.name) ?? new Set();
+    vers.add(pkg.version);
+    reached.set(pkg.name, vers);
+    for (const dep of pkg.deps) {
+      if (!dep.name) continue;
+      if (dep.version) {
+        const exact = byKey.get(`${dep.name}\0${dep.version}`);
+        if (exact) queue.push(exact);
+        continue;
+      }
+      const candidates = byName.get(dep.name) ?? [];
+      if (candidates.length === 1) queue.push(candidates[0]);
+    }
+  }
+  return reached;
 }
 
 /**
@@ -317,6 +403,41 @@ function selfTest() {
   assert(parseCrateFromCargoLock(kernelLock, 'miden-core') === '0.29.0', 'miden-core is not miden-core-lib');
   assert(parseCrateFromCargoLock(kernelLock, 'miden-core-lib') === '0.29.1', 'miden-core-lib resolves');
   assert(parseCrateFromCargoLock(kernelLock, 'miden-protocol') === undefined, 'absent crate → undefined');
+
+  // A duplicated crate follows the miden-client chain, not the first [[package]] block
+  // and not whichever copy an unrelated tool pulled.
+  const toolFirst =
+    '[[package]]\nname = "miden-core"\nversion = "0.33.0"\n\n' +
+    '[[package]]\nname = "miden-core"\nversion = "0.35.0"\n\n' +
+    '[[package]]\nname = "miden-mast-package"\nversion = "0.33.0"\n\n' +
+    '[[package]]\nname = "miden-mast-package"\nversion = "0.35.0"\n\n' +
+    '[[package]]\nname = "miden-prover"\nversion = "0.35.0"\ndependencies = [\n "miden-core 0.35.0",\n]\n\n' +
+    '[[package]]\nname = "miden-tx"\nversion = "0.17.0-rc.9"\ndependencies = [\n "miden-prover",\n]\n\n' +
+    '[[package]]\nname = "miden-protocol"\nversion = "0.17.0-rc.9"\ndependencies = [\n "miden-mast-package 0.35.0",\n]\n\n' +
+    '[[package]]\nname = "miden-client"\nversion = "0.17.0-rc.5"\ndependencies = [\n "miden-protocol",\n "miden-tx",\n]\n\n' +
+    '[[package]]\nname = "strip-masp-debug"\nversion = "0.17.0-rc.5"\ndependencies = [\n "miden-core 0.33.0",\n "miden-mast-package 0.33.0",\n]\n';
+  assert(
+    parseCrateFromCargoLock(toolFirst, 'miden-core') === '0.35.0',
+    'duplicate miden-core follows the client, not the first block'
+  );
+  assert(
+    parseCrateFromCargoLock(toolFirst, 'miden-mast-package') === '0.35.0',
+    'duplicate miden-mast-package follows the client'
+  );
+  const kernelOlder =
+    '[[package]]\nname = "miden-core"\nversion = "0.35.0"\n\n' +
+    '[[package]]\nname = "miden-core"\nversion = "0.33.0"\n\n' +
+    '[[package]]\nname = "miden-prover"\nversion = "0.33.0"\ndependencies = [\n "miden-core 0.33.0",\n]\n\n' +
+    '[[package]]\nname = "miden-tx"\nversion = "0.16.0"\ndependencies = [\n "miden-prover",\n]\n\n' +
+    '[[package]]\nname = "miden-client"\nversion = "0.16.0"\ndependencies = [\n "miden-tx",\n]\n\n' +
+    '[[package]]\nname = "strip-masp-debug"\nversion = "0.16.0"\ndependencies = [\n "miden-core 0.35.0",\n]\n';
+  assert(
+    parseCrateFromCargoLock(kernelOlder, 'miden-core') === '0.33.0',
+    'a newer unrelated copy does not win over the kernel'
+  );
+  const noRoot =
+    '[[package]]\nname = "miden-core"\nversion = "0.33.0"\n\n[[package]]\nname = "miden-core"\nversion = "0.35.0"\n';
+  assert(parseCrateFromCargoLock(noRoot, 'miden-core') === undefined, 'duplicate with no kernel root stays unresolved');
 
   // diffKernelCrates: identical → none; version move → one entry; one-sided → entry
   const lockA = '[[package]]\nname = "miden-protocol"\nversion = "0.16.0-rc.4"\n';

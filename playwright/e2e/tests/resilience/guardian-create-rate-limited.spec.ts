@@ -3,7 +3,7 @@ import { RATE_LIMITED_RETRY_AFTER_SECS } from '../../harness/guardian-fault';
 
 /**
  * #906 / #903: a guardian that rate-limits `/configure` during creation must
- * not fail the wallet. `createGuardianAccount` wraps `registerOnGuardian` in
+ * not fail the wallet. `registerGuardianAccount` wraps `registerOnGuardian` in
  * `withGuardianRateLimitRetry`, which waits out the guardian's stated cooldown
  * and re-registers.
  *
