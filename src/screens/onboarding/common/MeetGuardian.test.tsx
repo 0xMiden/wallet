@@ -72,11 +72,7 @@ type HarnessProps = Omit<React.ComponentProps<typeof MeetGuardianScreen>, 'progr
 };
 
 /** Owns the step's progress the way OnboardingFlow does. */
-const Harness: React.FC<HarnessProps> = ({
-  initialProgress = { chosenId: null, pickedByUser: false },
-  onProgress,
-  ...props
-}) => {
+const Harness: React.FC<HarnessProps> = ({ initialProgress = { chosenId: null }, onProgress, ...props }) => {
   const [progress, setProgress] = React.useState<MeetGuardianProgress>(initialProgress);
   React.useEffect(() => onProgress?.(progress), [progress, onProgress]);
   return <MeetGuardianScreen {...props} progress={progress} onProgressChange={setProgress} />;
@@ -201,7 +197,7 @@ describe('MeetGuardianScreen', () => {
     view.setVerdicts(BOTH_ONLINE);
 
     act(() => mockSheet?.onPick('open-zeppelin'));
-    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'open-zeppelin', pickedByUser: true });
+    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'open-zeppelin' });
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
 
     view.setVerdicts({
@@ -214,17 +210,17 @@ describe('MeetGuardianScreen', () => {
   });
 
   it('keeps an operator the user picked earlier, however it ranks', () => {
-    const view = renderScreen({ initialProgress: { chosenId: 'open-zeppelin', pickedByUser: true } });
+    const view = renderScreen({ initialProgress: { chosenId: 'open-zeppelin' } });
     view.setVerdicts(BOTH_ONLINE);
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('OpenZeppelin');
   });
 
   it('replaces a choice that matches no operator with the fastest, as its own pick', () => {
     const onProgress = jest.fn();
-    const view = renderScreen({ initialProgress: { chosenId: 'gone', pickedByUser: true }, onProgress });
+    const view = renderScreen({ initialProgress: { chosenId: 'gone' }, onProgress });
     view.setVerdicts(BOTH_ONLINE);
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
-    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'gateway', pickedByUser: false });
+    expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'gateway' });
   });
 
   it('offers the fully private account when dev-gated on, and submits no guardian from it', () => {

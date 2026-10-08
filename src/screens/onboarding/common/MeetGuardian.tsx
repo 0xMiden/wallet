@@ -70,9 +70,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   useEffect(() => {
     if (chosen !== null || !allSettled || fastest === null) return;
     onProgressChange(prev =>
-      options.some(option => option.id === prev.chosenId)
-        ? prev
-        : { ...prev, chosenId: fastest.id, pickedByUser: false }
+      options.some(option => option.id === prev.chosenId) ? prev : { ...prev, chosenId: fastest.id }
     );
   }, [chosen, allSettled, fastest, options, onProgressChange]);
   const chosenVerdict = chosen ? verdicts[chosen.endpoint] : undefined;
@@ -88,9 +86,9 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 
   const handleNoGuardian = () => onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
 
-  // A pick from the sheet is the user's own, so a later probe round never swaps it.
+  // A pick from the sheet replaces the chosen operator; like the lock-in, a later probe round never swaps it.
   const handlePick = (id: string) =>
-    onProgressChange(prev => (prev.chosenId === id ? prev : { ...prev, chosenId: id, pickedByUser: true }));
+    onProgressChange(prev => (prev.chosenId === id ? prev : { ...prev, chosenId: id }));
 
   const copy = chosen ? guardianOperatorCopy(chosen.id) : undefined;
 

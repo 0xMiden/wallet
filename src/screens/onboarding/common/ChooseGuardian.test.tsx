@@ -358,13 +358,10 @@ describe('ChooseGuardianScreen', () => {
     fireEvent.click(gwBtn!);
     fireEvent.click(screen.getByTestId('continue-button'));
 
-    expect(onSubmit).toHaveBeenCalledWith(
-      {
-        guardianId: 'gateway',
-        guardianEndpoint: 'https://gw.example.com'
-      },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({
+      guardianId: 'gateway',
+      guardianEndpoint: 'https://gw.example.com'
+    });
   });
 
   it('submits the default provider when the user never changes the selection', () => {
@@ -372,13 +369,10 @@ describe('ChooseGuardianScreen', () => {
     render(<ChooseGuardianScreen onSubmit={onSubmit} />);
 
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      {
-        guardianId: 'open-zeppelin',
-        guardianEndpoint: 'https://oz.example.com'
-      },
-      { explicit: false }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({
+      guardianId: 'open-zeppelin',
+      guardianEndpoint: 'https://oz.example.com'
+    });
   });
 
   it('does not throw on continue when no onSubmit is provided', () => {
@@ -528,13 +522,10 @@ describe('ChooseGuardianScreen', () => {
     expect(mockIsValidGuardianUrl).toHaveBeenCalledWith('https://custom.example.com');
     expect(mockPing).toHaveBeenCalledWith('https://custom.example.com', USER_ENDPOINT_CHECK_TIMEOUT_MS);
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        {
-          guardianId: 'custom',
-          guardianEndpoint: 'https://custom.example.com'
-        },
-        { explicit: true }
-      )
+      expect(onSubmit).toHaveBeenCalledWith({
+        guardianId: 'custom',
+        guardianEndpoint: 'https://custom.example.com'
+      })
     );
   });
 
@@ -707,13 +698,10 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.queryByTestId('custom-input')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      {
-        guardianId: 'gateway',
-        guardianEndpoint: 'https://gw.example.com'
-      },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({
+      guardianId: 'gateway',
+      guardianEndpoint: 'https://gw.example.com'
+    });
   });
 
   // `selectedId` seeds from `defaultId` and is never empty, so opening the custom
@@ -760,10 +748,7 @@ describe('ChooseGuardianScreen', () => {
     fireEvent.click(screen.getByTestId('continue-button'));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        { guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' },
-        { explicit: true }
-      )
+      expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' })
     );
     expect(screen.getByTestId('choose-no-guardian')).toHaveAttribute('aria-checked', 'false');
   });
@@ -913,10 +898,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(isHighlighted(gwBtn!)).toBe(false);
 
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint },
-      { explicit: false }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
   });
 
   // Verdicts land AFTER the default is picked (the map starts empty), so the
@@ -934,10 +916,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(ozBtn).toHaveAccessibleDescription(/^default guardianOfflineLabel/);
 
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint },
-      { explicit: false }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
   });
 
   // The 30 s re-probe can flip an explicitly picked card offline while the user
@@ -1016,10 +995,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
 
     expect(gwBtn).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
   });
 
   // A card that recovers is selected again without a tap: the intent never
@@ -1108,10 +1084,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(lcBtn).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByTestId('continue-button')).not.toBeDisabled();
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'lambda-class', guardianEndpoint: LAMBDA.endpoint },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'lambda-class', guardianEndpoint: LAMBDA.endpoint });
   });
 
   // The custom field is its own escape hatch: a user pointing at their own
@@ -1131,146 +1104,8 @@ describe('ChooseGuardianScreen — offline banner', () => {
     fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://custom.example.com' } });
     fireEvent.click(screen.getByTestId('continue-button'));
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        { guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' },
-        { explicit: true }
-      )
+      expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' })
     );
-  });
-});
-
-// The create flow's picker goes on only as Meet your Guardian's Continue could: with an operator that has
-// answered online. A card with no verdict yet stays selectable; only Continue waits for it.
-describe('ChooseGuardianScreen - requireOnline (the create flow)', () => {
-  it('holds Continue while the picked operator has no verdict yet, keeping its card selectable', () => {
-    const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-    expect(isHighlighted(ozBtn!)).toBe(true);
-
-    fireEvent.click(gwBtn!);
-    expect(isHighlighted(gwBtn!)).toBe(true);
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-  });
-
-  it('goes on with the picked operator once it has answered online', () => {
-    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'online' });
-    const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline />);
-
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint },
-      { explicit: false }
-    );
-  });
-
-  it('still goes on with a pending verdict without it (Rotate Guardian)', () => {
-    const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} currentEndpoint={OZ.endpoint} />);
-
-    fireEvent.click(optionButtons(container)[1]!);
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint },
-      { explicit: true }
-    );
-  });
-
-  it('leaves the no-guardian item and a custom URL to go on without a verdict', async () => {
-    const onSubmit = jest.fn();
-    const { unmount } = render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline showNoGuardianOption />);
-    fireEvent.click(screen.getByTestId('choose-no-guardian'));
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenLastCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' }, { explicit: true });
-    unmount();
-
-    render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline allowCustomEndpoint />);
-    enterCustomUrl('https://custom.example.com');
-    fireEvent.click(screen.getByTestId('continue-button'));
-    await waitFor(() =>
-      expect(onSubmit).toHaveBeenLastCalledWith(
-        {
-          guardianId: 'custom',
-          guardianEndpoint: 'https://custom.example.com'
-        },
-        { explicit: true }
-      )
-    );
-  });
-});
-
-// The create flow's picker opens on the operator Meet your Guardian's card shows, not the first listed one.
-describe('ChooseGuardianScreen - initialId (the create flow)', () => {
-  it("pre-selects Meet your Guardian's operator and badges it Default", () => {
-    const { container } = render(<ChooseGuardianScreen initialId={GATEWAY.id} />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-
-    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute(
-      'data-guardian-endpoint',
-      GATEWAY.endpoint
-    );
-    expect(gwBtn).toHaveAccessibleDescription(/^default /);
-    expect(ozBtn).toHaveAccessibleDescription(/^guardianCardMeta/);
-    expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ['a null one (the first probe round still out)', null],
-    ['one no listed operator matches', 'not-listed']
-  ])('keeps the first provider as the default for %s', (_, initialId) => {
-    const { container } = render(<ChooseGuardianScreen initialId={initialId} />);
-    const [ozBtn] = optionButtons(container);
-
-    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
-    expect(ozBtn).toHaveAccessibleDescription(/^default /);
-  });
-});
-
-// The fallback to the first online operator covers Meet your Guardian's auto-pick only: the user's own pick
-// reopens as theirs (`initialPicked`) and, while it is offline, nothing is selected (#1083).
-describe('ChooseGuardianScreen - initialPicked (the create flow)', () => {
-  const gatewayDown = () =>
-    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline', [OZ.endpoint]: 'online' });
-
-  it("never substitutes another operator for the user's offline pick", () => {
-    gatewayDown();
-    const { container } = render(<ChooseGuardianScreen requireOnline initialId={GATEWAY.id} initialPicked />);
-
-    expect(container.querySelector('[aria-checked="true"]')).toBeNull();
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-  });
-
-  it("still falls to the first online operator for Meet's auto-pick", () => {
-    gatewayDown();
-    const { container } = render(<ChooseGuardianScreen requireOnline initialId={GATEWAY.id} />);
-
-    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
-    expect(screen.getByTestId('continue-button')).not.toBeDisabled();
-  });
-});
-
-// The flow records a submit as the user's own pick when they made one here, a re-activated default included.
-describe('ChooseGuardianScreen - explicit (the create flow)', () => {
-  it('reports a re-activated default as explicit and an untouched Continue as not', () => {
-    const onSubmit = jest.fn();
-    const gateway = { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint };
-    const { container, unmount } = render(<ChooseGuardianScreen onSubmit={onSubmit} initialId={GATEWAY.id} />);
-    const [, gwBtn, lcBtn] = optionButtons(container);
-
-    fireEvent.click(lcBtn!);
-    fireEvent.click(gwBtn!);
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenLastCalledWith(gateway, { explicit: true });
-    unmount();
-
-    render(<ChooseGuardianScreen onSubmit={onSubmit} initialId={GATEWAY.id} />);
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenLastCalledWith(gateway, { explicit: false });
   });
 });
 
@@ -1289,7 +1124,7 @@ describe('ChooseGuardian — no-guardian option', () => {
     render(<ChooseGuardianScreen onSubmit={onSubmit} showNoGuardianOption />);
     fireEvent.click(screen.getByTestId('choose-no-guardian'));
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' }, { explicit: true });
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' });
   });
 
   it('exposes the no-guardian card as pressed when selected, since selection is otherwise colour-only', () => {

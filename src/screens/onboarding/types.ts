@@ -54,10 +54,10 @@ export enum OnboardingStep {
   /**
    * The create flow's second guardian screen: the fastest reachable operator, picked for the user and
    * introduced on its own, with a Change provider action that opens the operator sheet. Continue opens
-   * once the chosen operator has answered online. The full-page picker, `ChooseGuardian`, stays routed.
+   * once the chosen operator has answered online. The full-page picker, `ChooseGuardian`, is Rotate
+   * Guardian's alone.
    */
   MeetGuardian = 'meet-guardian',
-  ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
 }
@@ -165,20 +165,9 @@ export type SelectRecoveryMethodAction = {
  */
 export interface MeetGuardianProgress {
   chosenId: string | null;
-  /**
-   * Picked by the user in the full picker rather than locked in by Meet your Guardian as the fastest. The picker
-   * reopens on it as the user's own pick (`initialPicked`), so its fallback to the first online operator never
-   * substitutes a user's pick: while it is offline nothing is selected (#1083).
-   */
-  pickedByUser: boolean;
 }
 
-export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { chosenId: null, pickedByUser: false };
-
-/** Open the full operator picker from the Meet your Guardian step. */
-export type ChooseGuardianAction = {
-  id: 'choose-guardian';
-};
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { chosenId: null };
 
 export type ImportSelectRecoveryMethodAction = {
   id: 'import-select-recovery-method';
@@ -220,7 +209,6 @@ export type OnboardingAction =
   | SetupBiometricAction
   | SetupBiometricSubmitAction
   | GuardianIntroSubmitAction
-  | ChooseGuardianAction
   | ChooseGuardianSubmitAction
   | BackupSeedPhraseAction
   | SelectImportTypeAction
@@ -231,7 +219,6 @@ export type OnboardingAction =
   | BiometricSetupSubmitAction
   | SelectTransactionTypeAction
   | SelectRecoveryMethodAction
-  | ChooseGuardianAction
   | ImportSelectRecoveryMethodAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction

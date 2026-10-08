@@ -10,7 +10,6 @@ import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints
 import { isMobile } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
-import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
@@ -34,7 +33,6 @@ import {
   EMPTY_MEET_GUARDIAN_PROGRESS,
   GuardianProbeState,
   ImportType,
-  NO_GUARDIAN_ID,
   OnboardingAction,
   OnboardingStep,
   OnboardingType,
@@ -88,11 +86,9 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.ChooseProtection]: 1,
   [OnboardingStep.SetupPasscode]: 2,
   [OnboardingStep.SetupBiometric]: 2,
-  // The guardian decision takes two segments: what a Guardian is, then who it is. The picker is a detail of
-  // the second, not a step after it.
+  // The guardian decision takes two segments: what a Guardian is, then who it is.
   [OnboardingStep.GuardianIntro]: 3,
   [OnboardingStep.MeetGuardian]: 4,
-  [OnboardingStep.ChooseGuardian]: 4,
   [OnboardingStep.SelectImportType]: 1,
   // This change inserts the import-type choice at tier 1, so seed entry moves to
   // tier 2 and the key-paste step, its sibling, moves with it.
@@ -164,8 +160,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     setProgressOverride(null);
   }, [step]);
 
-  // Meet your Guardian is left for the picker and come back to, so its locked operator lives
-  // here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
+  // Meet your Guardian is left for the intro or the next step and come back to, so its locked operator
+  // lives here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
   const [meetGuardianProgress, setMeetGuardianProgress] = useState(EMPTY_MEET_GUARDIAN_PROGRESS);
   useEffect(() => {
     if (step === OnboardingStep.Welcome) setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
@@ -273,23 +269,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onBiometricSwitchToPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
-    // Back from the next step lands on Meet your Guardian, so its card must show what the picker submitted.
-    // The full-page picker goes on only with an operator that has answered online (`requireOnline`), as
-    // Meet's Continue does. A pick is the user's own when it changed the card's operator or the picker
-    // reports it explicit; only an untouched Continue on Meet's auto-pick stays Meet's.
-    const onPickerSubmit = (
-      payload: { guardianId: string; guardianEndpoint: string },
-      pick?: { explicit: boolean }
-    ) => {
-      if (payload.guardianId !== NO_GUARDIAN_ID) {
-        setMeetGuardianProgress(prev =>
-          prev.chosenId === payload.guardianId && !pick?.explicit
-            ? prev
-            : { ...prev, chosenId: payload.guardianId, pickedByUser: true }
-        );
-      }
-      onChooseGuardianSubmit(payload);
-    };
 
     switch (step) {
       case OnboardingStep.Welcome:
@@ -317,16 +296,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             progress={meetGuardianProgress}
             onProgressChange={setMeetGuardianProgress}
             onSubmit={onChooseGuardianSubmit}
-            showNoGuardianOption={getEffectiveAllowNoGuardian()}
-          />
-        );
-      case OnboardingStep.ChooseGuardian:
-        return (
-          <ChooseGuardianScreen
-            onSubmit={onPickerSubmit}
-            requireOnline
-            initialId={meetGuardianProgress.chosenId}
-            initialPicked={meetGuardianProgress.pickedByUser}
             showNoGuardianOption={getEffectiveAllowNoGuardian()}
           />
         );

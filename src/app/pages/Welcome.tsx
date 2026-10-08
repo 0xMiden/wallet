@@ -133,10 +133,9 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
   [OnboardingStep.SetupBiometric]: 'setup_biometric',
   [OnboardingStep.CreatePassword]: 'set_password',
   [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
-  // One decision on three screens: the intro and the picker are details of the guardian step, so all report it.
+  // One decision on two screens: the intro is a detail of the guardian step, so both report it.
   [OnboardingStep.GuardianIntro]: 'choose_guardian',
   [OnboardingStep.MeetGuardian]: 'choose_guardian',
-  [OnboardingStep.ChooseGuardian]: 'choose_guardian',
   [OnboardingStep.ImportFromSeed]: 'enter_phrase',
   // Account creation is running; a failure here is ours, not a change of mind.
   [OnboardingStep.Confirmation]: 'submitting'
@@ -165,7 +164,7 @@ const Welcome: FC = () => {
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
-  // The guardian operator endpoint the user picked (choose-guardian) or that the
+  // The guardian operator endpoint the user picked (choose-guardian-submit) or that the
   // import recovery-method screen resolved. Threaded explicitly into
   // registerWallet so a new Guardian account binds to it. Undefined for
   // non-guardian (public) wallets.
@@ -367,7 +366,7 @@ const Welcome: FC = () => {
     // independent of a guardian backend.
     const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
     // Guardian endpoint override for the bypass. Production sets this via the
-    // ChooseGuardian / ImportRecoveryMethod screens, which the bypass skips — so
+    // MeetGuardian / ImportRecoveryMethod screens, which the bypass skips, so
     // thread it from the `guardianUrl` param the E2E helper passes. register()
     // forwards it as the guardianEndpoint override, exactly like the real picker,
     // so fetchGuardianCreateKey (create) and Vault.spawn's recovery scan (import)
@@ -670,10 +669,6 @@ const Welcome: FC = () => {
       case 'guardian-intro-submit':
         navigate('/#meet-guardian');
         break;
-      case 'choose-guardian':
-        // The guardian card's Change action on the Meet your Guardian step: the full picker.
-        navigate('/#choose-guardian');
-        break;
       case 'choose-guardian-submit':
         if (action.payload.guardianId === NO_GUARDIAN_ID) {
           // No guardian: private single-key (OffChain) account. Leave the
@@ -898,9 +893,6 @@ const Welcome: FC = () => {
             cancelOnLeavingOnboarding(target);
             navigate(target);
           }
-        } else if (step === OnboardingStep.ChooseGuardian) {
-          // The picker was pushed from the Meet your Guardian step; back returns there.
-          navigate('/#meet-guardian');
         } else if (step === OnboardingStep.MeetGuardian) {
           navigate('/#guardian-intro');
         } else if (step === OnboardingStep.GuardianIntro) {
@@ -1019,15 +1011,15 @@ const Welcome: FC = () => {
       case '#guardian-intro':
       case '#meet-guardian':
       case '#choose-guardian':
-        // All three need this create flow's in-memory seed. A reload loses it, an import must not turn into
-        // a create, and a history jump can land here before any protection step generated it (a create
-        // starts with no credentials, see resetFlowState). The seed is read through a ref because only
-        // this case needs it, while password and onboardingType feed several, so a seed change does not
+        // '#choose-guardian' is the retired full-page picker's: an old link to it lands where the sheet that
+        // replaced it opens. All three need this create flow's in-memory seed. A reload loses it, an import
+        // must not turn into a create, and a history jump can land here before any protection step generated
+        // it (a create starts with no credentials, see resetFlowState). The seed is read through a ref because
+        // only this case needs it, while password and onboardingType feed several, so a seed change does not
         // re-run every case.
         if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
         else if (hash === '#guardian-intro') setStep(OnboardingStep.GuardianIntro);
-        else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
-        else setStep(OnboardingStep.ChooseGuardian);
+        else setStep(OnboardingStep.MeetGuardian);
         break;
       case '#select-import-type':
         // Arriving keeps what the import holds, so Back and Forward resume it; the flow-state effect below says
