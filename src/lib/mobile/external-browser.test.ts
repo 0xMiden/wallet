@@ -106,7 +106,7 @@ describe('openExternalUrl', () => {
     expect(mockOpenWebView).toHaveBeenCalledWith(expect.objectContaining({ id: 'custom-id' }));
   });
 
-  it('cleans up viewport and both listeners when the overlay close event matches our id', async () => {
+  it('cleans up viewport and every listener when the overlay close event matches our id', async () => {
     mockIsMobile.mockReturnValue(true);
     const listeners = captureListeners();
 
@@ -117,6 +117,7 @@ describe('openExternalUrl', () => {
     expect(markReturningFromWebview).toHaveBeenCalled();
     expect(listeners.removed('closeEvent')).toHaveBeenCalled();
     expect(listeners.removed('pageLoadError')).toHaveBeenCalled();
+    expect(listeners.removed('browserPageLoaded')).toHaveBeenCalled();
     expect(resetViewportAfterWebview).toHaveBeenCalled();
   });
 
@@ -177,6 +178,30 @@ describe('openExternalUrl', () => {
       finishClose();
       await handled;
 
+      expect(announced).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a page open that fails after its initial load', async () => {
+      const listeners = captureListeners();
+
+      await openExternalUrl({ url: 'https://example.com', title: 'Example' });
+
+      await listeners.fire('browserPageLoaded', { id: 'explorer-webview' });
+      await listeners.fire('pageLoadError', { id: 'explorer-webview' });
+
+      expect(mockClose).not.toHaveBeenCalled();
+      expect(announced).not.toHaveBeenCalled();
+    });
+
+    it("still closes on its own initial failure when another instance's page loaded", async () => {
+      const listeners = captureListeners();
+
+      await openExternalUrl({ url: 'https://example.com', title: 'Example' });
+
+      await listeners.fire('browserPageLoaded', { id: 'some-other-webview' });
+      await listeners.fire('pageLoadError', { id: 'explorer-webview' });
+
+      expect(mockClose).toHaveBeenCalledTimes(1);
       expect(announced).toHaveBeenCalledTimes(1);
     });
 

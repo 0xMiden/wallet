@@ -18,8 +18,8 @@ export interface OpenExternalUrlOptions {
  * Open a URL in a new tab on desktop / extension, or as a native InAppBrowser
  * overlay on mobile. On mobile, the underlying React screen stays mounted
  * behind the overlay, so closing the overlay returns the user to exactly
- * where they were (e.g. the "Transaction Completed" modal). A page that fails to
- * load closes its overlay, and the app then tells the user (`onExternalPageFailed`).
+ * where they were (e.g. the "Transaction Completed" modal). A page whose initial
+ * load fails closes its overlay, and the app then tells the user (`onExternalPageFailed`).
  */
 export async function openExternalUrl({
   url,
@@ -31,11 +31,20 @@ export async function openExternalUrl({
     return;
   }
 
+  // Only the initial load closes the overlay: once a page has loaded, a later failure leaves it
+  // open on the platform's own error page.
+  let loaded = false;
+  const loadListener = await InAppBrowser.addListener('browserPageLoaded', event => {
+    if (event.id === id) {
+      loaded = true;
+    }
+  });
+
   // The flag, not remove(), is what makes this once: removal crosses the bridge, so a repeated
   // error can still arrive before it lands.
   let failed = false;
   const errorListener = await InAppBrowser.addListener('pageLoadError', async event => {
-    if (failed || event.id !== id) {
+    if (loaded || failed || event.id !== id) {
       return;
     }
     failed = true;
@@ -52,6 +61,7 @@ export async function openExternalUrl({
     markReturningFromWebview();
     closeListener.remove();
     errorListener.remove();
+    loadListener.remove();
     await resetViewportAfterWebview();
   });
 
