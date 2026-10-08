@@ -2246,14 +2246,6 @@
     "message": "Дізнайтеся більше про «Guardian»",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "Без опікуна",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Для досвідчених користувачів — відновлення лише за допомогою фрази відновлення. Без співпідписувача з «guardian».",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "Оператор:",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "Він зберігає резервну копію вашого приватного облікового запису, тому втрата телефону не означає втрату гаманця.",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "«Guardian» створює резервну копію ваших приватних даних облікового запису та співпідписує ваші транзакції.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Відновлення на новому телефоні",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Якщо ви втратите свій пристрій, «Guardian» допоможе вам відновити обліковий запис.",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "Ваша фраза відновлення відновлює ваші ключі, а разом із резервною копією вашого «Guardian» — і ваш обліковий запис. Зберігайте цю фразу в безпечному місці.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Ваші кошти залишаються вашими",
@@ -2314,6 +2306,10 @@
     "message": "Переходьте на іншого «Guardian» у будь-який зручний для вас час. Ваш обліковий запис залишається незмінним.",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "Більше про «Guardians»",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "Продовжуйте з $name$",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "Зміна постачальника послуг",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Дізнатися більше",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "Регіон:",

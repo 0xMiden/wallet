@@ -2246,14 +2246,6 @@
     "message": "Erfahren Sie mehr über das „Guardian“",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "Kein Vormund",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Fortgeschritten – Wiederherstellung ausschließlich mit Ihrer Wiederherstellungsphrase. Kein Mitunterzeichner unter guardian.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "Betreiber:",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "Es bewahrt eine Sicherungskopie Ihres privaten Kontos auf, sodass der Verlust Ihres Smartphones nicht den Verlust Ihrer Wallet bedeutet.",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "Ein „Guardian“ sichert Ihre privaten Kontodaten und gegenzeichnet Ihre Transaktionen.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Wiederherstellung auf einem neuen Smartphone",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Wenn Sie Ihr Gerät verlieren, hilft Ihnen Ihr „Guardian“, Ihr Konto wiederherzustellen.",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "Ihre Wiederherstellungsphrase stellt Ihre Schlüssel und – mit der Sicherung Ihres „Guardians“ – Ihr Konto wieder her. Bewahren Sie die Phrase sicher auf.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Ihr Guthaben bleibt Ihr Eigentum",
@@ -2314,6 +2306,10 @@
     "message": "Wechseln Sie jederzeit zu einem anderen „Guardian“, wann immer Sie möchten. Ihr Konto bleibt dabei unverändert.",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "Mehr über Guardians",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "Weiter mit $name$",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "Anbieter wechseln",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Erfahren Sie mehr",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "Region:",

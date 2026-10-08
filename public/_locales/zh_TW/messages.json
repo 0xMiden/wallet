@@ -2246,14 +2246,6 @@
     "message": "進一步了解Guardian",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "无监护人",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "進階 — 僅使用您的恢復短語進行恢復。無需 guardian 共同簽署人。",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "營運單位：",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "它會備份您的私人帳戶，因此即使手機遺失，也不代表會失去您的錢包。",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "Guardian 會備份您的私人帳戶資料，並對您的交易進行共同簽署。",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "在新手機上恢復",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "若遺失裝置，您的Guardian將協助您恢復帳戶。",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "您的恢復短語可恢復您的金鑰，並透過您的「Guardian」備份來恢復您的帳戶。請妥善保管此短語。",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "您的資金始終屬於您",
@@ -2314,6 +2306,10 @@
     "message": "您可隨時切換至另一位「Guardian」。您的帳戶將保持不變。",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "關於「Guardians」的更多資訊",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "繼續處理 $name$",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "更換服務供應商",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "了解更多",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "地區：",

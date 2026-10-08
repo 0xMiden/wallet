@@ -2246,14 +2246,6 @@
     "message": "了解更多关于Guardian的信息",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "无监护人",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "高级 — 仅使用您的恢复短语进行恢复。无需 guardian 的共同签名人。",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "运营方：",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "它会备份您的私人账户，因此丢失手机并不意味着丢失钱包。",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "“Guardian”会备份您的私人账户数据，并对您的交易进行联署。",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "在新手机上恢复",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "若设备丢失，您的Guardian将协助您恢复账户。",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "您的恢复短语可恢复您的密钥，并结合您的Guardian备份，恢复您的账户。请妥善保管该短语。",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "您的资金始终归您所有",
@@ -2314,6 +2306,10 @@
     "message": "您可以随时切换至另一位Guardian。您的账户保持不变。",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "关于Guardians的更多信息",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "继续处理 $name$",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "更换服务商",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "了解更多",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "地区：",

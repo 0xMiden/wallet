@@ -2246,14 +2246,6 @@
     "message": "Guardianの詳細はこちら",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "保護者なし",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "上級者向け — リカバリーフレーズのみを使用して復元してください。「guardian」の共同署名者は不要です。",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "運営：",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "この機能はアカウントのプライベートキーのバックアップを保持するため、スマートフォンを紛失してもウォレットを失うことはありません。",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "Guardianは、ユーザーのプライベートアカウントデータをバックアップし、取引に共同署名を行います。",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "新しいスマートフォンでの復元",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "デバイスを紛失した場合、Guardianがアカウントの復元を支援します。",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "リカバリーフレーズを使用すると、鍵が復元され、Guardianのバックアップがあればアカウントも復元されます。このフレーズは安全に保管してください。",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "お客様の資金は、常にお客様自身のものです",
@@ -2314,6 +2306,10 @@
     "message": "いつでも好きな時に別のGuardianに切り替えることができます。アカウント自体は変わりません。",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "Guardiansに関する詳細",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "$name$ へ進む",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "プロバイダーの変更",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "詳細はこちら",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "地域：",

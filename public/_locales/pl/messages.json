@@ -2246,14 +2246,6 @@
     "message": "Dowiedz się więcej o sieci Guardian",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "Żadnego opiekuna",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Zaawansowane — odzyskaj dostęp wyłącznie za pomocą frazy odzyskiwania. Bez współpodpisującego z guardian.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "Operator:",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "Usługa ta przechowuje kopię zapasową Twojego prywatnego konta, więc utrata telefonu nie oznacza utraty portfela.",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "Guardian tworzy kopię zapasową prywatnych danych konta i współpodpisuje transakcje.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Przywrócenie na nowym telefonie",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "W przypadku utraty urządzenia usługa „Guardian” pomoże Ci przywrócić konto.",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "Twoja fraza odzyskiwania przywraca klucze, a wraz z kopią zapasową Guardiana – również Twoje konto. Przechowuj tę frazę w bezpiecznym miejscu.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Twoje środki pozostają Twoją własnością",
@@ -2314,6 +2306,10 @@
     "message": "W dowolnym momencie możesz przejść na innego „Guardiana”. Twoje konto pozostaje bez zmian.",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "Więcej o Guardians",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "Kontynuuj z $name$",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "Zmiana dostawcy",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Dowiedz się więcej",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "Region:",

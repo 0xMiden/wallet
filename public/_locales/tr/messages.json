@@ -2246,14 +2246,6 @@
     "message": "Guardian hakkında daha fazla bilgi edinin",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "Vasi yok",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Gelişmiş — yalnızca kurtarma ifadenizle kurtarma yapın. guardian ortak imzalayıcısı kullanmayın.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "İşletmeci:",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "Bu, özel hesabınızın bir yedeğini tutar; bu sayede telefonunuzu kaybetmeniz, cüzdanınızı kaybetmeniz anlamına gelmez.",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "Guardian, özel hesap verilerinizi yedekler ve işlemlerinizi ortak imzalar.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Yeni bir telefonda kurtarma",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Cihazınızı kaybederseniz, Guardian hesabınızı geri yüklemenize yardımcı olur.",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "Kurtarma ifadeniz anahtarlarınızı ve Guardian'ınızın yedeği ile birlikte hesabınızı geri yükler. Bu ifadeyi güvenli bir yerde saklayın.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Paralarınız size ait kalır",
@@ -2314,6 +2306,10 @@
     "message": "İstediğiniz zaman başka bir Guardian’a geçebilirsiniz. Hesabınız aynı kalır.",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "Guardians hakkında daha fazla bilgi",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "$name$ ile devam edin",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "Sağlayıcıyı değiştirin",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Daha fazla bilgi edinin",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "Bölge:",

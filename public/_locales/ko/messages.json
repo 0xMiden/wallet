@@ -2246,14 +2246,6 @@
     "message": "Guardian에 대해 자세히 알아보기",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "보호자 없음",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "고급 — 복구 문구만으로 복구하십시오. guardian 공동 서명자는 허용되지 않습니다.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "운영사:",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "이 서비스는 귀하의 개인 계정 백업을 보관하므로, 휴대폰을 분실하더라도 지갑을 잃어버린 것은 아닙니다.",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "가디언(Guardian)은 사용자의 개인 계정 데이터를 백업하고 거래에 공동 서명합니다.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "새 휴대폰에서 복구하기",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "기기를 분실하더라도 ‘Guardian’이 계정 복구를 도와줍니다.",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "복구 문구를 통해 키를 복원할 수 있으며, ‘Guardian’의 백업과 함께 계정도 복원할 수 있습니다. 이 문구를 안전하게 보관하십시오.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "자금은 여전히 귀하의 소유입니다",
@@ -2314,6 +2306,10 @@
     "message": "원할 때 언제든지 다른 가디언(Guardian)으로 변경할 수 있습니다. 계정은 그대로 유지됩니다.",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "Guardians에 대한 추가 정보",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "$name$로 계속 진행하세요",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "제공업체 변경",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "자세히 알아보기",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "지역:",

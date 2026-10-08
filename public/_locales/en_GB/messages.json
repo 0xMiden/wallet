@@ -2246,14 +2246,6 @@
     "message": "Learn more about the Guardian",
     "englishSource": "Learn more about the Guardian"
   },
-  "noGuardianOptionTitle": {
-    "message": "No guardian",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Advanced — recover with your recovery phrase only. No guardian co-signer.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
-  },
   "guardianOperatedBy": {
     "message": "Operated by:",
     "englishSource": "Operated by:"
@@ -2287,16 +2279,16 @@
     "englishSource": "Meet your Guardian"
   },
   "guardianIntroDescription": {
-    "message": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet.",
-    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+    "message": "A Guardian backs up your private account data and co-signs your transactions.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
   "guardianIntroRecoverTitle": {
     "message": "Recover on a new phone",
     "englishSource": "Recover on a new phone"
   },
   "guardianIntroRecoverBody": {
-    "message": "Lose your device and your Guardian helps you restore your account.",
-    "englishSource": "Lose your device and your Guardian helps you restore your account."
+    "message": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
   },
   "guardianIntroFundsTitle": {
     "message": "Your funds stay yours",
@@ -2314,6 +2306,10 @@
     "message": "Move to another Guardian whenever you like. Your account stays the same.",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "More about Guardians",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "Continue with $name$",
     "englishSource": "Continue with $name$",
@@ -2326,6 +2322,10 @@
   "meetGuardianChangeProvider": {
     "message": "Change provider",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Learn more",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "Region:",
