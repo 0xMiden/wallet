@@ -1059,14 +1059,14 @@ describe('Welcome - mainnet access and the network notice (#875)', () => {
     await dispatch({ id: 'choose-protection' });
     mockNavigate.mockClear();
 
-    await dispatch({ id: 'mainnet-access-granted' });
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
 
     expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
     expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
 
     await dispatch({ id: 'select-import-type' });
     mockNavigate.mockClear();
-    await dispatch({ id: 'mainnet-access-granted' });
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
     expect(mockNavigate).toHaveBeenCalledWith('/#select-import-type');
   });
 

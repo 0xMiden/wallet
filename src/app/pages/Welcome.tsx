@@ -199,6 +199,7 @@ const Welcome: FC = () => {
   // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
   // twice (a retry joins it), and a failed registration is forgotten because it may already have
   // wiped the wallet.
+  const [accessCode, setAccessCode] = useState<string | undefined>();
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
   // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
@@ -245,6 +246,7 @@ const Welcome: FC = () => {
   // flow's own, and a failed confirmation's attempts, errors and lookup failure would greet the next one. Its
   // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
   const resetFlowState = useCallback(() => {
+    setAccessCode(undefined);
     setSeedPhrase(null);
     setKeyPairPayload(null);
     setPassword(null);
@@ -444,7 +446,11 @@ const Welcome: FC = () => {
     if (password && keyPairPayload) {
       // The pair stays in this onboarding component, never in wallet state.
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      await registerWalletFromHotKey(actualPassword, keyPairPayload, guardianEndpoint);
+      if (accessCode) {
+        await registerWalletFromHotKey(actualPassword, keyPairPayload, guardianEndpoint, accessCode);
+      } else {
+        await registerWalletFromHotKey(actualPassword, keyPairPayload, guardianEndpoint);
+      }
       return;
     }
     if (password && seedPhrase) {
@@ -453,22 +459,43 @@ const Welcome: FC = () => {
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
       const isImport = onboardingType === OnboardingType.Import;
       const inputs = walletFilePayload
-        ? JSON.stringify([actualPassword, seedPhraseFormatted, fileRegistrationBinding(walletFilePayload)])
-        : JSON.stringify([walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint]);
+        ? JSON.stringify([actualPassword, seedPhraseFormatted, fileRegistrationBinding(walletFilePayload), accessCode])
+        : JSON.stringify([walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint, accessCode]);
       let registration = registrationRef.current;
       if (!registration || registration.inputs !== inputs) {
         const next = {
           inputs,
           done: (async () => {
             if (walletFilePayload) {
-              await importWalletFromClient(
-                actualPassword,
-                seedPhraseFormatted,
-                walletFilePayload.accounts,
-                walletFilePayload.importedAccounts
-              );
+              if (accessCode) {
+                await importWalletFromClient(
+                  actualPassword,
+                  seedPhraseFormatted,
+                  walletFilePayload.accounts,
+                  walletFilePayload.importedAccounts,
+                  accessCode
+                );
+              } else {
+                await importWalletFromClient(
+                  actualPassword,
+                  seedPhraseFormatted,
+                  walletFilePayload.accounts,
+                  walletFilePayload.importedAccounts
+                );
+              }
             } else {
-              await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);
+              if (accessCode) {
+                await registerWallet(
+                  walletType,
+                  actualPassword,
+                  seedPhraseFormatted,
+                  isImport,
+                  guardianEndpoint,
+                  accessCode
+                );
+              } else {
+                await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);
+              }
             }
           })()
         };
@@ -492,6 +519,7 @@ const Welcome: FC = () => {
       throw new Error('Missing password or recovery phrase');
     }
   }, [
+    accessCode,
     password,
     seedPhrase,
     walletFilePayload,
@@ -625,10 +653,12 @@ const Welcome: FC = () => {
         startChosenFlow();
         break;
       case 'mainnet-access-granted':
-        // An accepted code skips the test-network notice. The network itself does not change yet.
+        setAccessCode(action.payload);
+        // Keep the code for registration after account setup.
         startChosenFlow();
         break;
       case 'mainnet-access-skip':
+        setAccessCode(undefined);
         navigate('/#network-notice');
         break;
       case 'choose-protection':
@@ -658,7 +688,12 @@ const Welcome: FC = () => {
         setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        navigate('/#meet-guardian');
+        if (accessCode && process.env.MIDEN_ACCESS_RPC_URL) {
+          setWalletType(WalletType.OffChain);
+          navigate('/#confirmation');
+        } else {
+          navigate('/#meet-guardian');
+        }
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -676,7 +711,12 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
-        navigate('/#meet-guardian');
+        if (accessCode && process.env.MIDEN_ACCESS_RPC_URL) {
+          setWalletType(WalletType.OffChain);
+          navigate('/#confirmation');
+        } else {
+          navigate('/#meet-guardian');
+        }
         break;
       case 'choose-guardian':
         // The guardian card's Change action on the Meet your Guardian step: the full picker.

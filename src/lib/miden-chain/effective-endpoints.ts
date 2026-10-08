@@ -67,7 +67,9 @@ export function getTestNetworkNameKey(): 'testnet' | 'devnet' | 'localnet' | nul
 }
 
 export function getEffectiveRpcUrl(): string {
-  return overrideCache?.rpcUrl || MIDEN_NETWORK_ENDPOINTS.get(getEffectiveNetworkName())!;
+  return (
+    process.env.MIDEN_ACCESS_RPC_URL || overrideCache?.rpcUrl || MIDEN_NETWORK_ENDPOINTS.get(getEffectiveNetworkName())!
+  );
 }
 
 export function getEffectiveRpcEndpoint(): Endpoint {

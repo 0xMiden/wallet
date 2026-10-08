@@ -141,7 +141,7 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
@@ -149,30 +149,33 @@ export const useWalletStore = create<WalletStore>()(
         password,
         mnemonic,
         ownMnemonic,
-        guardianEndpoint
+        guardianEndpoint,
+        accessCode
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
       // State will be synced via StateUpdated notification
     },
 
-    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint) => {
+    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint, accessCode) => {
       const res = await request({
         type: WalletMessageType.NewWalletFromHotKeyRequest,
         password,
         keyPairPayload,
-        guardianEndpoint
+        guardianEndpoint,
+        accessCode
       });
       assertResponse(res.type === WalletMessageType.NewWalletFromHotKeyResponse);
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts, importedAccounts) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts, importedAccounts, accessCode) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
         walletAccounts,
-        importedAccounts
+        importedAccounts,
+        accessCode
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },

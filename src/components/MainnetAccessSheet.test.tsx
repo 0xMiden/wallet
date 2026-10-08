@@ -82,8 +82,19 @@ describe('MainnetAccessSheet', () => {
 
     expect(screen.getByRole('heading')).toHaveTextContent('switchToMainnet');
     expect(screen.getByText('mainnetAccessDescription')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'mainnetAccessCodeLabel' })).toHaveAttribute('maxlength', '8');
+    expect(screen.getByRole('textbox', { name: 'mainnetAccessCodeLabel' })).toHaveAttribute('maxlength', '12');
     expect(screen.getByText('mainnetAccessNoCode:testnet')).toBeInTheDocument();
+  });
+
+  it('submits a 12-character code with letter case preserved', async () => {
+    onSubmit.mockResolvedValue('granted');
+    render(<Harness />);
+    type('8gKIgL0O6Hc');
+    expect(cta()).toBeDisabled();
+    type('8gKIgL0O6HcU');
+    expect(cta()).toBeEnabled();
+    await submit();
+    expect(onSubmit).toHaveBeenCalledWith('8gKIgL0O6HcU');
   });
 
   it('renders nothing on mainnet, even when asked to open', () => {

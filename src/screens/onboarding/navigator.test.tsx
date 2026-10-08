@@ -249,8 +249,8 @@ describe('OnboardingFlow — action wiring per screen', () => {
   it('MainnetAccess: an accepted code dispatches mainnet-access-granted, and no code dispatches the skip', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.MainnetAccess, onAction });
-    act(() => mockCaptured['mainnet-access'].onSubmit());
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-granted' });
+    act(() => mockCaptured['mainnet-access'].onSubmit('8gKIgL0O6HcU'));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
     act(() => mockCaptured['mainnet-access'].onSkip());
     expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-skip' });
   });

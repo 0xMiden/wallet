@@ -121,6 +121,7 @@ export default defineConfig({
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
     'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
+    'process.env.MIDEN_ACCESS_RPC_URL': JSON.stringify(process.env.MIDEN_ACCESS_RPC_URL ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),

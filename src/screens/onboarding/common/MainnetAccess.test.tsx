@@ -19,7 +19,8 @@ jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight
 
 const mockRedeem = jest.fn<Promise<'granted' | 'rejected'>, [string]>();
 jest.mock('lib/mainnet-access', () => ({
-  MAINNET_ACCESS_CODE_LENGTH: 8,
+  MAINNET_ACCESS_CODE_LENGTH: 12,
+  isMainnetAccessCodeComplete: (code: string) => /^(?:[0-9]{8}|[A-Za-z0-9]{12})$/.test(code),
   redeemMainnetAccessCode: (code: string) => mockRedeem(code)
 }));
 
@@ -44,7 +45,7 @@ describe('MainnetAccessScreen', () => {
     // The navigator's header names the step, so the body opens on its explainer line.
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
     expect(screen.getByText('mainnetAccessOnboardingBody')).toHaveClass('text-muted');
-    expect(screen.getByRole('textbox', { name: 'mainnetAccessCodeLabel' })).toHaveAttribute('maxlength', '8');
+    expect(screen.getByRole('textbox', { name: 'mainnetAccessCodeLabel' })).toHaveAttribute('maxlength', '12');
     expect(screen.getByText('mainnetAccessHint')).toBeInTheDocument();
     expect(screen.getByTestId('onboarding-mainnet-access-skip')).toHaveTextContent(
       'mainnetAccessContinueOnNetwork:testnet'
@@ -59,6 +60,19 @@ describe('MainnetAccessScreen', () => {
     expect(screen.getByTestId('onboarding-mainnet-access-skip')).toHaveTextContent(
       'mainnetAccessContinueOnNetwork:devnet'
     );
+  });
+
+  it('submits a 12-character code with letter case preserved', async () => {
+    mockRedeem.mockResolvedValue('granted');
+    const onSubmit = jest.fn();
+    render(<MainnetAccessScreen onSubmit={onSubmit} />);
+    type('8gKIgL0O6Hc');
+    expect(submitButton()).toBeDisabled();
+    type('8gKIgL0O6HcU');
+    expect(submitButton()).toBeEnabled();
+    await submit();
+    expect(onSubmit).toHaveBeenCalledWith('8gKIgL0O6HcU');
+    expect(mockRedeem).not.toHaveBeenCalled();
   });
 
   it('renders nothing on mainnet', () => {
@@ -79,46 +93,13 @@ describe('MainnetAccessScreen', () => {
     expect(submitButton()).toBeEnabled();
   });
 
-  it('reports an accepted code and nothing else', async () => {
-    mockRedeem.mockResolvedValue('granted');
-    const onSubmit = jest.fn();
-    const onSkip = jest.fn();
-    render(<MainnetAccessScreen onSubmit={onSubmit} onSkip={onSkip} />);
-    type('47291835');
-
-    await submit();
-
-    expect(mockRedeem).toHaveBeenCalledWith('47291835');
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(onSkip).not.toHaveBeenCalled();
-  });
-
-  it('shows the refusal for a rejected code, until the code changes', async () => {
-    mockRedeem.mockResolvedValue('rejected');
+  it('keeps the code for account setup without a node request', async () => {
     const onSubmit = jest.fn();
     render(<MainnetAccessScreen onSubmit={onSubmit} />);
-    type('47291835');
-
+    type('8gKIgL0O6HcU');
     await submit();
-
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('mainnetAccessCodeRejected');
-    expect(code()).toHaveAttribute('aria-invalid', 'true');
-
-    type('4729183');
-
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('shows a different message when the check itself fails', async () => {
-    mockRedeem.mockRejectedValue(new Error('offline'));
-    render(<MainnetAccessScreen />);
-    type('47291835');
-
-    await submit();
-
-    expect(screen.getByRole('alert')).toHaveTextContent('mainnetAccessCheckFailed');
-    expect(submitButton()).toBeEnabled();
+    expect(onSubmit).toHaveBeenCalledWith('8gKIgL0O6HcU');
+    expect(mockRedeem).not.toHaveBeenCalled();
   });
 
   it('goes on with the test network on the skip action, with no check', () => {

@@ -105,9 +105,10 @@ export type NetworkNoticeAcknowledgeAction = {
   id: 'network-notice-acknowledge';
 };
 
-/** The mainnet access code was accepted: the chosen flow starts on mainnet, with no test-network notice. */
+/** The code is held until account setup. Skip the test-network notice. */
 export type MainnetAccessGrantedAction = {
   id: 'mainnet-access-granted';
+  payload: string;
 };
 
 /** The user has no mainnet access code: the test-network notice follows. */

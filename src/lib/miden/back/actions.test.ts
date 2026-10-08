@@ -63,6 +63,12 @@ jest.mock('lib/miden/spending-limits/valuation', () => ({ resolveSpendsUsd: jest
 const mockedResolve = jest.mocked(resolveSpendsUsd);
 
 // Create mock vault instance
+const mockRedeemAccess = jest.fn<Promise<'granted' | 'rejected'>, [string, { accountId: string; rpcUrl: string }]>();
+jest.mock('lib/mainnet-access', () => ({
+  redeemMainnetAccessCode: (code: string, target: { accountId: string; rpcUrl: string }) =>
+    mockRedeemAccess(code, target)
+}));
+
 const mockVault = {
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
   provideRecoverySeed: jest.fn(),
@@ -660,6 +666,40 @@ describe('actions', () => {
   });
 
   describe('registerNewWallet', () => {
+    it('registers the final account before publishing and keeps it for a failed-request retry', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const previousRpcUrl = process.env.MIDEN_ACCESS_RPC_URL;
+      process.env.MIDEN_ACCESS_RPC_URL = 'http://127.0.0.1:57291';
+      const candidate = {
+        ...mockVault,
+        getCurrentAccount: jest.fn().mockResolvedValue({ publicKey: 'final-account' })
+      };
+      Vault.spawn.mockResolvedValueOnce(candidate);
+      mockRedeemAccess.mockRejectedValueOnce(new Error('Node unavailable'));
+      mockRedeemAccess.mockImplementationOnce(async () => {
+        expect(mockUnlocked).not.toHaveBeenCalled();
+        return 'granted';
+      });
+      try {
+        await expect(
+          registerNewWallet(WalletType.OffChain, 'pw', 'words', false, undefined, '8gKIgL0O6HcU')
+        ).rejects.toThrow('Node unavailable');
+        expect(mockUnlocked).not.toHaveBeenCalled();
+        expect(candidate.retire).not.toHaveBeenCalled();
+        await registerNewWallet(WalletType.OffChain, 'pw', 'words', false, undefined, '8gKIgL0O6HcU');
+        expect(Vault.spawn).toHaveBeenCalledTimes(1);
+        expect(mockRedeemAccess).toHaveBeenLastCalledWith('8gKIgL0O6HcU', {
+          accountId: 'final-account',
+          rpcUrl: 'http://127.0.0.1:57291'
+        });
+        expect(mockUnlocked).toHaveBeenCalledTimes(1);
+      } finally {
+        if (previousRpcUrl === undefined) delete process.env.MIDEN_ACCESS_RPC_URL;
+        else process.env.MIDEN_ACCESS_RPC_URL = previousRpcUrl;
+        mockRedeemAccess.mockReset();
+      }
+    });
+
     it('a spawn that fails leaves the realm sink as the store has it (#878)', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.spawn.mockRejectedValueOnce(new Error('hardware setup failed'));

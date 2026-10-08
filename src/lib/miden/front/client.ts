@@ -119,16 +119,17 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       ownMnemonic: boolean,
-      guardianEndpoint?: string
+      guardianEndpoint?: string,
+      accessCode?: string
     ) => {
-      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint);
+      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode);
     },
     [storeRegisterWallet]
   );
 
   const registerWalletFromHotKey = useCallback(
-    async (password: string | undefined, keyPairPayload: string, guardianEndpoint?: string) => {
-      await storeRegisterWalletFromHotKey(password, keyPairPayload, guardianEndpoint);
+    async (password: string | undefined, keyPairPayload: string, guardianEndpoint?: string, accessCode?: string) => {
+      await storeRegisterWalletFromHotKey(password, keyPairPayload, guardianEndpoint, accessCode);
     },
     [storeRegisterWalletFromHotKey]
   );
@@ -138,9 +139,10 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       walletAccounts: WalletAccount[],
-      importedAccounts: ImportedAccountBackup[]
+      importedAccounts: ImportedAccountBackup[],
+      accessCode?: string
     ) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts);
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts, accessCode);
     },
     [storeImportWalletFromClient]
   );

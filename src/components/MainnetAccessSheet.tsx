@@ -6,7 +6,7 @@ import { useHideForegroundDappWhileOpen } from 'app/providers/DappBrowserProvide
 import { Button } from 'components/Button';
 import { CodeInput } from 'components/ui/CodeInput';
 import { ErrorLine } from 'components/ui/ErrorLine';
-import { MAINNET_ACCESS_CODE_LENGTH, MainnetAccessOutcome } from 'lib/mainnet-access';
+import { isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH, MainnetAccessOutcome } from 'lib/mainnet-access';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -21,7 +21,7 @@ export interface MainnetAccessSheetProps {
 type Failure = 'rejected' | 'unchecked';
 
 /**
- * The mainnet access sheet: mainnet is invite-only, and the user types the 8-digit access code here.
+ * The mainnet access sheet: mainnet is invite-only, and the user types the access code here.
  * The caller owns `open` and the check of the code. The sheet renders nothing on mainnet.
  */
 export const MainnetAccessSheet: FC<MainnetAccessSheetProps> = ({ open, onOpenChange, onSubmit }) => {
@@ -44,7 +44,7 @@ export const MainnetAccessSheet: FC<MainnetAccessSheetProps> = ({ open, onOpenCh
   const networkKey = getTestNetworkNameKey();
   if (!networkKey) return null;
 
-  const complete = code.length === MAINNET_ACCESS_CODE_LENGTH;
+  const complete = isMainnetAccessCodeComplete(code);
 
   // Literal keys, so the key-coverage test can find them.
   const failureMessage = (): string | null => {
@@ -99,6 +99,8 @@ export const MainnetAccessSheet: FC<MainnetAccessSheetProps> = ({ open, onOpenCh
               value={code}
               onChange={changeCode}
               length={MAINNET_ACCESS_CODE_LENGTH}
+              groupSize={6}
+              format="alphanumeric"
               label={t('mainnetAccessCodeLabel')}
               invalid={failure !== null}
               disabled={submitting}

@@ -143,18 +143,21 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     ownMnemonic: boolean,
-    guardianEndpoint?: string
+    guardianEndpoint?: string,
+    accessCode?: string
   ) => Promise<void>;
   registerWalletFromHotKey: (
     password: string | undefined,
     keyPairPayload: string,
-    guardianEndpoint?: string
+    guardianEndpoint?: string,
+    accessCode?: string
   ) => Promise<void>;
   importWalletFromClient: (
     password: string | undefined,
     mnemonic: string,
     walletAccounts: WalletAccount[],
-    importedAccounts: ImportedAccountBackup[]
+    importedAccounts: ImportedAccountBackup[],
+    accessCode?: string
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 

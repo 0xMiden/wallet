@@ -49,6 +49,19 @@ describe('CodeInput', () => {
     expect(screen.getByTestId('code')).toHaveValue('47291835');
   });
 
+  it('keeps mixed-case letters and digits when an alphanumeric code is pasted', () => {
+    const onChange = jest.fn();
+    const { container } = render(
+      <CodeInput value="" onChange={onChange} label="Access code" length={12} format="alphanumeric" />
+    );
+    const input = screen.getByRole('textbox', { name: 'Access code' });
+    expect(cells(container)).toHaveLength(12);
+    expect(input).toHaveAttribute('inputmode', 'text');
+    expect(input).toHaveAttribute('autocapitalize', 'none');
+    fireEvent.change(input, { target: { value: '8gKI-gL0O 6HcUextra' } });
+    expect(onChange).toHaveBeenCalledWith('8gKIgL0O6HcU');
+  });
+
   it('marks the cell that takes the subsequent digit only while the field has focus', () => {
     const { container } = render(<Harness initial="47291" />);
     const active = () => cells(container).map(cell => cell.hasAttribute('data-active'));

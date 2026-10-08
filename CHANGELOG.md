@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] Replace the preview mainnet code check with node account registration. Accept 12-character alphanumeric codes and existing 8-digit codes. Keep the onboarding code until the final account exists, then register it before completing setup. Use MIDEN_ACCESS_RPC_URL for local registration tests. Registration requires the final account ID and RPC URL, keeps unused codes for accounts already allowed, and reports node failures for retry.
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
 
 ## 1.17.1 (2026-10-07)

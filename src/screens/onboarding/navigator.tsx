@@ -222,7 +222,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     };
 
     const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
-    const onMainnetAccessGranted = () => onForwardAction?.({ id: 'mainnet-access-granted' });
+    const onMainnetAccessGranted = (code: string) => onForwardAction?.({ id: 'mainnet-access-granted', payload: code });
     const onMainnetAccessSkip = () => onForwardAction?.({ id: 'mainnet-access-skip' });
 
     const onSelectImportTypeSubmit = (payload: ImportType) => {

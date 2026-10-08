@@ -527,7 +527,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
           req.password,
           req.mnemonic,
           req.ownMnemonic,
-          req.guardianEndpoint
+          req.guardianEndpoint,
+          req.accessCode
         );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {
@@ -536,10 +537,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       }
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.NewWalletFromHotKeyRequest:
-      await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
+      await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint, req.accessCode);
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts, req.importedAccounts);
+      await Actions.registerImportedWallet(
+        req.password,
+        req.mnemonic,
+        req.walletAccounts,
+        req.importedAccounts,
+        req.accessCode
+      );
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);

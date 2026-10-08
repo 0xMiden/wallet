@@ -3,14 +3,15 @@ import React, { forwardRef, useState } from 'react';
 import { cn } from 'lib/ui/util';
 
 export interface CodeInputProps {
-  /** The digits typed so far. */
+  /** The characters entered so far. */
   value: string;
-  /** Receives digits only, never more than `length`. */
+  /** Receives permitted characters, up to `length`. */
   onChange: (value: string) => void;
   /** The accessible name of the field. No visible label comes with it. */
   label: string;
-  /** The number of digits in a full code. */
+  /** The maximum number of characters. */
   length?: number;
+  format?: 'numeric' | 'alphanumeric';
   /** The number of cells between two dashes. */
   groupSize?: number;
   invalid?: boolean;
@@ -21,7 +22,10 @@ export interface CodeInputProps {
   'data-testid'?: string;
 }
 
-const NON_DIGITS = /\D/g;
+const FORMATS = {
+  numeric: { inputMode: 'numeric', pattern: '[0-9]*', excluded: /\D/g },
+  alphanumeric: { inputMode: 'text', pattern: '[A-Za-z0-9]*', excluded: /[^A-Za-z0-9]/g }
+} satisfies Record<string, { inputMode: 'numeric' | 'text'; pattern: string; excluded: RegExp }>;
 
 /** Splits the cell indexes into rows of `groupSize`: 8 cells in groups of 4 give two rows. */
 const groupCells = (length: number, groupSize: number): number[][] => {
@@ -34,14 +38,8 @@ const groupCells = (length: number, groupSize: number): number[][] => {
 };
 
 /**
- * A short numeric code, one digit for each cell, with a dash between the groups.
- *
- * One native input lies on top of the cells and holds the value. Thus paste, the numeric keyboard and
- * the one-time-code autofill work as they do in a usual field. The input text is invisible. The cells
- * show the digits and are hidden from assistive technology, which reads the input.
- *
- * The cell that takes the subsequent digit shows the accent edge and a caret while the input has
- * focus. A full code has no such cell.
+ * Show a code in cells over one native input. Keep letter case when letters are permitted.
+ * Paste and autofill use the native input. The cells are hidden from assistive technology.
  */
 export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function CodeInput(
   {
@@ -49,6 +47,7 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
     onChange,
     label,
     length = 8,
+    format = 'numeric',
     groupSize = 4,
     invalid,
     disabled,
@@ -60,13 +59,14 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
 ) {
   const [focused, setFocused] = useState(false);
   const groups = groupCells(length, groupSize);
+  const inputFormat = FORMATS[format];
 
   return (
-    <div className={cn('relative flex items-center justify-between', className)}>
+    <div className={cn('relative flex items-center justify-between gap-1.5', className)}>
       {groups.map((group, groupIndex) => (
         <React.Fragment key={group[0]}>
           {groupIndex > 0 && <span aria-hidden="true" className="h-0.5 w-2 shrink-0 rounded-full bg-ink opacity-40" />}
-          <div aria-hidden="true" className="flex gap-1.5">
+          <div aria-hidden="true" className={cn('flex gap-1.5', length > 8 && 'min-w-0 flex-1')}>
             {group.map(index => {
               const active = focused && index === value.length;
               return (
@@ -75,7 +75,8 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
                   data-slot="code-cell"
                   data-active={active || undefined}
                   className={cn(
-                    'flex h-12 w-9 shrink-0 items-center justify-center rounded-xl text-entry-unit text-ink',
+                    'flex h-12 items-center justify-center rounded-xl text-entry-unit text-ink',
+                    length > 8 ? 'min-w-0 flex-1' : 'w-9 shrink-0',
                     active ? 'bg-page ring-2 ring-inset ring-accent-primary' : 'bg-fill'
                   )}
                 >
@@ -93,12 +94,15 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
       <input
         ref={ref}
         type="text"
-        inputMode="numeric"
+        inputMode={inputFormat.inputMode}
         autoComplete="one-time-code"
-        pattern="[0-9]*"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        pattern={inputFormat.pattern}
         maxLength={length}
         value={value}
-        onChange={event => onChange(event.target.value.replace(NON_DIGITS, '').slice(0, length))}
+        onChange={event => onChange(event.target.value.replace(inputFormat.excluded, '').slice(0, length))}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         aria-label={label}
