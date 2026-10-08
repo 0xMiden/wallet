@@ -108,6 +108,10 @@ const row = (overrides: Partial<ITransaction> = {}): ITransaction =>
     ...overrides
   }) as ITransaction;
 
+/** How many passes queried candidate rows; a row write is `where({ id })` and stringifies to `[object Object]`. */
+const queries = () =>
+  jest.mocked(Repo.transactions.where).mock.calls.filter(([arg]) => String(arg) === 'noteDelivery').length;
+
 beforeEach(() => {
   rows.length = 0;
   jest.clearAllMocks();
@@ -1284,7 +1288,7 @@ describe('the delivery schedule', () => {
     // retryDelayFor(1): the step after the row's one attempt.
     expect(rows[0]).toMatchObject({ relayAttempts: 1, noteDelivery: 'pending', nextRelayAt: NOW + 5 * MINUTE });
     // The pass still left its idle gate, so the second lap did not even query.
-    expect(jest.mocked(Repo.transactions.where).mock.calls.filter(([arg]) => arg === 'noteDelivery')).toHaveLength(1);
+    expect(queries()).toBe(1);
   });
 
   it('withdraws the push fuse evidence only on a push that resolved', async () => {
@@ -1783,8 +1787,6 @@ describe('the delivery schedule', () => {
 // never start a second pass beside a running one.
 describe('when a pass runs', () => {
   const { recordNoteDelivery } = jest.requireActual<typeof import('./helper')>('./helper');
-  const queries = () =>
-    jest.mocked(Repo.transactions.where).mock.calls.filter(([arg]) => arg === 'noteDelivery').length;
 
   it('runs one pass for two calls that overlap', async () => {
     rows.push(row({ noteDelivery: 'pending' }));
