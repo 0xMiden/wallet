@@ -2331,6 +2331,103 @@
       }
     }
   },
+  "guardianIntroTitle": {
+    "message": "Познакомьтесь со своим «Guardian»",
+    "englishSource": "Meet your Guardian"
+  },
+  "guardianIntroDescription": {
+    "message": "Он хранит резервную копию вашей личной учетной записи, поэтому потеря телефона не означает потери кошелька.",
+    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+  },
+  "guardianIntroRecoverTitle": {
+    "message": "Восстановление на новом телефоне",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Если вы потеряете устройство, «Guardian» поможет вам восстановить учетную запись.",
+    "englishSource": "Lose your device and your Guardian helps you restore your account."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Ваши средства остаются вашими",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Ваш «Guardian» подписывает транзакции совместно с вами. Он никогда не может самостоятельно перемещать средства.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Смена возможна в любое время",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Вы можете перейти на другого «Guardian» в любое время. Ваша учетная запись останется прежней.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "meetGuardianContinueWith": {
+    "message": "Продолжить с $name$",
+    "englishSource": "Continue with $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Смена провайдера",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianRegion": {
+    "message": "Регион:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Быстрее всего",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Выберите провайдера",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "Все они создают резервную копию вашей учетной записи одинаковым способом.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "Вы можете выполнить переключение в любое время в «Настройках».",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin — компания, занимающаяся безопасностью смарт-контрактов, известная своими аудитами.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway — поставщик инфраструктуры блокчейна (blockchain), который управляет узлами и сетями.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass — инженерная компания, разрабатывающая системы с нулевым разглашением.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset — компания по хранению цифровых активов, базирующаяся в Южной Корее.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Безопасность и аудит смарт-контрактов",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Поставщик инфраструктуры Blockchain",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Системная инженерия с нулевым разглашением",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Хранитель цифровых активов",
+    "englishSource": "Digital asset custodian"
+  },
   "guardianInfoDescription": {
     "message": "Guardian — это независимый сервис, который <b>соподписывает каждую транзакцию</b> из вашего кошелька, добавляя систему безопасности без отказа от самостоятельного хранения.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

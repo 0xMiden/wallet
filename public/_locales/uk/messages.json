@@ -2331,6 +2331,103 @@
       }
     }
   },
+  "guardianIntroTitle": {
+    "message": "Зустріньте свого «Guardian»",
+    "englishSource": "Meet your Guardian"
+  },
+  "guardianIntroDescription": {
+    "message": "Він зберігає резервну копію вашого приватного облікового запису, тому втрата телефону не означає втрату гаманця.",
+    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+  },
+  "guardianIntroRecoverTitle": {
+    "message": "Відновлення на новому телефоні",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Якщо ви втратите свій пристрій, «Guardian» допоможе вам відновити обліковий запис.",
+    "englishSource": "Lose your device and your Guardian helps you restore your account."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Ваші кошти залишаються вашими",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Ваш «Guardian» підписує транзакції разом з вами. Він ніколи не може самостійно переказувати кошти.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Змінюйте в будь-який час",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Переходьте на іншого «Guardian» у будь-який зручний для вас час. Ваш обліковий запис залишається незмінним.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "meetGuardianContinueWith": {
+    "message": "Продовжуйте з $name$",
+    "englishSource": "Continue with $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Зміна постачальника послуг",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianRegion": {
+    "message": "Регіон:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Найшвидше",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Оберіть постачальника послуг",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "Усі вони створюють резервну копію вашого облікового запису однаковим чином.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "Ви можете здійснити перемикання в будь-який час у розділі «Налаштування».",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin — компанія з безпеки смарт-контрактів, відома своїми аудитами.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway — постачальник інфраструктури blockchain, який управляє вузлами та мережами.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass — інженерна компанія, що розробляє системи з нульовим розкриттям інформації.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset — компанія з зберігання цифрових активів, що базується в Південній Кореї.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Безпека та аудит смарт-контрактів",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Провайдер інфраструктури Blockchain",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Системна інженерія з нульовим розкриттям інформації",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Зберігач цифрових активів",
+    "englishSource": "Digital asset custodian"
+  },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

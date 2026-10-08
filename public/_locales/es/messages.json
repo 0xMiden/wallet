@@ -2331,6 +2331,103 @@
       }
     }
   },
+  "guardianIntroTitle": {
+    "message": "Conoce a tu «Guardian»",
+    "englishSource": "Meet your Guardian"
+  },
+  "guardianIntroDescription": {
+    "message": "Guarda una copia de seguridad de tu cuenta privada, por lo que perder el teléfono no significa perder tu monedero.",
+    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+  },
+  "guardianIntroRecoverTitle": {
+    "message": "Recuperar en un nuevo teléfono",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Si pierdes tu dispositivo, tu «Guardian» te ayuda a recuperar tu cuenta.",
+    "englishSource": "Lose your device and your Guardian helps you restore your account."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Tus fondos siguen siendo tuyos",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Tu «Guardian» firma conjuntamente contigo. Nunca puede mover fondos por su cuenta.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Cambia en cualquier momento",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Cambia a otro «Guardian» cuando quieras. Tu cuenta seguirá siendo la misma.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "meetGuardianContinueWith": {
+    "message": "Continúa con $name$",
+    "englishSource": "Continue with $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Cambiar de proveedor",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianRegion": {
+    "message": "Región:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Más rápido",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Elige un proveedor",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "Todos ellos realizan copias de seguridad de tu cuenta de la misma manera.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "Puedes cambiarlo en cualquier momento en «Ajustes».",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin, una empresa de seguridad de contratos inteligentes conocida por sus auditorías.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway, un proveedor de infraestructura de blockchain que gestiona nodos y redes.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass, una empresa de ingeniería que desarrolla sistemas de conocimiento cero.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset, una empresa de custodia de activos digitales con sede en Corea del Sur.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Seguridad y auditorías de los contratos inteligentes",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Proveedor de infraestructura de Blockchain",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Ingeniería de sistemas de conocimiento cero",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Custodio de activos digitales",
+    "englishSource": "Digital asset custodian"
+  },
   "guardianInfoDescription": {
     "message": "Un «Guardian» es un servicio independiente que <b>avala cada transacción</b> desde tu monedero, añadiendo una red de seguridad sin renunciar a la autocustodia.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."

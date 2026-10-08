@@ -2331,6 +2331,103 @@
       }
     }
   },
+  "guardianIntroTitle": {
+    "message": "Guardian'ınızla tanışın",
+    "englishSource": "Meet your Guardian"
+  },
+  "guardianIntroDescription": {
+    "message": "Bu, özel hesabınızın bir yedeğini tutar; bu sayede telefonunuzu kaybetmeniz, cüzdanınızı kaybetmeniz anlamına gelmez.",
+    "englishSource": "It keeps a backup of your private account, so losing your phone doesn't mean losing your wallet."
+  },
+  "guardianIntroRecoverTitle": {
+    "message": "Yeni bir telefonda kurtarma",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Cihazınızı kaybederseniz, Guardian hesabınızı geri yüklemenize yardımcı olur.",
+    "englishSource": "Lose your device and your Guardian helps you restore your account."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Paralarınız size ait kalır",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Guardian, sizinle birlikte imza atar. Asla kendi başına fon transferi yapamaz.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "İstediğiniz zaman değiştirin",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "İstediğiniz zaman başka bir Guardian’a geçebilirsiniz. Hesabınız aynı kalır.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "meetGuardianContinueWith": {
+    "message": "$name$ ile devam edin",
+    "englishSource": "Continue with $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Sağlayıcıyı değiştirin",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianRegion": {
+    "message": "Bölge:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "En hızlı",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Bir sağlayıcı seçin",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "Hepsi hesabınızı aynı şekilde yedekler.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "Ayarlar'dan istediğiniz zaman geçiş yapabilirsiniz.",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin, denetimleriyle tanınan bir akıllı sözleşme güvenlik şirketidir.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway, düğümleri ve ağları çalıştıran bir blockchain altyapı sağlayıcısıdır.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass, sıfır bilgi sistemleri geliştiren bir mühendislik firmasıdır.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset, Güney Kore merkezli bir dijital varlık saklama şirketidir.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Akıllı sözleşme güvenliği ve denetimleri",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchain altyapı sağlayıcısı",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Sıfır bilgi sistem mühendisliği",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Dijital varlık saklayıcısı",
+    "englishSource": "Digital asset custodian"
+  },
   "guardianInfoDescription": {
     "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
