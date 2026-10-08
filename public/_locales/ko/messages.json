@@ -2230,38 +2230,6 @@
     "message": "아래에서 옵션을 선택하세요",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "계정 설정하기",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Miden에서 귀하의 계정은 비공개로 관리됩니다. 각 항목을 한 번씩 확인하여 계정이 어떻게 보호되는지 파악해 보십시오.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "귀하의 계정은 이 기기에 저장되어 있습니다",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "계정의 비공개 상태 정보는 사용자의 기기에만 저장됩니다. 네트워크는 오직 암호화된 커밋먼트만 확인합니다.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "복구 문구만으로는 충분하지 않습니다",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "복구 문구는 계정 상태가 아닌 키를 복원합니다. 기기를 분실하면 그 상태는 사라집니다.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Guardian는 여러분을 보호해 줄 수 있습니다",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Guardian는 귀하의 계정 상태를 저장하고 복구를 돕습니다. 이를 귀하의 데이터를 백업해 주는 서버라고 생각하시면 되지만, 이 지갑은 귀하의 자금을 절대 건드릴 수 없습니다.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "어느 운영자가 가장 빨리 응답하는지 확인해 보겠습니다…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2277,14 +2245,6 @@
   "learnMoreAboutGuardian": {
     "message": "Guardian에 대해 자세히 알아보기",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "보호자 없음",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "고급 — 복구 문구만으로 복구하십시오. guardian 공동 서명자는 허용되지 않습니다.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "운영사:",
@@ -2314,22 +2274,110 @@
     "message": "Guardian란 무엇인가요?",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "내 Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Guardian를 만나보세요",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "변경",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "가디언(Guardian)은 사용자의 개인 계정 데이터를 백업하고 거래에 공동 서명합니다.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$이(가) 계정을 백업합니다. 자금을 옮길 수 없으며 언제든지 바꿀 수 있습니다.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "새 휴대폰에서 복구하기",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "복구 문구를 통해 키를 복원할 수 있으며, ‘Guardian’의 백업과 함께 계정도 복원할 수 있습니다. 이 문구를 안전하게 보관하십시오.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "자금은 여전히 귀하의 소유입니다",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Guardian은 사용자와 함께 공동 서명합니다. Guardian은 절대 단독으로 자금을 이동할 수 없습니다.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "언제든지 전환 가능",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "원할 때 언제든지 다른 가디언(Guardian)으로 변경할 수 있습니다. 계정은 그대로 유지됩니다.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "Guardians에 대한 추가 정보",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "$name$로 계속 진행하세요",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "제공업체 변경",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "자세히 알아보기",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "지역:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "가장 빠른",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "제공업체 선택",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "이 모든 서비스는 동일한 방식으로 계정을 백업합니다.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "설정에서 언제든지 전환할 수 있습니다.",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin은 감사 업무로 잘 알려진 스마트 계약 보안 기업입니다.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "게이트웨이(Gateway): 노드와 네트워크를 운영하는 blockchain 인프라 제공업체입니다.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "제로 지식(zero-knowledge) 시스템을 구축하는 엔지니어링 기업인 LambdaClass.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "한국에 본사를 둔 디지털 자산 수탁 기업인 코리아 디지털 애셋(Korea Digital Asset).",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "스마트 계약 보안 및 감사",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchain 인프라 제공업체",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "제로 지식 시스템 엔지니어링",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "디지털 자산 수탁자",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
@@ -4984,15 +5032,6 @@
   "activityTransferAccepted": {
     "message": "이체 승인됨",
     "englishSource": "Transfer accepted"
-  },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "withdrawalRecoveryUnavailable": {
     "message": "이 인출은 안전하게 다시 시도할 수 없습니다. 다른 인출을 시작하기 전에 이 인출의 상태를 확인하세요.",

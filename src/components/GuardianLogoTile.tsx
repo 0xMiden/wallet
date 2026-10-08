@@ -6,8 +6,11 @@ import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-opera
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { cn } from 'lib/ui/util';
 
-/** `md`: the 48px square tile on a guardian choice card. `hero`: the 88px circle on Guardian settings. */
-export type GuardianLogoTileSize = 'md' | 'hero';
+/**
+ * `md`: the 48px square tile on a guardian choice card. `hero`: the 88px circle on Guardian settings.
+ * `spotlight`: the 92px raised square the create flow's guardian step centres on its rings.
+ */
+export type GuardianLogoTileSize = 'md' | 'hero' | 'spotlight';
 
 export interface GuardianLogoTileProps {
   /** The provider's id in `GUARDIAN_LOGOS`; unknown or absent (a custom endpoint) draws the generic avatar. */
@@ -26,7 +29,8 @@ const tile = cva(
       size: {
         // 12px radius: the logo and app tile radius (design-system.md, "Radii").
         md: 'size-12 rounded-xl p-2.5',
-        hero: 'size-22 rounded-full p-5'
+        hero: 'size-22 rounded-full p-5',
+        spotlight: 'size-23 rounded-3xl p-7 shadow-raised'
       }
     },
     defaultVariants: { size: 'md' }
@@ -48,7 +52,7 @@ export const GuardianLogoTile: React.FC<GuardianLogoTileProps> = ({ guardianId, 
       aria-hidden="true"
       data-testid="guardian-logo-tile"
       // A wordmark is wide, so it takes the tile's width with only a hairline of side padding.
-      className={cn(tile({ size }), entry && !entry.Mark && (size === 'hero' ? 'px-3' : 'px-1'), className)}
+      className={cn(tile({ size }), entry && !entry.Mark && (size === 'md' ? 'px-1' : 'px-3'), className)}
     >
       {entry?.Mark ? (
         <entry.Mark
