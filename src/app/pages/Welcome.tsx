@@ -133,7 +133,8 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
   [OnboardingStep.SetupBiometric]: 'setup_biometric',
   [OnboardingStep.CreatePassword]: 'set_password',
   [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
-  // One decision on two screens: the picker is a detail of the guardian step, so both report it.
+  // One decision on three screens: the intro and the picker are details of the guardian step, so all report it.
+  [OnboardingStep.GuardianIntro]: 'choose_guardian',
   [OnboardingStep.MeetGuardian]: 'choose_guardian',
   [OnboardingStep.ChooseGuardian]: 'choose_guardian',
   [OnboardingStep.ImportFromSeed]: 'enter_phrase',
@@ -646,7 +647,7 @@ const Welcome: FC = () => {
         setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        navigate('/#meet-guardian');
+        navigate('/#guardian-intro');
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -664,6 +665,9 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
+        navigate('/#guardian-intro');
+        break;
+      case 'guardian-intro-submit':
         navigate('/#meet-guardian');
         break;
       case 'choose-guardian':
@@ -787,7 +791,7 @@ const Welcome: FC = () => {
           // mnemonic here, exactly like setup-passcode-submit does.
           setSeedPhrase(generateMnemonic().split(' '));
           setProtectionMethod('password');
-          navigate('/#meet-guardian');
+          navigate('/#guardian-intro');
         } else if (onboardingType === OnboardingType.Import) {
           navigate(walletFilePayload ? '/#confirmation' : '/#import-select-recovery-method');
         } else {
@@ -898,6 +902,8 @@ const Welcome: FC = () => {
           // The picker was pushed from the Meet your Guardian step; back returns there.
           navigate('/#meet-guardian');
         } else if (step === OnboardingStep.MeetGuardian) {
+          navigate('/#guardian-intro');
+        } else if (step === OnboardingStep.GuardianIntro) {
           if (protectionMethod === 'biometric') {
             navigate('/#setup-biometric');
           } else if (protectionMethod === 'password') {
@@ -1010,14 +1016,16 @@ const Welcome: FC = () => {
         }
         setStep(OnboardingStep.SetupPasscode);
         break;
+      case '#guardian-intro':
       case '#meet-guardian':
       case '#choose-guardian':
-        // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
+        // All three need this create flow's in-memory seed. A reload loses it, an import must not turn into
         // a create, and a history jump can land here before any protection step generated it (a create
         // starts with no credentials, see resetFlowState). The seed is read through a ref because only
         // this case needs it, while password and onboardingType feed several, so a seed change does not
         // re-run every case.
         if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
+        else if (hash === '#guardian-intro') setStep(OnboardingStep.GuardianIntro);
         else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
         else setStep(OnboardingStep.ChooseGuardian);
         break;

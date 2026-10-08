@@ -525,6 +525,13 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
   };
 
+  it('routes #guardian-intro to GuardianIntro inside a create flow', async () => {
+    await renderWelcome();
+    await enterCreateWithSeed();
+    await setHash('#guardian-intro');
+    expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+  });
+
   it('routes #meet-guardian to MeetGuardian inside a create flow', async () => {
     await renderWelcome();
     await enterCreateWithSeed();
@@ -539,7 +546,7 @@ describe('Welcome — hash → step routing', () => {
     expect(currentStep()).toBe(OnboardingStep.ChooseGuardian);
   });
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
+  it.each(['#guardian-intro', '#meet-guardian', '#choose-guardian'])(
     'redirects %s back to Welcome while the create flow has no seed yet',
     async hash => {
       await renderWelcome();
@@ -1292,7 +1299,7 @@ describe('Welcome — onAction forward navigation', () => {
     await dispatch({ id: 'setup-biometric-submit' });
     expect(mockFlowProps.current.seedPhrase).toEqual('aa bb cc dd ee ff gg hh ii jj kk ll'.split(' '));
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
-    expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
   });
 
   it('setup-passcode-submit commits the passcode as the password', async () => {
@@ -1300,6 +1307,16 @@ describe('Welcome — onAction forward navigation', () => {
     await dispatch({ id: 'setup-passcode-submit', payload: '654321' });
     expect(mockFlowProps.current.password).toBe('654321');
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
+  });
+
+  it('guardian-intro-submit goes on from the intro to the operator screen', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '654321' });
+    await setHash('#guardian-intro');
+    expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+    mockNavigate.mockClear();
+    await dispatch({ id: 'guardian-intro-submit' });
     expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
   });
 
@@ -1475,7 +1492,7 @@ describe('Welcome — create-password-submit', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     expect(mockFlowProps.current.password).toBe('pw');
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
-    expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
   });
 
   it('seed-phrase import routes to recovery-method selection', async () => {
@@ -3021,33 +3038,42 @@ describe('Welcome — back navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('MeetGuardian back follows the biometric protection method', async () => {
+  it('GuardianIntro back follows the biometric protection method', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-biometric-submit' }); // protectionMethod = biometric
-    await setHash('#meet-guardian');
+    await setHash('#guardian-intro');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/#setup-biometric');
   });
 
-  it('MeetGuardian back follows the password protection method', async () => {
+  it('GuardianIntro back follows the password protection method', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' }); // Create
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } }); // protectionMethod = password
-    await setHash('#meet-guardian');
+    await setHash('#guardian-intro');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
   });
 
-  it('MeetGuardian back defaults to the passcode screen', async () => {
+  it('GuardianIntro back defaults to the passcode screen', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' }); // protectionMethod = passcode
-    await setHash('#meet-guardian');
+    await setHash('#guardian-intro');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+  });
+
+  it('MeetGuardian back returns to the guardian intro', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
+    await setHash('#meet-guardian');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
   });
 
   it('ChooseGuardian back returns to the Meet your Guardian step it was pushed from', async () => {
