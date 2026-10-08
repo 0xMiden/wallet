@@ -313,10 +313,11 @@ export const useEarnCollateralFallback = (faucetId: string | undefined): MidenUs
  * Implemented variants:
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
- *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   swap          →  (logo) {amount} {name}   ->  (logo) {amount} {name}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Accepted
  *
+ * A swap side's {name} is its display name (`midenTokenLabel`); its logo keeps the registry symbol.
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
  * and where each type's data lives.

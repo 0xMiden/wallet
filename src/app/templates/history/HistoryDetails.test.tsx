@@ -341,8 +341,17 @@ jest.mock('lib/remote-config/runtime', () =>
     .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
     .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
 );
+// The build's network unless a case names another.
+let mockTestNetworkKey: 'testnet' | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey() };
+});
 afterEach(() => {
   mockBridgeSnapshot = undefined;
+  mockTestNetworkKey = undefined;
 });
 
 jest.mock('./TransactionIcon', () => ({
@@ -754,6 +763,7 @@ describe('HistoryDetails', () => {
     });
 
     it('names the registry iETH requested token "Test iETH" in the swap hero (#477)', async () => {
+      mockTestNetworkKey = 'testnet';
       const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
       mockGetSwapTokenByFaucetId.mockImplementation((id: string) =>
         id === TOKEN_IETH.faucetId ? { symbol: 'IETH', decimals: 8 } : { symbol: 'MIDEN', decimals: 6 }

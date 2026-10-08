@@ -48,7 +48,7 @@ jest.mock('lib/remote-config/runtime', () =>
     .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
 );
 // The build's network unless a case names another.
-let mockTestNetworkKey: 'devnet' | undefined;
+let mockTestNetworkKey: 'testnet' | 'devnet' | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
     'lib/miden-chain/effective-endpoints'
@@ -1077,6 +1077,7 @@ describe('TokenDetail', () => {
     ])(
       "describes testnet iETH in the wallet's words when the faucet carries %s description (#477)",
       (_case, description) => {
+        mockTestNetworkKey = 'testnet';
         renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 1, metadata: { symbol: 'IETH', description } }] });
 
         const row = screen.getByTestId('token-detail-description');

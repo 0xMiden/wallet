@@ -23,5 +23,7 @@ describe('swapTokenInfo', () => {
     expect(swapTokenInfo(undefined)).toBeNull();
     jest.mocked(getTestNetworkNameKey).mockReturnValue('devnet');
     expect(swapTokenInfo(TOKEN_IETH.faucetId)).toBeNull();
+    jest.mocked(getTestNetworkNameKey).mockReturnValue('localnet');
+    expect(swapTokenInfo(TOKEN_IETH.faucetId)).toBeNull();
   });
 });

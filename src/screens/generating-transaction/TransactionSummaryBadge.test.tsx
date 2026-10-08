@@ -95,8 +95,17 @@ jest.mock('lib/remote-config/runtime', () =>
     .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
     .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
 );
+// The build's network unless a case names another.
+let mockTestNetworkKey: 'testnet' | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey() };
+});
 afterEach(() => {
   mockBridgeSnapshot = undefined;
+  mockTestNetworkKey = undefined;
 });
 
 const baseTransaction = (overrides: Partial<ITransaction> = {}): ITransaction =>
@@ -502,6 +511,7 @@ describe('useTransactionSummaryBadgeContent', () => {
   });
 
   it('names the registry iETH side of a swap "Test iETH" on either side (#477)', async () => {
+    mockTestNetworkKey = 'testnet';
     const requested = await renderProbe(
       baseTransaction({
         type: 'swap',
