@@ -18,6 +18,7 @@ import { DEFAULT_TOKEN_METADATA as UNKNOWN_TOKEN_METADATA } from 'lib/miden/meta
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import {
   applyMetadataOverride,
+  canOverrideMetadata,
   getTokenMetadataOverrides,
   overrideFor,
   parseTokenMetadataOverrides,
@@ -30,6 +31,7 @@ import {
   updateTokensBaseMetadata
 } from 'lib/miden/metadata/storage';
 import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
+import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { faucetMetadataOf, useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
 
@@ -124,6 +126,20 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
     const stop = onStorageChanged<unknown>(TOKENS_METADATA_OVERRIDES_STORAGE_KEY, value =>
       hydrateTokenMetadataOverrides(parseTokenMetadataOverrides(value))
     );
+    // A faucet the bridge config names cannot be overridden, so the overrides apply again when the config changes
+    // which overridden faucets those are. A publish that changes none, such as a poll, leaves the store alone.
+    const refusedOverrides = () =>
+      Object.keys(useWalletStore.getState().tokenMetadataOverrides)
+        .filter(faucetId => !canOverrideMetadata(faucetId))
+        .sort()
+        .join(' ');
+    let refused = refusedOverrides();
+    const stopBridgeConfig = subscribeBridgeConfig(() => {
+      const next = refusedOverrides();
+      if (next === refused) return;
+      refused = next;
+      hydrateTokenMetadataOverrides(useWalletStore.getState().tokenMetadataOverrides);
+    });
     getTokenMetadataOverrides().then(
       overrides => {
         if (!cancelled) hydrateTokenMetadataOverrides(overrides);
@@ -133,6 +149,7 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
     return () => {
       cancelled = true;
       stop();
+      stopBridgeConfig();
     };
   }, [hydrateTokenMetadataOverrides]);
 

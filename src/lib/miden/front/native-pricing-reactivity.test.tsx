@@ -15,6 +15,7 @@ type NativeState = {
   tokenPrices: TokenPrices;
   assetsMetadata: Record<string, AssetMetadata>;
   balances: Record<string, TokenBalanceData[]>;
+  tokenMetadataOverrides: Record<string, never>;
   setAssetsMetadata(metadata: Record<string, AssetMetadata>): void;
 };
 const mockStore = create<NativeState>((set, get) => ({
@@ -32,6 +33,7 @@ const mockStore = create<NativeState>((set, get) => ({
       }
     ]
   },
+  tokenMetadataOverrides: {},
   setAssetsMetadata: metadata => set({ assetsMetadata: { ...get().assetsMetadata, ...metadata } })
 }));
 let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
@@ -44,6 +46,7 @@ beforeEach(() => {
 
 jest.mock('lib/store', () => ({
   useWalletStore: Object.assign(<T,>(select: (state: NativeState) => T) => mockStore(select), {
+    getState: () => mockStore.getState(),
     setState: (update: (state: NativeState) => Partial<NativeState>) => mockStore.setState(update)
   })
 }));

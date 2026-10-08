@@ -47,17 +47,20 @@ export function isValidTokenDecimals(decimals: unknown): decimals is number {
 }
 
 /**
- * Whether the user can override the metadata of this faucet.
- * The native token pays every fee, and its chain metadata is authoritative, so it is never overridden.
+ * Whether `faucetId` is the native token (or no faucet). The native token pays every fee, and its chain metadata is
+ * authoritative, so it is never overridden and the store keeps its entry and rows as the reader built them.
+ */
+export function isNativeFaucetId(faucetId: string): boolean {
+  return faucetId === '' || faucetId === getNativeAssetIdSync();
+}
+
+/**
+ * Whether the user can override the metadata of this faucet: never the native token's.
  * Nor is a token the wallet names itself on this network (Test iETH, Test Epoch USDC, #477): the label would
  * hide the override, so one stored for it is ignored. The bridge config is this realm's, read per call.
  */
 export function canOverrideMetadata(faucetId: string): boolean {
-  return (
-    faucetId !== '' &&
-    faucetId !== getNativeAssetIdSync() &&
-    midenTokenLabelFor(getBridgeConfigSnapshot(), faucetId) === null
-  );
+  return !isNativeFaucetId(faucetId) && midenTokenLabelFor(getBridgeConfigSnapshot(), faucetId) === null;
 }
 
 /**

@@ -2,11 +2,17 @@ import '../../../test/jest-mocks';
 
 import axios from 'axios';
 
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import type * as FaucetIdSettingModule from 'lib/miden/assets/faucet-id-setting';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { MidenMessageType } from 'lib/miden/types';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
 import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
@@ -58,6 +64,14 @@ jest.mock('lib/miden/metadata/overrides', () => ({
   ...jest.requireActual('lib/miden/metadata/overrides'),
   writeTokenMetadataOverride: (...args: unknown[]) => mockWriteTokenMetadataOverride(...args)
 }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 
 let mockNativeAssetId: string | null = null;
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -502,6 +516,7 @@ describe('useWalletStore', () => {
 
     afterEach(() => {
       mockNativeAssetId = null;
+      mockBridgeSnapshot = undefined;
     });
 
     it('applies the override to the shown metadata and stores it', async () => {
@@ -699,6 +714,35 @@ describe('useWalletStore', () => {
       ).rejects.toThrow('The metadata of this token cannot be overridden');
       expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
       expect(useWalletStore.getState().assetsMetadata[IETH]).toEqual(ieth);
+    });
+
+    it("shows the Test Epoch USDC faucet's own record once the bridge config names it (#477)", () => {
+      const USDC = TEST_MIDEN_USDC_FAUCET;
+      const unknown = { name: 'Unknown', symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      useWalletStore.getState().setAssetsMetadata({ [USDC]: unknown });
+      // 2000 base units, divided by the placeholder's guessed 6 decimals.
+      useWalletStore.setState({ balances: { 'account-1': [row(USDC, 0.002, unknown)] } });
+
+      // Hydrated while the config is still loading: the faucet is not yet one the wallet names.
+      useWalletStore
+        .getState()
+        .hydrateTokenMetadataOverrides({ [USDC]: { name: 'Mine', symbol: 'MINE', decimals: 3 } });
+      expect(useWalletStore.getState().assetsMetadata[USDC]).toMatchObject({ symbol: 'MINE', decimals: 3 });
+      expect(useWalletStore.getState().balances['account-1']![0]).toMatchObject({ tokenSlug: 'MINE', balance: 2 });
+
+      // The config names it: the provider applies the overrides again.
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+      useWalletStore.getState().hydrateTokenMetadataOverrides(useWalletStore.getState().tokenMetadataOverrides);
+
+      const state = useWalletStore.getState();
+      expect(state.assetsMetadata[USDC]).toEqual(unknown);
+      expect(state.balances['account-1']![0]).toMatchObject({
+        tokenSlug: 'Unknown',
+        balance: 0.002,
+        metadata: unknown
+      });
+      expect(mockWriteTokenMetadataOverride).not.toHaveBeenCalled();
     });
 
     describe('a balance read that lands after an override change', () => {
