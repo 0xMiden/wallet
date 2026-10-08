@@ -1,4 +1,5 @@
 import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
+import { externalPageFailed } from 'lib/mobile/external-page-failed';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { webviewToolbarColors } from 'lib/mobile/webview-theme';
@@ -17,7 +18,8 @@ export interface OpenExternalUrlOptions {
  * Open a URL in a new tab on desktop / extension, or as a native InAppBrowser
  * overlay on mobile. On mobile, the underlying React screen stays mounted
  * behind the overlay, so closing the overlay returns the user to exactly
- * where they were (e.g. the "Transaction Completed" modal).
+ * where they were (e.g. the "Transaction Completed" modal). A page that fails to
+ * load closes its overlay, and the app then tells the user (`onExternalPageFailed`).
  */
 export async function openExternalUrl({
   url,
@@ -29,6 +31,19 @@ export async function openExternalUrl({
     return;
   }
 
+  // The flag, not remove(), is what makes this once: removal crosses the bridge, so a repeated
+  // error can still arrive before it lands.
+  let failed = false;
+  const errorListener = await InAppBrowser.addListener('pageLoadError', async event => {
+    if (failed || event.id !== id) {
+      return;
+    }
+    failed = true;
+    errorListener.remove();
+    await InAppBrowser.close({ id });
+    externalPageFailed();
+  });
+
   const closeListener = await InAppBrowser.addListener('closeEvent', async event => {
     const eventId = (event as { id?: string })?.id;
     if (eventId !== undefined && eventId !== id) {
@@ -36,6 +51,7 @@ export async function openExternalUrl({
     }
     markReturningFromWebview();
     closeListener.remove();
+    errorListener.remove();
     await resetViewportAfterWebview();
   });
 

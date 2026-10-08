@@ -2694,6 +2694,11 @@ public class WebViewDialog extends Dialog {
                     if (view == null || _webView == null) {
                         return;
                     }
+                    // Miden patch: a failed subresource or iframe leaves the page usable, so only
+                    // a main-frame failure is a page load error (callers close the page on it).
+                    if (!request.isForMainFrame()) {
+                        return;
+                    }
                     _options.getCallbacks().pageLoadError();
                 }
 
