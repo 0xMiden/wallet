@@ -1316,5 +1316,6 @@
   "testIethDescription": "iETH é um token de teste usado para trocas na Miden Testnet. Não é ETH e não estará disponível na carteira de produção.",
   "testIethExecution": "A troca é executada por meio de um contrato inteligente na Miden Testnet.",
   "swapExecutionTitle": "Onde a troca é executada",
-  "tokenInfoLabel": "Sobre o $token$"
+  "tokenInfoLabel": "Sobre o $token$",
+  "externalPageLoadFailed": "Não foi possível abrir esta página. Verifique sua conexão e tente novamente."
 }

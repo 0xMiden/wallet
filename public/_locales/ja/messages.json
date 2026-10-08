@@ -5820,5 +5820,9 @@
         "content": "$1"
       }
     }
+  },
+  "externalPageLoadFailed": {
+    "message": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }

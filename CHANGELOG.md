@@ -11,6 +11,7 @@
 ### Fixes
 
 - [FIX][all] A Slow (Agglayer) USDC deposit reads the allowance the bridge already has and asks for an approval only when it is less than the deposit, so a covered deposit needs one wallet prompt instead of two and a larger allowance is not replaced.
+- [FIX][all] Settings > About > Send feedback opens the working Zapier feedback form (#1340).
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
 - [FIX][extension] Drop the placeholder `Buffer` that every extension page installed before its entry, whose `from()` turned any string into an empty array and so stayed in place of the real polyfill: the WalletConnect relay token was encoded from zero bytes and the relay closed every socket with "JWT validation error", so no pairing QR could render. Receive's Cross-chain tile, hidden on the extension for that reason, is now drawn there too.
 - [FIX][ci] E2E Android waits for the stopped app's task to be removed before relaunching it, so the next test's launch is no longer killed by its removal, and its emulator commands are bounded; iOS E2E restarts a failing simulator's idb companion once and says why a notification prompt went unanswered.

@@ -5820,5 +5820,9 @@
         "content": "$1"
       }
     }
+  },
+  "externalPageLoadFailed": {
+    "message": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }

@@ -1316,5 +1316,6 @@
   "testIethDescription": "iETH 是用於 Miden 測試網（Testnet）上代幣兌換的測試代幣。它並非 ETH，且不會在正式版錢包中提供。",
   "testIethExecution": "此交換操作將透過 Miden 測試網上的智慧合約執行。",
   "swapExecutionTitle": "交換操作的執行位置",
-  "tokenInfoLabel": "關於 $token$"
+  "tokenInfoLabel": "關於 $token$",
+  "externalPageLoadFailed": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。"
 }

@@ -1316,5 +1316,6 @@
   "testIethDescription": "iETH, Miden Testnet'te takas işlemleri için kullanılan bir test tokenidir. ETH değildir ve üretim cüzdanında mevcut olmayacaktır.",
   "testIethExecution": "Takas, Miden Testnet üzerindeki bir akıllı sözleşme aracılığıyla gerçekleştirilir.",
   "swapExecutionTitle": "Değişimin gerçekleştiği yer",
-  "tokenInfoLabel": "$token$ hakkında"
+  "tokenInfoLabel": "$token$ hakkında",
+  "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin."
 }

@@ -1316,5 +1316,6 @@
   "testIethDescription": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet.",
   "testIethExecution": "The swap executes through a smart contract on Miden Testnet.",
   "swapExecutionTitle": "Where the swap executes",
-  "tokenInfoLabel": "About $token$"
+  "tokenInfoLabel": "About $token$",
+  "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again."
 }

@@ -11,6 +11,7 @@ import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { AppEnvProvider } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
+import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
 import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
@@ -139,6 +140,7 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
         <ScreenKeyPublisher />
         {isExtension() && <PinExtensionPrompt />}
         {checkIsMobile() && <MobileBackBridge />}
+        {checkIsMobile() && <ExternalPageFailedNotice />}
         {checkIsDesktop() && (
           <Suspense fallback={null}>
             <DesktopDappHandler />
