@@ -125,6 +125,23 @@ describe('SendRoute', () => {
     expect(props.onConfirm).not.toHaveBeenCalled();
   });
 
+  // The USDCx burn needs neither bridge: on testnet the two features can be unavailable together.
+  it('confirms the USDCx route while the Fast and Slow features are unavailable', () => {
+    mockAvailability = { fastBridgeOut: DOWN, bridgeOut: DOWN };
+    jest.mocked(useAgglayerEligibility).mockReturnValueOnce('unsupported');
+    const props = renderRoute({ route: 'usdcx', usdcxAvailable: true });
+
+    expect(screen.getByTestId('bridge-route-confirm')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+    expect(props.onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks Confirm on the USDCx route for a token that cannot use it', () => {
+    renderRoute({ route: 'usdcx', usdcxAvailable: false });
+
+    expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
+  });
+
   it('shows the route title and forwards the back action', () => {
     const props = renderRoute();
 
