@@ -1,3 +1,5 @@
+import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
+
 import type { FeatureAvailability, UnavailableReason } from './availability';
 import type { BridgeToken, DerivedBridgeConfig } from './derive';
 import { failedDerivation } from './derived-snapshot';
@@ -7,12 +9,10 @@ import {
   DEGRADED_POLL_MS,
   DEGRADED_VISIBLE_POLL_MS,
   followEffectiveNetwork,
-  FOREGROUND_STALE_MS,
   getBridgeConfigSnapshot,
   HEALTHY_POLL_MS,
   holdFastPoll,
   initBridgeConfig,
-  MAX_BACKOFF_MS,
   _refreshBridgeConfigForTest,
   subscribeBridgeConfig
 } from './runtime';

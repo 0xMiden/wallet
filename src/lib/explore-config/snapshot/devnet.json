@@ -1,0 +1,64 @@
+{
+  "network": "devnet",
+  "version": 1,
+  "items": [
+    {
+      "id": "faucet",
+      "name": {
+        "en": "Faucet"
+      },
+      "tagline": {
+        "en": "Get devnet tokens"
+      },
+      "url": "https://faucet.devnet.miden.io/",
+      "category": "tools",
+      "icon": "icons/faucet.png",
+      "brandColor": "#778C72",
+      "isExchange": false
+    }
+  ],
+  "sections": [
+    {
+      "id": "featured",
+      "kind": "featured",
+      "title": {
+        "en": "Featured",
+        "de": "Empfohlen",
+        "en_GB": "Featured",
+        "es": "Destacado",
+        "fr": "À la une",
+        "ja": "おすすめ",
+        "ko": "추천",
+        "pl": "Polecane",
+        "pt": "Destaque",
+        "ru": "Рекомендуем",
+        "tr": "Öne çıkan",
+        "uk": "Рекомендоване",
+        "zh_CN": "精选",
+        "zh_TW": "精選"
+      },
+      "itemIds": ["faucet"]
+    },
+    {
+      "id": "helper-tools",
+      "kind": "list",
+      "title": {
+        "en": "Helper tools",
+        "de": "Hilfsprogramme",
+        "en_GB": "Helper tools",
+        "es": "Herramientas",
+        "fr": "Outils",
+        "ja": "ヘルパーツール",
+        "ko": "도우미 도구",
+        "pl": "Narzędzia pomocnicze",
+        "pt": "Ferramentas",
+        "ru": "Вспомогательные инструменты",
+        "tr": "Yardımcı araçlar",
+        "uk": "Допоміжні інструменти",
+        "zh_CN": "辅助工具",
+        "zh_TW": "輔助工具"
+      },
+      "itemIds": ["faucet"]
+    }
+  ]
+}

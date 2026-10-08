@@ -2230,38 +2230,6 @@
     "message": "Виберіть один із варіантів нижче",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "Створіть свій обліковий запис",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Ваш обліковий запис на Miden є приватним. Перевірте кожен пункт, щоб зрозуміти, як він захищений.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "Ваш обліковий запис зберігається на цьому пристрої",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "Приватний стан рахунку зберігається на вашому пристрої. Мережа бачить лише криптографічне зобов’язання.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "Фрази відновлення недостатньо",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "Ваша фраза відновлення відновлює ваші ключі, а не стан вашого облікового запису. Якщо ви втратите пристрій, цей стан буде втрачено.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "«Guardian» може захистити вас",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "«Guardian» зберігає стан вашого рахунку та допомагає його відновити. Уявіть це як сервер, який створює резервну копію ваших даних, але він ніколи не має доступу до ваших коштів.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "Перевіряємо, який оператор відповідає найшвидше…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2277,14 +2245,6 @@
   "learnMoreAboutGuardian": {
     "message": "Дізнайтеся більше про «Guardian»",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "Без опікуна",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Для досвідчених користувачів — відновлення лише за допомогою фрази відновлення. Без співпідписувача з «guardian».",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "Оператор:",
@@ -2314,22 +2274,110 @@
     "message": "Що таке «Guardian»?",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "Ваш Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Зустріньте свого «Guardian»",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "Змінити",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "«Guardian» створює резервну копію ваших приватних даних облікового запису та співпідписує ваші транзакції.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ зберігає резервну копію вашого акаунта. Він ніколи не зможе перемістити ваші кошти, а змінити його можна будь-коли.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "Відновлення на новому телефоні",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Ваша фраза відновлення відновлює ваші ключі, а разом із резервною копією вашого «Guardian» — і ваш обліковий запис. Зберігайте цю фразу в безпечному місці.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Ваші кошти залишаються вашими",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Ваш «Guardian» підписує транзакції разом з вами. Він ніколи не може самостійно переказувати кошти.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Змінюйте в будь-який час",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Переходьте на іншого «Guardian» у будь-який зручний для вас час. Ваш обліковий запис залишається незмінним.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "Більше про «Guardians»",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "Продовжуйте з $name$",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Зміна постачальника послуг",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Дізнатися більше",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "Регіон:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Найшвидше",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Оберіть постачальника послуг",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "Усі вони створюють резервну копію вашого облікового запису однаковим чином.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "Ви можете здійснити перемикання в будь-який час у розділі «Налаштування».",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin — компанія з безпеки смарт-контрактів, відома своїми аудитами.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway — постачальник інфраструктури blockchain, який управляє вузлами та мережами.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass — інженерна компанія, що розробляє системи з нульовим розкриттям інформації.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset — компанія з зберігання цифрових активів, що базується в Південній Кореї.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Безпека та аудит смарт-контрактів",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Провайдер інфраструктури Blockchain",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Системна інженерія з нульовим розкриттям інформації",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Зберігач цифрових активів",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
@@ -3781,17 +3829,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Інструменти",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Соціальне",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Ігри",
@@ -3808,14 +3848,6 @@
   "exploreCategoriesLabel": {
     "message": "Категорії",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Рекомендоване",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Допоміжні інструменти",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Відкрити",
@@ -3844,10 +3876,6 @@
   "exploreNoResultsDescription": {
     "message": "Спробуйте іншу назву або вставте URL dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Отримайте тестові токени для обміну",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Згорнути",
@@ -5005,15 +5033,6 @@
     "message": "Переказ прийнято",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "Це виведення коштів неможливо безпечно повторити. Перевірте його статус, перш ніж розпочинати інше виведення коштів.",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5819,5 +5838,30 @@
   "tokenMetadataSaveError": {
     "message": "Не вдалося зберегти дані токена. Спробуйте ще раз.",
     "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH — це тестовий токен, який використовується для обміну на тестовій мережі Miden. Це не ETH, і він не буде доступний у виробничому гаманці.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "Обмін здійснюється через смарт-контракт у тестовій мережі Miden.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Де відбувається заміна",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "Про $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }

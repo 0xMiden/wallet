@@ -6,6 +6,8 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -33,6 +35,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
   const { t } = useTranslation();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const badgeContent = useTransactionSummaryBadgeContent(transaction);
 
   // A swap pays a network fee like any other transaction — `completeSwapTransaction`
@@ -42,6 +45,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
 
   // Offered side — this is what returns to the wallet if the order expires.
   const offered = resolveSwapAsset(transaction?.faucetId, assetsMetadata, nativeFaucetId);
+  const offeredLabel = midenTokenLabel(bridgeConfig, transaction?.faucetId, offered.symbol);
   // `scaleIsKnown` is the whole reason `resolveSwapAsset` reports it: an
   // off-registry faucet the wallet never resolved has no trustworthy decimals,
   // and quoting a reserved balance at a guessed scale is worse than quoting
@@ -50,7 +54,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
     transaction?.amount !== undefined && offered.scaleIsKnown
       ? formatAmount(transaction.amount, offered.decimals)
       : undefined;
-  const returnAmountText = offeredAmount ? `${offeredAmount} ${offered.symbol}` : undefined;
+  const returnAmountText = offeredAmount ? `${offeredAmount} ${offeredLabel}` : undefined;
 
   return (
     <TransactionSuccessLayout

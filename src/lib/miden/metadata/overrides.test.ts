@@ -1,4 +1,5 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
 import {
@@ -27,6 +28,14 @@ jest.mock('lib/miden/front/storage', () => ({
     mockItems.set(key, value);
   })
 }));
+// The build's network unless a case names another.
+let mockTestNetworkKey: 'testnet' | 'devnet' | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey() };
+});
 const mockRead = jest.mocked(fetchFromStorage);
 const mockWrite = jest.mocked(putToStorage);
 
@@ -34,6 +43,7 @@ const FAUCET: AssetMetadata = { name: 'Faucet Token', symbol: 'FCT', decimals: 8
 
 beforeEach(() => {
   mockItems.clear();
+  mockTestNetworkKey = undefined;
   jest.clearAllMocks();
 });
 
@@ -112,6 +122,29 @@ describe('the native token', () => {
     await expect(
       writeTokenMetadataOverride(NATIVE_ID, { name: 'Fake', symbol: 'FAKE', decimals: 2 })
     ).rejects.toThrow();
+    expect(mockWrite).not.toHaveBeenCalled();
+  });
+});
+
+describe('a token the wallet names itself (#477)', () => {
+  const IETH = TOKEN_IETH.faucetId;
+  const overrides = { [IETH]: { name: 'Mine', symbol: 'MINE', decimals: 2 } };
+
+  it('cannot be overridden on testnet, where the wallet calls it Test iETH, and can be elsewhere', () => {
+    expect(canOverrideMetadata(IETH)).toBe(false);
+    mockTestNetworkKey = 'devnet';
+    expect(canOverrideMetadata(IETH)).toBe(true);
+  });
+
+  it('keeps its own metadata on testnet when an override was stored for it', () => {
+    expect(overrideFor(overrides, IETH)).toBeUndefined();
+    expect(applyOverrideFor(IETH, FAUCET, overrides)).toBe(FAUCET);
+  });
+
+  it('refuses a write on testnet', async () => {
+    await expect(writeTokenMetadataOverride(IETH, { name: 'Mine', symbol: 'MINE' })).rejects.toThrow(
+      'The metadata of this token cannot be overridden'
+    );
     expect(mockWrite).not.toHaveBeenCalled();
   });
 });

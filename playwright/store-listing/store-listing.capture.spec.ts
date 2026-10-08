@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   capturePlan,
+  exploreCatalogRoute,
   installCaptureShim,
   installHardwareSecurityShim,
   guardianPubkeyRoute,
@@ -120,6 +121,7 @@ async function newMobileContext(
       body: JSON.stringify({ commitment: guardianPubkeyStubCommitment })
     })
   );
+  await context.route(exploreCatalogRoute, route => route.abort());
   return context;
 }
 
@@ -246,8 +248,8 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   await onboarding.getByRole('button', { name: 'Get started' }).click();
   await acknowledgeNetworkNotice(onboarding);
   await capture(onboarding, protection);
-  // The picker needs this create's seed, which the passcode step generates: set one up (entered, then
-  // confirmed), then open the picker from Meet your Guardian the way a user does.
+  // The provider sheet needs this create's seed, which the passcode step generates: set one up (entered,
+  // then confirmed), then open the sheet from Choose your Guardian's Change provider the way a user does.
   await onboarding.getByRole('button', { name: 'Set up your passcode' }).click();
   await onboarding.getByTestId('onboarding-setup-passcode').waitFor({ state: 'visible' });
   // The screen moves to its confirm phase on a short timer and ignores keys past six until then.

@@ -2234,38 +2234,6 @@
     "message": "Select an option below",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "Set up your account",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Your account is private on Miden. Check each point once to understand how it is protected.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "Your account lives on this device",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "Private account state stays on your device. The network only ever sees a cryptographic commitment.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "A recovery phrase isn't enough",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "A Guardian can protect you",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "Checking which operator answers fastest…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2281,14 +2249,6 @@
   "learnMoreAboutGuardian": {
     "message": "Learn more about the Guardian",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "No guardian",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Advanced — recover with your recovery phrase only. No guardian co-signer.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "Operated by:",
@@ -2318,22 +2278,110 @@
     "message": "What is a Guardian?",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "Your Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Meet your Guardian",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "Change",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "A Guardian backs up your private account data and co-signs your transactions.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "Recover on a new phone",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Your funds stay yours",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Your Guardian co-signs with you. It can never move funds on its own.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Switch any time",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Move to another Guardian whenever you like. Your account stays the same.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "More about Guardians",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "Continue with $name$",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Change provider",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Learn more",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "Region:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Fastest",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Choose a provider",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "They all back up your account the same way.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "You can switch any time in Settings.",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin, a smart contract security company known for its audits.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway, a blockchain infrastructure provider that runs nodes and networks.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass, an engineering firm that builds zero-knowledge systems.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset, a digital asset custody company based in South Korea.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Smart contract security and audits",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchain infrastructure provider",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Zero-knowledge systems engineering",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Digital asset custodian",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",
@@ -3785,17 +3833,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Tools",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Social",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Games",
@@ -3812,14 +3852,6 @@
   "exploreCategoriesLabel": {
     "message": "Categories",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Featured",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Helper tools",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Open",
@@ -3848,10 +3880,6 @@
   "exploreNoResultsDescription": {
     "message": "Try another name, or paste a dApp's URL.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Get testnet tokens for swap",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Minimize",
@@ -5009,15 +5037,6 @@
     "message": "Transfer accepted",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal.",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5823,5 +5842,30 @@
   "tokenMetadataSaveError": {
     "message": "Could not save the token details. Please try again.",
     "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "The swap executes through a smart contract on Miden Testnet.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Where the swap executes",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "About $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "Couldn't open this page. Check your connection and try again.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }

@@ -2,6 +2,8 @@ import PQueue from 'p-queue';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { midenTokenLabelFor } from 'lib/remote-config/token-labels';
 
 import { hasKnownScale } from './scale';
 import { AssetMetadata } from './types';
@@ -45,11 +47,20 @@ export function isValidTokenDecimals(decimals: unknown): decimals is number {
 }
 
 /**
- * Whether the user can override the metadata of this faucet.
- * The native token pays every fee, and its chain metadata is authoritative, so it is never overridden.
+ * Whether `faucetId` is the native token (or no faucet). The native token pays every fee, and its chain metadata is
+ * authoritative, so it is never overridden and the store keeps its entry and rows as the reader built them.
+ */
+export function isNativeFaucetId(faucetId: string): boolean {
+  return faucetId === '' || faucetId === getNativeAssetIdSync();
+}
+
+/**
+ * Whether the user can override the metadata of this faucet: never the native token's.
+ * Nor is a token the wallet names itself on this network (Test iETH, Test Epoch USDC, #477): the label would
+ * hide the override, so one stored for it is ignored. The bridge config is this realm's, read per call.
  */
 export function canOverrideMetadata(faucetId: string): boolean {
-  return faucetId !== '' && faucetId !== getNativeAssetIdSync();
+  return !isNativeFaucetId(faucetId) && midenTokenLabelFor(getBridgeConfigSnapshot(), faucetId) === null;
 }
 
 /**
@@ -70,7 +81,7 @@ export function applyMetadataOverride(base: AssetMetadata, override?: TokenMetad
   return result;
 }
 
-/** The override of `faucetId`. Never one for the native token. */
+/** The override of `faucetId`. Never one for a faucet that `canOverrideMetadata` refuses. */
 export function overrideFor(overrides: TokenMetadataOverrides, faucetId: string): TokenMetadataOverride | undefined {
   return canOverrideMetadata(faucetId) ? overrides[faucetId] : undefined;
 }
@@ -124,7 +135,7 @@ export async function writeTokenMetadataOverride(
   override: TokenMetadataOverride | undefined
 ): Promise<TokenMetadataOverrides> {
   if (!canOverrideMetadata(faucetId)) {
-    throw new Error('The metadata of the native token cannot be overridden');
+    throw new Error('The metadata of this token cannot be overridden');
   }
   return overridesWriteQueue.add(async () => {
     const next = await getTokenMetadataOverrides();

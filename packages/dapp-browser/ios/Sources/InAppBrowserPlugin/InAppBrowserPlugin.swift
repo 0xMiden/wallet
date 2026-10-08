@@ -1082,12 +1082,24 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // JS caller can safely call openWebView immediately after close
             // — see the PR-1 part 2 patch comment for the race that fixed.
             if let navController = self.navigationWebViewController {
-                navController.dismiss(animated: isAnimated) {
-                    self.webViewController = nil
-                    self.navigationWebViewController = nil
-                    WebViewRegistry.shared.remove(id: instanceId)
-                    self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
-                    call.resolve()
+                let dismiss = {
+                    navController.dismiss(animated: isAnimated) {
+                        self.webViewController = nil
+                        self.navigationWebViewController = nil
+                        WebViewRegistry.shared.remove(id: instanceId)
+                        self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
+                        call.resolve()
+                    }
+                }
+                // Miden patch: UIKit drops a dismiss requested while the
+                // present animation is still running and never calls its
+                // completion, so a close for a page that failed during
+                // presentation would never settle. Wait for the transition.
+                let deferred = navController.transitionCoordinator?.animate(alongsideTransition: nil) { _ in
+                    DispatchQueue.main.async(execute: dismiss)
+                } ?? false
+                if !deferred {
+                    dismiss()
                 }
             } else {
                 self.webViewController = nil

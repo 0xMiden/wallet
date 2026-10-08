@@ -145,6 +145,7 @@ jest.mock('lib/miden/metadata/utils', () => ({
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args),
   normalizedFaucetId: (id: string) => id,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
   tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote
 }));
 
@@ -340,6 +341,11 @@ jest.mock('lib/remote-config/runtime', () =>
     .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
     .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
 );
+// The wallet's own token labels are testnet-only; pin the network rather than lean on the build default.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
 afterEach(() => {
   mockBridgeSnapshot = undefined;
 });
@@ -750,6 +756,22 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.5REG-OFFER1.25REG-WANT');
       expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+    });
+
+    it('names the registry iETH requested token "Test iETH" in the swap hero (#477)', async () => {
+      const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
+      mockGetSwapTokenByFaucetId.mockImplementation((id: string) =>
+        id === TOKEN_IETH.faucetId ? { symbol: 'IETH', decimals: 8 } : { symbol: 'MIDEN', decimals: 6 }
+      );
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: 500_000n,
+        extraInputs: { orderId: '42', requestedFaucetId: TOKEN_IETH.faucetId, requestedAmount: 100_000_000n }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.5MIDEN1Test iETH');
     });
 
     it('does not reread known in-memory metadata on a later transaction emission', async () => {

@@ -1,4 +1,5 @@
-import { normalizedFaucetId } from 'lib/miden/swap/tokens';
+// The leaf, never lib/miden/swap/tokens: the metadata overrides read these labels (see faucet-ids.ts).
+import { IETH_FAUCET_ID, normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 import type { BridgeConfigSnapshot } from './runtime';
@@ -7,29 +8,62 @@ import { selectMidenUsdcFaucetId } from './values';
 /** What testnet calls the bridge's own USDC, on Sepolia and on Miden alike (#1247). A token name: never translated. */
 export const TEST_EPOCH_USDC_LABEL = 'Test Epoch USDC';
 
-interface TestnetTokenLabel {
+/** What testnet calls the swap registry's iETH, a test asset that is not ETH (#477). A token name: never translated. */
+export const TEST_IETH_LABEL = 'Test iETH';
+
+/** The copy a token page and an info sheet show for a token: what it is, and where its swaps execute. */
+export interface TestnetTokenInfo {
+  descriptionKey: string;
+  executionKey: string;
+}
+
+interface TestnetToken {
   faucetId: string | null;
   label: string;
+  info?: TestnetTokenInfo;
+}
+
+// The tokens testnet names whatever the bridge config says; one with info is described as well as named.
+function staticTestnetTokens(): TestnetToken[] {
+  return [
+    {
+      faucetId: IETH_FAUCET_ID,
+      label: TEST_IETH_LABEL,
+      info: { descriptionKey: 'testIethDescription', executionKey: 'testIethExecution' }
+    }
+  ];
 }
 
 // Each Miden token testnet shows under a name of the wallet's own; another token is one more entry.
-function testnetMidenTokenLabels(s: BridgeConfigSnapshot): TestnetTokenLabel[] {
-  return [{ faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL }];
+function testnetMidenTokens(s: BridgeConfigSnapshot): TestnetToken[] {
+  return [{ faucetId: selectMidenUsdcFaucetId(s), label: TEST_EPOCH_USDC_LABEL }, ...staticTestnetTokens()];
+}
+
+function testnetTokenFor(tokens: TestnetToken[], faucetId: string | undefined): TestnetToken | undefined {
+  if (!faucetId || getTestNetworkNameKey() !== 'testnet') return undefined;
+  const canonical = normalizedFaucetId(faucetId);
+  return tokens.find(({ faucetId: id }) => !!id && normalizedFaucetId(id) === canonical);
 }
 
 /**
  * The name a Miden token is shown under: on testnet, the label of the entry for its faucet, matched by canonical id and
- * never by the symbol a faucet gives itself (#1131); otherwise, and before `snapshot` names the faucet, `symbol`.
+ * never by the symbol a faucet gives itself (#1131); otherwise `symbol`; a faucet the config names
+ * is labelled once `snapshot` names it.
  * Display only: data, logos and price lookups keep the symbol. A component passes the snapshot it subscribes to
  * (`useBridgeConfigSnapshot`), so the label appears when the config lands.
  */
 export function midenTokenLabel(snapshot: BridgeConfigSnapshot, faucetId: string | undefined, symbol: string): string {
-  if (!faucetId || getTestNetworkNameKey() !== 'testnet') return symbol;
-  const labels = testnetMidenTokenLabels(snapshot).flatMap(({ faucetId: id, label }) => (id ? [{ id, label }] : []));
-  // Nothing is named before the snapshot loads, so no id needs parsing.
-  if (labels.length === 0) return symbol;
-  const canonical = normalizedFaucetId(faucetId);
-  return labels.find(({ id }) => normalizedFaucetId(id) === canonical)?.label ?? symbol;
+  return midenTokenLabelFor(snapshot, faucetId) ?? symbol;
+}
+
+/** The label `midenTokenLabel` shows for `faucetId`, or null when the token keeps its own symbol. */
+export function midenTokenLabelFor(snapshot: BridgeConfigSnapshot, faucetId: string | undefined): string | null {
+  return testnetTokenFor(testnetMidenTokens(snapshot), faucetId)?.label ?? null;
+}
+
+/** On testnet, the info of the entry for `faucetId` (iETH's, #477); null for any other token and off testnet. */
+export function testnetTokenInfo(faucetId: string | undefined): TestnetTokenInfo | null {
+  return testnetTokenFor(staticTestnetTokens(), faucetId)?.info ?? null;
 }
 
 /**

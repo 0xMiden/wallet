@@ -2230,38 +2230,6 @@
     "message": "請從以下選項中選擇一項",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "設定您的帳戶",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "您的帳戶在 Miden 上是私密的。請逐點確認一次，以了解其如何受到保護。",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "您的帳戶存於此裝置中",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "私有帳戶狀態會保留在您的裝置上。網路僅能看到加密承諾。",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "僅靠恢復短語是不夠的",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "您的恢復短語是用來還原您的金鑰，而非還原您的帳戶狀態。一旦遺失裝置，該狀態便不復存在。",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Guardian 可為您提供保障",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Guardian 會儲存您的帳戶狀態，並協助您恢復帳戶。您可以將其視為為您提供備份的伺服器，但它絕不會接觸您的資金。",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "正在確認哪位客服人員回應最快……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2277,14 +2245,6 @@
   "learnMoreAboutGuardian": {
     "message": "進一步了解Guardian",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "无监护人",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "進階 — 僅使用您的恢復短語進行恢復。無需 guardian 共同簽署人。",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "營運單位：",
@@ -2314,22 +2274,110 @@
     "message": "什麼是「Guardian」？",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "你的 Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "認識您的Guardian",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "更換",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "Guardian 會備份您的私人帳戶資料，並對您的交易進行共同簽署。",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ 會備份您的帳戶。它永遠無法轉移您的資金，您也可以隨時更換。",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "在新手機上恢復",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "您的恢復短語可恢復您的金鑰，並透過您的「Guardian」備份來恢復您的帳戶。請妥善保管此短語。",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "您的資金始終屬於您",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "您的「Guardian」會與您共同簽署交易。它絕不會自行轉移資金。",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "隨時切換",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "您可隨時切換至另一位「Guardian」。您的帳戶將保持不變。",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "關於「Guardians」的更多資訊",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "繼續處理 $name$",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "更換服務供應商",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "了解更多",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "地區：",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "最快",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "選擇服務供應商",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "這些服務皆以相同方式備份您的帳戶。",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "您可隨時在「設定」中進行切換。",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin，一家以審計服務聞名的智慧合約安全公司。",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway，一家營運節點與網路的blockchain基礎設施供應商。",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass，一家專門開發零知識系統的工程公司。",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset，一家總部位於南韓的數位資產託管公司。",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "智慧合約的安全性與審計",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchain基礎設施供應商",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "零知識系統工程",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "數位資產託管機構",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
@@ -3781,17 +3829,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "工具",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "社群",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "遊戲",
@@ -3808,14 +3848,6 @@
   "exploreCategoriesLabel": {
     "message": "類別",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "精選",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "輔助工具",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "開啟",
@@ -3844,10 +3876,6 @@
   "exploreNoResultsDescription": {
     "message": "試試其他名稱，或貼上 dApp 的 URL。",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "取得用於兌換的測試網代幣",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "最小化",
@@ -5005,15 +5033,6 @@
     "message": "轉帳已接受",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "無法安全地重試這筆提領。開始另一筆提領前，請先查看這筆提領的狀態。",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5819,5 +5838,30 @@
   "tokenMetadataSaveError": {
     "message": "無法儲存代幣詳細資訊。請重試。",
     "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH 是用於 Miden 測試網（Testnet）上代幣兌換的測試代幣。它並非 ETH，且不會在正式版錢包中提供。",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "此交換操作將透過 Miden 測試網上的智慧合約執行。",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "交換操作的執行位置",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "關於 $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
   }
 }
