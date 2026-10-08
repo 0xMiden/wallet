@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
- * #594 — CI guard: keep the native prover's `miden-client` pin in lockstep with
+ * #594 - CI guard: keep the native prover's `miden-client` requirement in step with
  * the wallet's `@miden-sdk/miden-sdk`.
  *
  * The native prover (`packages/native-prover/android/rust-bridge/Cargo.toml`)
- * pins `miden-client = "=x.y.z"`, and it ships as committed binaries — so a pin
- * that has drifted from the miden-client behind the wallet's SDK is NOT caught
+ * requires `miden-client = "^x.y.z"` (or an exact `"=x.y.z"`), and it ships as
+ * committed binaries, so a prover that has drifted from the SDK is NOT caught
  * at build time. It surfaces only on-device as the prover rejecting valid
  * transactions with `procedure with root digest … could not be found` (the
  * #414 / #487 failure).
  *
  * This guard resolves the miden-client version behind the wallet's
  * `@miden-sdk/miden-sdk` (from the matching web-sdk tag's `Cargo.lock`, tag =
- * `v<full-version>`, prerelease suffix preserved) and FAILS the build if it
- * differs from the pin — UNLESS the exact drift is recorded as safe in
+ * `v<full-version>`, prerelease suffix preserved) and FAILS the build if it does
+ * not satisfy the requirement: equal to an exact `=` pin, or inside a caret range
+ * (same major, the same minor below 1.0, at or above the pinned version),
+ * UNLESS the exact drift is recorded as safe in
  * `packages/native-prover/pin-drift-exemptions.json`.
  *
  * It ALSO compares the transaction-kernel crates themselves — miden-protocol,
@@ -26,6 +28,10 @@
  * is the version pair that decides whether the MAST procedure roots agree. That
  * blind spot was live: the prover resolved miden-protocol 0.16.0-rc.5 while
  * web-sdk v0.16.0-rc.2 resolved 0.16.0-rc.4, and the guard printed ✅.
+ *
+ * That comparison is the safety check, which is what lets the client requirement be
+ * a caret range: a client-only move inside it keeps the procedure set, and the
+ * committed binaries are rebuilt only when a kernel crate moves.
  *
  * A drift is safe ONLY when no transaction-kernel crate MEANINGFULLY moved. A
  * miden-client(-web/-store)-only move keeps the same procedure set. Exemptions
@@ -92,13 +98,63 @@ function parseSdkSpec(pkgJson) {
   return { kind: 'version', version };
 }
 
+/**
+ * `{ op, version }` for the prover's miden-client requirement: `=` for an exact pin,
+ * `^` for a caret range, which is also what Cargo reads a bare version as.
+ */
 function parseProverPin(cargoToml) {
-  // miden-client = { version = "=0.15.4", ... }
+  // miden-client = { version = "^0.17.2", ... }
   const m = cargoToml.match(
-    /^\s*miden-client\s*=\s*\{[^}]*?version\s*=\s*"=?([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/m
+    /^\s*miden-client\s*=\s*\{[^}]*?version\s*=\s*"([=^]?)([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/m
   );
   if (!m) throw new Error('could not parse the miden-client pin from the prover Cargo.toml');
-  return m[1];
+  return { op: m[1] === '=' ? '=' : '^', version: m[2] };
+}
+
+/** `^x.y.z` or `=x.y.z`, as the Cargo.toml spells it. */
+const describePin = pin => `${pin.op}${pin.version}`;
+
+function parseSemver(version) {
+  const m = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
+  if (!m) throw new Error(`unrecognized version "${version}"`);
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), pre: m[4] };
+}
+
+/** Semver precedence: negative when `a` is lower, 0 when equal. */
+function compareSemver(a, b) {
+  for (const key of ['major', 'minor', 'patch']) {
+    if (a[key] !== b[key]) return a[key] - b[key];
+  }
+  if (a.pre === b.pre) return 0;
+  if (a.pre === undefined) return 1;
+  if (b.pre === undefined) return -1;
+  const left = a.pre.split('.');
+  const right = b.pre.split('.');
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    if (left[i] === undefined) return -1;
+    if (right[i] === undefined) return 1;
+    if (left[i] === right[i]) continue;
+    const numeric = /^\d+$/.test(left[i]) && /^\d+$/.test(right[i]);
+    if (numeric) return Number(left[i]) - Number(right[i]);
+    return left[i] < right[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Whether `version` satisfies the caret range `^pin`, as Cargo reads it: at or above the
+ * pin and below the next breaking release (the next major, or the next minor below 1.0,
+ * or the next patch below 0.1). A prerelease satisfies it only on the pin's own release.
+ */
+function satisfiesCaret(version, pin) {
+  const v = parseSemver(version);
+  const p = parseSemver(pin);
+  if (compareSemver(v, p) < 0) return false;
+  const sameRelease = v.major === p.major && v.minor === p.minor && v.patch === p.patch;
+  if (v.pre !== undefined && !(p.pre !== undefined && sameRelease)) return false;
+  if (p.major > 0) return v.major === p.major;
+  if (p.minor > 0) return v.major === 0 && v.minor === p.minor;
+  return v.major === 0 && v.minor === 0 && v.patch === p.patch;
 }
 
 function parseMidenClientFromCargoLock(lock) {
@@ -243,18 +299,19 @@ function kernelDriftIsExempted(drift, exemption) {
 }
 
 function evaluatePin({ pin, sdkVersion, sdkMidenClient, kernelDrift = [], exemptions }) {
-  const ex = exemptions.find(e => e.pin === pin && e.sdkVersion === sdkVersion);
-  const clientDrift = pin !== sdkMidenClient;
+  const ex = exemptions.find(e => e.pin === pin.version && e.sdkVersion === sdkVersion);
+  const clientDrift = pin.op === '=' ? pin.version !== sdkMidenClient : !satisfiesCaret(sdkMidenClient, pin.version);
   const driftLines = kernelDrift.map(d => `  - ${describeDrift(d)}`).join('\n');
+  const shown = describePin(pin);
 
-  // Clean: the pin matches AND every kernel crate resolves to the same version on
-  // both sides. Only then are the committed prover binaries and the SDK's wasm
-  // guaranteed to agree on the transaction kernel's procedure roots.
+  // Clean: the SDK's client satisfies the requirement AND every kernel crate resolves
+  // to the same version on both sides. Only then are the committed prover binaries and
+  // the SDK's wasm guaranteed to agree on the transaction kernel's procedure roots.
   if (!clientDrift && kernelDrift.length === 0) {
     return {
       level: 'ok',
       message:
-        `prover miden-client pin =${pin} matches the SDK's miden-client ${sdkMidenClient}, ` +
+        `prover miden-client requirement ${shown} is satisfied by the SDK's miden-client ${sdkMidenClient}, ` +
         `and all ${KERNEL_CRATES.length} transaction-kernel crates resolve identically in ${PROVER_LOCK_REL} and the web-sdk lockfile.`
     };
   }
@@ -264,7 +321,7 @@ function evaluatePin({ pin, sdkVersion, sdkMidenClient, kernelDrift = [], exempt
       return {
         level: 'fail',
         message:
-          `the exemption for pin =${pin} @ @miden-sdk/miden-sdk ${sdkVersion} recorded miden-client ${ex.sdkMidenClient}, ` +
+          `the exemption for pin ${shown} @ @miden-sdk/miden-sdk ${sdkVersion} recorded miden-client ${ex.sdkMidenClient}, ` +
           `but that SDK tag now resolves miden-client ${sdkMidenClient}. The exemption is inconsistent — re-review and update ${EXEMPTIONS_REL}.`
       };
     }
@@ -273,7 +330,7 @@ function evaluatePin({ pin, sdkVersion, sdkMidenClient, kernelDrift = [], exempt
       return {
         level: 'fail',
         message:
-          `the exemption for pin =${pin} @ @miden-sdk/miden-sdk ${sdkVersion} does not cover the observed ` +
+          `the exemption for pin ${shown} @ @miden-sdk/miden-sdk ${sdkVersion} does not cover the observed ` +
           `transaction-kernel drift.\nObserved:\n${driftLines || '  (none)'}\nRecorded in ${EXEMPTIONS_REL}:\n${recorded}\n` +
           `An exemption must enumerate EXACTLY the kernel crates that differ, with both versions — re-review and update it.`
       };
@@ -281,7 +338,7 @@ function evaluatePin({ pin, sdkVersion, sdkMidenClient, kernelDrift = [], exempt
     return {
       level: 'exempted',
       message:
-        `pin =${pin} / kernel crates differ from @miden-sdk/miden-sdk ${sdkVersion} ` +
+        `pin ${shown} / kernel crates differ from @miden-sdk/miden-sdk ${sdkVersion} ` +
         `(miden-client ${sdkMidenClient})${driftLines ? `:\n${driftLines}\n` : ', '}` +
         `but the drift is a documented safe exemption: ${ex.reason}`
     };
@@ -291,31 +348,31 @@ function evaluatePin({ pin, sdkVersion, sdkMidenClient, kernelDrift = [], exempt
     return {
       level: 'fail',
       message:
-        `DRIFT: the native prover pins miden-client =${pin}, but @miden-sdk/miden-sdk ${sdkVersion} resolves to miden-client ${sdkMidenClient}.\n` +
+        `DRIFT: the native prover requires miden-client ${shown}, but @miden-sdk/miden-sdk ${sdkVersion} resolves to miden-client ${sdkMidenClient}.\n` +
         (driftLines ? `Transaction-kernel crates also differ:\n${driftLines}\n` : '') +
         `A pin out of step with the SDK's miden-client makes the prover reject valid transactions on-device ` +
         `("procedure with root digest … could not be found" — see #414 / #487).\n` +
         `Fix EITHER by:\n` +
-        `  (a) bumping the pin in ${PROVER_CARGO_REL} to =${sdkMidenClient}, regenerating ${PROVER_LOCK_REL} against the SDK's ` +
-        `kernel-crate versions, AND rebuilding the committed prover binaries; or\n` +
+        `  (a) bumping the requirement in ${PROVER_CARGO_REL} to cover ${sdkMidenClient}, regenerating ${PROVER_LOCK_REL} ` +
+        `against the SDK's kernel-crate versions, AND rebuilding the committed prover binaries if a kernel crate moved; or\n` +
         `  (b) if the drift is verified safe, adding an exemption to ${EXEMPTIONS_REL}:\n` +
-        `      ${JSON.stringify({ pin, sdkVersion, sdkMidenClient, kernelDrift, reason: '…' })}`
+        `      ${JSON.stringify({ pin: pin.version, sdkVersion, sdkMidenClient, kernelDrift, reason: '…' })}`
     };
   }
 
   return {
     level: 'fail',
     message:
-      `KERNEL DRIFT: the prover pin =${pin} matches the SDK's miden-client, but the two sides resolve different ` +
+      `KERNEL DRIFT: the SDK's miden-client satisfies the prover pin ${shown}, but the two sides resolve different ` +
       `transaction-kernel crates:\n${driftLines}\n` +
-      `\`miden-client = "=${pin}"\` does NOT pin its transitive deps, so a matching client version is not evidence the ` +
+      `\`miden-client = "${shown}"\` does NOT pin its transitive deps, so a matching client version is not evidence the ` +
       `procedure roots agree — this is exactly the on-device ` +
       `"procedure with root digest … could not be found" failure (#414 / #487).\n` +
       `Fix EITHER by:\n` +
       `  (a) regenerating ${PROVER_LOCK_REL} against the SDK's kernel-crate versions AND rebuilding the committed prover binaries; or\n` +
       `  (b) if the drift is verified safe (e.g. the crate sources are identical and only the version metadata moved), ` +
       `adding an exemption to ${EXEMPTIONS_REL}:\n` +
-      `      ${JSON.stringify({ pin, sdkVersion, sdkMidenClient, kernelDrift, reason: '…' })}`
+      `      ${JSON.stringify({ pin: pin.version, sdkVersion, sdkMidenClient, kernelDrift, reason: '…' })}`
   };
 }
 
@@ -356,9 +413,22 @@ function selfTest() {
     'sdk file: → linked'
   );
 
-  // parseProverPin: with and without the leading `=`
-  assert(parseProverPin('miden-client = { version = "=0.15.4", features = ["std"] }') === '0.15.4', 'pin with =');
-  assert(parseProverPin('miden-client = { version = "0.15.5" }') === '0.15.5', 'pin without =');
+  // parseProverPin: an exact `=` pin, a caret range, and a bare version (a caret range to Cargo)
+  const samePin = (got, op, version) => got.op === op && got.version === version;
+  assert(
+    samePin(parseProverPin('miden-client = { version = "=0.15.4", features = ["std"] }'), '=', '0.15.4'),
+    'pin with ='
+  );
+  assert(samePin(parseProverPin('miden-client = { version = "^0.17.2", features = ["std"] }'), '^', '0.17.2'), 'pin ^');
+  assert(samePin(parseProverPin('miden-client = { version = "0.15.5" }'), '^', '0.15.5'), 'bare pin is a caret range');
+
+  // satisfiesCaret: same major (same minor below 1.0), at or above the pin, no foreign prerelease
+  assert(satisfiesCaret('0.17.2', '0.17.2'), 'caret: the pin itself');
+  assert(satisfiesCaret('0.17.9', '0.17.2'), 'caret: a later patch');
+  assert(!satisfiesCaret('0.17.1', '0.17.2'), 'caret: an earlier patch');
+  assert(!satisfiesCaret('0.18.0', '0.17.2'), 'caret: the next 0.x minor');
+  assert(!satisfiesCaret('0.17.3-rc.1', '0.17.2'), 'caret: a prerelease of another release');
+  assert(satisfiesCaret('1.4.0', '1.2.3') && !satisfiesCaret('2.0.0', '1.2.3'), 'caret: 1.x');
 
   // parseMidenClientFromCargoLock: exact block, NOT miden-client-web (even when -web appears first)
   assert(
@@ -374,26 +444,55 @@ function selfTest() {
   );
 
   // evaluatePin: match / exempt / drift / stale-exemption / different-SDK-version
+  const exact = version => ({ op: '=', version });
+  const caret = version => ({ op: '^', version });
   const ex = [{ pin: '0.15.4', sdkVersion: '0.15.9', sdkMidenClient: '0.15.5', reason: 'r' }];
   assert(
-    evaluatePin({ pin: '0.15.5', sdkVersion: '0.15.9', sdkMidenClient: '0.15.5', exemptions: [] }).level === 'ok',
+    evaluatePin({ pin: exact('0.15.5'), sdkVersion: '0.15.9', sdkMidenClient: '0.15.5', exemptions: [] }).level ===
+      'ok',
     'match → ok'
   );
   assert(
-    evaluatePin({ pin: '0.15.4', sdkVersion: '0.15.9', sdkMidenClient: '0.15.5', exemptions: ex }).level === 'exempted',
+    evaluatePin({ pin: exact('0.15.4'), sdkVersion: '0.15.9', sdkMidenClient: '0.15.5', exemptions: ex }).level ===
+      'exempted',
     'drift + matching exemption → exempted'
   );
   assert(
-    evaluatePin({ pin: '0.15.4', sdkVersion: '0.15.10', sdkMidenClient: '0.15.5', exemptions: ex }).level === 'fail',
+    evaluatePin({ pin: exact('0.15.4'), sdkVersion: '0.15.10', sdkMidenClient: '0.15.5', exemptions: ex }).level ===
+      'fail',
     'same client but a NEW sdkVersion → fail (exemption auto-expires)'
   );
   assert(
-    evaluatePin({ pin: '0.15.4', sdkVersion: '0.15.9', sdkMidenClient: '0.15.6', exemptions: ex }).level === 'fail',
+    evaluatePin({ pin: exact('0.15.4'), sdkVersion: '0.15.9', sdkMidenClient: '0.15.6', exemptions: ex }).level ===
+      'fail',
     'exemption sdkMidenClient no longer matches → fail (stale)'
   );
   assert(
-    evaluatePin({ pin: '0.15.4', sdkVersion: '0.15.9', sdkMidenClient: '0.15.6', exemptions: [] }).level === 'fail',
+    evaluatePin({ pin: exact('0.15.4'), sdkVersion: '0.15.9', sdkMidenClient: '0.15.6', exemptions: [] }).level ===
+      'fail',
     'drift, no exemption → fail'
+  );
+
+  // evaluatePin with a caret pin: the SDK's client must satisfy the range, and the kernel crates still decide.
+  assert(
+    evaluatePin({ pin: caret('0.17.2'), sdkVersion: '0.17.3', sdkMidenClient: '0.17.3', exemptions: [] }).level ===
+      'ok',
+    'caret pin satisfied, no kernel drift → ok'
+  );
+  assert(
+    evaluatePin({ pin: caret('0.17.2'), sdkVersion: '0.18.0', sdkMidenClient: '0.18.0', exemptions: [] }).level ===
+      'fail',
+    'caret pin the SDK client does not satisfy → fail'
+  );
+  assert(
+    evaluatePin({
+      pin: caret('0.17.2'),
+      sdkVersion: '0.17.3',
+      sdkMidenClient: '0.17.3',
+      kernelDrift: [{ crate: 'miden-tx', prover: '0.17.2', sdk: '0.17.3' }],
+      exemptions: []
+    }).level === 'fail',
+    'caret pin satisfied but a kernel crate moved → fail'
   );
 
   // parseCrateFromCargoLock: exact-name anchoring, absent crate
@@ -454,13 +553,13 @@ function selfTest() {
   // evaluatePin + kernel drift: a MATCHING client pin no longer implies ok.
   const kd = [{ crate: 'miden-protocol', prover: '0.16.0-rc.5', sdk: '0.16.0-rc.4' }];
   assert(
-    evaluatePin({ pin: '0.16.0-rc.1', sdkVersion: '0.16.0-rc.2', sdkMidenClient: '0.16.0-rc.1', exemptions: [] })
+    evaluatePin({ pin: exact('0.16.0-rc.1'), sdkVersion: '0.16.0-rc.2', sdkMidenClient: '0.16.0-rc.1', exemptions: [] })
       .level === 'ok',
     'matching pin, no kernel drift → ok'
   );
   assert(
     evaluatePin({
-      pin: '0.16.0-rc.1',
+      pin: exact('0.16.0-rc.1'),
       sdkVersion: '0.16.0-rc.2',
       sdkMidenClient: '0.16.0-rc.1',
       kernelDrift: kd,
@@ -473,7 +572,7 @@ function selfTest() {
   ];
   assert(
     evaluatePin({
-      pin: '0.16.0-rc.1',
+      pin: exact('0.16.0-rc.1'),
       sdkVersion: '0.16.0-rc.2',
       sdkMidenClient: '0.16.0-rc.1',
       kernelDrift: kd,
@@ -483,7 +582,7 @@ function selfTest() {
   );
   assert(
     evaluatePin({
-      pin: '0.16.0-rc.1',
+      pin: exact('0.16.0-rc.1'),
       sdkVersion: '0.16.0-rc.2',
       sdkMidenClient: '0.16.0-rc.1',
       kernelDrift: [...kd, { crate: 'miden-tx', prover: '0.16.0-rc.5', sdk: '0.16.0-rc.4' }],
@@ -493,7 +592,7 @@ function selfTest() {
   );
   assert(
     evaluatePin({
-      pin: '0.16.0-rc.1',
+      pin: exact('0.16.0-rc.1'),
       sdkVersion: '0.16.0-rc.2',
       sdkMidenClient: '0.16.0-rc.1',
       kernelDrift: [{ crate: 'miden-protocol', prover: '0.16.0-rc.6', sdk: '0.16.0-rc.4' }],
@@ -502,7 +601,8 @@ function selfTest() {
     'recorded crate but a different version pair → fail'
   );
   assert(
-    evaluatePin({ pin: '0.15.4', sdkVersion: '0.15.9', sdkMidenClient: '0.15.5', exemptions: ex }).level === 'exempted',
+    evaluatePin({ pin: exact('0.15.4'), sdkVersion: '0.15.9', sdkMidenClient: '0.15.5', exemptions: ex }).level ===
+      'exempted',
     'client-only drift + legacy exemption with no kernelDrift → still exempted'
   );
 
@@ -546,7 +646,7 @@ async function main() {
   const kernelDrift = diffKernelCrates(fs.readFileSync(PROVER_LOCK, 'utf8'), lock.text);
 
   console.log(
-    `[native-prover-pin] @miden-sdk/miden-sdk ${sdk.version} → miden-client ${sdkMidenClient}; native-prover pin =${pin}`
+    `[native-prover-pin] @miden-sdk/miden-sdk ${sdk.version} → miden-client ${sdkMidenClient}; native-prover requires ${describePin(pin)}`
   );
   if (kernelDrift.length > 0) {
     console.log(

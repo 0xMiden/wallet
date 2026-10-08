@@ -16,19 +16,21 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-# Pin the EXACT published miden-client the wallet's @miden-sdk/miden-sdk is
-# built from. Both the TransactionInputs / ProvenTransaction wire format AND the
-# transaction-kernel / library MAST procedure roots must match the SDK
-# byte-for-byte — building against a divergent rev (even at the same 0.17.x
-# version number) makes the prover reject valid transactions with "procedure
-# with root digest … could not be found".
+# The miden-client line the wallet's @miden-sdk/miden-sdk is built from. Both the
+# TransactionInputs / ProvenTransaction wire format AND the transaction-kernel /
+# library MAST procedure roots must match the SDK byte-for-byte, and the roots come
+# from the transaction-kernel crates this package's Cargo.lock resolves, not from
+# miden-client itself: a prover built against a different kernel rejects valid
+# transactions with "procedure with root digest ... could not be found".
 #
-# The wallet is on @miden-sdk/miden-sdk 0.17.1. CI enforces the client pin
-# and resolved transaction-kernel versions via scripts/check-native-prover-pin.mjs.
-# Bump this in lockstep with the SDK and rebuild the committed binaries.
-# `concurrent` cascades rayon-backed parallel proving through miden-tx →
+# So the safety check is the kernel-crate comparison in
+# scripts/check-native-prover-pin.mjs, which CI runs against the web-sdk tag's
+# Cargo.lock: it fails when the SDK's miden-client is outside this range or when any
+# kernel crate resolves differently on the two sides. A client-only move inside the
+# range keeps the committed binaries valid; they are rebuilt only when a kernel crate
+# moves. `concurrent` cascades rayon-backed parallel proving through miden-tx ->
 # miden-prover.
-miden-client = { version = "=0.17.1", default-features = false, features = ["std", "concurrent"] }
+miden-client = { version = "^0.17.2", default-features = false, features = ["std", "concurrent"] }
 
 # JNI binding crate. Only depended on here because this lib is
 # Android-Java-specific; the canonical miden-mobile-prover crate (in
