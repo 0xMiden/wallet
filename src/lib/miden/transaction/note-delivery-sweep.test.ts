@@ -8,7 +8,12 @@
  */
 
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
-import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
+import {
+  __resetSyncFuseStateForTests,
+  clearSyncFuseForEndpointChange,
+  isSyncFused,
+  noteSyncWatchdogEviction
+} from 'lib/miden/front/sync-fuse';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_ABANDONED_PROBES, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
@@ -1255,6 +1260,38 @@ describe('the delivery schedule', () => {
 
     expect(mockRelayById).not.toHaveBeenCalled();
     expect(mockIsConsumed).toHaveBeenCalledWith('0xfirst');
+  });
+
+  it('ends the pass at an eviction, before any catch-up push', async () => {
+    rows.push(
+      due('deferred', NOW - 3000, { nextRelayAt: NOW + 600, relayOutageDeferred: true }),
+      due('pushed', NOW - 2000),
+      due('evicted', NOW - 1000)
+    );
+    mockRelayById
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new WasmClientPoisonedError('watchdog', new Error('push parked')));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xpushed', '0xevicted']);
+  });
+
+  // An endpoint change clears the ledger, and the sweep must not go on sitting out a window that no longer exists.
+  it('pushes again as soon as the note-delivery fuse goes out, inside the window it had', async () => {
+    for (let eviction = 0; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+
+    await sweepNoteDeliveries();
+    expect(mockRelayById).not.toHaveBeenCalled();
+
+    clearSyncFuseForEndpointChange();
+    clock = NOW + 60;
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).toHaveBeenCalledTimes(1);
   });
 
   // The receipt is a local read: its health says nothing about whether the push parks.

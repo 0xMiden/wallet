@@ -445,8 +445,12 @@ const candidateRows = async (at: number): Promise<ITransaction[]> => {
 };
 
 let running: Promise<void> | undefined;
-/** Until when no pass has work, as the last pass found it, and the delivery-write count it found it at. */
-let idle: { until: number; writes: number } | undefined;
+/**
+ * Until when no pass has work, as the last pass found it, the delivery-write count it found
+ * it at, and whether the pass stopped because the 'note-delivery' fuse was lit: that
+ * finding holds only while the fuse still reads lit, since an endpoint change clears it.
+ */
+let idle: { until: number; writes: number; fused: boolean } | undefined;
 
 /** Forget the last pass's idle finding, so the next call queries. */
 export const __resetNoteDeliverySweepForTests = () => {
@@ -457,8 +461,8 @@ const runGuardedPass = async (): Promise<void> => {
   const writes = noteDeliveryWriteCount();
   idle = undefined;
   try {
-    const nextDueAt = await runPass();
-    idle = { until: Math.min(nextDueAt, nowSeconds() + RECEIPT_INTERVAL_SECONDS), writes };
+    const { nextDueAt, fused } = await runPass();
+    idle = { until: Math.min(nextDueAt, nowSeconds() + RECEIPT_INTERVAL_SECONDS), writes, fused };
   } catch (error) {
     console.warn('[noteDeliverySweep] pass failed', error);
   }
@@ -472,31 +476,33 @@ const passStopOf = (): Pick<PassState, 'pushesStopped' | 'fusedUntil'> => {
   return { pushesStopped: 'fused', fusedUntil: nowSeconds() + Math.ceil(fusedForMs / 1000) };
 };
 
-/** One pass over the candidate rows. Resolves to when a row next needs one. */
-const runPass = async (): Promise<number> => {
+/** One pass over the candidate rows. Resolves to when a row next needs one, and whether the fuse held its pushes. */
+const runPass = async (): Promise<{ nextDueAt: number; fused: boolean }> => {
   // Eligibility is judged against one snapshot so a single pass is internally consistent.
   const at = nowSeconds();
   const rows = await candidateRows(at);
   const pass: PassState = { caughtUp: false, nextDueAt: Infinity, ...passStopOf() };
   const awaitingCatchUp: ITransaction[] = [];
 
+  let interrupted = false;
   for (const [index, row] of rows.entries()) {
     const outcome = await sweepRow(row, at, pass);
     if (outcome === 'interrupted') {
       // The pass ends at an eviction; the rows it did not reach are due when they were.
       for (const unvisited of rows.slice(index + 1)) noteDue(pass, unvisited.nextRelayAt ?? at);
-      return pass.nextDueAt;
+      interrupted = true;
+      break;
     }
     if (outcome === 'awaiting-catch-up') awaitingCatchUp.push(row);
   }
 
   // Rows an outage deferred that the pass reached before its first success.
-  if (pass.caughtUp) {
+  if (pass.caughtUp && !interrupted) {
     for (const row of awaitingCatchUp) {
       if ((await sweepRow(row, at, pass)) === 'interrupted') break;
     }
   }
-  return pass.nextDueAt;
+  return { nextDueAt: pass.nextDueAt, fused: pass.pushesStopped === 'fused' };
 };
 
 /**
@@ -530,7 +536,12 @@ const runPass = async (): Promise<number> => {
  */
 export const sweepNoteDeliveries = (): Promise<void> => {
   if (running) return running;
-  if (idle && idle.writes === noteDeliveryWriteCount() && nowSeconds() < idle.until) return Promise.resolve();
+  const idleHolds =
+    idle !== undefined &&
+    idle.writes === noteDeliveryWriteCount() &&
+    nowSeconds() < idle.until &&
+    (!idle.fused || isSyncFused('note-delivery'));
+  if (idleHolds) return Promise.resolve();
   running = runGuardedPass().finally(() => {
     running = undefined;
   });
