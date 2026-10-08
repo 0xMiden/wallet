@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "원본 거래가 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
   "viewOnBlockExplorer": "블록 익스플로러에서 보기",
   "usdcxAttested": "Circle이 예치금을 인증했습니다. USDCx는 곧 Miden에서 발행될 예정입니다.",
+  "usdcxReceived": "USDCx가 Miden에서 발행되었으며, 귀하의 지갑으로 입금되었습니다.",
   "bridgeRowTitle": "브리지 $from$ → $to$",
   "bridgeRowVia": "출처: $provider$ → $network$",
   "bridgeInProgress": "진행 중",

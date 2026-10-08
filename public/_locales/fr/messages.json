@@ -4711,6 +4711,10 @@
     "message": "Circle a certifié le dépôt. L’USDCx sera prochainement émis sur Miden.",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "L’USDCx a été émis sur Miden et votre portefeuille l’a reçu.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "$from$s sur les ponts → $to$",
     "englishSource": "Bridge $from$ → $to$",

@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "A transação de origem foi confirmada. Aguardando que a Circle ateste o depósito antes que o USDCx seja cunhado no Miden.",
   "viewOnBlockExplorer": "Visualizar no explorador de blocos",
   "usdcxAttested": "A Circle atestou o depósito. O USDCx será cunhado na Miden em breve.",
+  "usdcxReceived": "O USDCx foi cunhado no Miden e sua carteira o recebeu.",
   "bridgeRowTitle": "Bridge $from$ → $to$",
   "bridgeRowVia": "Via $provider$ → $network$",
   "bridgeInProgress": "Em andamento",

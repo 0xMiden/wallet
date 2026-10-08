@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "Исходная транзакция подтверждена. Ожидается подтверждение депозита со стороны Circle перед выпуском USDCx на Miden.",
   "viewOnBlockExplorer": "Просмотр в блокчейн-браузере",
   "usdcxAttested": "Circle подтвердила депозит. В ближайшее время на Miden начнётся эмиссия USDCx.",
+  "usdcxReceived": "USDCx был отчеканен на Miden, и ваш кошелек получил его.",
   "bridgeRowTitle": "Мост $from$ → $to$",
   "bridgeRowVia": "Источник: $provider$ → $network$",
   "bridgeInProgress": "В процессе выполнения",

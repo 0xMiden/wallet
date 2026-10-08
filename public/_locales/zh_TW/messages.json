@@ -4711,6 +4711,10 @@
     "message": "Circle 已對該筆存款進行認證。USDCx 即將在 Miden 上發行。",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "USDCx 已在 Miden 上鑄造，且您的錢包已收到該資產。",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "橋接 $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",

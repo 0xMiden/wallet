@@ -4711,6 +4711,10 @@
     "message": "A Circle atestou o depósito. O USDCx será cunhado na Miden em breve.",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "O USDCx foi cunhado no Miden e sua carteira o recebeu.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "Bridge $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",

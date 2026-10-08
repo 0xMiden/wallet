@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "原始交易已確認。目前正在等待 Circle 驗證存款，之後才會於 Miden 上鑄造 USDCx。",
   "viewOnBlockExplorer": "在區塊鏈瀏覽器上查看",
   "usdcxAttested": "Circle 已對該筆存款進行認證。USDCx 即將在 Miden 上發行。",
+  "usdcxReceived": "USDCx 已在 Miden 上鑄造，且您的錢包已收到該資產。",
   "bridgeRowTitle": "橋接 $from$ → $to$",
   "bridgeRowVia": "來源：$provider$ → $network$",
   "bridgeInProgress": "進行中",

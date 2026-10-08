@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "ソース取引は確認されました。Miden上でUSDCxが発行される前に、Circleによる入金の認証を待っています。",
   "viewOnBlockExplorer": "ブロックエクスプローラーで表示",
   "usdcxAttested": "Circleは預入を認証しました。USDCxはまもなくMiden上で発行される予定です。",
+  "usdcxReceived": "USDCxはMidenで発行され、あなたのウォレットに受け取られました。",
   "bridgeRowTitle": "ブリッジ $from$ → $to$",
   "bridgeRowVia": "$provider$ 経由 → $network$",
   "bridgeInProgress": "進行中",

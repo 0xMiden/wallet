@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "Transakcja źródłowa została potwierdzona. Czekamy na potwierdzenie wpłaty przez Circle przed wyemitowaniem USDCx na platformie Miden.",
   "viewOnBlockExplorer": "Wyświetl w eksploratorze bloków",
   "usdcxAttested": "Firma Circle poświadczyła wpłatę. Wkrótce na platformie Miden zostanie wyemitowany token USDCx.",
+  "usdcxReceived": "USDCx zostało wyemitowane na platformie Miden, a Twój portfel je otrzymał.",
   "bridgeRowTitle": "Most $from$ → $to$",
   "bridgeRowVia": "Źródło: $provider$ → $network$",
   "bridgeInProgress": "W trakcie realizacji",

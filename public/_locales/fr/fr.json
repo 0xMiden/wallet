@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "La transaction source est confirmée. En attente que Circle certifie le dépôt avant que l’USDCx ne soit émis sur Miden.",
   "viewOnBlockExplorer": "Afficher sur l’explorateur de blocs",
   "usdcxAttested": "Circle a certifié le dépôt. L’USDCx sera prochainement émis sur Miden.",
+  "usdcxReceived": "L’USDCx a été émis sur Miden et votre portefeuille l’a reçu.",
   "bridgeRowTitle": "$from$s sur les ponts → $to$",
   "bridgeRowVia": "Via $provider$ → $network$",
   "bridgeInProgress": "En cours",

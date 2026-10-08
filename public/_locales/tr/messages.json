@@ -4711,6 +4711,10 @@
     "message": "Circle, bu yatırımı onayladı. USDCx, kısa süre içinde Miden'de basılacaktır.",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "USDCx, Miden'de basıldı ve cüzdanınıza aktarıldı.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "Köprü $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",

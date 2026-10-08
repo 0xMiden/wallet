@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "Kaynak işlem onaylandı. Miden'de USDCx basılmadan önce Circle'ın yatırımı onaylamasını bekliyoruz.",
   "viewOnBlockExplorer": "Blok gezgininde görüntüle",
   "usdcxAttested": "Circle, bu yatırımı onayladı. USDCx, kısa süre içinde Miden'de basılacaktır.",
+  "usdcxReceived": "USDCx, Miden'de basıldı ve cüzdanınıza aktarıldı.",
   "bridgeRowTitle": "Köprü $from$ → $to$",
   "bridgeRowVia": "$provider$ üzerinden → $network$",
   "bridgeInProgress": "Devam ediyor",

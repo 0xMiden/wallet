@@ -4711,6 +4711,10 @@
     "message": "Firma Circle poświadczyła wpłatę. Wkrótce na platformie Miden zostanie wyemitowany token USDCx.",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "USDCx zostało wyemitowane na platformie Miden, a Twój portfel je otrzymał.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "Most $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",

@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "Транзакція-джерело підтверджена. Очікуємо, поки Circle засвідчить депозит, перш ніж USDCx буде випущено на Miden.",
   "viewOnBlockExplorer": "Переглянути в блок-експлорері",
   "usdcxAttested": "Circle підтвердила депозит. USDCx незабаром буде випущено на Miden.",
+  "usdcxReceived": "USDCx було випущено на Miden, і ваш гаманець його отримав.",
   "bridgeRowTitle": "Міст $from$ → $to$",
   "bridgeRowVia": "Джерело: $provider$ → $network$",
   "bridgeInProgress": "У процесі виконання",

@@ -4711,6 +4711,10 @@
     "message": "Circle підтвердила депозит. USDCx незабаром буде випущено на Miden.",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "USDCx було випущено на Miden, і ваш гаманець його отримав.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "Міст $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",

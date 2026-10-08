@@ -4711,6 +4711,10 @@
     "message": "Circle이 예치금을 인증했습니다. USDCx는 곧 Miden에서 발행될 예정입니다.",
     "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
   },
+  "usdcxReceived": {
+    "message": "USDCx가 Miden에서 발행되었으며, 귀하의 지갑으로 입금되었습니다.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
   "bridgeRowTitle": {
     "message": "브리지 $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",

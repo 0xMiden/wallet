@@ -1079,6 +1079,7 @@
   "usdcxAwaitingAttestation": "Die Quelltransaktion ist bestätigt. Es wird darauf gewartet, dass Circle die Einzahlung bestätigt, bevor USDCx auf Miden geprägt wird.",
   "viewOnBlockExplorer": "Im Block-Explorer anzeigen",
   "usdcxAttested": "Circle hat die Einzahlung bestätigt. USDCx wird in Kürze auf Miden geprägt.",
+  "usdcxReceived": "USDCx wurde auf Miden geprägt und Ihre Wallet hat es erhalten.",
   "bridgeRowTitle": "Bridge-$from$ → $to$",
   "bridgeRowVia": "Über $provider$ → $network$",
   "bridgeInProgress": "In Bearbeitung",
