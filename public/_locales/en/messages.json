@@ -2363,6 +2363,10 @@
     "message": "Move to another Guardian whenever you like. Your account stays the same.",
     "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
   },
+  "guardianIntroMoreAbout": {
+    "message": "More about Guardians",
+    "englishSource": "More about Guardians"
+  },
   "meetGuardianContinueWith": {
     "message": "Continue with $name$",
     "englishSource": "Continue with $name$",
@@ -2375,6 +2379,10 @@
   "meetGuardianChangeProvider": {
     "message": "Change provider",
     "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Learn more",
+    "englishSource": "Learn more"
   },
   "meetGuardianRegion": {
     "message": "Region:",

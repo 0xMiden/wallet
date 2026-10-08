@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -7,7 +7,9 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Card } from 'components/ui/Card';
 import { FactRow, IconCircle } from 'components/ui/FactRow';
+import { TextAction } from 'components/ui/TextAction';
 
+import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 interface GuardianIntroPoint {
@@ -51,16 +53,29 @@ export interface GuardianIntroScreenProps {
 
 /**
  * The create flow's first guardian screen: what a Guardian is, as an illustration and three benefits,
- * each on its own outlined card. The next screen names the operator that will do it.
+ * each on its own outlined card, with the fuller explainer one tap away. The next screen names the
+ * operator that will do it.
  */
 export const GuardianIntroScreen: React.FC<GuardianIntroScreenProps> = ({ onContinue }) => {
   const { t } = useTranslation();
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   return (
     <OnboardingStepLayout
       data-testid="onboarding-guardian-intro"
       title={t('guardianIntroTitle')}
       description={t('guardianIntroDescription')}
+      aside={
+        <TextAction
+          className="-mx-1"
+          data-testid="guardian-intro-more-about"
+          aria-haspopup="dialog"
+          aria-expanded={isInfoOpen}
+          onClick={() => setIsInfoOpen(true)}
+        >
+          {t('guardianIntroMoreAbout')}
+        </TextAction>
+      }
       footer={
         <Button
           className="max-w-none"
@@ -89,6 +104,8 @@ export const GuardianIntroScreen: React.FC<GuardianIntroScreenProps> = ({ onCont
           </Card>
         ))}
       </ul>
+
+      <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
     </OnboardingStepLayout>
   );
 };

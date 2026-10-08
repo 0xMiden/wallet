@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
@@ -27,6 +27,18 @@ jest.mock('app/hooks/useGuardianAvailability', () => ({
 }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
+
+jest.mock('app/providers/DappBrowserProvider', () => ({ useHideForegroundDappWhileOpen: jest.fn() }));
+
+// Vaul renders through a portal jsdom cannot drive; a flat stand-in renders a sheet only while it is open.
+jest.mock('lib/ui/drawer', () => ({
+  Drawer: ({ open, children }: { open: boolean; children: React.ReactNode }) => (open ? <div>{children}</div> : null),
+  DrawerContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
+  DrawerDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
+  DrawerFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
+}));
 
 // The sheet has its own test; here it only reports whether it is open and hands picks back.
 type SheetProps = {
@@ -283,6 +295,32 @@ describe('MeetGuardianScreen', () => {
     view.setVerdicts(BOTH_ONLINE);
     expect(screen.getByTestId('meet-guardian-name')).toHaveTextContent('Gateway Operator');
     expect(onProgress).toHaveBeenLastCalledWith({ chosenId: 'gateway', fastestId: 'gateway' });
+  });
+
+  it("opens the shown operator's details from Learn more, keeping them out of the page until asked for", () => {
+    const view = renderScreen();
+    view.setVerdicts(BOTH_ONLINE);
+    expect(screen.queryByTestId('meet-guardian-provider-details')).toBeNull();
+    expect(screen.queryByText('gw.example.com')).toBeNull();
+
+    const learnMore = screen.getByTestId('meet-guardian-learn-more');
+    expect(learnMore).toHaveTextContent('meetGuardianLearnMore');
+    fireEvent.click(learnMore);
+
+    const details = screen.getByTestId('meet-guardian-provider-details');
+    expect(within(details).getByRole('heading', { level: 2 })).toHaveTextContent('Gateway Operator');
+    expect(details).toHaveTextContent('guardianAboutGateway');
+    expect(details).toHaveTextContent('guardianProvider');
+    expect(details).toHaveTextContent('Gateway');
+    expect(details).toHaveTextContent('guardianRegion');
+    expect(details).toHaveTextContent('EU-NORTH');
+    expect(details).toHaveTextContent('guardianEndpointLabel');
+    expect(details).toHaveTextContent('gw.example.com');
+  });
+
+  it('offers no Learn more until an operator is shown', () => {
+    renderScreen();
+    expect(screen.queryByTestId('meet-guardian-learn-more')).toBeNull();
   });
 
   it('offers the fully private account when dev-gated on, and submits no guardian from it', () => {

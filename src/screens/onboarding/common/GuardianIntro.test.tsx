@@ -10,6 +10,13 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
 
+// The explainer has its own test; here it only reports whether it is open.
+jest.mock('./GuardianInfoDrawer', () => ({
+  GuardianInfoDrawer: ({ open }: { open: boolean }) => (
+    <div data-testid="guardian-info-drawer" data-open={String(open)} />
+  )
+}));
+
 describe('GuardianIntroScreen', () => {
   it('says what a Guardian is: its title, explainer and illustration, before naming any operator', () => {
     render(<GuardianIntroScreen />);
@@ -29,6 +36,15 @@ describe('GuardianIntroScreen', () => {
       expect(items[index]).toHaveTextContent(point.titleKey);
       expect(items[index]).toHaveTextContent(point.bodyKey);
     });
+  });
+
+  it('opens the Guardian explainer from More about Guardians, which is closed until asked for', () => {
+    render(<GuardianIntroScreen />);
+    expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'false');
+    const more = screen.getByTestId('guardian-intro-more-about');
+    expect(more).toHaveTextContent('guardianIntroMoreAbout');
+    fireEvent.click(more);
+    expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'true');
   });
 
   it('goes on with Continue, with nothing to tick first', () => {

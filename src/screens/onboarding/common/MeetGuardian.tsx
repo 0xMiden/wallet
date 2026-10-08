@@ -14,6 +14,7 @@ import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
+import { GuardianProviderDetailsSheet } from './GuardianProviderDetailsSheet';
 import { GuardianProviderSheet, guardianOperatorCopy } from './GuardianProviderSheet';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
@@ -30,8 +31,8 @@ export interface MeetGuardianScreenProps {
 /**
  * The create flow's guardian step, after the intro said what a Guardian is: who will be the user's. The
  * fastest reachable operator leads the page on its own, its logo centred on rings, its name, its status,
- * one sentence on who runs it and its region; Continue names it, and Change provider opens the operator
- * sheet. The operator is chosen once, when every operator has answered its first ping, so the page does
+ * one sentence on who runs it and its region, with its details behind Learn more; Continue names it, and
+ * Change provider opens the operator sheet. The operator is chosen once, when every operator has answered its first ping, so the page does
  * not switch operator under the user while later rounds re-check the chosen one. An operator that later
  * goes offline closes Continue and says so in its status. When none answers the page says so and still
  * offers Change provider; a network with no operator at all says so and offers nothing to pick.
@@ -44,6 +45,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const { chosenId, fastestId } = progress;
 
   // Providers that run a Guardian on the active network, resolved to their endpoint on it.
@@ -193,8 +195,21 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
               <span className="ml-1 text-ink">{chosen.location}</span>
             </Pill>
           )}
+
+          {chosen && (
+            <TextAction
+              data-testid="meet-guardian-learn-more"
+              aria-haspopup="dialog"
+              aria-expanded={isDetailsOpen}
+              onClick={() => setIsDetailsOpen(true)}
+            >
+              {t('meetGuardianLearnMore')}
+            </TextAction>
+          )}
         </section>
       )}
+
+      {chosen && <GuardianProviderDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} option={chosen} />}
 
       <GuardianProviderSheet
         open={isSheetOpen}
