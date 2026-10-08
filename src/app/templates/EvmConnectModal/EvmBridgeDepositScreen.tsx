@@ -31,6 +31,7 @@ import { IBridgeProvider } from 'lib/miden/db/types';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { type EvmUsdc, getAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from 'lib/remote-config/values';
@@ -43,7 +44,6 @@ import {
   getUsdcxContracts,
   USDCX_CHAIN,
   USDCX_DECIMALS,
-  USDCX_FAUCET_ID_BECH32,
   USDCX_SYMBOL,
   XRESERVE_ABI
 } from 'lib/usdcx/constant';
@@ -848,12 +848,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             return BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
         }
       })();
+      // USDCx is the chain's native asset, so its faucet id is the discovered one.
+      const usdcxFaucetId = route === 'usdcx' ? await getNativeAssetId() : '';
       const faucetId = (() => {
         switch (route) {
           case 'epoch':
             return midenUsdc?.faucetId ?? '';
           case 'usdcx':
-            return USDCX_FAUCET_ID_BECH32;
+            return usdcxFaucetId;
           case 'agglayer':
           default:
             return '';

@@ -67,8 +67,7 @@ export const USDCX_MIDEN_REMOTE_DOMAIN = 10007;
 /** Arc deposits target Miden and the connected Miden account. */
 export const USDCX_REMOTE_DOMAIN = USDCX_MIDEN_REMOTE_DOMAIN;
 
-/** The single USDCx faucet. Currently the self-controlled testnet deployment. */
-export const USDCX_FAUCET_ID_BECH32 = 'mtst1ap50kfl4v7nmlufupa2akrh345e0hfke';
+// The USDCx faucet is the chain's native asset: read its id through `requireUsdcxFaucetId` (`./withdrawal`).
 export const USDCX_SYMBOL = 'USDCx';
 export const USDCX_DECIMALS = 6;
 

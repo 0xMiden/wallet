@@ -1,5 +1,7 @@
-import { USDCX_FAUCET_ID_BECH32 } from './constant';
 import { encodeBurnWithdrawal, validateUsdcxWithdrawal } from './withdrawal';
+
+const USDCX_FAUCET_ID_BECH32 = 'mtst1native';
+jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'mtst1native' }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
 let network = 'testnet';
