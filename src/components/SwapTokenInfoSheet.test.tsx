@@ -87,8 +87,8 @@ describe('SwapTokenInfoButton', () => {
     const list = within(screen.getByTestId('swap-token-info-sheet')).getByRole('list');
     expect(list).not.toHaveClass('bg-fill');
     expect(list).toHaveClass('[&>*]:before:left-[var(--row-flush-inset,0px)]');
-    const [row] = within(list).getAllByRole('listitem');
-    expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+    // getByRole throws unless the list holds exactly one item.
+    const row = within(list).getByRole('listitem');
     expect(row).toHaveAttribute('data-slot', 'fact-row');
     expect(within(row).getByRole('heading', { level: 3 })).toHaveTextContent('swapExecutionTitle');
     expect(row).toHaveTextContent('testIethExecution');
