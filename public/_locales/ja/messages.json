@@ -5254,8 +5254,8 @@
     "englishSource": "Join the early access list"
   },
   "mainnetCountdownLabel": {
-    "message": "Breadは$time$にメインネットを開始します",
-    "englishSource": "Bread goes mainnet in $time$",
+    "message": "Breadのメインネット移行までの残り時間：$time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
     "placeholders": {
       "time": {
         "content": "$1"

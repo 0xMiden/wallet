@@ -1201,7 +1201,7 @@
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "토큰에는 실제 가치가 없습니다",
   "mainnetCountdownLink": "얼리 액세스 목록에 가입하세요",
-  "mainnetCountdownLabel": "Bread는 $time$에 메인넷에 출시됩니다.",
+  "mainnetCountdownLabel": "Bread가 메인넷에 출시되기까지 남은 시간: $time$",
   "activityRestoreTransfers": "복원",
   "activityHiddenNotesError": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
   "exportAccountFile": "계정 파일 내보내기",

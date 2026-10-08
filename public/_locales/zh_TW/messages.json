@@ -5254,8 +5254,8 @@
     "englishSource": "Join the early access list"
   },
   "mainnetCountdownLabel": {
-    "message": "Bread 將於 $time$ 正式上線主網",
-    "englishSource": "Bread goes mainnet in $time$",
+    "message": "距離 Bread 正式上線還剩：$time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
     "placeholders": {
       "time": {
         "content": "$1"

@@ -1201,7 +1201,7 @@
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "Токени не мають реальної цінності",
   "mainnetCountdownLink": "Приєднайтеся до списку раннього доступу",
-  "mainnetCountdownLabel": "Bread виходить у мейннет о $time$",
+  "mainnetCountdownLabel": "Час, що залишився до запуску Bread у мейннеті: $time$",
   "activityRestoreTransfers": "Відновити",
   "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
   "exportAccountFile": "Експортувати файл облікового запису",

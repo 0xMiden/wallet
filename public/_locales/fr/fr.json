@@ -1201,7 +1201,7 @@
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "Les jetons n’ont aucune valeur réelle",
   "mainnetCountdownLink": "Inscrivez-vous à la liste d’accès anticipé",
-  "mainnetCountdownLabel": "Bread passe sur le réseau principal à l’heure $time$",
+  "mainnetCountdownLabel": "Temps restant avant le lancement du réseau principal de Bread : $time$",
   "activityRestoreTransfers": "Restaurer",
   "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
   "exportAccountFile": "Exporter le fichier de compte",

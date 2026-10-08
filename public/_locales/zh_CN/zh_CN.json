@@ -1201,7 +1201,7 @@
   "networkModeSheetTitle": "Miden $network$",
   "networkModePillNoValue": "代币没有实际价值",
   "mainnetCountdownLink": "加入早期体验名单",
-  "mainnetCountdownLabel": "Bread将于$time$正式上线主网",
+  "mainnetCountdownLabel": "距离Bread主网上线还剩：$time$",
   "activityRestoreTransfers": "恢复",
   "activityHiddenNotesError": "无法保存隐藏转账。请重试。",
   "exportAccountFile": "导出账户文件",

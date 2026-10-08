@@ -5254,8 +5254,8 @@
     "englishSource": "Join the early access list"
   },
   "mainnetCountdownLabel": {
-    "message": "Bread는 $time$에 메인넷에 출시됩니다.",
-    "englishSource": "Bread goes mainnet in $time$",
+    "message": "Bread가 메인넷에 출시되기까지 남은 시간: $time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
     "placeholders": {
       "time": {
         "content": "$1"
