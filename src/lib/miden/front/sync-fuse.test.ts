@@ -408,6 +408,38 @@ describe('sync fuse (#777)', () => {
 
       expect(isSyncFused('note-delivery')).toBe(false);
     });
+
+    // An offscreen read failed on its own deadline while a critical op held the document: the
+    // node was never asked and the realm runs on, so it is evidence for neither count.
+    describe('an abort that tore nothing down', () => {
+      const intactAbort = () => new OperationAbortedError('op', 'deadline-no-kill');
+
+      it('never lights the fuse, however many arrive', () => {
+        for (let i = 0; i < 2 * MAX_CONSECUTIVE_ABANDONED_PROBES; i++) noteProbeFailure('note-delivery', intactAbort());
+
+        expect(isSyncFused('note-delivery')).toBe(false);
+      });
+
+      it('neither withdraws the eviction count nor adds to it', () => {
+        for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+        noteProbeFailure('note-delivery', intactAbort());
+        expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+        noteSyncWatchdogEviction('note-delivery');
+        expect(isSyncFused('note-delivery')).toBe(true);
+      });
+
+      it('re-arms a lapsed window, so the probe it granted does not reopen the cadence', () => {
+        evictUntilLit('note-delivery');
+        fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS + 5_000;
+        expect(isSyncFused('note-delivery')).toBe(false);
+
+        noteProbeFailure('note-delivery', intactAbort());
+
+        expect(syncFuseUntilMs('note-delivery')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+      });
+    });
   });
 
   // A failure that never left this realm says nothing about the node either way.

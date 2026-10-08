@@ -1641,6 +1641,20 @@ describe('the delivery schedule', () => {
     expect(mockRelayById.mock.calls.map(([noteId]) => noteId)).toEqual(['0xfirst', '0xsecond']);
   });
 
+  it('never fuses the receipt read on offscreen reads failed without a kill', async () => {
+    rows.push(due('first', NOW - 1000));
+    mockIsConsumed.mockRejectedValue(new OperationAbortedError('op', 'deadline-no-kill'));
+
+    const passes = 2 * MAX_CONSECUTIVE_ABANDONED_PROBES;
+    for (let pass = 0; pass < passes; pass++) {
+      await sweepNoteDeliveries();
+      clock = rows[0]!.nextRelayAt!;
+    }
+
+    expect(isSyncFused('note-delivery-receipt')).toBe(false);
+    expect(mockIsConsumed).toHaveBeenCalledTimes(passes);
+  });
+
   it.each<[string, Record<string, boolean>, string]>([
     ['every note consumed', { '0xa': true, '0xb': true }, '0xb'],
     ['an early not-consumed answer', { '0xa': false, '0xb': true }, '0xa']

@@ -7,6 +7,7 @@ import {
 import { canonicalGuardianEndpoint } from 'lib/settings/helpers';
 
 import { isOperationAbortedError } from '../back/offscreen-codec';
+import { isRealmIntactAbort } from '../sdk/sdk-error-code';
 import { isSyncWatchdogEviction, isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -354,9 +355,16 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
  * of its life), and while lit it re-arms the deadline (so "one probe per 30 min until
  * one SUCCEEDS" holds).
  *
- * Reads `error` itself, not its cause chain. A caller that classifies through the chain
- * hands over the innermost killed-pipeline error it found there; a failure that never left
- * the realm goes to {@link noteLocalProbeFailure} instead.
+ * And one that is no evidence at all: an abort that tore nothing down (`isRealmIntactAbort`,
+ * an offscreen read failed on its own deadline while a critical op held the document). It
+ * never reached the node and the realm runs on, so it goes to {@link noteLocalProbeFailure}
+ * and only re-arms. Booked as abandoned, routine reads that lost a race against a write lit
+ * the fuse on a healthy node.
+ *
+ * Reads `error` itself, not its cause chain, except for the intact-abort check, which walks
+ * the chain as `isRealmIntactAbort` does. A caller that classifies through the chain hands
+ * over the innermost killed-pipeline error it found there; a failure that never left the
+ * realm goes to {@link noteLocalProbeFailure} instead.
  *
  * The idle-sync loop in `useSyncTrigger` does not book through here, on purpose: it keeps a
  * two-way split that counts a `realm-error` eviction toward its breaker's failure streak, so a
@@ -364,7 +372,8 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
  * fuse's count like any other failure.
  */
 export function noteProbeFailure(key: SyncFuseKey, error: unknown): void {
-  if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
+  if (isRealmIntactAbort(error)) noteLocalProbeFailure(key);
+  else if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
   else if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) noteAbandonedSyncProbe(key);
   else noteNonEvictionSyncFailure(key);
 }
