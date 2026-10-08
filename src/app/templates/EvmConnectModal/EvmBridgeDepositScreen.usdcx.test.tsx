@@ -49,7 +49,10 @@ const epochState = {
 jest.mock('lib/epoch', () => ({
   MIDEN_DESTINATION_CHAIN_ID: 1,
   evmToMidenMinTokenOut: (amount: string) => (Number(amount) > 0 ? '1000000' : undefined),
-  useEpochStore: (selector: (s: typeof epochState) => unknown) => selector(epochState)
+  // The screen opens on the bridge's own USDC and the Fast route, whose quote effect reads the store directly.
+  useEpochStore: Object.assign((selector: (s: typeof epochState) => unknown) => selector(epochState), {
+    getState: () => epochState
+  })
 }));
 
 jest.mock('lib/miden/activity', () => ({
@@ -162,12 +165,15 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
         <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
           ETH
         </button>
-        <button data-testid="pick-usdc" onClick={() => onSelect('USDC')}>
+        <button data-testid="pick-circle-usdc" onClick={() => onSelect('CIRCLE_USDC')}>
           USDC
         </button>
       </div>
     ) : null
 }));
+
+// The xReserve route starts on testnet only; these cases run where it can.
+jest.mock('lib/usdcx/use-bridge-in-availability', () => ({ isUsdcxDepositAvailable: () => true }));
 
 jest.mock('./EvmSwitchWalletDrawer', () => ({
   EvmSwitchWalletDrawer: () => null
@@ -207,11 +213,24 @@ const renderScreen = () =>
   );
 
 /** USDC is the default token: amount, continue, and the route step is up. */
-const reachUsdcxRoute = async () => {
+const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc') => {
+  fireEvent.click(screen.getByTestId('open-token-drawer'));
+  await settle();
+  fireEvent.click(screen.getByTestId(testId));
+  await settle();
+};
+
+const reachRouteStep = async () => {
   fireEvent.click(screen.getByTestId('set-amount'));
   await settle();
   fireEvent.click(screen.getByTestId('continue'));
   await settle();
+};
+
+// The screen opens on the bridge's own USDC; Circle's Arc USDC is the token xReserve takes.
+const reachUsdcxRoute = async () => {
+  await pickToken('pick-circle-usdc');
+  await reachRouteStep();
 };
 
 describe('EvmBridgeDepositScreen USDCx route', () => {
@@ -235,11 +254,9 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   it('shows the Fast/Slow picker again once ETH is chosen', async () => {
     renderScreen();
 
-    fireEvent.click(screen.getByTestId('open-token-drawer'));
-    await settle();
-    fireEvent.click(screen.getByTestId('pick-eth'));
-    await settle();
-    await reachUsdcxRoute();
+    await pickToken('pick-circle-usdc');
+    await pickToken('pick-eth');
+    await reachRouteStep();
 
     expect(screen.getByTestId('fast-slow-route-confirm')).toBeInTheDocument();
     expect(screen.queryByTestId('usdcx-route-confirm')).not.toBeInTheDocument();

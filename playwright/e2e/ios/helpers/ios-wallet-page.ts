@@ -234,8 +234,11 @@ export class IosWalletPage implements WalletPage {
     }
   }
 
-  /** Open the bridge token drawer and pick ETH or USDC. */
-  async selectBridgeToken(symbol: 'ETH' | 'USDC'): Promise<void> {
+  /**
+   * Open the bridge token drawer and pick a source token: ETH, the bridge's own
+   * USDC (`USDC`, Fast or Slow), or Circle's USDC (`CIRCLE_USDC`, xReserve only).
+   */
+  async selectBridgeToken(symbol: 'ETH' | 'USDC' | 'CIRCLE_USDC'): Promise<void> {
     await this.click('[data-testid="send-token-selector"]');
     await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
     await this.click(`[data-testid="bridge-token-${symbol}"]`);

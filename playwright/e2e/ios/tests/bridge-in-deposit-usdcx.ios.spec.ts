@@ -26,7 +26,7 @@ import {
  * No contract on the path is a double. The fork carries Sepolia's xReserve, its
  * Gateway wallet and Sepolia's USDC as they are deployed:
  *   1. Real WalletConnect pairing (app native Reown ↔ headless counterparty).
- *   2. Real UI: Receive → Cross Chain → USDC → amount → route (Circle xReserve) →
+ *   2. Real UI: Receive → Cross Chain → Circle USDC → amount → route (Circle xReserve) →
  *      review → Confirm Deposit.
  *   3. Real deposit: the wallet reads `isRemoteDomainRegistered` from xReserve,
  *      then builds a REAL `approve` and a REAL `depositToRemote`. The counterparty
@@ -116,8 +116,10 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC on a Sepolia fork, full r
       });
 
       await steps.step('deposit_via_ui', async () => {
-        // Token defaults to USDC, and USDC has one route: Circle xReserve.
+        // The screen opens on the bridge's own USDC. Circle's USDC is the token xReserve
+        // takes, and it has one route.
         await walletA.openBridgeDeposit();
+        await walletA.selectBridgeToken('CIRCLE_USDC');
         await walletA.enterBridgeAmount(DEPOSIT_USDC);
         await walletA.confirmBridgeRouteUsdcx();
         await walletA.confirmBridgeDeposit();

@@ -20,7 +20,7 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  * Bridge-IN deposit e2e against the LIVE networks (Arc Testnet → Miden testnet,
  * Circle xReserve/USDC route). Nothing on the path is a double:
  *   1. Real WalletConnect pairing (app native Reown ↔ headless counterparty).
- *   2. Real UI: Receive → Cross Chain → USDC → amount → route → review → Confirm.
+ *   2. Real UI: Receive → Cross Chain → Circle USDC → amount → route → review → Confirm.
  *   3. Real deposit: the counterparty signs with a funded Arc Testnet key and
  *      broadcasts `approve` and `depositToRemote` to the real xReserve contract.
  *   4. Circle's attestation service signs the deposit.
@@ -178,8 +178,10 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       });
 
       await steps.step('deposit_via_ui', async () => {
-        // Token defaults to USDC, and USDC has one route: Circle xReserve.
+        // The screen opens on the bridge's own USDC. Circle's USDC is the token xReserve
+        // takes, and it has one route.
         await walletA.openBridgeDeposit();
+        await walletA.selectBridgeToken('CIRCLE_USDC');
         await walletA.enterBridgeAmount(depositAmount);
         await walletA.confirmBridgeRouteUsdcx();
         await walletA.confirmBridgeDeposit();
