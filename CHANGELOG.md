@@ -5,6 +5,7 @@
 ### Features
 
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
+- [FEATURE][all] On testnet iETH is shown as "Test iETH", and its token page and an info sheet on the swap screens say it is a test token and where the swap executes (#477).
 
 ### Fixes
 

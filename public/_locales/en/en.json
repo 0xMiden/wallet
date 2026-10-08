@@ -1317,5 +1317,9 @@
   "tokenSymbolInvalid": "Enter a symbol of 1 to $max$ characters.",
   "tokenDecimalsInvalid": "Enter a whole number from 0 to $max$.",
   "tokenMetadataOverrideNotice": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here.",
-  "tokenMetadataSaveError": "Could not save the token details. Please try again."
+  "tokenMetadataSaveError": "Could not save the token details. Please try again.",
+  "testIethDescription": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet.",
+  "testIethExecution": "The swap executes through a smart contract on Miden Testnet.",
+  "swapExecutionTitle": "Where the swap executes",
+  "tokenInfoLabel": "About $token$"
 }
