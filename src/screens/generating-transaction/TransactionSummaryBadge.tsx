@@ -313,10 +313,11 @@ export const useEarnCollateralFallback = (faucetId: string | undefined): MidenUs
  * Implemented variants:
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
- *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   swap          →  (logo) {amount} {name}   ->  (logo) {amount} {name}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Accepted
  *
+ * A swap side's {name} is its display name (`midenTokenLabel`); its logo keeps the registry symbol.
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
  * and where each type's data lives.
@@ -382,8 +383,18 @@ export const useTransactionSummaryBadgeContent = (
       const requestedAmount = requested.scaleIsKnown ? formatAmount(requestedRaw, requested.decimals) : undefined;
 
       return {
-        lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
-        rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
+        lhs: (
+          <SwapAmountText
+            amount={offeredAmount}
+            symbol={midenTokenLabel(bridgeConfig, transaction.faucetId, offered.symbol)}
+          />
+        ),
+        rhs: (
+          <SwapAmountText
+            amount={requestedAmount}
+            symbol={midenTokenLabel(bridgeConfig, requestedFaucetId, requested.symbol)}
+          />
+        ),
         // The activity token, matching the swap row's icon above it, rather than the brand action
         // colour; `arrowInkFor` gives either spelling a stroke that clears 3:1 in both themes.
         fillForArrow: 'var(--tx-swap)'

@@ -10,7 +10,7 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
-import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getSwapTokenByFaucetId, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
@@ -63,7 +63,9 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: jest.fn(),
-  normalizedFaucetId: (faucetId: string) => faucetId
+  normalizedFaucetId: (faucetId: string) => faucetId,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
+  TOKEN_IMIDEN: jest.requireActual('lib/miden/swap/tokens').TOKEN_IMIDEN
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
@@ -1084,13 +1086,33 @@ describe('labelHistoryEntry', () => {
     expect(labelHistoryEntry(UNLOADED, claim)).toEqual(claim);
   });
 
-  it.each(['swap', 'earn-withdraw', 'earn-deposit'] as const)(
-    'leaves a %s row on the token its own fields chose',
-    txType => {
-      const row = bridgeEntry({ txType, faucetId: MIDEN_USDC_FAUCET, token: 'USDC', amount: '5' });
-      expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, row)).toEqual(row);
-    }
-  );
+  it('labels each side of a swap row by its own faucet, so iETH reads "Test iETH" on either side (#477)', () => {
+    const swapRow = bridgeEntry({
+      txType: 'swap',
+      faucetId: TOKEN_IMIDEN.faucetId,
+      token: 'MIDEN',
+      requestedFaucetId: TOKEN_IETH.faucetId,
+      requestedToken: 'IETH'
+    });
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, swapRow)).toMatchObject({
+      token: 'MIDEN',
+      requestedToken: 'Test iETH'
+    });
+    expect(
+      labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, {
+        ...swapRow,
+        faucetId: TOKEN_IETH.faucetId,
+        token: 'IETH',
+        requestedFaucetId: TOKEN_IMIDEN.faucetId,
+        requestedToken: 'MIDEN'
+      })
+    ).toMatchObject({ token: 'Test iETH', requestedToken: 'MIDEN' });
+  });
+
+  it.each(['earn-withdraw', 'earn-deposit'] as const)('leaves a %s row on the token its own fields chose', txType => {
+    const row = bridgeEntry({ txType, faucetId: MIDEN_USDC_FAUCET, token: 'USDC', amount: '5' });
+    expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, row)).toEqual(row);
+  });
 });
 
 describe('swap settlement state', () => {

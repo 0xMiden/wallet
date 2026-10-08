@@ -1312,5 +1312,9 @@
   "tokenSymbolInvalid": "请输入1至$max$个字符的符号。",
   "tokenDecimalsInvalid": "请输入0到$max$之间的整数。",
   "tokenMetadataOverrideNotice": "这些设置仅影响该钱包显示代币的方式。faucet将保留其自身的数值。您发送的金额将采用您在此处设置的小数位数。",
-  "tokenMetadataSaveError": "无法保存代币详细信息。请重试。"
+  "tokenMetadataSaveError": "无法保存代币详细信息。请重试。",
+  "testIethDescription": "iETH 是用于 Miden 测试网上的代币交换的测试代币。它并非 ETH，且不会在正式版钱包中提供。",
+  "testIethExecution": "该更换操作通过 Miden 测试网上的智能合约执行。",
+  "swapExecutionTitle": "交换操作的执行位置",
+  "tokenInfoLabel": "关于 $token$"
 }

@@ -1,7 +1,6 @@
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk, accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -13,6 +12,9 @@ import { isE2eFixtureSymbol } from 'lib/prices/constant';
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { bridgePriceAllowlist } from './bridge-price-allowlist';
+import { canonicalFaucetId, IETH_FAUCET_ID, normalizedFaucetId } from './faucet-ids';
+
+export { _resetNormalizedFaucetIdsForTest, canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 
 /**
  * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
@@ -53,7 +55,7 @@ export const TOKEN_IMIDEN: SwapToken = {
 };
 export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
-  faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
+  faucetId: IETH_FAUCET_ID,
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'ETH',
   priceSymbol: 'ETH'
@@ -128,36 +130,6 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
-
-// Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
-// stringify. Only a parsed id is stored, so a failed parse is retried once the SDK can parse the id.
-const normalizedFaucetIds = new Map<string, string>();
-
-/** Test-only: forget every cached conversion. */
-export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
-
-/**
- * The SDK's bech32 form of a faucet id in any encoding (hex, bech32 or the composite
- * `<address>_<suffix>`), so every spelling of one faucet reduces to one id. Throws when the SDK
- * cannot parse the id, as it does for every id until its WASM has loaded.
- */
-export function canonicalFaucetId(faucetId: string): string {
-  const key = `${getEffectiveNetworkName()}:${faucetId}`;
-  const cached = normalizedFaucetIds.get(key);
-  if (cached !== undefined) return cached;
-  const canonical = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
-  normalizedFaucetIds.set(key, canonical);
-  return canonical;
-}
-
-/** The balance store's key for a faucet id: its canonical id, or the raw id if the SDK cannot parse it yet. */
-export function normalizedFaucetId(faucetId: string): string {
-  try {
-    return canonicalFaucetId(faucetId);
-  } catch {
-    return faucetId;
-  }
-}
 
 /**
  * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it

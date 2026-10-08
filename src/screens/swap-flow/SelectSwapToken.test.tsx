@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { TOKEN_IETH as REGISTRY_IETH } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
@@ -35,7 +36,13 @@ type SwapToken = {
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
-  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
 }));
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
@@ -310,6 +317,18 @@ describe('SelectSwapTokenDrawer', () => {
 
       expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
     });
+  });
+
+  it('names the registry iETH "Test iETH" in its row and balance line, keeping the symbol for the logo (#477)', () => {
+    const iEth: SwapToken = { ...IETH, faucetId: REGISTRY_IETH.faucetId };
+    setTokens([IMIDEN, iEth]);
+    setBalances([{ tokenId: REGISTRY_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }]);
+    renderDrawer();
+
+    const row = tokenButton('IETH');
+    expect(within(row).getByText('Test iETH')).toBeInTheDocument();
+    expect(within(row).getByText('2.00 Test iETH')).toBeInTheDocument();
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'IETH');
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {
