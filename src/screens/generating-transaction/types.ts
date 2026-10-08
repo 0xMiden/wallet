@@ -72,7 +72,8 @@ export interface StatusIndicatorProps {
 }
 
 export interface TransactionStepRowProps {
-  step: TransactionStep;
+  /** The row reads only the step's id and label. A flow with no transaction stages (buy) can use it too. */
+  step: Pick<TransactionStep, 'id' | 'labelKey' | 'defaultLabel'>;
   state: TransactionStepState;
   isLast: boolean;
   label?: string;

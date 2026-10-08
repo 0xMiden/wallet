@@ -1,3 +1,4 @@
+import type { PluginListenerHandle } from '@capacitor/core';
 import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
@@ -11,6 +12,32 @@ export interface OpenExternalUrlOptions {
   title: string;
   /** Optional instance id; defaults to a shared explorer id. Lets callers open distinct overlays. */
   id?: string;
+}
+
+/**
+ * True when an InAppBrowser event belongs to the instance `id`. An event without an id comes from a legacy
+ * single-instance caller and is accepted.
+ */
+export function isWebviewEventFor(event: object | null | undefined, id: string): boolean {
+  if (event === null || event === undefined || !('id' in event) || typeof event.id !== 'string') return true;
+  return event.id === id;
+}
+
+/**
+ * Listen for the close of the InAppBrowser instance `id`. On close: mark the return from the webview, remove this
+ * listener, run `onClose`, then reset the viewport. The caller can also remove the returned handle itself.
+ */
+export async function addWebviewCloseListener(id: string, onClose?: () => void): Promise<PluginListenerHandle> {
+  const closeListener = await InAppBrowser.addListener('closeEvent', async event => {
+    if (!isWebviewEventFor(event, id)) {
+      return;
+    }
+    markReturningFromWebview();
+    closeListener.remove();
+    onClose?.();
+    await resetViewportAfterWebview();
+  });
+  return closeListener;
 }
 
 /**
@@ -29,15 +56,7 @@ export async function openExternalUrl({
     return;
   }
 
-  const closeListener = await InAppBrowser.addListener('closeEvent', async event => {
-    const eventId = (event as { id?: string })?.id;
-    if (eventId !== undefined && eventId !== id) {
-      return;
-    }
-    markReturningFromWebview();
-    closeListener.remove();
-    await resetViewportAfterWebview();
-  });
+  await addWebviewCloseListener(id);
 
   await InAppBrowser.openWebView({
     id,

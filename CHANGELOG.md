@@ -2,6 +2,12 @@
 
 ## 1.17.2 (TBD)
 
+### Changes
+
+- [CHANGE][backend] Move the per-IP rate limits from the server to an nginx reverse proxy (`backend/nginx.conf`) that also terminates TLS, installed with `make generate-nginx-conf DOMAIN=<domain>`. The server has no rate limit of its own.
+- [CHANGE][backend] Read the Agglayer bridge address, the Miden network ID and the exit-root flag from `backend/config.json`, so a change needs a container restart and no image build.
+
+## 1.16.3 (TBD)
 ### Features
 
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
@@ -44,7 +50,20 @@
 - [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
 - [FEATURE][all] A token can be hidden from its token page: it leaves Home's asset list, the Home total and the send token picker, and is listed under Hidden assets on Home, where it can be unhidden; its transfers can still be claimed, and the native token cannot be hidden (#813).
 
+### Features
+
+- [FEATURE][all] Add Buy and Sell buttons under the balance card that open USDCx amount entry with a decimal numpad and a Stripe/Transak provider-selection step. On mobile, Buy with Transak opens a Transak checkout locked to the account's Ethereum address and closes it if the destination does not match; Sell, Buy on the extension and desktop, and Stripe stay a preview.
+- [FEATURE][mobile] A Transak buy is now tracked: closing the checkout opens a Buy status screen with a progress bar and six timed steps (payment, funds on Ethereum, bridge transaction sent with its Etherscan link, bridging, claiming on Miden, completed), and the order shows in Activity with a phase-driven status chip and a "View progress" link.
+
 ### Changes
+
+- [CHORE][docs] Require explicit maintainer approval before any agent changes backend schemas or APIs.
+- [CHANGE][backend] Separate relay records from orders and save relay results and order states in one database transaction. Recreate the backend database for the new schema.
+
+- [CHANGE][backend] Read buy token addresses and decimals from a chain map instead of storing them per order. Recreate the backend database for the new schema.
+
+- [CHANGE][backend] Add Docker Compose with persistent storage, prevent two servers from using the same database, and wait for active work during shutdown.
+- [FIX][backend] Store relays before broadcast for cancellation and restart safety, reconcile Transak settlement amounts, add trusted proxy configuration and request timeouts, and block production purchases while the bridge uses testnet.
 
 - [CHANGE][all] USDCx testnet bridging uses Arc Testnet USDC, deposits to Miden domain 10007 using the connected Miden account with no stand-in recipient override, and withdraws to Arc domain 26, with chain-aware wallet calls and explorer links.
 - [CHANGE][all] Epoch and Agglayer addresses, services and switches come from a per-network document in `0xMiden/wallet-config` instead of the build, so a redeploy no longer needs a wallet release. Earn deposit, Fast bridge, Bridge in and Bridge out grey out with a "Temporarily unavailable" notice while what they need is missing, undeployed or down.

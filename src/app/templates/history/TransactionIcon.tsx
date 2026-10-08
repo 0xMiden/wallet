@@ -10,7 +10,14 @@ import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { STRUCTURAL_GUARDIAN_TYPES } from 'lib/miden/db/types';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { bridgeStatusOf, earnDepositSettlementOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+import {
+  bridgeStatusOf,
+  buyStatusOf,
+  earnDepositSettlementOf,
+  isBuyEntry,
+  isFaucetRequest,
+  TRANSACTION_COLORS
+} from './transactionUtils';
 
 /**
  * Slate square behind the white swap glyph for bridge rows, and the accent for a Guardian op.
@@ -76,6 +83,11 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
   // Earn rows keep the Earn accent across states; any failed earn leg goes red.
   if (entry.txType === 'earn-deposit' || entry.txType === 'earn-withdraw') {
     return isEarnRowFailed(entry) ? '#CC5D5D' : 'var(--tx-earn)';
+  }
+
+  // A buy brings money in, so it takes the received green. A failed order goes red.
+  if (isBuyEntry(entry)) {
+    return buyStatusOf(entry) === 'failed' ? '#CC5D5D' : TRANSACTION_COLORS.receive;
   }
 
   if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
@@ -152,6 +164,27 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
           size={size === 'lg' ? 'lg' : 'sm'}
           className="[&_path]:fill-pure-white [&_path]:stroke-pure-white"
         />
+      </div>
+    );
+  }
+
+  // A buy row keeps the Cash glyph (the icon of the Buy action) in every phase. A failed order
+  // shows the failed cross, the same as the red "Failed" chip of the row.
+  if (isBuyEntry(entry)) {
+    if (buyStatusOf(entry) === 'failed') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
+    }
+    return (
+      <div
+        className={`${config.container} flex items-center justify-center rounded-full`}
+        style={{ backgroundColor: TRANSACTION_COLORS.receive }}
+        data-testid="buy-transaction-icon"
+      >
+        <Icon name={IconName.Cash} size={size === 'lg' ? 'lg' : 'sm'} className="text-pure-white" />
       </div>
     );
   }

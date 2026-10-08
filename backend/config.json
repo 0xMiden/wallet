@@ -1,0 +1,7 @@
+{
+  "agglayer-testnet": {
+    "bridgeAddress": "0x1348947e282138d8f377b467f7d9c2eb0f335d1f",
+    "midenNetworkId": 86,
+    "forceUpdateGlobalExitRoot": true
+  }
+}

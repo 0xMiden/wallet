@@ -64,6 +64,10 @@ jest.mock('./NativeNoteAutoConsumeManager', () => ({
   NativeNoteAutoConsumeManager: () => null
 }));
 
+jest.mock('lib/miden/activity/BuyOrderWatcher', () => ({
+  BuyOrderWatcher: () => null
+}));
+
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));

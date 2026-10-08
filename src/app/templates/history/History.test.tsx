@@ -128,6 +128,7 @@ jest.mock('lib/miden/activity', () => ({
 jest.mock('lib/miden/db/types', () => ({
   ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
   STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES,
+  BUY_PHASES: jest.requireActual('lib/miden/db/types').BUY_PHASES,
   formatTransactionStatus: (...args: unknown[]) => mockFormatTransactionStatus(...args)
 }));
 
@@ -146,6 +147,8 @@ jest.mock('./transactionUtils', () => ({
   // Pure derivation the swap-chip assertions below depend on, so run the real
   // one rather than restating its rules in a stub.
   swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf,
+  // Real: the buy mapping is what the buy tests below assert.
+  buyHistoryFieldsOf: jest.requireActual('./transactionUtils').buyHistoryFieldsOf,
   // The real naming, so a label assertion runs the rule the list renders with.
   labelHistoryEntry: jest.requireActual('./transactionUtils').labelHistoryEntry,
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
@@ -1694,6 +1697,81 @@ describe('History earn entries', () => {
 
     const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-EDP');
     expect(entry.earnDepositStatus).toBe('failed');
+  });
+
+  it('maps a buy row: phase, fiat amount and the token amount scaled by its decimals', async () => {
+    withRows([
+      {
+        id: 'B',
+        type: 'buy',
+        status: 2,
+        initiatedAt: 4000,
+        completedAt: 5000,
+        extraInputs: {
+          orderId: 'order-1',
+          provider: 'transak',
+          fiatAmount: '20',
+          fiatCurrency: 'USD',
+          tokenSymbol: 'USDC',
+          tokenAmount: '19800000',
+          tokenDecimals: 6,
+          phase: 'bridging',
+          phaseTimestamps: { payment: 1, 'funds-arriving': 2, 'bridge-sent': 3, bridging: 4 }
+        },
+        displayMessage: 'Buy',
+        displayIcon: 'RECEIVE'
+      },
+      {
+        id: 'B2',
+        type: 'buy',
+        status: 2,
+        completedAt: 4500,
+        extraInputs: {
+          orderId: 'order-2',
+          provider: 'transak',
+          fiatAmount: '5',
+          fiatCurrency: 'USD',
+          tokenSymbol: 'USDC',
+          phase: 'payment',
+          phaseTimestamps: { payment: 1 }
+        },
+        displayMessage: 'Buy',
+        displayIcon: 'RECEIVE'
+      }
+    ]);
+
+    await renderHistory();
+
+    const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-B');
+    expect(entry.txType).toBe('buy');
+    expect(entry.buyPhase).toBe('bridging');
+    expect(entry.buyFiatAmount).toBe('20');
+    expect(entry.buyTokenSymbol).toBe('USDC');
+    expect(entry.buyTokenAmount).toBe('fmt(19800000,6)');
+    // The token amount is not known before the provider reports it.
+    const early = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-B2');
+    expect(early.buyPhase).toBe('payment');
+    expect(early.buyTokenAmount).toBeUndefined();
+  });
+
+  it('leaves the buy fields unset on a row that is not a buy', async () => {
+    withRows([
+      {
+        id: 'ED2',
+        type: 'earn-deposit',
+        status: 2,
+        completedAt: 5000,
+        extraInputs: { phase: 'bridging', fiatAmount: '1', orderId: 'x' },
+        displayMessage: 'Depositing',
+        displayIcon: 'DEFAULT'
+      }
+    ]);
+
+    await renderHistory();
+
+    const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-ED2');
+    expect(entry.buyPhase).toBeUndefined();
+    expect(entry.buyFiatAmount).toBeUndefined();
   });
 });
 

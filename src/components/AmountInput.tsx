@@ -32,6 +32,22 @@ export function amountFigureClassName(value?: string): string {
   return classNames('font-heading font-bold leading-none', amountTextSize(value));
 }
 
+/**
+ * The figure's size class at this size and glyph count. The named display styles step by the glyphs on
+ * screen; the default figure steps by the value alone, as `amountTextSize` always has.
+ */
+function figureSizeClassName(size: 'default' | 'compact' | 'hero', displayLength: number, value?: string): string {
+  switch (size) {
+    case 'default':
+      return amountTextSize(value);
+    case 'hero':
+      if (displayLength < 7) return 'text-entry-amount';
+      return displayLength >= 10 ? 'text-hero-value' : 'text-display';
+    case 'compact':
+      return displayLength >= 10 ? 'text-hero-value' : 'text-display';
+  }
+}
+
 /** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
 const CENTERED_INPUT_LAYOUT = '[grid-area:1/1] w-0 min-w-full caret-accent-primary';
 // `min-w-0`: an input's automatic flex minimum is its intrinsic width, which would push the clear button out.
@@ -84,6 +100,14 @@ export interface AmountInputProps {
   /** Whether to render the accent divider. Defaults to true. */
   showDivider?: boolean;
   autoFocus?: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  decimalsLimit?: number;
+  maxLength?: number;
+  /**
+   * The figure's type scale. `default` is the send and swap figure, which steps down with `amountTextSize`.
+   * `hero` and `compact` take the named display styles and step by the glyphs on screen, prefix included.
+   */
+  size?: 'default' | 'compact' | 'hero';
   disabled?: boolean;
   /** Show a skeleton in place of the value while the amount is being computed. */
   loading?: boolean;
@@ -100,7 +124,7 @@ export interface AmountInputProps {
 }
 
 /**
- * Reusable left-aligned amount field: big scalable numeric input, an orange
+ * Reusable amount field (left-aligned unless `align` says otherwise): big scalable numeric input, an orange
  * underline divider, optional label / helper lines / token selector chip.
  * Purely presentational and free of send-flow imports so swap and other
  * screens can drop it in.
@@ -117,6 +141,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   accent = 'brand',
   showDivider = true,
   autoFocus,
+  inputMode,
+  decimalsLimit = 6,
+  maxLength = 16,
+  size = 'default',
   disabled,
   loading,
   prefix,
@@ -128,9 +156,13 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const centered = align === 'center';
   const showClear = Boolean(value) && !disabled && !loading;
-  const amountClasses = classNames(amountFigureClassName(value), centered ? 'text-center' : 'text-left');
-  const stateClasses =
-    invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : 'text-grey-300 placeholder-grey-300';
+  // The glyphs on screen: a string prefix takes a slot of its own before the figure.
+  const displayLength = (value?.length ?? 0) + (typeof prefix === 'string' ? prefix.length : 0);
+  const figureSize = figureSizeClassName(size, displayLength, value);
+  const figureClasses = size === 'default' ? amountFigureClassName(value) : figureSize;
+  const amountClasses = classNames(figureClasses, centered ? 'text-center' : 'text-left');
+  const placeholderClasses = size === 'default' ? 'text-grey-300 placeholder-grey-300' : 'text-muted placeholder-muted';
+  const stateClasses = invalid || error ? 'text-red-500 placeholder-red-500' : value ? 'text-ink' : placeholderClasses;
   const input = (layoutClassName: string) => (
     <CurrencyInput
       ref={inputRef}
@@ -149,9 +181,10 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       // pin it to a space, which never collides with our "." decimal (#433).
       groupSeparator=" "
       decimalSeparator="."
-      decimalsLimit={6}
+      decimalsLimit={decimalsLimit}
       allowNegativeValue={false}
-      maxLength={16}
+      maxLength={maxLength}
+      inputMode={inputMode}
       enterKeyHint="done"
       autoFocus={autoFocus}
       disabled={disabled}
@@ -169,7 +202,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         // Centred, the row carries the amount's size so the prefix's 0.6em scales with it.
         className={classNames(
           'flex cursor-text mt-3',
-          centered ? classNames('items-start justify-center', amountTextSize(value)) : 'items-baseline'
+          centered ? classNames('items-start justify-center', figureSize) : 'items-baseline'
         )}
         onClick={() => inputRef.current?.focus()}
       >
@@ -179,7 +212,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             className={classNames(
               'font-heading font-bold leading-none text-muted',
               centered ? 'mr-0.5 mt-[0.1em] text-[0.6em]' : 'mr-1',
-              !centered && amountTextSize(value)
+              !centered && figureSize
             )}
           >
             {prefix}

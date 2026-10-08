@@ -9,6 +9,7 @@ import { cn } from 'lib/ui/util';
 
 import { CheckboxIndicator } from './Checkbox';
 import { radioGroupKeyTarget } from './radio-group-keys';
+import { outlineSurfaceClassName } from './surfaces';
 
 /** `data-*` attributes forwarded to an option's `button`, e.g. an E2E hook keyed on its value. */
 export type ChoiceCardDataAttributes = Partial<Record<`data-${string}`, string>>;
@@ -39,6 +40,7 @@ export interface ChoiceCardGroupProps<T extends string = string> {
   onChange: (id: T) => void;
   /** Called instead of `onChange` when a tap or key activates the option that is already chosen. */
   onReselect?: (id: T) => void;
+  surface?: 'fill' | 'outline';
   'aria-label'?: string;
   'aria-labelledby'?: string;
   /** Layout only (margins). */
@@ -48,7 +50,7 @@ export interface ChoiceCardGroupProps<T extends string = string> {
 
 const card = cva(
   [
-    'group flex h-full w-full min-h-18 items-center gap-3 rounded-2xl bg-fill px-4 py-3 text-left',
+    'group flex h-full w-full min-h-18 items-center gap-3 rounded-2xl px-4 py-3 text-left',
     'select-none transition-[background-color,box-shadow] duration-150 ease-hover motion-reduce:transition-none',
     // The selection is the inset ring, so focus draws outside the card instead of fighting it.
     'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary/30',
@@ -56,12 +58,16 @@ const card = cva(
   ],
   {
     variants: {
+      surface: {
+        fill: 'bg-fill',
+        outline: outlineSurfaceClassName
+      },
       selected: {
         true: 'ring-2 ring-inset ring-accent-primary',
         false: 'hover:bg-fill-pressed active:bg-fill-pressed disabled:hover:bg-fill disabled:active:bg-fill'
       }
     },
-    defaultVariants: { selected: false }
+    defaultVariants: { selected: false, surface: 'fill' }
   }
 );
 
@@ -70,9 +76,10 @@ interface OptionProps<T extends string> {
   selected: boolean;
   focusable: boolean;
   onSelect: (id: T) => void;
+  surface?: 'fill' | 'outline';
 }
 
-function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelect }: OptionProps<T>) {
+function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelect, surface }: OptionProps<T>) {
   const motionTokens = useTabBarMotion();
   const pop = useTabIconPop(selected);
   const id = useId();
@@ -101,7 +108,7 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
       data-state={selected ? 'checked' : 'unchecked'}
       onClick={() => onSelect(item.id)}
       {...(item.disabled ? {} : motionTokens.press)}
-      className={card({ selected })}
+      className={card({ selected, surface })}
     >
       {item.leading && (
         <span aria-hidden="true" className="flex shrink-0 items-center group-disabled:opacity-50">
@@ -162,6 +169,7 @@ export function ChoiceCardGroup<T extends string>({
   value,
   onChange,
   onReselect,
+  surface,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   className,
@@ -233,6 +241,7 @@ export function ChoiceCardGroup<T extends string>({
           selected={index === selectedIndex}
           focusable={index === focusIndex}
           onSelect={select}
+          surface={surface}
         />
       ))}
     </div>

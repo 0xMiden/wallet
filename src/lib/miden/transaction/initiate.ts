@@ -15,6 +15,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
+  BuyTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
@@ -727,6 +728,23 @@ export const initiateBridgedReceiveTransaction = async (args: {
     args.outputSymbol
   );
   dbTransaction.extraInputs.sourceChainId = args.sourceChainId;
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+/**
+ * Insert a tracking-only fiat buy row for a backend order. The call is idempotent per order id: a second call for
+ * the same order and account returns the id of the row that exists.
+ */
+export const initiateBuyTransaction = async (
+  accountId: string,
+  input: { orderId: string; fiatAmount: string; tokenSymbol: string }
+): Promise<string> => {
+  const existing = await Repo.transactions
+    .filter(tx => tx.type === 'buy' && tx.extraInputs?.orderId === input.orderId && tx.accountId === accountId)
+    .first();
+  if (existing) return existing.id;
+  const dbTransaction = new BuyTransaction(accountId, input);
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };

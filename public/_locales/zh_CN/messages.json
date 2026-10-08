@@ -1500,6 +1500,209 @@
     "message": "金额",
     "englishSource": "Amount"
   },
+  "cash": {
+    "message": "现金",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "购买",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "卖出",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "买入或卖出",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "您支付",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "你出售",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "选择提供商",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "购买 USDCx",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "出售 USDCx",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "银行卡或银行转账",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "银行转账",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "提供商预览 — 结账功能尚未连接。",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "即将推出",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "继续阅读 $provider$",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "该账户没有以太坊地址，因此无法购买 USDCx。请使用在此钱包中创建的账户。",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "此版本不支持结账功能。",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "无法开始结账。请重试。",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "结账详情与您的订单不符，因此无法进入结账页面。请重试。",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "结账已关闭",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "结账功能已关闭，因为其收款地址与您的钱包不匹配。此界面未进行任何支付。",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "购买",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "购买 USDC",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "购买完成",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "购买失败",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "您可以离开此界面。钱包会在“活动”中持续跟踪您的订单。",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "您的USDC已到账至您的Miden账户。",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "订单未完成。如果您已付款，请联系 Transak 客服并提供您的订单信息。",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "订单进度",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "$total$ 的第$current$步",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "支付",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "流入以太坊的资金",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "桥接交易已发送",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "与 Miden 建立桥接",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "在 Miden 上申领",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "已完成",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "查看进度",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "购买 $symbol$",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ 来源：Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "小数点",
+    "englishSource": "Decimal point"
+  },
   "mainAssetBalanceIsZero": {
     "message": "您的 Miden 积分（主要资产）余额为零。支付费用需要使用 Miden 积分。",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."

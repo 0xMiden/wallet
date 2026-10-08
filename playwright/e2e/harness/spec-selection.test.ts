@@ -470,16 +470,20 @@ const looksBinary = (file: string): boolean => {
   }
 };
 
+/** A yarn lockfile at any depth: `yarn.lock` and a package's own, such as `backend/yarn.lock`. */
+const isLockfile = (file: string): boolean => file === 'yarn.lock' || file.endsWith('/yarn.lock');
+
 /**
- * The listed paths CI can run: all but docs, Markdown, the lockfile, this file and binaries. A
+ * The listed paths CI can run: all but docs, Markdown, the lockfiles, this file and binaries. A
  * tracked symlink to a directory is skipped, since the files under it are tracked themselves,
- * and so is a path deleted from the worktree but not yet from the index.
+ * and so is a path deleted from the worktree but not yet from the index. A lockfile runs nothing
+ * and names registry packages, so `statuses` from npm must not read as the Statuses API.
  */
 const ciSourceFilter = (paths: string[]): string[] =>
   paths
     .filter(
       file =>
-        file !== '' && !file.startsWith('docs/') && !file.endsWith('.md') && file !== 'yarn.lock' && file !== THIS_FILE
+        file !== '' && !file.startsWith('docs/') && !file.endsWith('.md') && !isLockfile(file) && file !== THIS_FILE
     )
     .filter(
       file => statSync(resolve(repoRoot, file), { throwIfNoEntry: false })?.isFile() === true && !looksBinary(file)
@@ -1699,7 +1703,7 @@ describe('no workflow can report a required E2E check name except through the co
     ]);
   });
 
-  it('ciSourceFiles() reaches every workflow, action and script CI can run, and skips docs, the lockfile and this file', () => {
+  it('ciSourceFiles() reaches every workflow, action and script CI can run, and skips docs, the lockfiles and this file', () => {
     const files = ciSourceFiles();
     expect(files).toEqual(
       expect.arrayContaining([
@@ -1709,7 +1713,12 @@ describe('no workflow can report a required E2E check name except through the co
         ...allWorkflowFiles()
       ])
     );
-    for (const skipped of ['CHANGELOG.md', 'yarn.lock', 'playwright/e2e/harness/spec-selection.test.ts']) {
+    for (const skipped of [
+      'CHANGELOG.md',
+      'yarn.lock',
+      'backend/yarn.lock',
+      'playwright/e2e/harness/spec-selection.test.ts'
+    ]) {
       expect(files).not.toContain(skipped);
     }
   });

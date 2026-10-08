@@ -22,6 +22,7 @@ import {
   ErrorLine,
   TextAction
 } from 'components/ui';
+import { Button, ButtonVariant } from 'components/ui/Button';
 import { springs, useMotion, usePreset } from 'lib/animation';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
@@ -429,6 +430,23 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           />
         )}
       </Balance>
+
+      <div className="flex gap-3">
+        <Button
+          variant={ButtonVariant.Primary}
+          title={t('cashBuy')}
+          className="flex-1"
+          onClick={() => navigate('/cash/buy')}
+          data-testid="home-cash-buy"
+        />
+        <Button
+          variant={ButtonVariant.Secondary}
+          title={t('cashSell')}
+          className="flex-1"
+          onClick={() => navigate('/cash/sell')}
+          data-testid="home-cash-sell"
+        />
+      </div>
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 

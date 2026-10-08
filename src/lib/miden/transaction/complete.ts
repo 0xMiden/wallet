@@ -44,6 +44,7 @@ import {
   applyBridgeInInfoForNotes,
   applyBridgeInToConsumeRow,
   takeAgglayerBridgeInInfo,
+  takeBuyBridgeInInfo,
   takeUsdcxBridgeInInfo
 } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
@@ -53,8 +54,12 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedSendTransaction,
   EarnDepositTransaction,
+  BUY_PHASES,
   IBridgeClaimStatus,
+  IBridgeInInfo,
   IBridgedReceiveExtraInputs,
+  IBuyExtraInputs,
+  IBuyPhase,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
   IConsumedAssetTotal,
@@ -300,10 +305,15 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
     if (!applied && inputNotes.length === 1) {
       const accountId = dbTransaction?.accountId ?? '';
+      // A consume that the buy watcher queued carries its link from queue time. Other consumes of a bought note
+      // (a manual claim) are matched to the buy row by account, faucet and amount.
+      const queuedInfo: IBridgeInInfo | undefined = dbTransaction?.extraInputs?.bridgeIn;
       // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
       const info =
+        (queuedInfo?.buyTxId ? queuedInfo : undefined) ??
         (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
-        (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount }));
+        (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount })) ??
+        (await takeBuyBridgeInInfo({ accountId, faucetId, amount }));
       if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
     }
   } catch (err) {
@@ -1547,6 +1557,76 @@ export const updateBridgedReceivePhase = async (
       result: phase === 'failed' ? 'errored' : 'completed',
       durationMs: elapsedMsSince(settled.initiatedAt),
       ...(phase === 'failed' ? { errorKind: classifyError(extra?.error), step: 'submitting' } : {})
+    });
+  }
+};
+
+/**
+ * A buy phase moves forward in `BUY_PHASES` order only. A write at the same phase is accepted, so a writer can add
+ * fields. `failed` can follow any phase before `completed`. `completed` is final. `failed` gives way only to
+ * `completed`: the note came in and was consumed after the row timed out.
+ */
+const canMoveBuyPhase = (from: IBuyPhase | undefined, to: IBuyPhase): boolean => {
+  switch (from) {
+    case undefined:
+      return true;
+    case 'completed':
+      return false;
+    case 'failed':
+      return to === 'completed';
+    default:
+      return to === 'failed' || BUY_PHASES.indexOf(to) >= BUY_PHASES.indexOf(from);
+  }
+};
+
+/**
+ * Advance a tracking-only buy row. The row is `Completed` from birth, so only `extraInputs` changes. The first write
+ * at each phase stamps `phaseTimestamps[phase]`; a later write at the same phase keeps that stamp. A write that would
+ * move the row back is dropped whole.
+ */
+export const updateBuyPhase = async (
+  id: string,
+  phase: IBuyPhase,
+  patch?: Partial<Omit<IBuyExtraInputs, 'phase' | 'phaseTimestamps'>>
+): Promise<void> => {
+  let settled: ITransaction | undefined;
+  let fromPhase: IBuyPhase | undefined;
+  let moved = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.type !== 'buy') return;
+    const inputs: IBuyExtraInputs | undefined = tx.extraInputs;
+    if (!inputs || !canMoveBuyPhase(inputs.phase, phase)) return;
+    fromPhase = inputs.phase;
+    moved = fromPhase !== phase;
+    const phaseTimestamps = { ...inputs.phaseTimestamps };
+    if (phaseTimestamps[phase] === undefined) phaseTimestamps[phase] = Date.now();
+    const next: IBuyExtraInputs = { ...inputs, ...(patch ?? {}), phase, phaseTimestamps };
+    tx.extraInputs = next;
+    if (moved && (phase === 'completed' || phase === 'failed')) settled = tx;
+    switch (phase) {
+      case 'completed':
+        tx.displayMessage = 'Bought';
+        tx.error = undefined;
+        break;
+      case 'failed':
+        tx.displayMessage = 'Buy failed';
+        if (patch?.error) tx.error = patch.error;
+        break;
+      default:
+        break;
+    }
+  });
+
+  if (moved) console.info('[buy]', 'phase', { id, from: fromPhase, to: phase });
+
+  // The row is `Completed` from birth and never makes a terminal write through `updateTransactionStatus`, so this
+  // is the only place that can report its outcome.
+  if (settled !== undefined) {
+    reportOperation({
+      operation: operationOfType(settled.type),
+      result: phase === 'failed' ? 'errored' : 'completed',
+      durationMs: elapsedMsSince(settled.initiatedAt),
+      ...(phase === 'failed' ? { errorKind: classifyError(patch?.error), step: 'submitting' } : {})
     });
   }
 };

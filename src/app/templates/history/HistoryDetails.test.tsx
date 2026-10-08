@@ -4171,6 +4171,63 @@ describe('HistoryDetails earn-deposit', () => {
   });
 });
 
+describe('HistoryDetails buy', () => {
+  const buyTx = (extraInputs: Record<string, unknown> = {}): Tx => ({
+    ...baseSendTx,
+    id: 'buy-1',
+    type: 'buy',
+    faucetId: undefined,
+    amount: undefined,
+    secondaryAccountId: undefined,
+    displayMessage: 'Buy',
+    displayIcon: 'RECEIVE',
+    status: STATUS_COMPLETED,
+    extraInputs: {
+      orderId: 'order-1',
+      provider: 'transak',
+      fiatAmount: '20',
+      fiatCurrency: 'USD',
+      tokenSymbol: 'USDC',
+      phase: 'bridging',
+      phaseTimestamps: { payment: 1, bridging: 2 },
+      ...extraInputs
+    }
+  });
+
+  it('draws the order phase as the status pill, not the Completed row status', async () => {
+    setMockRow(buyTx());
+    await renderAndLoad({ transactionId: 'buy-1' });
+
+    expect(screen.getByTestId('history-status-pill')).toHaveTextContent('pending');
+  });
+
+  it('reads failed and confirmed from the phase too', async () => {
+    setMockRow(buyTx({ phase: 'failed' }));
+    const view = await renderAndLoad({ transactionId: 'buy-1' });
+    expect(screen.getByTestId('history-status-pill')).toHaveTextContent('failed');
+    view.unmount();
+
+    setMockRow(buyTx({ phase: 'completed' }));
+    await renderAndLoad({ transactionId: 'buy-1' });
+    expect(screen.getByTestId('history-status-pill')).toHaveTextContent('confirmed');
+  });
+
+  it('opens the buy status screen from "View progress"', async () => {
+    setMockRow(buyTx());
+    await renderAndLoad({ transactionId: 'buy-1' });
+
+    fireEvent.click(screen.getByTestId('history-buy-view-progress'));
+    expect(mockNavigate).toHaveBeenCalledWith('/buy-status/buy-1');
+  });
+
+  it('offers no "View progress" on a row that is not a buy', async () => {
+    setMockRow({ ...baseSendTx, id: 'tx-1' });
+    await renderAndLoad();
+
+    expect(screen.queryByTestId('history-buy-view-progress')).not.toBeInTheDocument();
+  });
+});
+
 describe('HistoryDetails swap order actions', () => {
   const OPEN_ORDER_EXPIRY = Math.floor(Date.now() / 1000) + 600;
 

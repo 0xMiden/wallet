@@ -1500,6 +1500,209 @@
     "message": "Betrag",
     "englishSource": "Amount"
   },
+  "cash": {
+    "message": "Bargeld",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "Kaufen",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "Verkaufen",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "Kaufen oder verkaufen",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "Sie zahlen",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "Sie verkaufen",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "Anbieter auswählen",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "USDCx kaufen",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "USDCx verkaufen",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "Karte oder Banküberweisung",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "Banküberweisung",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "Anbieter-Vorschau – Der Checkout ist noch nicht verbunden.",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "In Kürze verfügbar",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "Weiter mit „$provider$“",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "Dieses Konto hat keine Ethereum-Adresse, daher kann es kein USDCx kaufen. Verwenden Sie ein in dieser Wallet erstelltes Konto.",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "Die Kasse ist in dieser Version nicht verfügbar.",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "Der Bezahlvorgang konnte nicht gestartet werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "Die Angaben an der Kasse stimmten nicht mit Ihrer Bestellung überein, daher wurde der Bezahlvorgang nicht gestartet. Versuchen Sie es erneut.",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "Kasse geschlossen",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "Der Bezahlvorgang wurde abgebrochen, da die Zieladresse nicht mit Ihrer Wallet übereinstimmte. Über diesen Bildschirm wurde keine Zahlung getätigt.",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "Kaufen",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "USDC kaufen",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "Kauf abgeschlossen",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "Kauf fehlgeschlagen",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "Sie können diesen Bildschirm nun verlassen. Die Wallet verfolgt Ihre Transaktion weiterhin unter „Aktivität“.",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "Ihre USDC sind auf Ihrem Miden-Konto eingegangen.",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "Die Bestellung wurde nicht abgeschlossen. Falls Sie bereits bezahlt haben, wenden Sie sich bitte mit Ihrer Bestellnummer an den Transak-Support.",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "Auftragsfortschritt",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "Schritt $current$ von $total$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "Zahlung",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "Auf Ethereum eingehende Gelder",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "Bridge-Transaktion gesendet",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Brücke zu Miden",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Einlösen auf Miden",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "Abgeschlossen",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "Fortschritt anzeigen",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "Kaufen Sie „$symbol$“",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ via Transak",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "Dezimalpunkt",
+    "englishSource": "Decimal point"
+  },
   "mainAssetBalanceIsZero": {
     "message": "Ihr Guthaben an Miden-Credits (Hauptguthaben) beträgt null. Für die Gebühr sind Miden-Credits erforderlich.",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."

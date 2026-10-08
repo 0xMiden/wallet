@@ -104,6 +104,7 @@ Pages supply content; the design system supplies the rest. Reuse the shared comp
 
 ## Commit & Pull Request Guidelines
 
+- All agents, including review agents, must ask the maintainer and receive explicit approval before making any backend schema or API change. A general task or review request does not grant this approval.
 - Commit messages: single-line, short, imperative. Never sign commits (no `Co-Authored-By`).
 - Never `git push` without explicit request.
 - Stay within requested scope — don't modify files beyond the task.

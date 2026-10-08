@@ -1500,6 +1500,209 @@
     "message": "Miktar",
     "englishSource": "Amount"
   },
+  "cash": {
+    "message": "Nakit",
+    "englishSource": "Cash"
+  },
+  "cashBuy": {
+    "message": "Satın al",
+    "englishSource": "Buy"
+  },
+  "cashSell": {
+    "message": "Sat",
+    "englishSource": "Sell"
+  },
+  "cashAction": {
+    "message": "Al veya sat",
+    "englishSource": "Buy or sell"
+  },
+  "cashPayAmount": {
+    "message": "Ödeme yaparsınız",
+    "englishSource": "You pay"
+  },
+  "cashSellAmount": {
+    "message": "Satıyorsunuz",
+    "englishSource": "You sell"
+  },
+  "cashChooseProvider": {
+    "message": "Sağlayıcıyı seçin",
+    "englishSource": "Choose provider"
+  },
+  "cashBuyingUsdc": {
+    "message": "USDCx satın alın",
+    "englishSource": "Buy USDCx"
+  },
+  "cashSellingUsdc": {
+    "message": "USDCx sat",
+    "englishSource": "Sell USDCx"
+  },
+  "cashProviderPayMethods": {
+    "message": "Kart veya banka havalesi",
+    "englishSource": "Card or bank transfer"
+  },
+  "cashProviderPayout": {
+    "message": "Banka havalesi",
+    "englishSource": "Bank transfer"
+  },
+  "cashProviderPreview": {
+    "message": "Sağlayıcı önizlemesi — ödeme sayfası henüz bağlanmamıştır.",
+    "englishSource": "Provider preview — checkout is not connected yet."
+  },
+  "cashComingSoon": {
+    "message": "Yakında",
+    "englishSource": "Coming soon"
+  },
+  "cashContinueWithProvider": {
+    "message": "$provider$ ile devam edin",
+    "englishSource": "Continue with $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "cashNoEvmAddress": {
+    "message": "Bu hesabın Ethereum adresi yoktur, bu nedenle USDCx satın alamaz. Bu cüzdanda oluşturulan bir hesap kullanın.",
+    "englishSource": "This account has no Ethereum address, so it cannot buy USDCx. Use an account created in this wallet."
+  },
+  "cashBackendMissing": {
+    "message": "Bu sürümde ödeme işlemi kullanılamaz.",
+    "englishSource": "Checkout is not available in this build."
+  },
+  "cashCheckoutError": {
+    "message": "Ödeme işlemi başlatılamadı. Lütfen tekrar deneyin.",
+    "englishSource": "Could not start the checkout. Try again."
+  },
+  "cashCheckoutMismatch": {
+    "message": "Ödeme ayrıntıları siparişinizle eşleşmedi, bu nedenle ödeme sayfası açılmadı. Lütfen tekrar deneyin.",
+    "englishSource": "The checkout details did not match your order, so the checkout did not open. Try again."
+  },
+  "cashCheckoutClosed": {
+    "message": "Ödeme işlemi tamamlandı",
+    "englishSource": "Checkout closed"
+  },
+  "cashCheckoutAddressMismatch": {
+    "message": "Hedef adresi cüzdanınızla eşleşmediği için ödeme işlemi kapatıldı. Bu ekrandan herhangi bir ödeme yapılmadı.",
+    "englishSource": "The checkout was closed because its destination address did not match your wallet. No payment was made from this screen."
+  },
+  "buyStatusHeader": {
+    "message": "Satın al",
+    "englishSource": "Buy"
+  },
+  "buyStatusProgressTitle": {
+    "message": "USDC satın alma",
+    "englishSource": "Buying USDC"
+  },
+  "buyStatusCompletedTitle": {
+    "message": "Satın alma işlemi tamamlandı",
+    "englishSource": "Purchase complete"
+  },
+  "buyStatusFailedTitle": {
+    "message": "Satın alma işlemi başarısız oldu",
+    "englishSource": "Purchase failed"
+  },
+  "buyStatusProgressDescription": {
+    "message": "Bu ekrandan çıkabilirsiniz. Cüzdan, \"Etkinlik\" bölümünde siparişinizi takip etmeye devam eder.",
+    "englishSource": "You can leave this screen. The wallet keeps tracking your order in Activity."
+  },
+  "buyStatusCompletedDescription": {
+    "message": "USDC'niz Miden hesabınıza ulaştı.",
+    "englishSource": "Your USDC arrived in your Miden account."
+  },
+  "buyStatusFailedDescription": {
+    "message": "Sipariş tamamlanmadı. Ödeme yaptıysanız, siparişinizle ilgili olarak Transak destek ekibiyle iletişime geçin.",
+    "englishSource": "The order did not complete. If you paid, contact Transak support with your order."
+  },
+  "buyStatusFiatAmount": {
+    "message": "$amount$ $currency$",
+    "englishSource": "$amount$ $currency$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStatusProgressLabel": {
+    "message": "Sipariş durumu",
+    "englishSource": "Order progress"
+  },
+  "buyStatusStepOf": {
+    "message": "$total$ adresindeki $current$. adım",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "buyStepPayment": {
+    "message": "Ödeme",
+    "englishSource": "Payment"
+  },
+  "buyStepFundsArriving": {
+    "message": "Ethereum’a gelen fonlar",
+    "englishSource": "Funds arriving on Ethereum"
+  },
+  "buyStepBridgeSent": {
+    "message": "Köprü işlemi gönderildi",
+    "englishSource": "Bridge transaction sent"
+  },
+  "buyStepBridging": {
+    "message": "Miden'e köprü kurma",
+    "englishSource": "Bridging to Miden"
+  },
+  "buyStepConsuming": {
+    "message": "Miden'de Talep Etme",
+    "englishSource": "Claiming on Miden"
+  },
+  "buyStepCompleted": {
+    "message": "Tamamlandı",
+    "englishSource": "Completed"
+  },
+  "buyStepDurationMin": {
+    "message": "$minutes$ min",
+    "englishSource": "$minutes$ min",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyViewProgress": {
+    "message": "İlerlemeyi görüntüle",
+    "englishSource": "View progress"
+  },
+  "buyRowTitle": {
+    "message": "$symbol$ satın alın",
+    "englishSource": "Buy $symbol$",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "buyRowSubtitle": {
+    "message": "$amount$ $currency$ Transak aracılığıyla",
+    "englishSource": "$amount$ $currency$ via Transak",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "currency": {
+        "content": "$2"
+      }
+    }
+  },
+  "decimalSeparator": {
+    "message": "Ondalık nokta",
+    "englishSource": "Decimal point"
+  },
   "mainAssetBalanceIsZero": {
     "message": "Miden kredilerinizin (ana varlık) bakiyesi sıfırdır. Ücretin ödenmesi için Miden kredileri gereklidir.",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."
