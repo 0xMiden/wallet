@@ -1331,5 +1331,13 @@
   "testIethExecution": "L'échange s'effectue via un contrat intelligent sur le Testnet de Miden.",
   "swapExecutionTitle": "Lieu d’exécution du swap",
   "tokenInfoLabel": "À propos d’$token$",
-  "externalPageLoadFailed": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez."
+  "externalPageLoadFailed": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
+  "advancedOptions": "Options avancées",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "Type de transfert",
+  "publicTransfer": "Transfert public",
+  "publicTransferNotice": "Le jeton, le montant et l'adresse du destinataire seront visibles sur Miden.",
+  "publicTransferHelp": "Tout le monde peut voir le jeton, le montant et l'adresse du destinataire de ce transfert sur Miden.",
+  "senderAddressPublicNote": "Votre adresse d'expéditeur est publique dans les deux modes.",
+  "sendPublicly": "Envoyer publiquement"
 }

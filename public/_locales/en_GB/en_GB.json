@@ -1331,5 +1331,13 @@
   "testIethExecution": "The swap executes through a smart contract on Miden Testnet.",
   "swapExecutionTitle": "Where the swap executes",
   "tokenInfoLabel": "About $token$",
-  "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again."
+  "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again.",
+  "advancedOptions": "Advanced options",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "Transfer type",
+  "publicTransfer": "Public transfer",
+  "publicTransferNotice": "The token, amount, and recipient address will be visible on Miden.",
+  "publicTransferHelp": "Anyone can see this transfer's token, amount, and recipient address on Miden.",
+  "senderAddressPublicNote": "Your sender address is public in both modes.",
+  "sendPublicly": "Send publicly"
 }

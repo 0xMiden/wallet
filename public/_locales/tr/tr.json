@@ -1331,5 +1331,13 @@
   "testIethExecution": "Takas, Miden Testnet üzerindeki bir akıllı sözleşme aracılığıyla gerçekleştirilir.",
   "swapExecutionTitle": "Değişimin gerçekleştiği yer",
   "tokenInfoLabel": "$token$ hakkında",
-  "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin."
+  "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+  "advancedOptions": "Gelişmiş seçenekler",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "Transfer türü",
+  "publicTransfer": "Herkese açık transfer",
+  "publicTransferNotice": "Token, tutar ve alıcı adresi Miden üzerinde görünür olacak.",
+  "publicTransferHelp": "Bu transferin token'ını, tutarını ve alıcı adresini Miden üzerinde herkes görebilir.",
+  "senderAddressPublicNote": "Gönderen adresiniz her iki modda da herkese açıktır.",
+  "sendPublicly": "Herkese açık gönder"
 }

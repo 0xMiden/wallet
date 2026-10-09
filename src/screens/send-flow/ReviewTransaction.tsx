@@ -1,21 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { Icon, IconName } from 'app/icons/v2';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
-import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { DetailCard, DetailDisclosure, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
 import { Skeleton } from 'components/ui/Skeleton';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
+import { usePreset } from 'lib/animation';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -48,6 +52,7 @@ import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from 
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
+import { TransferType, TransferTypeDrawer } from './TransferTypeDrawer';
 import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 import { useEpochQuote } from './useEpochQuote';
@@ -119,12 +124,18 @@ export const ReviewTransaction: React.FC = () => {
     enabled: isBridge
   });
 
-  // Private by default; the per-send toggle was removed from the UI. Only the
-  // E2E hook below can flip it.
+  // Private by default. The user changes it under Advanced options (the "Transfer type" row
+  // opens `TransferTypeDrawer`); the E2E hook below can also flip it.
   const [sharePrivately, setSharePrivately] = useState(true);
+  const transferType: TransferType = sharePrivately ? 'private' : 'public';
+  const [showTransferType, setShowTransferType] = useState(false);
+  // Collapsed by default: the rows under it are the choices most sends never touch, and the
+  // header's summary keeps the current choice in view while it is closed.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const reveal = usePreset('reveal');
 
-  // E2E-only hook: the harness can't pick a PUBLIC send by clicking (no UI
-  // toggle), so expose a setter while the review page is mounted. Mirrors the
+  // E2E-only hook: the harness drives the transfer type without opening the
+  // sheet, so expose a setter while the review page is mounted. Mirrors the
   // __TEST_STORE__ gate. Zero production impact.
   useEffect(() => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
@@ -559,7 +570,9 @@ export const ReviewTransaction: React.FC = () => {
             )}
             <Button
               type="button"
-              title={t('sendPayment')}
+              // The CTA names the consequence of a non-default choice, so a public send is never
+              // confirmed by a button that reads like a private one.
+              title={sharePrivately ? t('sendPayment') : t('sendPublicly')}
               variant={ButtonVariant.Primary}
               accent="send"
               onClick={onSubmit}
@@ -615,15 +628,50 @@ export const ReviewTransaction: React.FC = () => {
               </DetailRow>
             </>
           ) : (
-            <DetailRow
-              label={t('expires')}
-              action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
-              data-testid="review-row-expiration"
+            // The transfer type and the expiration are the two choices a same-chain send offers;
+            // both fold under one row, whose summary line names them while it is closed.
+            <DetailDisclosure
+              title={t('advancedOptions')}
+              summary={t('advancedOptionsSummary', { transferType: t(transferType), expiration: expirationLabel })}
+              summaryEmphasis={!sharePrivately}
+              open={advancedOpen}
+              onOpenChange={setAdvancedOpen}
+              data-testid="review-advanced-options"
             >
-              {expirationLabel}
-            </DetailRow>
+              <DetailRow
+                label={t('transferType')}
+                onClick={() => setShowTransferType(true)}
+                data-testid="review-row-transfer-type"
+              >
+                {t(transferType)}
+              </DetailRow>
+              <DetailRow
+                label={t('expires')}
+                action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
+                data-testid="review-row-expiration"
+              >
+                {expirationLabel}
+              </DetailRow>
+            </DetailDisclosure>
           )}
         </DetailCard>
+        {/* What a public note gives away stays on the page whether or not Advanced options is open:
+            the choice is made in a sheet, and the consequence must survive closing both. */}
+        <AnimatePresence initial={false}>
+          {!isBridge && !sharePrivately && (
+            <motion.div key="public-transfer-notice" className="overflow-hidden" {...reveal}>
+              <Notice
+                tone="warning"
+                title={t('publicTransfer')}
+                icon={<Icon name={IconName.Information} size="xs" fill="currentColor" />}
+                className="mt-3"
+                data-testid="review-public-notice"
+              >
+                {t('publicTransferNotice')}
+              </Notice>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
         {!isBridge && recallBlocks ? (
@@ -633,6 +681,14 @@ export const ReviewTransaction: React.FC = () => {
         ) : null}
       </SendStepLayout>
 
+      {!isBridge && (
+        <TransferTypeDrawer
+          open={showTransferType}
+          onOpenChange={setShowTransferType}
+          value={transferType}
+          onChange={next => setSharePrivately(next === 'private')}
+        />
+      )}
       {!isBridge && (
         <RecallCalendarDrawer
           open={showCalendar}

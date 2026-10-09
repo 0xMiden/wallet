@@ -1331,5 +1331,13 @@
   "testIethExecution": "Wymiana odbywa się za pośrednictwem inteligentnego kontraktu w sieci testowej Miden Testnet.",
   "swapExecutionTitle": "Gdzie odbywa się wymiana",
   "tokenInfoLabel": "O $token$",
-  "externalPageLoadFailed": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie."
+  "externalPageLoadFailed": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie.",
+  "advancedOptions": "Opcje zaawansowane",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "Typ transferu",
+  "publicTransfer": "Transfer publiczny",
+  "publicTransferNotice": "Token, kwota i adres odbiorcy będą widoczne w sieci Miden.",
+  "publicTransferHelp": "Każdy może zobaczyć token, kwotę i adres odbiorcy tego transferu w sieci Miden.",
+  "senderAddressPublicNote": "Twój adres nadawcy jest publiczny w obu trybach.",
+  "sendPublicly": "Wyślij publicznie"
 }

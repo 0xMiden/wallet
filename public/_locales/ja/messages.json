@@ -5880,5 +5880,45 @@
   "externalPageLoadFailed": {
     "message": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "advancedOptions": {
+    "message": "詳細オプション",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transferType": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "転送タイプ",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "公開転送",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "トークン、金額、受取人アドレスが Miden 上で公開されます。",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "この転送のトークン、金額、受取人アドレスは Miden 上で誰でも閲覧できます。",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "送信者アドレスはどちらのモードでも公開されます。",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "公開で送信",
+    "englishSource": "Send publicly"
   }
 }

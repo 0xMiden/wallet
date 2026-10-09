@@ -5880,5 +5880,45 @@
   "externalPageLoadFailed": {
     "message": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "advancedOptions": {
+    "message": "進階選項",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transferType": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "轉帳類型",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "公開轉帳",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "代幣、金額和收款地址將在 Miden 上公開可見。",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "任何人都可以在 Miden 上看到此次轉帳的代幣、金額和收款地址。",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "無論哪種模式，您的傳送地址都是公開的。",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "公開傳送",
+    "englishSource": "Send publicly"
   }
 }

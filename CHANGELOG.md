@@ -8,6 +8,7 @@
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
 - [FEATURE][all] On testnet iETH is shown as "Test iETH", its token page says what it is, and an info sheet behind an "i" on the swap screens adds where the swap executes; Test iETH and testnet Test Epoch USDC, which the wallet names itself, can no longer be edited, and an override stored for either stops applying (#477).
 - [FEATURE][all] Explore's apps and sections come from the `0xMiden/wallet-explore` repository, so a merged change reaches every wallet within about an hour with no release, and each network shows its own catalog: devnet now lists the devnet faucet (#1361).
+- [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
 
 ### Fixes
 

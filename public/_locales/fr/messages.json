@@ -5880,5 +5880,45 @@
   "externalPageLoadFailed": {
     "message": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "advancedOptions": {
+    "message": "Options avancées",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transferType": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Type de transfert",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Transfert public",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Le jeton, le montant et l'adresse du destinataire seront visibles sur Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Tout le monde peut voir le jeton, le montant et l'adresse du destinataire de ce transfert sur Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Votre adresse d'expéditeur est publique dans les deux modes.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Envoyer publiquement",
+    "englishSource": "Send publicly"
   }
 }

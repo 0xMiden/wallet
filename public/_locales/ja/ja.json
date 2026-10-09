@@ -1331,5 +1331,13 @@
   "testIethExecution": "この交換は、Midenテストネット上のスマートコントラクトを通じて実行されます。",
   "swapExecutionTitle": "スワップが実行される場所",
   "tokenInfoLabel": "$token$について",
-  "externalPageLoadFailed": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。"
+  "externalPageLoadFailed": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
+  "advancedOptions": "詳細オプション",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "転送タイプ",
+  "publicTransfer": "公開転送",
+  "publicTransferNotice": "トークン、金額、受取人アドレスが Miden 上で公開されます。",
+  "publicTransferHelp": "この転送のトークン、金額、受取人アドレスは Miden 上で誰でも閲覧できます。",
+  "senderAddressPublicNote": "送信者アドレスはどちらのモードでも公開されます。",
+  "sendPublicly": "公開で送信"
 }
