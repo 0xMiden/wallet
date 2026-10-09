@@ -427,6 +427,14 @@ describe('an abandoned dry run', () => {
 
     expect(res).toEqual({ error: 'the simulation was interrupted before it finished' });
   });
+
+  it('reports a dry run a terminated client refused as an interruption too', async () => {
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('Client terminated'));
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(res).toEqual({ error: 'the simulation was interrupted before it finished' });
+  });
 });
 
 describe('introduced-note provenance', () => {

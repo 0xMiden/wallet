@@ -414,6 +414,17 @@ describe('detached recovery run', () => {
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
   });
 
+  it('treats a terminated client during the Guardian client setup as a deferral', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.getAccount.mockRejectedValue(new Error('WebClient terminated'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
   it('treats an evicted Guardian client setup as a deferral, not a source failure (F-054)', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     mockProxy.getAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));

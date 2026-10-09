@@ -20,10 +20,14 @@ import {
 import { RETRY_WINDOW_SECONDS } from './note-delivery-window';
 import { classifyRelayFailure, type RelayFailureClass, statusCodeOf } from './relay-failure';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { isOperationAbortedError } from '../back/offscreen-codec';
 import { INoteDeliveryState, ITransaction } from '../db/types';
-import { causeChain, errorMessageParts, isKilledPipeline, isRealmIntactAbort } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import {
+  causeChain,
+  errorMessageParts,
+  isKilledPipeline,
+  isPipelineKillLink,
+  isRealmIntactAbort
+} from '../sdk/sdk-error-code';
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -88,7 +92,7 @@ const SWEEPABLE: INoteDeliveryState[] = ['pending', 'relayed', 'undelivered'];
 const innermostKill = (error: unknown): unknown => {
   let kill = error;
   for (const link of causeChain(error)) {
-    if (isWasmClientPoisonedError(link) || isOperationAbortedError(link)) kill = link;
+    if (isPipelineKillLink(link)) kill = link;
   }
   return kill;
 };

@@ -286,7 +286,9 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
 
   it.each([
     ['a watchdog eviction', () => new WasmClientPoisonedError('watchdog')],
-    ['an offscreen deadline kill', () => new OperationAbortedError('op-7', 'deadline')]
+    ['an offscreen deadline kill', () => new OperationAbortedError('op-7', 'deadline')],
+    // Matches no network token either, so this leg falsifies the gate as the poison leg does.
+    ['a terminated client', () => new Error('WebClient terminated')]
   ])('queues the note for background retry after %s (#777)', async (_label, makeError) => {
     // The queue exists for exactly this: "we do not know whether this landed". Both kill
     // shapes say that, and before #777 an eviction took the not-transient path and dropped

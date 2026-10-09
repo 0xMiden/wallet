@@ -381,7 +381,8 @@ describe('sync fuse (#777)', () => {
 
     it.each([
       ['a realm-error poison', () => new WasmClientPoisonedError('realm-error')],
-      ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')]
+      ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')],
+      ['a terminated client', () => new Error('Client terminated')]
     ])('books %s as an abandoned probe, leaving the eviction count standing', (_kind, makeError) => {
       for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
 
@@ -395,6 +396,15 @@ describe('sync fuse (#777)', () => {
     it('lights the fuse once enough probes were abandoned', () => {
       for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
         noteProbeFailure('note-delivery', new WasmClientPoisonedError('realm-error'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    // Abandoned, not local: a local failure never lights an unlit key, however many arrive.
+    it('lights the fuse once enough probes met a terminated client', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
+        noteProbeFailure('note-delivery', new Error('WebClient terminated'));
       }
 
       expect(isSyncFused('note-delivery')).toBe(true);

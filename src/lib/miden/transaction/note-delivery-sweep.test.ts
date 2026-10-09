@@ -1341,6 +1341,20 @@ describe('the delivery schedule', () => {
     expect(isSyncFused('note-delivery')).toBe(true);
   });
 
+  it('books a push a terminated client refused under a wrapper as an abandoned probe', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(new Error('send failed', { cause: new Error('WebClient terminated') }));
+
+    await sweepNoteDeliveries();
+    expect(isSyncFused('note-delivery')).toBe(false);
+    noteSyncWatchdogEviction('note-delivery');
+
+    expect(isSyncFused('note-delivery')).toBe(true);
+  });
+
   it('lights the note-delivery fuse once enough pushes were abandoned', async () => {
     rows.push(due('first', NOW - 1000));
     mockRelayById.mockRejectedValue(new WasmClientPoisonedError('realm-error', new Error('trap')));

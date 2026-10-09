@@ -107,7 +107,6 @@ import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
 import { midenClientProxy } from './miden-client-proxy';
-import { isOperationAbortedError } from './offscreen-codec';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
@@ -116,6 +115,7 @@ import { IConsumedAssetTotal } from '../db/types';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
+import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import {
   initiateSendTransaction,
@@ -1392,17 +1392,17 @@ async function importDAppPrivateNote(note: string): Promise<string> {
       })
     );
   } catch (e) {
-    // Both abandonment shapes, for the reason the same gate in `back/main.ts` gives: an
-    // eviction or a deadline kill leaves it unknown whether the note landed, so the note
-    // has to be preserved. This is the sharper of the two sites — the dApp is the only
+    // Every kill shape, for the reason the same gate in `back/main.ts` gives: an eviction,
+    // a deadline kill or a terminated client leaves it unknown whether the note landed, so
+    // the note has to be preserved. This is the sharper of the two sites: the dApp is the only
     // other holder of these bytes.
     //
-    // Of the two, only the poison shape is one `isLikelyNetworkError` genuinely misses
-    // (its message is closed wallet-authored text). The abort shape reaches the classifier
+    // Of the three, the poison and the terminated client are the shapes `isLikelyNetworkError`
+    // genuinely misses (their messages are closed text). The abort shape reaches the classifier
     // as a match today purely because its message contains 'aborted', which is a
     // coincidence of transport-text heuristics rather than a contract — so it is named
     // here too, and the clause stays load-bearing the moment that token list is re-tuned.
-    if (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+    if (isLikelyNetworkError(e) || isPipelineKillLink(e)) {
       await queueNoteImport(note).catch(queueError =>
         console.error('[importDAppPrivateNote] failed to queue the note for background retry', queueError)
       );
@@ -2990,7 +2990,7 @@ async function formatSimulatedCustomEffects(
  * to spend on jargon; the real error is already on the console above.
  */
 function consentReason(e: unknown): string {
-  if (isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+  if (isPipelineKillLink(e)) {
     return 'the simulation was interrupted before it finished';
   }
   return e instanceof Error ? e.message : String(e);
