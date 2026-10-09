@@ -51,6 +51,7 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
 import {
@@ -289,6 +290,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
+  const usdcxDestinationTxHash = useUsdcxDestinationTransaction(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
@@ -1093,7 +1095,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection entry={entry} restoredFromBackup={transaction?.restoredFromBackup === true} />
+                <BridgeClaimSection
+                  entry={entry}
+                  restoredFromBackup={transaction?.restoredFromBackup === true}
+                  destinationTxHash={usdcxDestinationTxHash}
+                />
               </>
             )}
 

@@ -40,6 +40,7 @@ import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
+import { isUsdcxDestinationPending, pollUsdcxDestination } from 'lib/usdcx/destination-status';
 
 export enum WalletPromptType {
   Bridge = 'bridge',
@@ -131,7 +132,9 @@ function isBridgePromptActive(tx: ITransaction): boolean {
 
   const inputs: IBridgedSendExtraInputs = tx.extraInputs;
   if (inputs.provider === 'usdcx') {
-    return !!inputs.usdcxBurn && inputs.usdcxBurn.phase !== 'confirmed' && inputs.usdcxBurn.phase !== 'discarded';
+    const burn = inputs.usdcxBurn;
+    if (!burn || burn.phase === 'discarded') return false;
+    return burn.phase !== 'confirmed' || isUsdcxDestinationPending(burn);
   }
   if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
   // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
@@ -191,6 +194,7 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (inputs.provider === 'usdcx') {
     const { pollUsdcxBurn } = await import('lib/usdcx/burn-status');
     await pollUsdcxBurn(tx);
+    await pollUsdcxDestination(tx);
     return;
   }
 

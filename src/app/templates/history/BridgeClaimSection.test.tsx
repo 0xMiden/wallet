@@ -392,6 +392,20 @@ describe('BridgeClaimSection', () => {
     expect(screen.getByRole('link', { name: 'explorer' })).toHaveAttribute('href', `${explorer}/address/0xdead`);
   });
 
+  it('links the destination transaction to the destination explorer', () => {
+    const hash = `0x${'a'.repeat(64)}`;
+    render(
+      <BridgeClaimSection
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: 5042002 })}
+        restoredFromBackup={false}
+        destinationTxHash={hash}
+      />
+    );
+    expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
+      `https://explorer.testnet.arc.io/tx/${hash}`
+    );
+  });
+
   describe('USDCx faucet consumption', () => {
     it('shows burn confirmation without claim, reclaim, or destination settlement actions', () => {
       renderSection({
@@ -403,11 +417,29 @@ describe('BridgeClaimSection', () => {
         })
       });
       expect(screen.getByText('t:usdcxBurnConfirmed')).toBeInTheDocument();
-      expect(screen.getByText('t:usdcxBurnTestNotice')).toBeInTheDocument();
+      expect(screen.getByText('t:usdcxWithdrawalNotice')).toBeInTheDocument();
       expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument();
       expect(screen.queryByText('t:connectEvmWallet')).not.toBeInTheDocument();
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
       expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('shows Confirmed after the balance check and keeps the burn result in the details', () => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: {
+            noteId: 'burn-note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+          }
+        })
+      });
+      expect(screen.getByText('t:confirmed')).toBeInTheDocument();
+      expect(screen.getByText('t:usdcxBurnTitlet:usdcxBurnConfirmed')).toBeInTheDocument();
     });
 
     it('keeps a sender-completed row pending until the faucet consumes its note', () => {

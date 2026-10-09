@@ -144,7 +144,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
           onChange={() => onRouteChange('usdcx')}
           aria-label={t('route')}
         />
-        <p className="text-caption text-muted">{t('usdcxBurnTestNotice')}</p>
+        <p className="text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>
       </div>
     );
   }

@@ -450,7 +450,7 @@ describe('USDCx burn review', () => {
   it('submits the exact base-unit burn and shows no destination payout estimate', async () => {
     render(<ReviewTransaction />);
     await flush();
-    expect(screen.getByText('usdcxBurnTestNotice')).toBeInTheDocument();
+    expect(screen.getByText('usdcxWithdrawalNotice')).toBeInTheDocument();
     expect(screen.queryByText('youReceive')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() =>

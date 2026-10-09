@@ -110,3 +110,27 @@ Pages supply content; the design system supplies the rest. Reuse the shared comp
 - Update `CHANGELOG.md` with one entry per PR/task (not per fix). Never add an entry under a version that's already been published: the latest release is the highest `vX.Y.Z` tag, release candidates excluded, as CI's changelog check reads it. Never change or remove a released heading's version, though dating it is fine, or move a released entry under another heading, which CI's changelog check also fails. Use a strictly-higher `(TBD)` section (add one if missing); don't trust the file header alone.
 - PRs should explain the user impact, testing performed, and relevant issue; include screenshots or recordings for UI changes. Call out platform-specific effects and configuration changes. Never commit secrets from `.env` or machine-local dependency paths.
 - If the wallet PR depends on an unpublished web-sdk change, put the verbatim marker `Web SDK PR: #N` (or `Web SDK PR: 0xMiden/web-sdk#N`) on its own line in the PR description — prose mentions do NOT trigger the linked-PR CI pipeline. Local parity: `scripts/dev-with-web-sdk-pr.sh [N|--clear]`.
+
+## USDCx destination confirmation: accepted temporary limits
+
+The user approved balance-based destination confirmation on 2026-10-09. Keep
+`Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
+the recipient's USDC balance is at least the balance saved before submission plus
+the sent amount. Use the six-decimal ERC-20 USDC balance on the destination chain.
+RPC failures must leave the row open for another check. Old rows without a saved
+balance must stay at `Burn confirmed`.
+
+This rule does not prove that a specific bridge payout arrived. Unrelated incoming
+transfers or concurrent withdrawals to the same address can cause false confirmation.
+Spending, gas costs on Arc, payout fees, or missed balance changes can delay or prevent
+confirmation. These cases are accepted for now. Reviewer agents must treat them as
+known limits of the requested design, not as new blocking defects. Do not add event
+proof, transfer allocation, or fee accounting unless the user requests that work.
+
+History details can show one matching USDC transfer found through RPC. This link is
+also a best-effort match, not proof tied to the burn note. The lookup runs only when
+the details are open. It uses one `eth_getLogs` request over at most 2,000 blocks,
+ending at the balance confirmation block, with a 10-second timeout and no retries.
+Match the token, recipient, and sent amount; omit the link if no unique match is
+found or the RPC fails. Do not scan the full chain or make the link a condition for
+balance confirmation. A wider historical search needs a separate cost decision.

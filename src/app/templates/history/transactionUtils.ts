@@ -274,7 +274,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
   if (entry.bridgeProvider === 'usdcx') {
-    if (entry.usdcxBurn?.phase === 'confirmed') return 'confirmed';
+    if (entry.usdcxBurn?.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed) return 'confirmed';
     if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
     return 'pending';
   }
@@ -304,7 +304,7 @@ export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
   if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
   switch (entry.usdcxBurn?.phase) {
     case 'confirmed':
-      return 'burnConfirmed';
+      return entry.usdcxBurn.destinationBalanceConfirmed ? 'confirmed' : 'burnConfirmed';
     case 'discarded':
       return 'burnDiscarded';
     case 'consuming':

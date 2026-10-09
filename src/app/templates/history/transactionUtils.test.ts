@@ -689,6 +689,29 @@ describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
   });
 });
 
+describe('USDCx withdrawal stages', () => {
+  it('keeps Burn confirmed until the destination balance check confirms arrival', () => {
+    const entry = bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      usdcxBurn: { noteId: 'note', destinationDomain: 26, phase: 'confirmed' }
+    });
+    expect(bridgeBadgeStatusOf(entry)).toBe('burnConfirmed');
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    const arrived: IHistoryEntry = {
+      ...entry,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+      }
+    };
+    expect(bridgeBadgeStatusOf(arrived)).toBe('confirmed');
+    expect(bridgeStatusOf(arrived)).toBe('confirmed');
+  });
+});
+
 describe('bridgeStatusOf', () => {
   // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
   // so its terminal status must beat the route's own (initially pending) metadata.

@@ -257,6 +257,10 @@ export interface IUsdcxBurn {
   noteId: string;
   destinationDomain: number;
   phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
+  /** USDC balance saved before the burn is queued, in six-decimal base units. */
+  destinationBalanceBefore?: { balance: string; blockNumber: string };
+  /** Destination balance that met the expected increase after burn confirmation. */
+  destinationBalanceConfirmed?: { balance: string; blockNumber: string };
   attemptCount?: number;
   lastAttemptBlockNum?: number;
   lastError?: string;

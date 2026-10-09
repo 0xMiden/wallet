@@ -1933,6 +1933,30 @@ describe('bridge prompts', () => {
     completeVerifiedLanded.mockResolvedValue(undefined);
   });
 
+  it('keeps a burned USDCx withdrawal active until its destination balance is confirmed', async () => {
+    const burn = {
+      noteId: 'note',
+      destinationDomain: 26,
+      phase: 'confirmed',
+      destinationBalanceBefore: { balance: '0', blockNumber: '100' }
+    };
+    bridgeRows.push(
+      baseBridge({ id: 'awaiting-payout', extraInputs: { provider: 'usdcx', usdcxBurn: burn } }),
+      baseBridge({
+        id: 'paid',
+        extraInputs: {
+          provider: 'usdcx',
+          usdcxBurn: { ...burn, destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } }
+        }
+      }),
+      baseBridge({
+        id: 'legacy-burn',
+        extraInputs: { provider: 'usdcx', usdcxBurn: { ...burn, destinationBalanceBefore: undefined } }
+      })
+    );
+    expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['awaiting-payout']);
+  });
+
   it('returns unsettled bridged-sends for the account, newest first', async () => {
     bridgeRows.push(
       baseBridge({ id: 'in-flight', status: ITransactionStatus.GeneratingTransaction, initiatedAt: at(50) }),

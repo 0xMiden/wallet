@@ -56,6 +56,7 @@ const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
 
 interface BridgeClaimSectionProps {
   entry: IHistoryEntry;
+  destinationTxHash?: string;
   /**
    * Whether the row came from a restored backup, read straight off the
    * transaction rather than off `entry`.
@@ -78,7 +79,7 @@ interface BridgeClaimSectionProps {
  * connected address matching the bridge destination. Epoch (Fast) auto-settles,
  * so it shows "no manual claim required" instead.
  */
-export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup }) => {
+export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup, destinationTxHash }) => {
   const { t } = useTranslation();
   const maxNetworkFee = useNetworkFeeEstimate();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
@@ -350,6 +351,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         </DetailRow>
         {isUsdcx && entry.usdcxBurn && (
           <>
+            {entry.usdcxBurn.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed && (
+              <DetailRow label={t('usdcxBurnTitle')}>{t('usdcxBurnConfirmed')}</DetailRow>
+            )}
             <DetailRow label={t('usdcxBurnNoteId')}>
               <HashChip hash={entry.usdcxBurn.noteId} trimHash />
             </DetailRow>
@@ -364,6 +368,14 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
             )}
           </>
         )}
+        {isUsdcx && destinationTxHash && destinationChain && (
+          <DetailRow label={t('receivingTx')}>
+            <ExternalLinkValue
+              displayValue={<HashChip hash={destinationTxHash} trimHash className="ml-2" />}
+              href={`${destinationChain.explorer}/tx/${destinationTxHash}`}
+            />
+          </DetailRow>
+        )}
         {isEpoch && fillTxHash && (
           <DetailRow label={t('receivingTx')}>
             <ExternalLinkValue
@@ -373,7 +385,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           </DetailRow>
         )}
       </DetailSection>
-      {isUsdcx && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxBurnTestNotice')}</p>}
+      {isUsdcx && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&

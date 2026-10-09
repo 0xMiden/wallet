@@ -33,6 +33,7 @@ import {
   USDCX_MIN_BURN_SLOT,
   USDCX_WITHDRAWAL_DESTINATION
 } from './constant';
+import { readUsdcxDestinationBalance } from './destination-status';
 import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 /** Caller owns the WASM lock. Returns plain data; no account/client objects escape the hold. */
@@ -108,6 +109,7 @@ export async function initiateUsdcxBurn(args: {
       faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(requireUsdcxFaucetId()))
     };
   });
+  const destinationBalanceBefore = await readUsdcxDestinationBalance(destinationChainId, destinationAddress);
   return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,
@@ -123,7 +125,8 @@ export async function initiateUsdcxBurn(args: {
     {
       noteId: built.burnNoteId,
       destinationDomain: USDCX_WITHDRAWAL_DESTINATION.domain,
-      phase: 'pending'
+      phase: 'pending',
+      destinationBalanceBefore
     }
   );
 }

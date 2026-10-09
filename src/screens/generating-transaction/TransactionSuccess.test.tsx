@@ -379,7 +379,7 @@ describe('TransactionSuccess', () => {
     );
     try {
       expect(container.textContent).toContain('usdcxBurnSubmitted');
-      expect(container.textContent).toContain('usdcxBurnTestNotice');
+      expect(container.textContent).toContain('usdcxWithdrawalNotice');
       expect(container.textContent).not.toContain('Payment Sent!');
       transaction.extraInputs.usdcxBurn.phase = 'confirmed';
       await act(async () => {
@@ -387,6 +387,12 @@ describe('TransactionSuccess', () => {
       });
       expect(container.textContent).toContain('usdcxBurnConfirmed');
       expect(container.textContent).not.toContain('usdcxBurnSubmitted');
+      transaction.extraInputs.usdcxBurn.destinationBalanceConfirmed = { balance: '1000000', blockNumber: '101' };
+      await act(async () => {
+        root.render(<TransactionSuccess transaction={transaction} onDoneClick={() => {}} />);
+      });
+      expect(container.textContent).toContain('confirmed');
+      expect(container.textContent).not.toContain('usdcxBurnConfirmed');
     } finally {
       act(() => root.unmount());
     }

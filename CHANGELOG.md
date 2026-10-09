@@ -11,6 +11,8 @@
 
 ### Fixes
 
+- [CHANGE][all] USDCx withdrawals keep Burn confirmed after faucet consumption, then show Confirmed when the destination RPC reports the sent amount above the USDC balance saved before the burn. History details show a matching destination transaction when one bounded RPC search finds it.
+
 - [FIX][all] Keep USDCx deposits open for background checks after receipt errors, limit Circle response body reads to the request timeout, and show the destination network and explorer in withdrawal details.
 
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
