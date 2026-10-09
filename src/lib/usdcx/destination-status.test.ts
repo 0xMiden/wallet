@@ -80,13 +80,20 @@ it('confirms arrival and preserves burn confirmation', async () => {
 
 it.each([
   { balance: '5000000', blockNumber: '101' },
-  { balance: '5999999', blockNumber: '101' },
+  // One unit below the amount minus Arc's 0.1 USDC fee allowance.
+  { balance: '5899999', blockNumber: '101' },
   { balance: '4000000', blockNumber: '101' },
   { balance: '6000000', blockNumber: '100' },
   { balance: '6000000', blockNumber: '99' }
 ])('keeps the burn stage for insufficient or stale evidence: %j', async observation => {
   await pollUsdcxDestination(stored, async () => observation);
   expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toBeUndefined();
+});
+
+it('confirms a payout that Circle reduced by its fee', async () => {
+  const afterFee = { balance: '5988701', blockNumber: '101' };
+  await pollUsdcxDestination(stored, async () => afterFee);
+  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(afterFee);
 });
 
 it('retries after an RPC error', async () => {

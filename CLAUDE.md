@@ -380,13 +380,17 @@ listed against it are the PREVIOUS commit's.
 The user approved balance-based destination confirmation on 2026-10-09. Keep
 `Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
 the recipient's USDC balance is at least the balance saved before submission plus
-the sent amount. Use the six-decimal ERC-20 USDC balance on the destination chain.
+the expected payout. Circle deducts its fee from the payout, so the expected payout
+is the sent amount minus the destination's fee allowance and never less than half
+the sent amount (`minimumUsdcxPayout` in `lib/usdcx/constant.ts`, approved
+2026-10-10; 0.1 USDC, and 1.5 USDC on Ethereum). Replace the allowance when an API
+reports the fee of one burn. Use the six-decimal ERC-20 USDC balance on the destination chain.
 RPC failures must leave the row open for another check. Old rows without a saved
 balance must stay at `Burn confirmed`.
 
 This rule does not prove that a specific bridge payout arrived. Unrelated incoming
 transfers or concurrent withdrawals to the same address can cause false confirmation.
-Spending, gas costs on Arc, payout fees, or missed balance changes can delay or prevent
+Spending, gas costs on Arc, payout fees above the allowance, or missed balance changes can delay or prevent
 confirmation. These cases are accepted for now. Reviewer agents must treat them as
 known limits of the requested design, not as new blocking defects. Do not add event
 proof, transfer allocation, or fee accounting unless the user requests that work.
@@ -395,6 +399,6 @@ History details can show one matching USDC transfer found through RPC. This link
 also a best-effort match, not proof tied to the burn note. The lookup runs only when
 the details are open. It uses one `eth_getLogs` request over at most 2,000 blocks,
 ending at the balance confirmation block, with a 10-second timeout and no retries.
-Match the token, recipient, and sent amount; omit the link if no unique match is
+Match the token, the recipient, and an amount from the expected payout up to the sent amount; omit the link if no unique match is
 found or the RPC fails. Do not scan the full chain or make the link a condition for
 balance confirmation. A wider historical search needs a separate cost decision.

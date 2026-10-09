@@ -2,7 +2,7 @@ import { createPublicClient, http, isAddress, parseAbiItem } from 'viem';
 
 import { getChain } from 'lib/walletconnect/config';
 
-import { CIRCLE_USDC_ADDRESS } from './constant';
+import { CIRCLE_USDC_ADDRESS, minimumUsdcxPayout } from './constant';
 
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const MAX_SEARCH_BLOCKS = 2_000n;
@@ -38,6 +38,8 @@ export async function findUsdcxDestinationTransaction({
     toBlock,
     strict: true
   });
-  const matches = logs.filter(log => !log.removed && log.args.value === amount);
+  // The payout is the sent amount minus Circle's fee, so match the range the balance check accepts.
+  const minimum = minimumUsdcxPayout(chainId, amount);
+  const matches = logs.filter(log => !log.removed && log.args.value >= minimum && log.args.value <= amount);
   return matches.length === 1 ? (matches[0]?.transactionHash ?? undefined) : undefined;
 }

@@ -44,10 +44,16 @@ it.each([
   { label: 'missing', logs: [] },
   { label: 'ambiguous', logs: [transfer, { ...transfer, transactionHash: `0x${'b'.repeat(64)}` }] },
   { label: 'removed', logs: [{ ...transfer, removed: true }] },
-  { label: 'wrong amount', logs: [{ ...transfer, args: { value: 999999n } }] }
+  { label: 'too small', logs: [{ ...transfer, args: { value: 899999n } }] },
+  { label: 'too large', logs: [{ ...transfer, args: { value: 1000001n } }] }
 ])('omits a $label transfer', async ({ logs }) => {
   mockGetLogs.mockResolvedValueOnce(logs);
   await expect(findUsdcxDestinationTransaction(args)).resolves.toBeUndefined();
+});
+
+it('finds a transfer that Circle reduced by its fee', async () => {
+  mockGetLogs.mockResolvedValueOnce([{ ...transfer, args: { value: 988701n } }]);
+  await expect(findUsdcxDestinationTransaction(args)).resolves.toBe(hash);
 });
 
 it('does not search an invalid recipient or empty block range', async () => {

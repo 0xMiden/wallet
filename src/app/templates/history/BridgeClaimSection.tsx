@@ -361,7 +361,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
             {entry.usdcxBurn.attemptCount !== undefined && (
               <DetailRow label={t('usdcxProcessingAttempts')}>{entry.usdcxBurn.attemptCount}</DetailRow>
             )}
-            {entry.usdcxBurn.lastError && (
+            {/* The node keeps the error of a failed attempt after a later attempt consumes the note. */}
+            {entry.usdcxBurn.lastError && entry.usdcxBurn.phase !== 'confirmed' && (
               <DetailRow label={t('usdcxLastProcessingError')} stacked>
                 <span className="break-all text-body-sm text-muted">{entry.usdcxBurn.lastError}</span>
               </DetailRow>

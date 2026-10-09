@@ -454,6 +454,21 @@ describe('BridgeClaimSection', () => {
       expect(screen.getByText('t:usdcxBurnPending')).toBeInTheDocument();
       expect(screen.queryByText('t:usdcxBurnConfirmed')).not.toBeInTheDocument();
     });
+
+    it.each([
+      { phase: 'consuming' as const, shown: true },
+      { phase: 'confirmed' as const, shown: false }
+    ])('shows the last processing error of a $phase burn: $shown', ({ phase, shown }) => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: { noteId: 'burn-note', destinationDomain: 6, phase, attemptCount: 1, lastError: 'tx expired' }
+        })
+      });
+      expect(screen.queryAllByText('tx expired')).toHaveLength(shown ? 1 : 0);
+    });
   });
 
   describe('Agglayer (Slow) claim', () => {

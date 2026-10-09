@@ -15,6 +15,7 @@ import {
   IRIS_API_TESTNET,
   isUsdcxExecutorSource,
   listUsdcxDestinations,
+  minimumUsdcxPayout,
   TOKEN_MESSENGER_V2_ADDRESS,
   TOKEN_MESSENGER_WITH_FEES_ADDRESS,
   USDCX_DESTINATIONS,
@@ -120,6 +121,14 @@ describe('USDCx destinations', () => {
       expect(entry.usdc).toBe(CIRCLE_USDC_ADDRESS.get(chainId));
     }
     expect(() => getUsdcxDestination(999)).toThrow('not configured');
+  });
+
+  it('expects a payout of the amount minus the fee allowance, and never less than half the amount', () => {
+    expect(minimumUsdcxPayout(baseSepolia.id, 3_000_000n)).toBe(2_900_000n);
+    expect(minimumUsdcxPayout(sepolia.id, 5_000_000n)).toBe(3_500_000n);
+    expect(minimumUsdcxPayout(baseSepolia.id, 150_001n)).toBe(75_001n);
+    expect(minimumUsdcxPayout(sepolia.id, 1_000_000n)).toBe(500_000n);
+    expect(minimumUsdcxPayout(999, 1_000_000n)).toBe(1_000_000n);
   });
 
   it('splits the table by network family and pre-selects Arc Testnet', () => {

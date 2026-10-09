@@ -5,7 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getChain } from 'lib/walletconnect/config';
 
-import { CIRCLE_USDC_ADDRESS, ERC20_BALANCE_OF_ABI } from './constant';
+import { CIRCLE_USDC_ADDRESS, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
 
 export interface UsdcxBalanceSnapshot {
   balance: string;
@@ -55,7 +55,10 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
 
   const observed = await readBalance(extra.destinationNetwork, extra.destinationAddress);
   if (BigInt(observed.blockNumber) <= BigInt(before.blockNumber)) return;
-  if (BigInt(observed.balance) < BigInt(before.balance) + tx.amount) return;
+  // Circle deducts its fee from the payout, so the balance rises by less than the sent amount.
+  if (BigInt(observed.balance) < BigInt(before.balance) + minimumUsdcxPayout(extra.destinationNetwork, tx.amount)) {
+    return;
+  }
 
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;

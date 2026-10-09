@@ -150,7 +150,17 @@ export interface UsdcxDestination {
   domain: number;
   /** The USDC the recipient's balance is read from, in six-decimal units. */
   usdc: Address;
+  /** The most Circle is expected to deduct from a payout on this chain, in six-decimal USDC units. */
+  payoutFeeAllowance: bigint;
 }
+
+/**
+ * Circle deducts its payout fee from the burned amount. Observed on the sandbox: at most about 0.04 USDC
+ * for a direct payout, and a flat fee of about 1 USDC on Ethereum. No Circle API reports the fee of one
+ * burn, so arrival is judged against these ceilings.
+ */
+const USDCX_PAYOUT_FEE_ALLOWANCE = 100_000n;
+const USDCX_ETHEREUM_PAYOUT_FEE_ALLOWANCE = 1_500_000n;
 
 function sourceChain(chain: Chain): [number, UsdcxSourceChain] {
   const xReserve = XRESERVE_ADDRESS.get(chain.id);
@@ -218,7 +228,20 @@ function destination(chain: Chain): [number, UsdcxDestination] {
   if (domain === undefined || !usdc) {
     throw new Error(`USDCx destination ${chain.id} is missing a domain or a USDC address`);
   }
-  return [chain.id, { chain, domain, usdc }];
+  // Ethereum is Circle domain 0 on both network families.
+  const payoutFeeAllowance = domain === 0 ? USDCX_ETHEREUM_PAYOUT_FEE_ALLOWANCE : USDCX_PAYOUT_FEE_ALLOWANCE;
+  return [chain.id, { chain, domain, usdc, payoutFeeAllowance }];
+}
+
+/**
+ * The least USDC a burn of `amount` is expected to pay out on `chainId`: the amount minus the chain's fee
+ * allowance, and never less than half the amount, so a small burn is not confirmed by an unrelated credit.
+ */
+export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
+  const allowance = USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n;
+  const afterFee = amount - allowance;
+  const half = (amount + 1n) / 2n;
+  return afterFee > half ? afterFee : half;
 }
 
 /**
