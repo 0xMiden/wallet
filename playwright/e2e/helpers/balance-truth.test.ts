@@ -1,10 +1,13 @@
 import type { Page } from '@playwright/test';
 
 import {
+  vaultAssetsOfCurrentAccount,
   vaultBalance,
   vaultBalanceByFaucetId,
+  vaultBalanceOfCurrentAccount,
   waitForVaultBalance,
   waitForVaultBalanceByFaucetId,
+  waitForVaultBalanceOfCurrentAccount,
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from './balance-truth';
@@ -308,4 +311,36 @@ it('keeps a discovered zero fee distinct from missing discovery', async () => {
     [`${NATIVE_ASSET_FEE_CACHE}:rpc|devnet`]: { faucetId: feeFaucetId, baseFee: 0 }
   });
   await expect(walletDiscoveredBaseFee(page)).resolves.toBe(0);
+});
+
+describe('current-account vault reads', () => {
+  const twoAccounts = {
+    currentAccount: { publicKey: 'acct1' },
+    balances: {
+      acct1: [{ tokenId: 'fTST', balance: 5, metadata: { symbol: 'TST', decimals: 8 } }],
+      acct2: [{ tokenId: 'fTST', balance: 7, metadata: { symbol: 'TST', decimals: 8 } }]
+    },
+    assetsMetadata: {}
+  };
+
+  it('reads only the current account, where the summed reader mixes in the other one', async () => {
+    expect(await vaultBalanceOfCurrentAccount(makePage(twoAccounts), 'fTST')).toBe(500_000_000n);
+    expect(await vaultBalanceByFaucetId(makePage(twoAccounts), 'fTST')).toBe(1_200_000_000n);
+  });
+
+  it('refuses a store with no current account rather than reading zero', async () => {
+    await expect(
+      vaultBalanceOfCurrentAccount(makePage({ ...twoAccounts, currentAccount: null }), 'fTST')
+    ).rejects.toThrow('no current account');
+  });
+
+  it('maps every nonzero asset of the current account only', async () => {
+    expect(await vaultAssetsOfCurrentAccount(makePage(twoAccounts))).toEqual({ fTST: '500000000' });
+  });
+
+  it('waits for the current account to reach an exact balance', async () => {
+    await expect(
+      waitForVaultBalanceOfCurrentAccount(makePage(twoAccounts), 'fTST', 500_000_000n, { timeoutMs: 1_000 })
+    ).resolves.toBeUndefined();
+  });
 });
