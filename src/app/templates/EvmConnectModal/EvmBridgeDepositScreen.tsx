@@ -1236,6 +1236,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               fiat={token === 'ETH' ? undefined : Number(reviewAmount)}
               route={route}
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
+              fee={usdcxQuotedFee}
               networkName={networkName}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}

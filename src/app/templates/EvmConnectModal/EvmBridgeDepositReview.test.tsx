@@ -140,6 +140,19 @@ describe('EvmBridgeDepositReview', () => {
     });
   });
 
+  describe('Circle fee row', () => {
+    it('shows the quoted fee in the source token for an executor-route deposit', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ symbol: 'USDC', route: 'usdcx', fee: '0.0134' })} />);
+      expect(screen.getByText('usdcxCircleFee')).toBeInTheDocument();
+      expect(screen.getByText('0.0134 USDC')).toBeInTheDocument();
+    });
+
+    it('draws no fee row when there is no quote', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ symbol: 'USDC', route: 'usdcx' })} />);
+      expect(screen.queryByText('usdcxCircleFee')).not.toBeInTheDocument();
+    });
+  });
+
   describe('you receive row', () => {
     it('shows the skeleton while the Fast quote is loading', () => {
       const { container } = render(<EvmBridgeDepositReview {...baseProps({ youReceiveLoading: true })} />);

@@ -25,6 +25,8 @@ export interface EvmBridgeDepositReviewProps {
   route: IBridgeProvider;
   /** Output the recipient receives on Miden, as typed on every route. undefined while quoting. */
   outputAmount?: string;
+  /** Circle's quoted fee for an executor-route burn (human string), paid in the source token on top of the amount. */
+  fee?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;
   /** Show a skeleton on the "You receive" row while the Fast quote is still loading. */
@@ -72,6 +74,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   fiat,
   route,
   outputAmount,
+  fee,
   networkName,
   youReceiveLoading = false,
   isSubmitting = false,
@@ -137,6 +140,8 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
         </DetailRow>
 
         <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+
+        {fee !== undefined && <DetailRow label={t('usdcxCircleFee')}>{`${fee} ${name}`}</DetailRow>}
 
         <DetailRow label={t('youReceive')}>
           {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}

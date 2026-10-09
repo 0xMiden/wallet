@@ -1103,6 +1103,7 @@
   "usdcxExecuteSubmitted": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
   "usdcxForwardingPending": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
   "usdcxForwardFee": "$fee$ USDC Circle fee",
+  "usdcxCircleFee": "Circle fee",
   "usdcxProgress": "Progress",
   "usdcxStepDeposited": "Deposited on $network$",
   "usdcxStepBurned": "Burned on $network$",
