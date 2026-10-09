@@ -24,12 +24,14 @@
  */
 import type { Locator, Page } from '@playwright/test';
 
-/** `ITransactionStatus` (src/lib/miden/db/types.ts) — the numbers persisted in Dexie. */
+/** `ITransactionStatus` (src/lib/miden/db/types.ts) - the numbers persisted in Dexie. */
 export const TxStatus = {
   Queued: 0,
   GeneratingTransaction: 1,
   Completed: 2,
-  Failed: 3
+  Failed: 3,
+  // Waiting for the node's verdict on an unknown submit outcome (#1081); not terminal.
+  Unconfirmed: 4
 } as const;
 
 export type TxStatusValue = (typeof TxStatus)[keyof typeof TxStatus];
@@ -38,7 +40,8 @@ const TX_STATUS_NAME: Record<number, string> = {
   0: 'Queued',
   1: 'GeneratingTransaction',
   2: 'Completed',
-  3: 'Failed'
+  3: 'Failed',
+  4: 'Unconfirmed'
 };
 
 /** Mirror of `USER_CANCELLED_TRANSACTION_REASON` (src/lib/miden/transaction/constants.ts). */
