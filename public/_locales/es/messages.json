@@ -5889,7 +5889,7 @@
     "message": "$transferType$ · $expiration$",
     "englishSource": "$transferType$ · $expiration$",
     "placeholders": {
-      "transferType": {
+      "transfertype": {
         "content": "$1"
       },
       "expiration": {
