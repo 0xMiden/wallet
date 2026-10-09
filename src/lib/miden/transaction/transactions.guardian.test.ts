@@ -6680,6 +6680,20 @@ describe('generateTransaction — Guardian routing', () => {
           expect(getGuardianCandidate('guardian-acc')).toEqual(keptRecordOf(row.id, 8));
         });
 
+        it('a terminated client on a row that can await a verdict keeps the candidate as a deadline kill does', async () => {
+          jest.spyOn(console, 'warn').mockImplementation(() => {});
+          jest.spyOn(console, 'error').mockImplementation(() => {});
+          const service = busyService();
+          arrangeFailureBeforeSubmit(service, new Error('WebClient terminated'));
+          const row = queueRow('kept-terminated', SEND);
+
+          await run(row);
+
+          expect(service.abandonCandidate).not.toHaveBeenCalled();
+          expect(stored(row.id).submitEvidence).toEqual(KEPT_AT_8);
+          expect(getGuardianCandidate('guardian-acc')).toEqual(keptRecordOf(row.id, 8));
+        });
+
         it("a fetch failure at the submit, after 'submitting', on a row that can await a verdict keeps the candidate, and the reconciler's release then abandons that nonce (#1317 run A)", async () => {
           jest.spyOn(console, 'warn').mockImplementation(() => {});
           jest.spyOn(console, 'error').mockImplementation(() => {});

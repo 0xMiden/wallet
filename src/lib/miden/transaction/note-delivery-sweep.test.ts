@@ -443,6 +443,15 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
   });
 
+  it('ends the pass, pushing nothing, when a terminated client refuses the delivery receipt read', async () => {
+    rows.push(row());
+    mockIsConsumed.mockRejectedValue(new Error('Client terminated'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+  });
+
   it('burns no attempt on a row with nothing to re-push', async () => {
     rows.push(row({ outputNoteIds: [] }));
 
@@ -1327,6 +1336,20 @@ describe('the delivery schedule', () => {
     mockRelayById.mockRejectedValueOnce(new WasmClientPoisonedError('realm-error', new Error('trap')));
 
     await sweepNoteDeliveries();
+    noteSyncWatchdogEviction('note-delivery');
+
+    expect(isSyncFused('note-delivery')).toBe(true);
+  });
+
+  it('books a push a terminated client refused under a wrapper as an abandoned probe', async () => {
+    for (let eviction = 1; eviction < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; eviction++) {
+      noteSyncWatchdogEviction('note-delivery');
+    }
+    rows.push(due('first', NOW - 1000));
+    mockRelayById.mockRejectedValueOnce(new Error('send failed', { cause: new Error('WebClient terminated') }));
+
+    await sweepNoteDeliveries();
+    expect(isSyncFused('note-delivery')).toBe(false);
     noteSyncWatchdogEviction('note-delivery');
 
     expect(isSyncFused('note-delivery')).toBe(true);

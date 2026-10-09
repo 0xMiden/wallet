@@ -6,9 +6,8 @@ import {
 } from 'lib/miden/sync-backoff';
 import { canonicalGuardianEndpoint } from 'lib/settings/helpers';
 
-import { isOperationAbortedError } from '../back/offscreen-codec';
-import { isRealmIntactAbort } from '../sdk/sdk-error-code';
-import { isSyncWatchdogEviction, isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isPipelineKillLink, isRealmIntactAbort } from '../sdk/sdk-error-code';
+import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
 
 /**
  * The automatic WASM probes this realm runs on a timer, each identified by the same
@@ -346,10 +345,10 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
  * it proves nothing about a parked node. Booked on the wide predicate, four traps
  * silenced a healthy operator for half an hour.
  *
- * THREE OUTCOMES, NOT TWO. A poison that is not a watchdog eviction, or an offscreen
- * kill, abandoned the probe without learning anything about the node, so it must not
- * zero the eviction evidence the way a returned failure does - see
- * `noteAbandonedSyncProbe` for why that left the loop-terminating breaks unbounded.
+ * THREE OUTCOMES, NOT TWO. A poison that is not a watchdog eviction, an offscreen kill,
+ * or a call on a terminated client abandoned the probe without learning anything about
+ * the node, so it must not zero the eviction evidence the way a returned failure does -
+ * see `noteAbandonedSyncProbe` for why that left the loop-terminating breaks unbounded.
  * Any other failure must be REPORTED, not skipped: while unlit it withdraws the evidence
  * (so a producer that only ever adds would fuse permanently on the first four evictions
  * of its life), and while lit it re-arms the deadline (so "one probe per 30 min until
@@ -374,7 +373,7 @@ export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
 export function noteProbeFailure(key: SyncFuseKey, error: unknown): void {
   if (isRealmIntactAbort(error)) noteLocalProbeFailure(key);
   else if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
-  else if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) noteAbandonedSyncProbe(key);
+  else if (isPipelineKillLink(error)) noteAbandonedSyncProbe(key);
   else noteNonEvictionSyncFailure(key);
 }
 

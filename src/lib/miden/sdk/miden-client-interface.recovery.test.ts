@@ -291,6 +291,17 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       expect(noteImport).toHaveBeenCalledTimes(1);
     });
 
+    it('rethrows a terminated client from a note import, importing nothing after it', async () => {
+      const terminated = new Error('WebClient terminated');
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a'), committedNote('b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a'), fetchedNote('b')]);
+      noteImport.mockRejectedValueOnce(terminated);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).rejects.toBe(terminated);
+      expect(noteImport).toHaveBeenCalledTimes(1);
+    });
+
     it('reports saturation without importing when a wide range holds too many matches', async () => {
       // Importing a prefix would hold the WASM mutex for the prefix and then be
       // redone by the halves anyway.
@@ -475,6 +486,17 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       expect(wasm.Note.deserialize).toHaveBeenCalledTimes(2);
     });
 
+    it('stops the batch at a terminated client, rethrowing its refusal', async () => {
+      const terminated = new Error('WebClient terminated');
+      noteImport.mockRejectedValueOnce(terminated);
+      const client = await loadClient();
+
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])], NO_HOLD)).rejects.toBe(
+        terminated
+      );
+      expect(noteImport).toHaveBeenCalledTimes(1);
+    });
+
     it('makes no proof call at all for an empty batch', async () => {
       const client = await loadClient();
 
@@ -579,6 +601,17 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       }
     );
 
+    it.each(recoverySites)(
+      'importRecoveryNoteBytes passes a terminated client from %s through without a retire and stops',
+      async (_site, arrange, nothingAfter) => {
+        const state = await underLock(importBatch, arrange);
+        const terminated = new Error('WebClient terminated');
+        expect(await state.run(terminated)).toBe(terminated);
+        nothingAfter();
+        await expectNothingMarked(state);
+      }
+    );
+
     it('a trap importRecoveryNoteBytes retired and rethrew is not retired again by its lock', async () => {
       const trap = new WebAssembly.RuntimeError('unreachable');
       const state = await underLock(importBatch, recoverySites[0]![1]);
@@ -659,6 +692,18 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       });
       const evicted = new state.WasmClientPoisonedError('realm-error');
       expect(await state.run(evicted)).toBe(evicted);
+      expect(state.wasm.Note.deserialize).not.toHaveBeenCalled();
+      await expectNothingMarked(state);
+    });
+
+    it('importNoteBytes passes a terminated client from the NoteFile deserialize through with no fallback', async () => {
+      const state = await underLock(importOne, (error, wasm) => {
+        wasm.NoteFile.deserialize.mockImplementation(() => {
+          throw error;
+        });
+      });
+      const terminated = new Error('Client terminated');
+      expect(await state.run(terminated)).toBe(terminated);
       expect(state.wasm.Note.deserialize).not.toHaveBeenCalled();
       await expectNothingMarked(state);
     });
